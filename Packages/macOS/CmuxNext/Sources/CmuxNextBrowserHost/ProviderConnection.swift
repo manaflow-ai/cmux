@@ -2,6 +2,7 @@ public import Foundation
 import Darwin
 import os
 import CmuxNextCompat
+import CmuxNextBrowserAutomation
 
 public nonisolated enum ProviderConnectionError: Error, Hashable, Sendable {
     case socket(errno: Int32)
@@ -115,12 +116,41 @@ public nonisolated final class ProviderConnection: Sendable {
         thread.start()
     }
 
-    /// Queues one frame. Throws when it cannot be encoded (too large);
-    /// returns false once the connection is closed.
+    /// Queues one frame; false once the connection is closed. The frame is encoded on the write
+    /// queue, never on the caller's thread (a CDP reply or a driver result can be megabytes, and
+    /// the caller is the main actor). A frame that cannot be encoded is logged and dropped; a
+    /// `result` that is too large is answered with an error result instead, so the host's call
+    /// still ends.
     @discardableResult
-    public func send(_ frame: ProviderFrame) throws(ProviderCodecError) -> Bool {
+    public func send(_ frame: ProviderFrame) -> Bool {
+        send { [frame] }
+    }
+
+    /// Queues the frames `build` makes, built and encoded on the write queue in `send` order, so
+    /// work that depends on the bytes (a CDP reply's id rewrite) runs there too. False once the
+    /// connection is closed.
+    @discardableResult
+    public func send(building build: @escaping @Sendable () -> [ProviderFrame]) -> Bool {
         guard state.withLock({ $0.closed == nil }) else { return false }
-        return sendEncoded(try ProviderCodec.encode(frame))
+        writes.async { [self] in
+            for frame in build() {
+                guard let bytes = Self.encoded(frame) else { continue }
+                write(bytes)
+            }
+        }
+        return true
+    }
+
+    /// `frame` with its length prefix; for a `result` too large to send, an error result with the
+    /// same id; nil (logged) for anything else that cannot be encoded.
+    static func encoded(_ frame: ProviderFrame) -> Data? {
+        do throws(ProviderCodecError) {
+            return try ProviderCodec.encode(frame)
+        } catch {
+            logger.error("browser host provider: \(frame.description, privacy: .public) not sent: \(String(describing: error), privacy: .public)")
+            guard case .result(let id, _, _) = frame else { return nil }
+            return try? ProviderCodec.encode(.result(id: id, result: nil, error: DriverError(.invalid, "the result is too large to send").json))
+        }
     }
 
     /// Queues bytes that already carry their length prefix.

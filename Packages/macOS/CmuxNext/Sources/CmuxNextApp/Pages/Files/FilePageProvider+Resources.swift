@@ -2,7 +2,7 @@ import CmuxNextPages
 import Foundation
 
 /// The markdown page's generated resources: local images of the open file's folder, the diagram
-/// libraries, and remote images the host fetches.
+/// libraries, and remote images the host fetches after the reader approves this document.
 extension FilePageProvider {
     // MARK: Resources (markdown)
 
@@ -24,7 +24,8 @@ extension FilePageProvider {
                   let data = await MarkdownPageResource.library(request.path[0], in: libraries) else { return nil }
             return PageResource(data: data, mimeType: "text/javascript; charset=utf-8")
         case MarkdownPageResource.remoteImage:
-            guard host?.remoteImages == true, request.path.count == 1, let url = RemoteImagePolicy.decode(request.path[0]),
+            guard remoteImagesAllowed, request.path.count == 2, request.path[0] == remoteImageToken,
+                  let url = RemoteImagePolicy.decode(request.path[1]),
                   RemoteImagePolicy.allows(url) else { return nil }
             return await images.fetch(url)
         default:

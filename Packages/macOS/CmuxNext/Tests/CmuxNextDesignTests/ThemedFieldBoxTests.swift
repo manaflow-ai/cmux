@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Review of #19830: a dialog field's themed box must act like a field. A click in its padding
 /// focuses the input, and the box shows focus in the theme's focus ring while the input edits (the

@@ -463,19 +463,20 @@ impl Mux {
         }
         drop(effects.removed);
         for target in effects.targets {
-            self.emit(MuxEvent::SurfaceExited(target));
+            self.emit(MuxEvent::SurfaceExited(target, effects.end.clone()));
         }
         self.emit(MuxEvent::TreeChanged);
         if effects.selection_resync {
             self.emit(MuxEvent::TreeSelectionChanged);
         }
         for screen in effects.changed_screens {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
         self.emit_empty_if_current(effects.empty_revision);
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_resource_close_with(
         &self,
         operation: ResourceOperation,
@@ -583,7 +584,7 @@ impl Mux {
             ResourceCloseTreePublication::Published => {}
         }
         for screen in effects.changed_screens {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
         self.emit_empty_if_current(effects.empty_revision);
         committed.commit
@@ -800,7 +801,12 @@ impl Mux {
             delta.workspace_revision = None;
         }
         Ok(ResourceClosePlan {
-            state: dock_columns::close_keeping_permanent(operation, state, projected)?,
+            state: dock_columns::close_keeping_permanent(
+                operation,
+                operation.wire_name(),
+                state,
+                projected,
+            )?,
             removed,
             terminal_runtime,
             closed_terminal_public_id: terminal_public_id,

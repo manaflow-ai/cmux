@@ -78,7 +78,7 @@ final class TabGroupSwatchView: NSView {
 /// A menu-like row in the group editor.
 final class TabGroupEditorRow: NSView {
     var onPress: (() -> Void)?
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(title: String) {
@@ -124,7 +124,7 @@ final class TabGroupEditorRow: NSView {
 
     private func updateColors(animated: Bool = false) {
         performWithTheme {
-            if let layer { ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: animated) }
+            if let layer { ChromeHover.paint(layer, isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil, animated: animated) }
             label.textColor = Palette.textPrimary
         }
     }

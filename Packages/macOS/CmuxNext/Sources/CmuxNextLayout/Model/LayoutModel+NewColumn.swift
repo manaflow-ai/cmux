@@ -76,6 +76,13 @@ extension LayoutModel {
         guard let pane = pane ?? focusedPane else { return }
         intentHandler?(.newColumn(after: pane, width: prepareNewColumn(nextTo: pane).width))
     }
+
+    /// Requests a new column before `pane`'s column (default: the focused pane), at the
+    /// `layout.newColumnWidth` width (New Column Left).
+    public func newColumn(before pane: PaneID? = nil) {
+        guard let pane = pane ?? focusedPane else { return }
+        intentHandler?(.newColumnLeft(of: pane, width: prepareNewColumn(nextTo: pane).width))
+    }
 }
 
 /// The width of a new column and the width changes of existing columns,
@@ -89,4 +96,9 @@ public nonisolated struct NewColumnRequest: Hashable, Sendable {
 
     public let width: Double
     let resizes: [Resize]
+
+    /// The width changes of existing columns that go with the new column, each named by the
+    /// column's panes (any one of them addresses it): an optimistic column shows them in the key's
+    /// turn, and ``LayoutModel/commitNewColumnResize(_:)`` sends them once the column exists.
+    public var widthChanges: [(panes: [PaneID], width: Double)] { resizes.map { ($0.panes, $0.width) } }
 }

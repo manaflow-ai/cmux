@@ -1,6 +1,6 @@
 /// Phase of a continuous gesture.
 public nonisolated enum LayoutGesturePhase: Hashable, Sendable {
-    /// Live update; the model throttles these to one per display frame.
+    /// Live update: applied locally, never sent as an intent.
     case changed
     /// Final value of the gesture.
     case ended
@@ -29,6 +29,8 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     case dropTab(TabID, DropTarget)
     /// Daemon `new-pane-right {pane, width}`.
     case newColumn(after: PaneID, width: Double)
+    /// Daemon `new-pane-right {pane, width, side: "left"}` (`column-left-v1`): New Column Left.
+    case newColumnLeft(of: PaneID, width: Double)
     /// Daemon `split {pane, dir}`.
     case split(PaneID, axis: SplitAxis)
     case selectScreen(ScreenID)

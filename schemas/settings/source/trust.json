@@ -1,0 +1,83 @@
+{
+  "$comment": "HAND-EDITED source of the Folder trust settings: which folders an agent may start in without the trust question (acpmux trust_auto.rs). The acpmux daemon embeds this file (cmux-tui/crates/acpmux/src/trust_auto.rs) and takes the defaults from it; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "trust",
+      "section": "general",
+      "group": {
+        "key": "settings.group.folderTrust",
+        "text": "Folder Trust"
+      },
+      "note": "Settings > Agents > Folder Trust: folders that need no trust question. The daemon reads the file at each check, so a change applies at once. An explicit Don't trust still wins. Off by default with empty lists: nobody's folders are trusted by a rule until the person turns it on and names their own roots and owners.",
+      "rows": [
+        {
+          "key": "agents.trust.autoTrust",
+          "name": "trustAutoTrust",
+          "note": "Off: every folder without an answer asks, whatever the project roots and organizations below say.",
+          "title": {
+            "key": "settings.agents.trust.autoTrust",
+            "text": "Trust My Own Folders Without Asking"
+          },
+          "help": {
+            "key": "settings.agents.trust.autoTrust.help",
+            "text": "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "trust",
+            "folder",
+            "repository",
+            "prompt",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.trust.projectRoots",
+          "name": "trustProjectRoots",
+          "note": "Folders whose contents are trusted without a question: absolute or ~/ paths. Symlinks are resolved first, so a link out of a root is not trusted.",
+          "title": {
+            "key": "settings.agents.trust.projectRoots",
+            "text": "Trusted Project Roots"
+          },
+          "help": {
+            "key": "settings.agents.trust.projectRoots.help",
+            "text": "Everything inside these folders is trusted. Use full paths or ~/ paths."
+          },
+          "kind": "folder_list",
+          "default": [],
+          "keywords": [
+            "trust",
+            "project",
+            "roots",
+            "folders",
+            "workspace"
+          ]
+        },
+        {
+          "key": "agents.trust.ownOrgs",
+          "name": "trustOwnOrgs",
+          "note": "GitHub users and organizations whose repositories are trusted without a question. Every remote of the repository must belong to one of them.",
+          "title": {
+            "key": "settings.agents.trust.ownOrgs",
+            "text": "Trusted GitHub Owners"
+          },
+          "help": {
+            "key": "settings.agents.trust.ownOrgs.help",
+            "text": "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "trust",
+            "github",
+            "organization",
+            "owner",
+            "remote",
+            "repository"
+          ]
+        }
+      ]
+    }
+  ]
+}

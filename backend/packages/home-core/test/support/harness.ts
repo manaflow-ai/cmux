@@ -1,3 +1,4 @@
+import { BUDGET_WINDOW } from "../../src/conversation/budget.ts"
 import { createHash } from "node:crypto"
 import { apply, isSend, targetMessageId } from "../../src/conversation/apply.ts"
 import { create } from "../../src/conversation/create.ts"
@@ -128,7 +129,7 @@ export class CoreHost {
       reply_target: replyId ? (this.find(replyId) ?? null) : null,
       thread_target: threadId ? (this.find(threadId) ?? null) : null,
       last_message: this.messages.at(-1) ?? null,
-      ...(this.budget ? { recent: [...this.messages].reverse().slice(0, 5) } : {}),
+      ...(this.budget ? { recent: [...this.messages].reverse().slice(0, BUDGET_WINDOW) } : {}),
       ...extra
     }
   }

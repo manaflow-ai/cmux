@@ -43,14 +43,33 @@ struct NewTabPlacesTests {
             "terminal cargo build · ~/src/cmux · workspace-1",
             "browser Vite Guide · vite.dev/guide · workspace-1",
             "agent Fix the flaky upload test · ~/src/cmux · workspace-1",
+            "terminal ~ · - · workspace-2",
             "terminal zsh · ~/src/relay · workspace-8",
             "browser github.com/manaflow-ai/cmux/pull/1 · - · workspace-8",
         ])
         #expect(places.workspaces.map { "\($0.name) · \($0.detail ?? "-")" } == [
-            "workspace-2 · ~",
             "workspace-7 · -",
             "workspace-8 · ~/src/relay",
         ])
         #expect(places.folders == [Self.home + "/src/cmux", Self.home + "/src/relay"])
+    }
+
+    /// Leo 2026-10-19: "Jump to opened tab ... doesn't jump to tab but to workspace". Another
+    /// workspace's only place was listed as the workspace, named by its tab: the row read as that
+    /// tab, said Switch to workspace, and landed on whatever the workspace showed. It is the tab's
+    /// row now (Switch to tab, its workspace on the line under it), and not the workspace's too.
+    @Test func anotherWorkspacesOnlyPlaceIsItsTabNotTheWorkspace() throws {
+        let chat = Self.tab(.conversation, title: "Fix the flaky upload test", cwd: Self.home + "/src/cmux", session: "ses-2")
+        let workspaces: [NewTabPage.PlaceSource] = [
+            .init(id: "w1", name: "workspace-1", tabs: [Self.newTabPage()]),
+            .init(id: "w2", name: "api", tabs: [Self.newTabPage(), chat]),
+        ]
+        let places = NewTabPage.places(workspaces, current: "w1", excluding: nil, home: Self.home)
+        #expect(places.tabs.count == 1)
+        let row = try #require(places.tabs.first)
+        #expect(row.id == chat.id, "the row jumps to the chat's tab, not its workspace")
+        #expect("\(row.kind.rawValue) \(row.title) · \(row.detail ?? "-") · \(row.workspace ?? "-")"
+            == "agent Fix the flaky upload test · ~/src/cmux · api")
+        #expect(places.workspaces.isEmpty)
     }
 }

@@ -477,6 +477,8 @@ fn client_machine_context_menu_renames_without_provider_mutation() {
             name: "Build host".into(),
             subtitle: "local".into(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         }],
         active: Some(key),
         capabilities: MachineCapabilities { create: false, connect: true },
@@ -577,6 +579,8 @@ fn catalog_refresh_preserves_machine_and_workspace_selection_identity_and_scroll
         name: format!("machine-{key}"),
         subtitle: "cloud".into(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     };
     let mux = Mux::new("rail-refresh-test", SurfaceOptions::default());
     mux.new_workspace(Some("first".into()), None).unwrap();

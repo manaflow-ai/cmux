@@ -254,10 +254,12 @@ class Client:
     async def list_machines(
         self,
         *,
+        catalog: bool = False,
         request_options: RequestOptions = RequestOptions(),
     ) -> List["Machine"]:
         return await self._invoke(
             self._sync.list_machines,
+            catalog=catalog,
             request_options=request_options,
         )
 
@@ -478,6 +480,14 @@ class _Handle:
 
 
 class Machine(_Handle):
+    async def refresh(
+        self, *, catalog: bool = False,
+        request_options: RequestOptions = RequestOptions(),
+    ):
+        return await self._owner._invoke(
+            self._sync.refresh, catalog=catalog, request_options=request_options,
+        )
+
     def session(self, selector: SelectorInput[SessionId]) -> "Session":
         return Session(self._owner, self._sync.session(selector))
 

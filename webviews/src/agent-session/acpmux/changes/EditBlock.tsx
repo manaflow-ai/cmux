@@ -21,6 +21,7 @@ import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 import { paneHighlightPool } from "../conversation/highlightPool";
 import { readWholeFile, type WholeFile } from "./wholeFile";
+import type { FileKind } from "../../../fileKinds";
 
 export type DiffLayout = "unified" | "split";
 /// A line annotation: a hunk's actions, or a review thread.
@@ -32,6 +33,7 @@ const paneThemeType = () =>
 
 export function EditBlock({
   file,
+  kind,
   edit,
   index,
   layout,
@@ -45,6 +47,8 @@ export function EditBlock({
   address,
 }: {
   file: TurnFile;
+  /// The file's kind (fileKinds.ts), named in its header when it is not code.
+  kind?: FileKind;
   edit: DiffEdit;
   index: number;
   layout: DiffLayout;
@@ -178,7 +182,7 @@ export function EditBlock({
   );
   // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
   // header node and the button the reader pressed keeps focus.
-  const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} review={review} />;
+  const header = <FileHeader file={file} kind={kind} edit={edit} index={index} view={view} on={on} review={review} />;
   const showDiff = !view.collapsed && edit.hunks.length > 0;
   return (
     <div

@@ -88,3 +88,15 @@ public nonisolated struct RemoteRdHostStats: Sendable, Equatable, Codable {
         case lossPercent = "loss_pct"
     }
 }
+
+/// A hello's description leaves its session token out (a log or a debug print never shows it).
+public nonisolated extension RemoteRdHello {
+    var redactedDescription: String {
+        "RemoteRdHello(user: \(user), install: \(install), service: \(service), token: \(token == nil ? "none" : "<redacted>"))"
+    }
+}
+
+extension RemoteRdHello: CustomStringConvertible, CustomDebugStringConvertible {
+    public nonisolated var description: String { redactedDescription }
+    public nonisolated var debugDescription: String { redactedDescription }
+}

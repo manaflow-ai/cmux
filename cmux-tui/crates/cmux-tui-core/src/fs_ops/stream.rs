@@ -30,6 +30,7 @@ use super::error::FsError;
 use super::ops::FsService;
 use super::sys;
 use super::write::{PendingWrite, WriteMode};
+use cmux_json::JsonSet as _;
 
 /// Bytes moved per read or write.
 pub const STREAM_CHUNK_BYTES: usize = 256 * 1024;
@@ -98,7 +99,7 @@ pub fn answer(id: &Value, result: Result<Value, FsError>) -> Value {
                 "error_code": error.code(),
             });
             if let Some(details) = error.details() {
-                value["error_details"] = details;
+                value.set("error_details", details);
             }
             value
         }

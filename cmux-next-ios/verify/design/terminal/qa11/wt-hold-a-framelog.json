@@ -1,0 +1,147 @@
+{
+ "frames": 9579,
+ "blank_frames": 0,
+ "blank_runs": [],
+ "blank_runs_over_1_frame": 0,
+ "dt_max": 45.59,
+ "dt_top10": [
+  45.59,
+  41.42,
+  39.26,
+  39.25,
+  38.79,
+  38.78,
+  37.39,
+  35.61,
+  35.11,
+  34.86
+ ],
+ "frames_over_100ms": 0,
+ "frames_over_250ms": 0,
+ "longest": [
+  {
+   "t": 1792068712.742,
+   "dt_ms": 45.59,
+   "phase": "following",
+   "work_ms": 0.66,
+   "parts": {
+    "output-batch": 0.014,
+    "scrollbar": 0.025,
+    "present": 0.618,
+    "present-read": 0.428,
+    "did-scroll": 0.004
+   }
+  },
+  {
+   "t": 1792068784.843,
+   "dt_ms": 41.42,
+   "phase": "following",
+   "work_ms": 0.48,
+   "parts": {
+    "output-batch": 0.014,
+    "scrollbar": 0.028,
+    "present": 0.435,
+    "present-read": 0.313,
+    "did-scroll": 0.004
+   }
+  },
+  {
+   "t": 1792068704.342,
+   "dt_ms": 39.26,
+   "phase": "following",
+   "work_ms": 0.51,
+   "parts": {
+    "output-batch": 0.009,
+    "scrollbar": 0.031,
+    "present": 0.472,
+    "present-read": 0.271,
+    "did-scroll": 0.005
+   }
+  },
+  {
+   "t": 1792068844.96,
+   "dt_ms": 39.25,
+   "phase": "following",
+   "work_ms": 0.64,
+   "parts": {
+    "output-batch": 0.036,
+    "scrollbar": 0.043,
+    "present": 0.559,
+    "present-read": 0.341,
+    "did-scroll": 0.005
+   }
+  },
+  {
+   "t": 1792068709.759,
+   "dt_ms": 38.79,
+   "phase": "following",
+   "work_ms": 0.04,
+   "parts": {
+    "output-batch": 0.012,
+    "scrollbar": 0.029
+   }
+  },
+  {
+   "t": 1792068769.826,
+   "dt_ms": 38.78,
+   "phase": "following",
+   "work_ms": 0.46,
+   "parts": {
+    "output-batch": 0.013,
+    "scrollbar": 0.023,
+    "present": 0.422,
+    "present-read": 0.268,
+    "did-scroll": 0.004
+   }
+  },
+  {
+   "t": 1792068854.694,
+   "dt_ms": 37.39,
+   "phase": "following",
+   "work_ms": 0.5,
+   "parts": {
+    "output-batch": 0.012,
+    "scrollbar": 0.033,
+    "present": 0.455,
+    "present-read": 0.271,
+    "did-scroll": 0.004
+   }
+  },
+  {
+   "t": 1792068807.993,
+   "dt_ms": 35.61,
+   "phase": "following",
+   "work_ms": 0.59,
+   "parts": {
+    "present": 0.554,
+    "output-batch": 0.022,
+    "scrollbar": 0.017,
+    "present-read": 0.353,
+    "did-scroll": 0.004
+   }
+  },
+  {
+   "t": 1792068809.58,
+   "dt_ms": 35.11,
+   "phase": "following",
+   "work_ms": 0.05,
+   "parts": {
+    "output-batch": 0.01,
+    "scrollbar": 0.036
+   }
+  },
+  {
+   "t": 1792068749.459,
+   "dt_ms": 34.86,
+   "phase": "following",
+   "work_ms": 0.68,
+   "parts": {
+    "scrollbar": 0.052,
+    "output-batch": 0.012,
+    "present": 0.62,
+    "present-read": 0.404,
+    "did-scroll": 0.004
+   }
+  }
+ ]
+}

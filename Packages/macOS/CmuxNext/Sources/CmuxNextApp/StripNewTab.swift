@@ -1,6 +1,6 @@
 import CmuxNextActions
 
-/// The tab strip's "+" (a click, a double-click on the empty strip): one
+/// The tab strip's "+" (a click): one
 /// registry action on the strip's pane, so it matches every other entry
 /// point of that action.
 enum StripNewTab {

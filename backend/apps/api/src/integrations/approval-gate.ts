@@ -28,7 +28,7 @@ import {
 import type { ExternalReply } from "./external.ts"
 import type { Env } from "../env.ts"
 import { ProviderError } from "./providers.ts"
-import { principalForOwner } from "../team-select.ts"
+import { resolveConnectionPrincipal } from "../agent-gateway-principal.ts"
 import type { ApprovalSource } from "../domains/feed-approvals.ts"
 
 /** A gate answer: a final refusal or pending state for the caller, or a replay of the approved run. */
@@ -66,7 +66,7 @@ export const runApproved =
   (env: Env, allowed: (p: Principal, op: string, params: unknown) => boolean, run: (p: Principal, row: ApprovalRow) => Promise<ExternalReply>) =>
   async (row: ApprovalRow): Promise<ExternalReply | "refused"> => {
     // Review P2-2: the role is asked again too, so a member demoted to guest or billing runs nothing.
-    const resolved = await principalForOwner(env, "cloud:ConnectionDO", row.principal)
+    const resolved = await resolveConnectionPrincipal(env, row.principal)
     const now = resolved && !("refused" in resolved) ? resolved : undefined
     const risk = cloudOpByName.get(row.op)?.risk
     if (!now || !risk || !allowed(withApprovalClass(now, risk), row.op, row.params)) return "refused"

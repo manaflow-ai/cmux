@@ -1,0 +1,43 @@
+{
+  "title": "A Chief's new picture opens Move and Scale (issue 27915)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Home with the Chief",
+      "cmux": [
+        "action",
+        "run",
+        "home.show"
+      ],
+      "wait": 6,
+      "optional": "the Chief's daemon may not start on this runner"
+    },
+    {
+      "title": "The Chief card under the name pill",
+      "cmux": [
+        "action",
+        "run",
+        "home.toggleChiefSettings"
+      ],
+      "wait": 3,
+      "optional": "the card opens only over a Chief conversation"
+    },
+    {
+      "title": "A picture picked on the card opens Move and Scale, zoomed in",
+      "rpc": {
+        "method": "debug.home.api",
+        "params": {
+          "call": "edit_picture",
+          "path": "/Library/User Pictures/Animals/Parrot.heic",
+          "zoom": 1.8
+        }
+      },
+      "wait": 3,
+      "record": true,
+      "optional": "no Chief conversation on this runner"
+    }
+  ]
+}

@@ -37,6 +37,7 @@ BUILD = "1" * 40
 BRANCH = "2" * 40
 NEWER = "3" * 40
 TAG_OBJECT = "4" * 40
+NIGHTLY_BUILD = "3917159104301"
 FAILURES = []
 
 FAKE_GH = r'''#!/usr/bin/env python3
@@ -72,8 +73,9 @@ def render(text, context):
     return re.sub(r"\$\{\{\s*([^}]+?)\s*\}\}", lambda m: context.get(m.group(1).strip(), ""), str(text))
 
 
-def run_guard(script, tag_object):
-    """Runs the step with the branch at BRANCH and the tag as `tag_object`."""
+def run_guard(script, tag_object, live_build=None, extra_env=None):
+    """Runs the step with the branch at BRANCH and the tag as `tag_object`;
+    with `live_build`, the NEXT feed (a file URL) serves that build."""
     routes = {
         # GitHub's commits API resolves the name to the branch.
         f"repos/{REPO}/commits/{TAG}": {"sha": BRANCH},
@@ -93,7 +95,16 @@ def run_guard(script, tag_object):
         output = os.path.join(tmp, "github-output")
         open(output, "w").close()
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_GH_ROUTES=json.dumps(routes),
-                   GITHUB_REPOSITORY=REPO, GITHUB_OUTPUT=output, CHANNEL_RELEASE_TAG=TAG, GH_TOKEN="test")
+                   GITHUB_REPOSITORY=REPO, GITHUB_OUTPUT=output, CHANNEL_RELEASE_TAG=TAG, GH_TOKEN="test",
+                   NIGHTLY_BUILD=NIGHTLY_BUILD)
+        if live_build is not None:
+            feed = os.path.join(tmp, "feed")
+            os.mkdir(feed)
+            with open(os.path.join(feed, "appcast-arm64.xml"), "w", encoding="utf-8") as handle:
+                handle.write('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'
+                             f'<item><sparkle:version>{live_build}</sparkle:version></item></channel></rss>')
+            env["CHANNEL_FEED_BASE"] = f"file://{feed}"
+        env.update(extra_env or {})
         result = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True, text=True)
         with open(output, encoding="utf-8") as handle:
             return result, handle.read()
@@ -121,6 +132,28 @@ def main():
     result, output = run_guard(script, {"sha": NEWER, "type": "commit"})
     _check(result.returncode == 0 and "Skipping stale delta result" in result.stdout and "publish=false" in output,
            f"a tag moved to a newer build: the stale result is skipped ({result.stdout.strip()})")
+
+    # The NEXT feed must still serve this build: a newer publication, or a
+    # pull by nightly-next-rollback.yml (an older build on top), skips it.
+    lightweight = {"sha": BUILD, "type": "commit"}
+    result, output = run_guard(script, lightweight, live_build=NIGHTLY_BUILD)
+    _check(result.returncode == 0 and "No Sparkle deltas were generated" in result.stdout,
+           f"the feed serves this build: the step goes on to the deltas ({result.stdout.strip()})")
+    for label, live in (("a newer build", str(int(NIGHTLY_BUILD) + 1)), ("a pulled build's predecessor", str(int(NIGHTLY_BUILD) - 1))):
+        result, output = run_guard(script, lightweight, live_build=live)
+        _check(result.returncode == 0 and "Skipping stale delta result" in result.stdout and "publish=false" in output,
+               f"the feed serves {label}: the result is skipped ({result.stdout.strip()})")
+
+    # nightly-next: publish-nightly-next-github moves the tag after the feed, so a tag still
+    # on the previous build is no reason to skip; the live feed is the order check.
+    result, output = run_guard(script, {"sha": NEWER, "type": "commit"}, live_build=NIGHTLY_BUILD,
+                               extra_env={"TRACK": "nightly-next"})
+    _check(result.returncode == 0 and "No Sparkle deltas were generated" in result.stdout,
+           f"nightly-next, tag not yet moved, feed serves this build: the step goes on ({result.stdout.strip()})")
+    result, output = run_guard(script, {"sha": NEWER, "type": "commit"}, live_build=str(int(NIGHTLY_BUILD) + 1),
+                               extra_env={"TRACK": "nightly-next"})
+    _check(result.returncode == 0 and "Skipping stale delta result" in result.stdout and "publish=false" in output,
+           f"nightly-next, feed serves a newer build: the result is skipped ({result.stdout.strip()})")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

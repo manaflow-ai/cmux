@@ -25,6 +25,11 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// only the buttons). Split geometry, divider drags, column widths and
     /// the split room check all honor it.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
+    /// Smallest content width of a docked agent chat column (``DockRole/agentChat``): the Home
+    /// list at its avatar-only minimum (76 pt), its divider and a transcript of about 30
+    /// characters (280 pt, `HomeSidebarWidth.transcriptMinimum`). The generic pane minimum let
+    /// that column shrink to 216 pt and its bubbles wrap one word per line (dogfood 2026-10-19).
+    public var minimumAgentChatContentWidth: CGFloat = 360
     /// Inset between a pane's cell and its rounded content rect (tab strip
     /// plus content). Token: `Metrics.panePadding`. 0 is edge to edge.
     public var panePadding: CGFloat = 0
@@ -35,6 +40,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var showsPaneBorder = false
     /// Divider lines and every other line draw (`appearance.borders`).
     public var drawsLines = true
+    /// Floating panes (`Metrics.floatingPanes`): each pane's whole padded
+    /// rect, tab strip included, is its rounded card, and split panes meet
+    /// with no divider gap (`dividerThickness` 0).
+    public var floatingPanes = false
     /// `layout.paneSeparation`: whether a divider draws at rest and whether
     /// it shows a line on hover or drag (none shows nothing).
     public var paneSeparation: PaneSeparation = .borders
@@ -47,25 +56,29 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderColor: ThemeRGB?
     /// Border width in points (`layout.paneBorderWidth`); nil is one device pixel.
     public var paneBorderWidth: CGFloat?
-    /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
-    public var inactivePaneDimming: CGFloat = 0.14
+    /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on. Token: `Palette.inactivePaneDim`.
+    public var inactivePaneDimming: CGFloat = 0.10
+    /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
+    /// `inactivePaneDimming` on every unfocused pane.
+    public var unfocusedPaneDim = UnfocusedPaneDim()
     /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
     public var focusRingAlphaOverride: CGFloat?
     /// `appearance.focusIndicator`, and how unfocused panes' tabs draw
     /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
-    public var focusIndicator: FocusIndicator = .both
+    public var focusIndicator: FocusIndicator = .tabs
     public var inactiveTabStyle: InactiveTabStyle = .fade
-    public var inactiveTabStrength: CGFloat = 0.35
+    public var inactiveTabStrength: CGFloat = 0.4
     /// Fraction of a pane's extent that counts as an edge drop zone
     /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
     public var dropEdgeFraction: CGFloat = 0.25
-    /// Floor and cap of the edge band: 40 pt is an easy pointer target on a
-    /// small pane; past 120 pt a bigger band no longer makes the edge faster
-    /// to hit, it only takes the center away. `band(for:)` also keeps it at
-    /// most a third of the extent.
-    public var dropEdgeRange: ClosedRange<CGFloat> = 40...120
+    /// Floor and cap of the edge band (drop-zones DESIGN.md): 48 pt keeps an
+    /// edge easy to hit on a small pane, and there is no cap, so the outer
+    /// quarter of a big pane splits as in classic cmux (a 120 pt cap made the
+    /// right quarter of a 1200 pt pane join it). `band(for:)` also keeps it
+    /// at most a third of the extent, so a center always remains.
+    public var dropEdgeRange: ClosedRange<CGFloat> = 48...CGFloat.greatestFiniteMagnitude
     /// How far past a zone line the pointer goes before the drop preview
     /// leaves the zone it shows (`DropZoneGeometry.zone`).
     public var dropZoneHysteresis: CGFloat = 12
@@ -83,6 +96,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// cmux.json `layout.rows` (plans/cmux-next/rows.md O1 to O3): off, a
     /// column's existing rows fit it like stacked panes and never scroll.
     public var rowsEnabled = true
+    /// cmux.json `layout.scrollAreas` (plans/cmux-next/scroll-areas-DESIGN.md G1 to G5): on, a
+    /// split tree that needs more width than its frame scrolls inside it instead of squashing
+    /// its panes, and columns keep their width. Off (default) is today's layout.
+    public var scrollAreasEnabled = false
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
     public var prototype = LayoutPrototypeSettings()
 
@@ -103,7 +120,8 @@ extension LayoutStyle {
     @MainActor
     public func applyingDesignMetrics() -> LayoutStyle {
         var style = self
-        style.dividerThickness = Metrics.dividerThickness
+        style.floatingPanes = Metrics.floatingPanes
+        style.dividerThickness = style.floatingPanes ? 0 : Metrics.dividerThickness
         style.dividerHitThickness = Metrics.dividerHitWidth
         style.columnGap = Metrics.stripColumnGap
         style.panelCornerRadius = Metrics.panelCornerRadius
@@ -117,6 +135,8 @@ extension LayoutStyle {
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
+        style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
+        style.inactivePaneDimming = Palette.inactivePaneDim
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim
@@ -124,12 +144,15 @@ extension LayoutStyle {
             style.focusRing.enabled = false
             style.attention.width = 0
         }
+        // Floating panes: no ring; the dim marks the focused pane (`inactiveDim`).
+        if Metrics.floatingPanesHideFocusRing { style.focusRing.enabled = false }
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         style.frameOrientation = DesignSettings.shared.frameOrientation
         style.rowsEnabled = DesignSettings.shared.layoutRows
+        style.scrollAreasEnabled = DesignSettings.shared.layoutScrollAreas
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }

@@ -243,6 +243,13 @@ impl TurnFolder {
                 out.push(TurnOutput::Started { turn: turn.clone(), seq: event.seq });
                 self.current = Some(turn);
             }
+            // A subagent's words (`_meta.acpmux.subagent`) are its own, never the turn's reply.
+            (_, "agent_message_chunk")
+                if event
+                    .msg
+                    .get("params")
+                    .and_then(|p| p.pointer("/_meta/acpmux/subagent"))
+                    .is_some() => {}
             (_, "agent_message_chunk") => {
                 let content = &event.msg.get("params").and_then(|p| p.get("update"));
                 let content = content.and_then(|u| u.get("content"));

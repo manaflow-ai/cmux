@@ -16,7 +16,7 @@ enum SidebarDaemonReorder {
         else { return failed(edit, bridge) }
         // Groups are personal: the machine's own order is one flat list.
         let entries = daemon.store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: nil) }
-        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: false)
+        guard let commands = WorkspaceMovePlan(window: sections).commands(for: position, moving: ids, daemon: entries, groups: false)
         else { return failed(edit, bridge) }
         run(commands, on: daemon, edit: edit, bridge: bridge)
     }

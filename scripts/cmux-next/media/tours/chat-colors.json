@@ -1,0 +1,18 @@
+{
+  "title": "Chat Colors: one chat's bubble and text colors",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "The Home fixture conversation", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3, "shot": false},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2, "shot": false},
+    {"title": "Dark, before: the default iMessage colors", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "reset": true}}, "wait": 1.5},
+    {"title": "Dark, after: yellow for me, navy for them, text picked to read", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "sent": "#FFD60A", "received": "#1C2A4A"}}, "wait": 1.5},
+    {"title": "Dark, after: green for me with my own text color", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "sent": "#34C759", "sentText": "#0B3D1A", "received": "default"}}, "wait": 1.5},
+    {"title": "Dark: the Chat Colors panel", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "panel": true}}, "wait": 1.5},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2, "shot": false},
+    {"title": "Light, before: the default iMessage colors", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "reset": true}}, "wait": 1.5},
+    {"title": "Light, after: yellow for me, navy for them, text picked to read", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "sent": "#FFD60A", "received": "#1C2A4A"}}, "wait": 1.5},
+    {"title": "Light: the Chat Colors panel", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "panel": true}}, "wait": 1.5},
+    {"title": "Reset", "rpc": {"method": "debug.home.drive", "params": {"action": "chat_colors", "reset": true}}, "wait": 0.5, "shot": false},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 2, "shot": false}
+  ]
+}

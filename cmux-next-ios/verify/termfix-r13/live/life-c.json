@@ -1,0 +1,39 @@
+{
+ "plus_ax": [
+  "<Button None id=None v=None (38, 788, 48, 48)>",
+  "<Button 'Done' id=workspace.a8854ed1-22cb-4f16-a99e-4dddbd04ceea v=None (316, 788, 48, 48)>"
+ ],
+ "plus_menu": [
+  "e2e-t1, tab",
+  "Close",
+  "e2e-t2, tab",
+  "Close",
+  "Done",
+  "Close e2e-t1",
+  "Workspaces",
+  "New Browser Tab",
+  "New Terminal",
+  "New Agent Chat With\u2026",
+  "New Agent Chat"
+ ],
+ "pick_s": 1.85,
+ "pick_done_s": 2.22,
+ "newtab_menu": "New Terminal",
+ "newtab_prompt_s": 3.36,
+ "cards_before": [
+  "e2e-t1, tab",
+  "e2e-t2, tab"
+ ],
+ "cards_after": [
+  "e2e-t1, tab",
+  "e2e-t2, tab",
+  "~, tab"
+ ],
+ "new": [
+  "~, tab"
+ ],
+ "idle_close": {
+  "asked": false,
+  "card_gone_s": 3.42
+ }
+}

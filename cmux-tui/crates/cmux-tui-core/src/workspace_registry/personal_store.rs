@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 
 use super::JournalSubject;
 pub(crate) mod blobs;
+#[cfg(test)]
+mod session_record_tests;
 use super::presentation_store::{
     append_presentation_record, validate_presentation_color, validate_presentation_text,
     validate_workspace_group_id,
@@ -29,8 +31,27 @@ pub(crate) use blobs::require_icon_asset;
 pub const DEFAULT_PROFILE_ID: &str = "default";
 const MIGRATED_META_KEY: &str = "personal_migrated_v1";
 const REVISION_META_KEY: &str = "personal_revision";
-/// Longest accepted transport or capabilities JSON, in bytes.
+/// Longest accepted session transport or browser profile source JSON, in
+/// bytes. Each is a small object of short fields (a route, a profile
+/// folder); its longest field is a path, and 4096 is `PATH_MAX` on Linux,
+/// where Cloud machines run (macOS has 1024). The value is unchanged from
+/// before; only the capability list needed its own bound.
 pub const MAX_PERSONAL_JSON_BYTES: usize = 4096;
+/// Longest capability token in a session record, in bytes. Every capability
+/// a daemon advertises matches `[a-z][a-z0-9._-]{0,63}` (the app's
+/// `MachineCatalogRecord` rule).
+pub const MAX_CAPABILITY_TOKEN_BYTES: usize = 64;
+/// Largest capability list of a session record, in bytes of JSON. The list
+/// grows with each daemon feature (5,765 bytes on 2026-10-29), and a fixed
+/// 4,096-byte cap refused `put-session`, so connected machines were not
+/// recorded and the next launch did not restore them (P-AUSTIN B7a). The
+/// bound is half of the journal's budget for one client event payload
+/// (`MAX_EVENT_PAYLOAD_BYTES`): the journal applies that budget to client
+/// ingress, not to this record's `personal.session.put` fact, but it is the
+/// size the journal is built to carry per event, and every other field of
+/// the record is a few KiB at most (session id, names, transport, icon).
+pub const MAX_SESSION_CAPABILITIES_BYTES: usize =
+    super::journal_extensions::MAX_EVENT_PAYLOAD_BYTES / 2;
 /// Longest accepted theme spec, in characters.
 pub const MAX_THEME_CHARS: usize = 256;
 
@@ -394,6 +415,40 @@ pub fn validate_personal_json(
     Ok(text)
 }
 
+/// A session's capability list: unique tokens of `[a-z][a-z0-9._-]`, each at
+/// most [`MAX_CAPABILITY_TOKEN_BYTES`], at most
+/// [`MAX_SESSION_CAPABILITIES_BYTES`] as JSON. Returns the stored text.
+pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
+    let tokens = value
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("bad request: capabilities must be an array of strings"))?;
+    let mut seen = std::collections::HashSet::with_capacity(tokens.len());
+    for token in tokens {
+        let token = token.as_str().ok_or_else(|| {
+            anyhow::anyhow!("bad request: capabilities must be an array of strings")
+        })?;
+        let bytes = token.as_bytes();
+        anyhow::ensure!(
+            (1..=MAX_CAPABILITY_TOKEN_BYTES).contains(&bytes.len())
+                && bytes[0].is_ascii_lowercase()
+                && bytes.iter().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'.' | b'_' | b'-')
+                }),
+            "bad request: capability {token:?} must be 1-{MAX_CAPABILITY_TOKEN_BYTES} of [a-z0-9._-], starting with a letter"
+        );
+        anyhow::ensure!(seen.insert(token), "bad request: capability {token} is listed twice");
+    }
+    let text = serde_json::to_string(value)?;
+    anyhow::ensure!(
+        text.len() <= MAX_SESSION_CAPABILITIES_BYTES,
+        "bad request: capabilities is {} bytes, over {MAX_SESSION_CAPABILITIES_BYTES}",
+        text.len()
+    );
+    Ok(text)
+}
+
 /// Room terminal defaults `{cwd?, env?}`; env follows the per-terminal env
 /// rules.
 pub fn validate_profile_defaults(value: &Value) -> anyhow::Result<String> {
@@ -660,6 +715,49 @@ pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
     Ok(workspaces)
 }
 
+/// One personal row with its ordinal in the personal order (the order of
+/// [`read_workspaces`]), read by its key and the order index.
+pub(crate) fn read_workspace(
+    connection: &Connection,
+    session_id: &str,
+    workspace_key: &str,
+) -> anyhow::Result<Option<PersonalWorkspace>> {
+    let Some((position, group, browser_profile_id, theme, remote_localhost)) = connection
+        .query_row(
+            "SELECT position, group_id, browser_profile_id, theme, remote_localhost
+             FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![session_id, workspace_key],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<bool>>(4)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let before: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM personal_workspaces
+         WHERE (position, session_id, workspace_key) < (?1, ?2, ?3)",
+        params![position, session_id, workspace_key],
+        |row| row.get(0),
+    )?;
+    Ok(Some(PersonalWorkspace {
+        session_id: session_id.to_string(),
+        workspace_key: workspace_key.to_string(),
+        index: usize::try_from(before)?,
+        group,
+        browser_profile_id,
+        theme,
+        remote_localhost,
+    }))
+}
+
 pub(crate) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalSnapshot> {
     Ok(PersonalSnapshot {
         personal_revision: personal_revision(connection)?,
@@ -688,10 +786,16 @@ pub(crate) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<Pers
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// The position of a new last row: a gap after the last one, so later
+/// moves next to it need no renumbering
+/// ([`super::personal_mutations::row_position`]).
 pub(crate) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {
     Ok(connection.query_row(
-        "SELECT COALESCE(MAX(position) + 1, 0) FROM personal_workspaces",
-        [],
+        "SELECT COALESCE(MAX(position) + ?1, ?2) FROM personal_workspaces",
+        rusqlite::params![
+            super::personal_mutations::row_position::GAP,
+            super::personal_mutations::row_position::FIRST
+        ],
         |row| row.get::<_, i64>(0),
     )?)
 }

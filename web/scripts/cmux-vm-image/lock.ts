@@ -138,6 +138,24 @@ export type InputsLock = {
   readonly programs: readonly LockedProgram[];
   readonly roles: Readonly<Record<string, LockedRole>>;
   readonly tools: { readonly syft: Artifact };
+  /** The source tree `bake.ts --dev-tree` bakes in (dev-tree.ts); absent, no bake can add one. */
+  readonly devTree?: DevTreeLock;
+};
+
+/**
+ * The public cmux checkout, its build toolchain and warm caches (dev-tree.ts). The checkout is
+ * the bake's own commit; the Rust toolchain comes from the checkout's cmux-tui/rust-toolchain.toml
+ * and Zig from its scripts/install-zig-ci.sh, so neither is pinned twice.
+ */
+export type DevTreeLock = {
+  readonly repo: string;
+  readonly branch: string;
+  readonly dir: string;
+  readonly submodules: readonly string[];
+  /** The packages the build names (bindgen's libclang); `apt` is their exact closure on the baked set. */
+  readonly aptRoots: readonly string[];
+  readonly apt: Readonly<Record<string, string>>;
+  readonly rustupInit: Artifact;
 };
 
 export const STORE_ROOT = "/opt/cmux";
@@ -435,6 +453,32 @@ function checkRoles(raw: unknown, apt: unknown, problems: string[]): void {
   for (const [name, role] of Object.entries(raw)) checkRole(name, role, ubuntu, problems);
 }
 
+function checkDevTree(raw: unknown, apt: unknown, problems: string[]): void {
+  if (!isRec(raw)) {
+    problems.push("devTree: not an object");
+    return;
+  }
+  // Every name another part of the lock installs: the tree's closure must not overlap them.
+  const ubuntu = isRec(apt) && isRec(apt.ubuntu) ? apt.ubuntu : {};
+  const firstUse = isRec(ubuntu.firstUse) ? Object.values(ubuntu.firstUse).filter(isRec) : [];
+  const taken = new Set([...Object.keys(isRec(ubuntu.packages) ? ubuntu.packages : {}), ...firstUse.flatMap((closure) => Object.keys(closure))]);
+  const repo = str(raw.repo);
+  // Public https only: the image holds no credential, and a clone fetches later without one.
+  if (!repo || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git$/.test(repo)) problems.push("devTree.repo: must be a public https://github.com/<owner>/<repo>.git URL");
+  if (!str(raw.branch) || !/^[\w./-]+$/.test(String(raw.branch))) problems.push("devTree.branch: missing or not a branch name");
+  if (!str(raw.dir) || !/^\/home\/cmux\/[\w.-]+$/.test(String(raw.dir))) problems.push("devTree.dir: must be a directory directly under /home/cmux");
+  for (const key of ["submodules", "aptRoots"] as const) {
+    const list = raw[key];
+    if (!Array.isArray(list) || !list.every((item) => typeof item === "string" && RELATIVE_PATH.test(item))) problems.push(`devTree.${key}: needs a list of names`);
+  }
+  checkDebianPackages("devTree.apt", raw.apt, problems);
+  if (isRec(raw.apt)) {
+    for (const name of Object.keys(raw.apt)) if (taken.has(name)) problems.push(`devTree.apt: ${name} is also in apt.ubuntu.packages or a first-use closure`);
+    if (Array.isArray(raw.aptRoots)) for (const root of raw.aptRoots) if (typeof root === "string" && !(root in raw.apt)) problems.push(`devTree.aptRoots: ${root} is not in devTree.apt`);
+  }
+  checkArtifact("devTree.rustupInit", raw.rustupInit, problems);
+}
+
 /** Validates a parsed lock. Throws LockError listing every problem; returns the typed lock. */
 export function validateInputsLock(raw: unknown): InputsLock {
   const problems: string[] = [];
@@ -453,6 +497,7 @@ export function validateInputsLock(raw: unknown): InputsLock {
   checkFirstUsePrograms(raw.programs, raw.roles, problems);
   if (!isRec(raw.tools)) problems.push("tools: missing");
   else checkArtifact("tools.syft", raw.tools.syft, problems);
+  if (raw.devTree !== undefined) checkDevTree(raw.devTree, raw.apt, problems);
   if (problems.length > 0) throw new LockError(problems);
   return raw as unknown as InputsLock;
 }
@@ -676,14 +721,23 @@ export function dpkgChanges(before: Map<string, string>, after: Map<string, stri
   return changed;
 }
 
-/** Problems when the packages an install added differ from the lock's exact set (extra, missing, or other version). */
-export function aptClosureProblems(expected: Readonly<Record<string, string>>, added: Map<string, string>): string[] {
+/**
+ * Problems when the packages an install added differ from the lock's exact set (extra, missing, or other version).
+ * A locked package that `base` (the dpkg list before the install) already has at the locked version is satisfied:
+ * apt has nothing to add for it, and the lock keeps it so the bake still installs it if the base drops it.
+ */
+export function aptClosureProblems(expected: Readonly<Record<string, string>>, added: Map<string, string>, base?: Map<string, string>): string[] {
   const problems: string[] = [];
   for (const [name, version] of added) {
     if (!(name in expected)) problems.push(`apt installed ${name}=${version}, which is not in the lock`);
     else if (expected[name] !== version) problems.push(`apt installed ${name}=${version}, the lock says ${expected[name]}`);
   }
-  for (const name of Object.keys(expected)) if (!added.has(name)) problems.push(`lock package ${name} was not installed`);
+  for (const [name, version] of Object.entries(expected)) {
+    if (added.has(name)) continue;
+    const had = base?.get(name);
+    if (had === version) continue;
+    problems.push(had === undefined ? `lock package ${name} was not installed` : `lock package ${name}=${version} was not installed (the base has ${had})`);
+  }
   return problems;
 }
 
@@ -738,8 +792,13 @@ export function percentile(values: readonly number[], p: number): number {
 }
 
 /** Snapshot and VM names: branch bakes carry cmuxnp-dev-; only an explicit promotion may not. */
-export function imageResourceName(options: { promotion: boolean; tag: string; date: string; sha: string }): string {
+/** The image prefix the production Worker boots (backend/apps/api/src/cloud-driver.ts ENV_IMAGE_PREFIX.production). */
+export const PROD_IMAGE_PREFIX = "cmuxnp-prod-vmimg-";
+
+export function imageResourceName(options: { promotion: boolean; prodCopy?: boolean; tag: string; date: string; sha: string }): string {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(options.tag)) throw new Error(`tag ${options.tag} must be [a-z0-9-], at most 41 chars`);
+  if (options.prodCopy && options.promotion) throw new Error("--prod-copy and --promotion name the snapshot differently; pass one");
+  if (options.prodCopy) return `${PROD_IMAGE_PREFIX}${options.tag}`;
   if (options.promotion) return `cmux-vm-${options.date}-${options.sha.slice(0, 10)}`;
   return `cmuxnp-dev-vmimg-${options.tag}`;
 }

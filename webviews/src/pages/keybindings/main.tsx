@@ -11,6 +11,8 @@ import table from "./generated/strings.json";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { MockKeybindingsProvider, SAMPLE_TITLES, sampleLayers } from "./mockProvider";
 import { KeybindingsStore } from "./store";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 import { focusSearchField } from "../shared/searchField";
@@ -31,7 +33,12 @@ export function mountKeybindingsPage(root: HTMLElement, client: PageClient | nul
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("keybindings.page.title");
-  createRoot(root).render(<KeybindingsPage store={store} strings={strings} />);
+  // The recorder popover (KeybindingsPage `Recorder`) portals into the page root.
+  createRoot(root).render(
+    <UiProvider container={root} dir={languageDirection(strings.language)}>
+      <KeybindingsPage store={store} strings={strings} />
+    </UiProvider>,
+  );
   return store;
 }
 

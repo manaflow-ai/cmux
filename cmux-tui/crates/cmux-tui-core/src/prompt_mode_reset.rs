@@ -65,6 +65,9 @@ pub(crate) fn exit_reset(term: &Terminal) -> Vec<u8> {
 pub(crate) struct ShellMarks {
     /// A command started (133;C) and has not finished (133;D).
     running: bool,
+    /// The title the stream set, for the title ops libghostty-vt skips
+    /// (`CSI 22/23 t`, OSC 1; `crate::terminal_title`).
+    titles: crate::terminal_title::TitleTracker,
 }
 
 impl ShellMarks {
@@ -72,7 +75,7 @@ impl ShellMarks {
     /// daemon restart or a resync): a command may be running, so nothing is
     /// reset until the shell says one finished (133;D).
     pub(crate) fn joined_midway() -> Self {
-        Self { running: true }
+        Self { running: true, ..Self::default() }
     }
 }
 
@@ -84,6 +87,15 @@ pub(crate) fn write_output<'a>(
     data: &'a [u8],
     marks: &mut ShellMarks,
 ) -> Cow<'a, [u8]> {
+    // A title pop or an OSC 1 icon name becomes the OSC 2 that applies it,
+    // here, so this terminal and every mirror fed the parsed bytes agree.
+    match marks.titles.rewrite(data) {
+        Cow::Borrowed(data) => write_marked(term, data, &mut marks.running),
+        Cow::Owned(data) => Cow::Owned(write_marked(term, &data, &mut marks.running).into_owned()),
+    }
+}
+
+fn write_marked<'a>(term: &mut Terminal, data: &'a [u8], running: &mut bool) -> Cow<'a, [u8]> {
     let mut parsed: Option<Vec<u8>> = None;
     let mut written = 0;
     let mut from = 0;
@@ -91,16 +103,16 @@ pub(crate) fn write_output<'a>(
         let at = from + offset;
         from = at + MARK.len();
         match data.get(from) {
-            Some(b'C') => marks.running = true,
-            Some(b'D') if marks.running => {
-                marks.running = false;
+            Some(b'C') => *running = true,
+            Some(b'D') if *running => {
+                *running = false;
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
                 parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
                 written = at;
                 parsed.extend_from_slice(&term.vt_write_with_normalized(KEYBOARD_RESET));
             }
             Some(b'D') => {}
-            Some(b'A') if !marks.running => {
+            Some(b'A') if !*running => {
                 // The modes as of the mark: what this chunk set before it counts.
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
                 parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));

@@ -1,13 +1,9 @@
 import Foundation
 
-/// Restart notice and deferred page strings (Resources/Localizable.xcstrings).
+/// Restart notice and held page strings (Resources/Localizable.xcstrings).
 enum CrashStrings {
     static var restartNotice: String {
         String(localized: "app.restart.notice", defaultValue: "cmux restarted after a problem. Your windows and terminals are back.", bundle: .module)
-    }
-
-    static var restartNoticeSafe: String {
-        String(localized: "app.restart.noticeSafe", defaultValue: "cmux restarted after a problem again. Browser pages were not reopened. Reload a tab to open it.", bundle: .module)
     }
 
     static var showLog: String {
@@ -27,7 +23,8 @@ enum CrashStrings {
         String(localized: "app.restart.dismiss", defaultValue: "Dismiss", bundle: .module)
     }
 
-    static var deferredPageNotice: String {
-        String(localized: "app.restart.deferredPage", defaultValue: "Not reopened after cmux restarted. Reload to open this page.", bundle: .module)
+    /// On the one restored page a restart loop holds (`LaunchRecovery.crashedPages`).
+    static var crashedPageNotice: String {
+        String(localized: "app.restart.crashedPage", defaultValue: "cmux quit unexpectedly twice while this page was loading, so it was not loaded again. Reload to open it.", bundle: .module)
     }
 }

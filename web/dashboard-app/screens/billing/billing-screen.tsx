@@ -8,7 +8,7 @@ import type { PersonalBillingJson } from "@/services/billing/dashboardBilling";
 import { localeHref } from "../../lib/locale-href";
 import { dashboardBillingQuery } from "../../queries/billing";
 import { BillingPageFrame } from "./billing-frame";
-import { personalPlanCards } from "./plan-model";
+import { personalPlanCards, type SwitchPlanId } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
 import { PlanWelcome, welcomePlan } from "./plan-welcome";
 import { TeamBillingPanel } from "./team-billing-panel";
@@ -17,6 +17,8 @@ export type BillingScreenSearch = {
   readonly team?: string;
   readonly billing?: string;
   readonly welcome?: string;
+  /** A checkout or portal redirect asking to move to this plan. */
+  readonly change?: "pro" | "max";
 };
 
 /**
@@ -39,7 +41,7 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
       ) : null}
       {welcome && data.personal ? <PlanWelcome plan={welcome} /> : null}
       {data.personal ? (
-        <PersonalBilling data={data.personal} />
+        <PersonalBilling data={data.personal} change={search.change} />
       ) : data.team ? (
         <TeamBillingPanel view={data.team} welcome={search.welcome === "team"} />
       ) : null}
@@ -47,7 +49,7 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
   );
 }
 
-function PersonalBilling({ data }: { data: PersonalBillingJson }) {
+function PersonalBilling({ data, change }: { data: PersonalBillingJson; change?: SwitchPlanId }) {
   // An App Store subscriber changes or cancels in the App Store; offering
   // Stripe checkout here would bill them twice for one plan. A Stripe
   // subscription that still bills them alongside it keeps its controls, so it
@@ -58,13 +60,13 @@ function PersonalBilling({ data }: { data: PersonalBillingJson }) {
         <AppStoreBilling manageUrl={data.planStatus.manageUrl} />
         {data.planStatus.billingManagement === "stripe" ? (
           <div className="mt-3">
-            <StripePersonalBilling data={data} />
+            <StripePersonalBilling data={data} change={change} />
           </div>
         ) : null}
       </>
     );
   }
-  return <StripePersonalBilling data={data} />;
+  return <StripePersonalBilling data={data} change={change} />;
 }
 
 function AppStoreBilling({ manageUrl }: { manageUrl: string | null }) {
@@ -82,14 +84,17 @@ function AppStoreBilling({ manageUrl }: { manageUrl: string | null }) {
   );
 }
 
-function StripePersonalBilling({ data }: { data: PersonalBillingJson }) {
+function StripePersonalBilling({ data, change }: { data: PersonalBillingJson; change?: SwitchPlanId }) {
   const t = useTranslations("dashboard.billing");
   const locale = useLocale();
   const { planStatus: status, subscription } = data;
   const cards = personalPlanCards({
     planId: status.planId,
     isPro: status.isPro,
-    subscription: subscription ? { plan: subscription.plan, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd } : null,
+    subscription: subscription
+      ? { plan: subscription.plan, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd, status: subscription.status }
+      : null,
+    foundersEdition: status.foundersEdition,
     goPlanEnabled: data.goPlanEnabled,
   });
   const picker = (
@@ -98,6 +103,7 @@ function StripePersonalBilling({ data }: { data: PersonalBillingJson }) {
       scope={{ kind: "personal", returnTo: localeHref(locale, "/dashboard/billing") }}
       periodEnd={subscription?.currentPeriodEnd ?? null}
       canManagePayment={status.billingManagement === "stripe"}
+      initialSwitch={change}
       // A plan granted without a subscription charges nothing, so it shows no price.
       currentPrice={subscription ? subscription.price : status.isPro ? null : undefined}
     />

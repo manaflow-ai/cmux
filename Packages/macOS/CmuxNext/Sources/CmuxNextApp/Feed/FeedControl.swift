@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextFeed
 import CmuxNextSettings
@@ -15,11 +16,16 @@ import Foundation
 ///   (`answered_elsewhere` when the user answered in the terminal).
 /// - `debug.feed {match?}`: sign-in, connection, mirror counts; with `match`,
 ///   the visible items whose title contains it.
+/// - `feed.list {pending_only?}`, `feed.permission.reply {request_id, mode}`,
+///   `feed.question.reply {request_id, selections}`: the permission and
+///   question dialogs agents wait on in this app's acpmux (``AgentDialogDesk``),
+///   for `cmux agents dialog list|answer`, `agents wait` and `agents events`.
 enum FeedControl {
     static let maxWait = 120
 
-    static func methods(services: AppServices) -> [ControlMethod] {
-        [
+    static func methods(services: AppServices, dialogs: AgentDialogDesk? = nil) -> [ControlMethod] {
+        let dialogs = dialogs ?? liveDialogs(services)
+        return [
             .async("feed.request") { [weak services] call in
                 let feed = await MainActor.run { services?.feed }
                 guard let feed else { throw ControlError(code: "unavailable", message: "feed is not available") }
@@ -30,11 +36,33 @@ enum FeedControl {
                 guard let feed else { throw ControlError(code: "unavailable", message: "feed is not available") }
                 return try await cancel(feed, call.params)
             }.withDeadline(.fixed(.seconds(20))),
+            .async("feed.list") { call in
+                let pendingOnly = call.params["pending_only"]?.boolValue ?? true
+                return await dialogs.list(pendingOnly: pendingOnly)
+            }.withDeadline(.fixed(.seconds(20))),
+            .async("feed.permission.reply") { call in
+                try await dialogs.replyPermission(call.params)
+            }.withDeadline(.fixed(.seconds(20))),
+            .async("feed.question.reply") { call in
+                try await dialogs.replyQuestion(call.params)
+            }.withDeadline(.fixed(.seconds(20))),
             .mainActor("debug.feed") { [weak services] call in
                 guard let feed = services?.feed else { return .value(.null) }
                 return .value(debug(feed, match: call.params["match"]?.stringValue))
             },
         ]
+    }
+
+    /// The desk on this app's acpmux, with the chat tab that shows each session.
+    @MainActor
+    static func liveDialogs(_ services: AppServices) -> AgentDialogDesk {
+        AgentDialogDesk(open: { [weak services] in
+            guard let services, let environment = QuitAgents.environment(services) else { return nil }
+            return await AcpmuxPersonLine.open(environment)
+        }, tab: { [weak services] session in
+            guard let services else { return nil }
+            return services.daemon.store.tab(agentSession: session, host: services.agentTabs.localHost)?.id
+        })
     }
 
     @MainActor

@@ -48,9 +48,9 @@ public struct EndSessionsFailure: Sendable, Equatable {
 /// workspace, which every close path refuses (`home_not_closable`) and which
 /// stays, so the next owner starts with Home only. With `keepingLayout` (End
 /// Sessions, Keep Layout) on a daemon that serves
-/// `end-terminals-keep-layout-v1`, placed terminals keep their tabs, dead, so
-/// the next launch restarts a shell in each with the same splits
-/// (`relaunchKeptTabs`); older daemons remove the tabs. Both run on their own
+/// `end-terminals-keep-layout-v1` and `tab-restart-kept-layout-v1`, placed
+/// terminals keep their tabs, dead, so the next launch restarts a shell in
+/// each in place (`relaunchKeptTabs`); other daemons remove the tabs. Both run on their own
 /// socket.
 ///
 /// No step stops the others: a workspace that does not close is recorded
@@ -60,7 +60,11 @@ public struct EndSessionsFailure: Sendable, Equatable {
 enum SessionEnding {
     static func run(on connection: DaemonConnection, deletingWorkspaces: Bool, keepingLayout: Bool) async -> EndedSessions {
         let identity = await connection.identity
-        let keepsLayout = keepingLayout && !deletingWorkspaces && identity?.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) == true
+        // Kept tabs restart only in place (`restart-tab` of a kept tab), so a
+        // daemon that cannot do that removes the tabs instead of keeping them.
+        let keepsLayout = keepingLayout && !deletingWorkspaces
+            && identity?.supports(DaemonCapability.endTerminalsKeepLayout.rawValue) == true
+            && identity?.supports(DaemonCapability.tabRestartKeptLayout.rawValue) == true
         await connection.close()
         var failures: [EndSessionsFailure] = []
         if deletingWorkspaces { failures = await closeEveryWorkspace(endpoint: await connection.endpoint) }

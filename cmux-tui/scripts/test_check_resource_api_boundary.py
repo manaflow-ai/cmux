@@ -698,7 +698,7 @@ class ContractRegistryTests(unittest.TestCase):
             {"kind": "nullable", "value": decimal},
         )
 
-    def test_live_catalog_counts_and_local_endpoint_scope_are_frozen(self) -> None:
+    def test_live_catalog_keeps_one_native_owner_and_optional_remote_metadata(self) -> None:
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
@@ -714,12 +714,34 @@ class ContractRegistryTests(unittest.TestCase):
                 "deleted",
                 "recoverable",
                 "extra",
+                "platform",
+                "capabilities",
             },
         )
         self.assertEqual(
             catalog["types"]["MachineSnapshot"]["fields"]["origin"]["type"]["values"],
-            ["local"],
+            ["local", "cloud", "ssh", "server"],
         )
+
+    def test_catalog_refuses_unbounded_machine_metadata_contracts(self) -> None:
+        catalog = json.loads((SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text())
+        for mutation in ("command", "new_origin", "required_platform", "open_platform"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                value = json.loads(json.dumps(catalog))
+                fields = value["types"]["MachineSnapshot"]["fields"]
+                if mutation == "command":
+                    fields["command"] = {"required": False, "type": {"kind": "primitive", "name": "string"}}
+                elif mutation == "new_origin":
+                    fields["origin"]["type"]["values"].append("unverified")
+                elif mutation == "required_platform":
+                    fields["platform"]["required"] = True
+                else:
+                    value["types"]["MachinePlatform"]["extra"] = True
+                path = Path(directory) / "catalog.json"
+                path.write_text(json.dumps(value))
+                diagnostics = []
+                CHECKER._operation_catalog(path, diagnostics)
+                self.assertTrue(any("remote catalog metadata contract" in item.message for item in diagnostics))
 
     def test_live_creation_correlation_is_exactly_the_eight_created_path_operations(
         self,
@@ -832,6 +854,91 @@ class ContractRegistryTests(unittest.TestCase):
             matching_contract(tui)
 
             self.assertEqual(CHECKER.check_contracts(tui), [])
+
+    def selector_table_contract(self, tui: Path, prefixes: tuple[str, ...]) -> Path:
+        """`matching_contract`, with the selector reading a `PUBLIC_ID_PREFIXES`
+        table of (prefix, CLI scope) as resource.rs does since 6b9b3e66bf16."""
+        matching_contract(tui)
+        path = tui / "crates/cmux-tui-core/src/resource.rs"
+        rows = "\n".join(f'    ("{prefix}", Some("scope_{prefix}")),' for prefix in prefixes)
+        table = (
+            f"const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[\n{rows}\n    (\"unscoped\", None),\n];\n\n"
+            "fn is_registered_public_id(value: &str) -> bool {\n"
+            "    PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == value)\n"
+            "}"
+        )
+        text = path.read_text(encoding="utf-8")
+        start = text.index("fn is_registered_public_id")
+        end = text.index("}", start) + 1
+        write(path, text[:start] + table + text[end:])
+        return path
+
+    def test_selector_prefix_table_is_the_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = self.selector_table_contract(tui, CHECKER.EXPECTED_PREFIXES)
+            text = path.read_text(encoding="utf-8").replace('    ("unscoped", None),\n', "")
+            write(path, text)
+
+            self.assertEqual(CHECKER.check_contracts(tui), [])
+
+    def test_selector_prefix_table_drift_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = self.selector_table_contract(
+                tui, tuple(prefix for prefix in CHECKER.EXPECTED_PREFIXES if prefix != "agent")
+            )
+
+            messages = sorted(
+                item.message for item in CHECKER.check_contracts(tui) if item.path == path
+            )
+
+            self.assertEqual(
+                messages,
+                [
+                    "selector ID registry has unregistered prefix 'unscoped'",
+                    "selector ID registry is missing 'agent'",
+                ],
+            )
+
+    def selector_table_messages(self, replace: dict[str, str]) -> list[str]:
+        """The selector diagnostics for a full prefix table with `replace` applied to resource.rs."""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = self.selector_table_contract(tui, CHECKER.EXPECTED_PREFIXES)
+            text = path.read_text(encoding="utf-8").replace('    ("unscoped", None),\n', "")
+            for old, new in replace.items():
+                self.assertIn(old, text)
+                text = text.replace(old, new)
+            write(path, text)
+            return sorted(
+                item.message for item in CHECKER.check_contracts(tui) if item.path == path
+            )
+
+    def test_selector_prefix_table_ignores_commented_out_rows(self) -> None:
+        row = '    ("agent", Some("scope_agent")),\n'
+        for commented in (f"    // {row.lstrip()}", f"    /* {row.strip()} */\n"):
+            with self.subTest(commented=commented):
+                self.assertEqual(
+                    self.selector_table_messages({row: commented}),
+                    ["selector ID registry is missing 'agent'"],
+                )
+
+    def test_selector_prefix_table_ignores_comments_inside_it(self) -> None:
+        row = '    ("agent", Some("scope_agent")),\n'
+        noted = (
+            '    // ("bogus", x) is not a row, and neither is the end of a table: ];\n'
+            '    /* ("bogus2", None), ]; */\n'
+            f"{row}"
+        )
+        self.assertEqual(self.selector_table_messages({row: noted}), [])
+
+    def test_selector_inline_literal_beside_the_table_is_still_read(self) -> None:
+        lookup = "PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == value)"
+        self.assertEqual(
+            self.selector_table_messages({lookup: f'{lookup} || value == "evil"'}),
+            ["selector ID registry has unregistered prefix 'evil'"],
+        )
 
     def test_schema_prefix_drift_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

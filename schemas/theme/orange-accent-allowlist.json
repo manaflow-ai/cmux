@@ -1,0 +1,10 @@
+{
+  "$comment": "Themes whose own accent may be orange: the person picked an orange theme, so the 'the accent is never orange' invariant (webviews/test/accent-glass-invariants.test.ts, CmuxNextDesignTests/SystemAccentOrangeTests.swift) skips its orange-hue rule for them. The system-accent and opaque-glass rules still hold. Remove an entry to make that theme fail the rule too.",
+  "allowed": [
+    {
+      "name": "Clay Orange",
+      "themes": ["Clay Orange", "Clay Orange Light"],
+      "why": "cmux's own warm theme with a clay accent (#d87657); allowed for now, coord-deputy 2026-10-21, pending Leo"
+    }
+  ]
+}

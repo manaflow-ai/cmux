@@ -10,7 +10,7 @@ import Testing
         let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(), configuration: .loadTolerant)
         router.snapshots.publish { $0 = .sample() }
         let server = ControlSocketServer(
-            configuration: .init(path: temporarySocketPath(), accessMode: .allowAll, maxOutboxBytesPerConnection: outboxBytes),
+            configuration: .init(path: temporarySocketPath(), accessMode: .automation, maxOutboxBytesPerConnection: outboxBytes),
             router: router
         )
         try server.start()

@@ -11,8 +11,14 @@ enum Replay {
         let store = Store(conversation: Fixtures.loadConversation(), baseDate: base)
         let responder = ScriptedResponder()
         store.responder = responder
-        store.dispatch(.setDraft("How are you doing?\nS"))
-        for (t, text) in keystrokes { store.schedule(.setDraft(text), at: t - 0.006) }
+        // MESSAGESLAB_REPLAY_DRAFT (motion gate parity27 scenes): this draft from the start ("\\n" = a line break), no
+        // keystrokes; the send, responder and clock stay the recording's. Unset: the recording's own draft and keystrokes.
+        if let draft = ProcessInfo.processInfo.environment["MESSAGESLAB_REPLAY_DRAFT"] {
+            store.dispatch(.setDraft(draft.replacingOccurrences(of: "\\n", with: "\n")))
+        } else {
+            store.dispatch(.setDraft("How are you doing?\nS"))
+            for (t, text) in keystrokes { store.schedule(.setDraft(text), at: t - 0.006) }
+        }
         store.schedule(.send, at: sendTime)
         responder.start(store)
         return store

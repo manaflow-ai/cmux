@@ -16,6 +16,10 @@ A layer is {"d": path, "op": op} plus optional fields:
 - w: stroke width (stroke ops). Caps and joins are round unless "cap" or "join" says otherwise.
 - alpha: 0-1 opacity. dash and dashPhase: dash pattern in grid units (pathLength already resolved).
 - accent: true for Cat-accent layers, drawn in the accent color.
+- rule: "evenodd" for fills drawn with the even-odd rule (SVG fill-rule); nonzero otherwise.
+
+A source icon may also give "sf" (its SF Symbol fallback; it stands for that symbol only when
+"replaces" lists it) and "source" (provenance, "chromium" for scripts/icons/chromium_icons.py's batch).
 
 Also writes the catalog (name, meaning, SF Symbol fallback, dense style, family) and the generated Swift
 IconName members. Run with --check to verify the outputs are up to date.
@@ -30,6 +34,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "design" / "icons" / "source"
+# An alternate family laid over the pack by Debug Settings `icons.family` (custom: Lucas 2026-10-17).
+SOURCE_CUSTOM = REPO / "design" / "icons" / "source-custom"
 NATIVE = REPO / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextIcons"
 WEB = REPO / "webviews" / "src" / "agent-session" / "acpmux" / "icons"
 OUTPUTS = {
@@ -38,6 +44,8 @@ OUTPUTS = {
     "names_swift": NATIVE / "IconName+Members.swift",
     "catalog_swift": NATIVE / "IconName+Catalog.swift",
     "pack_web": WEB / "cmuxIcons.json",
+    "pack_custom_native": NATIVE / "Resources" / "cmux-icons-custom.json",
+    "pack_custom_web": WEB / "cmuxIconsCustom.json",
 }
 NUM = re.compile(r"-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
@@ -298,7 +306,7 @@ def serialize(segs):
 
 # MARK: SVG tree to layers
 
-INHERITED = ("fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "class")
+INHERITED = ("fill", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "class")
 
 
 def color_kind(value):
@@ -384,6 +392,8 @@ def emit(el, tag, style, m, out, in_mask):
         common["accent"] = True
     if fill and not (in_mask and fill == "white"):
         layer = {"d": d, "op": "clearFill" if in_mask else "fill", **common}
+        if style.get("fill-rule") == "evenodd":
+            layer["rule"] = "evenodd"
         a = float(style.get("fill-opacity", 1.0))
         if a < 1 and not in_mask:
             layer["alpha"] = round(a * layer.get("alpha", 1.0), 3)
@@ -426,6 +436,8 @@ def layers(svg):
 
 
 def sf_fallback(icon):
+    if icon.get("sf"):
+        return icon["sf"]
     for value in icon.get("replaces") or []:
         if re.fullmatch(r"[a-z0-9]+(\.[a-z0-9]+)*", value):
             return value
@@ -452,6 +464,13 @@ def build():
             entry = {"name": name, "meaning": icon["meaning"], "sf": sf_fallback(icon), "family": name.rsplit(".", 1)[0]}
             if DENSE_SOLID.search(name):
                 entry["denseStyle"] = "solid"
+            if icon.get("source"):
+                entry["source"] = icon["source"]
+            # An icon whose fallback is not in `replaces` does not stand for that SF Symbol, so
+            # `icon(symbol:)` keeps drawing the symbol's own icon (Chromium icons name a fallback
+            # without claiming it app-wide).
+            if icon.get("sf") and icon["sf"] not in (icon.get("replaces") or []):
+                entry["alias"] = False
             catalog.append(entry)
     pack = {"id": "cmux", "version": 1, "grid": 24, "icons": dict(sorted(icons.items()))}
     catalog.sort(key=lambda e: e["name"])
@@ -463,9 +482,19 @@ def build():
                      "    nonisolated public static let catalog: [IconName] = [\n"
                      + "\n".join(f"        .{swift_member(e['name'])}," for e in catalog).rstrip(",") + "\n    ]\n}\n")
     pack_text = json.dumps(pack, separators=(",", ":"), ensure_ascii=False) + "\n"
+    custom = {}
+    for path in sorted(SOURCE_CUSTOM.glob("*.json")):
+        for icon in json.loads(path.read_text())["icons"]:
+            if icon["name"] not in icons:
+                raise ValueError(f"custom icon {icon['name']} is not in the pack")
+            custom[icon["name"]] = {"line": layers(icon["line"]), "solid": layers(icon["solid"])}
+    custom_text = json.dumps({"id": "cmux-custom", "version": 1, "grid": 24, "icons": dict(sorted(custom.items()))},
+                             separators=(",", ":"), ensure_ascii=False) + "\n"
     return {
         "pack_native": pack_text,
         "pack_web": pack_text,
+        "pack_custom_native": custom_text,
+        "pack_custom_web": custom_text,
         "catalog_native": json.dumps({"icons": catalog}, indent=1, ensure_ascii=False) + "\n",
         "names_swift": swift,
         "catalog_swift": catalog_swift,

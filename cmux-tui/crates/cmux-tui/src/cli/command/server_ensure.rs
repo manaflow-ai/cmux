@@ -4,19 +4,27 @@ use super::{Flags, UsageError};
 use crate::cli::lifecycle::ServerAction;
 use crate::local_owner::EnsureWebSocket;
 
-/// `server ensure [--terminal-reap-grace-seconds <n>] [--install-key-stdin]
-/// [--restore-progress] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
+/// `server ensure [--terminal-reap-grace-seconds <n>] [--exit-with-pid <pid>] [--install-key-stdin]
+/// [--restore-progress] [--replace-unresponsive] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
 /// grace has the owner's own startup bounds, checked before any spawn.
 pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
     let install_key_stdin = flags.boolean("install-key-stdin");
     let progress = flags.boolean("restore-progress");
     let websocket = websocket(flags)?;
+    let replace_unresponsive = flags.boolean("replace-unresponsive");
+    let exit_with_pid = flags
+        .take("exit-with-pid")
+        .map(|value| crate::local_owner::resolve_exit_with_pid(&value))
+        .transpose()
+        .map_err(UsageError::new)?;
     let Some(value) = flags.take("terminal-reap-grace-seconds") else {
         return Ok(ServerAction::Ensure {
             terminal_reap_grace: None,
+            exit_with_pid,
             install_key_stdin,
             progress,
             websocket,
+            replace_unresponsive,
         });
     };
     let seconds = value
@@ -27,9 +35,11 @@ pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
             .map_err(|error| UsageError::new(error.to_string()))?;
     Ok(ServerAction::Ensure {
         terminal_reap_grace: Some(grace),
+        exit_with_pid,
         install_key_stdin,
         progress,
         websocket,
+        replace_unresponsive,
     })
 }
 

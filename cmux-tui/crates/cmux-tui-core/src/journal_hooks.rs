@@ -1,3 +1,4 @@
+use crate::panic_free::RecoverPoison;
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(all(test, target_os = "linux"))]
 use std::io::Read;
@@ -73,7 +74,7 @@ pub(crate) struct JournalHookRuntime {
 
 impl JournalHookRuntime {
     fn begin(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.shutdown || state.running {
             return false;
         }
@@ -83,7 +84,7 @@ impl JournalHookRuntime {
     }
 
     fn finish(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.running = false;
         self.changed.notify_all();
     }
@@ -94,14 +95,14 @@ impl JournalHookRuntime {
 
     pub(crate) fn shutdown_until(&self, deadline: Instant) -> bool {
         self.cancelled.store(true, Ordering::Release);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.shutdown = true;
         while state.running {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return false;
             }
-            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if timeout.timed_out() && state.running {
                 return false;
@@ -394,7 +395,7 @@ fn run_delivery_worker(
     runtime: &JournalHookRuntime,
 ) {
     loop {
-        let job = match jobs.lock().unwrap().recv() {
+        let job = match jobs.lock().recover_poison().recv() {
             Ok(job) => job,
             Err(_) => return,
         };
@@ -666,7 +667,10 @@ fn scan_hooks(
             if page.records.is_empty() {
                 continue;
             }
-            let scanned_to = page.records.last().expect("non-empty page").record.sequence;
+            let Some(scanned_to) = page.records.last().map(|document| document.record.sequence)
+            else {
+                continue;
+            };
             anyhow::ensure!(scanned_to > cursor, "journal hook scan did not advance its cursor");
             let causal_candidates = page
                 .records
@@ -765,7 +769,9 @@ impl CompiledHookFilter {
         }
         let mut classes = [false; 4];
         for class in &manifest.filter.classes {
-            classes[class_index(*class)] = true;
+            if let Some(slot) = classes.get_mut(class_index(*class)) {
+                *slot = true;
+            }
         }
         let has_class_filter = !manifest.filter.classes.is_empty();
         let subject_kinds = manifest.filter.subject_kinds.iter().cloned().collect();
@@ -820,7 +826,9 @@ impl CompiledHookFilter {
         {
             return false;
         }
-        if self.has_class_filter && !self.classes[class_index(record.class)] {
+        if self.has_class_filter
+            && !self.classes.get(class_index(record.class)).copied().unwrap_or(false)
+        {
             return false;
         }
         if !self.subject_kinds.is_empty()
@@ -1043,7 +1051,7 @@ fn execute_hook_child_unix(
         if now >= deadline {
             return Err((None, Some(format!("hook timed out after {} ms", timeout.as_millis()))));
         }
-        match stdin.write(&input[offset..]) {
+        match stdin.write(input.get(offset..).unwrap_or_default()) {
             Ok(0) => {
                 return hook_stdin_closed_result(
                     child_exit,

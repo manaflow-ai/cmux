@@ -65,12 +65,15 @@ final class HomeVideo {
             layer.frame = body
             let mask = masks[key] ?? CAShapeLayer()
             masks[key] = mask
-            mask.path = BubblePath.cached(size: body.size, outgoing: p.outgoing, tail: p.tail)
+            mask.path = BubblePath.balloon(frame: CGRect(origin: .zero, size: body.size), row: p).cgPath  // cmux: the shared bubble outline
             mask.frame = CGRect(origin: .zero, size: body.size)
             layer.mask = mask
             let badge = badges[key] ?? Self.makeBadge()
             badges.updateValue(badge, forKey: key) // // crash program: dictionary write
             if badge.superlayer !== cell.layer { cell.layer.addSublayer(badge) }
+            // This pane's own scale (MessagesLab 258b385: two panes can be at two scales).
+            let scale = demo.renderScale
+            for l in [badge, mask] + (badge.sublayers ?? []) where l.contentsScale != scale { l.contentsScale = scale }
             badge.position = CGPoint(x: body.midX, y: body.midY)
             let state = playback.state(key)
             badge.isHidden = state == .playing

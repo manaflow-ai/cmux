@@ -10,15 +10,18 @@ import Foundation
 enum HistoryHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        registry.bind("focusHistoryBack", run: { _ in
-            _ = services.locationTrail.navigate(.back)
-        })
-        registry.bind("focusHistoryForward", run: { _ in
-            _ = services.locationTrail.navigate(.forward)
-        })
-        registry.bind("focusHistoryLast", run: { _ in
-            _ = services.locationTrail.navigate(.last)
-        })
+        // Nowhere to go is a navigation no-op (R136): refused quietly, so callers get the reason
+        // and a key press shows nothing.
+        let walks: [(ActionID, LocationTrailService.Direction, @MainActor () -> String)] = [
+            ("focusHistoryBack", .back, { HistoryAppStrings.nothingBack }),
+            ("focusHistoryForward", .forward, { HistoryAppStrings.nothingForward }),
+            ("focusHistoryLast", .last, { HistoryAppStrings.nothingLast }),
+        ]
+        for (id, direction, nowhere) in walks {
+            registry.bind(id, run: { _ in
+                guard services.locationTrail.navigate(direction) else { throw ActionFailure.noTarget(nowhere()) }
+            })
+        }
         // A row of the Back / Forward button list (history.md 4.2a): the trail index it shows.
         registry.bind("history.goTo", run: { invocation in
             guard let index = invocation["index"]?.intValue, services.locationTrail.go(toIndex: index) else {

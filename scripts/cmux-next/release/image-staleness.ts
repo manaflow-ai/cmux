@@ -128,6 +128,15 @@ const moduleFiles = (segments: Array<string>, reader: SourceReader): Array<strin
   const p = rel.join("/")
   const roots = segments[0] === "crate" ? [CORE] : [`${CORE}/server`, CORE]
   const files = roots.flatMap((r) => [`${r}/${p}.rs`, `${r}/${p}/mod.rs`])
+  // A child declared `#[path = "x.rs"] mod name;` in its parent's file lives at that path.
+  if (rel.length > 1) {
+    const name = rel[rel.length - 1]!
+    for (const parent of moduleFiles([...segments.slice(0, -1)], reader)) {
+      const text = stripComments(reader.read(parent) ?? "")
+      const decl = text.match(new RegExp(`#\\[path\\s*=\\s*"([^"]+)"\\]\\s*(?:pub(?:\\([^)]*\\))?\\s+)?mod\\s+${name}\\s*;`))
+      if (decl) files.push(`${parent.slice(0, parent.lastIndexOf("/"))}/${decl[1]!}`)
+    }
+  }
   if (segments[0] === "crate") {
     const lib = stripComments(reader.read(`${CORE}/lib.rs`) ?? "")
     const reexport = lib.match(new RegExp(`\\buse\\s+(\\w+)::${rel[0]}\\s*;`))
@@ -154,7 +163,15 @@ const resolveToken = (token: string, index: Map<string, Array<{ file: string; va
     for (const file of files) {
       const text = stripComments(reader.read(file) ?? "")
       const alias = text.match(new RegExp(`\\buse\\s+([\\w:]+)::(\\w+)\\s+as\\s+${name}\\s*;`)) ?? text.match(new RegExp(`\\buse\\s+([\\w:]+)::(${name})\\s*;`))
-      if (alias && depth < 4) return resolveToken(`${alias[1]}::${alias[2]}`, index, reader, depth + 1)
+      if (!alias || depth >= 4) continue
+      // A relative path (`use open_url::X`) names a child of this module first.
+      const path = alias[1]!.split("::")
+      if (path[0] === "self") return resolveToken([...segments, ...path.slice(1), alias[2]].join("::"), index, reader, depth + 1)
+      const child = [...segments, ...path]
+      if (path[0] !== "crate" && path[0] !== "super" && moduleFiles(child, reader).some((f) => reader.read(f) !== undefined)) {
+        return resolveToken([...child, alias[2]].join("::"), index, reader, depth + 1)
+      }
+      return resolveToken(`${alias[1]}::${alias[2]}`, index, reader, depth + 1)
     }
   }
   if (distinct(found).length === 1) return found[0]!.value

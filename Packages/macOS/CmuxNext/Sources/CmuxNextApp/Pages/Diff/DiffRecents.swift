@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDiff
 import CmuxNextSettings
 import Foundation
 
@@ -29,6 +30,8 @@ nonisolated struct DiffRecent: Codable, Sendable, Equatable {
         case .branch(let base): base == "HEAD" ? "uncommitted" : "branch"
         case .staged: "staged"
         case .unstaged: "unstaged"
+        // A turn belongs to its chat: the empty state offers the default scope for it.
+        case .turn: "branch"
         }
     }
 }
@@ -50,17 +53,10 @@ final class DiffRecents {
         self.url = url
     }
 
-    /// A tagged build keeps it next to the tag's daemon state, an untagged one
-    /// in its bundle's support directory (as SidebarSnapshotFile does).
+    /// Beside the build's daemon state, as SidebarSnapshotFile does
+    /// (per-build isolation S5): never another build's tag folder.
     static func standardURL(launch: LaunchIdentity) -> URL {
-        let directory: URL
-        if let tag = launch.tag, !tag.isEmpty {
-            directory = DaemonLauncher.tagStateDirectory(tag: tag).deletingLastPathComponent()
-        } else {
-            directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appending(path: launch.bundleID ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
-        }
-        return directory.appending(path: fileName)
+        SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: fileName)
     }
 
     /// The recents, newest first.

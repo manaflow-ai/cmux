@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextFocus
 
 /// One record of the input journal (plans/cmux-next/input-spec.md section 3):
 /// an input event, a focus or attach transition, or a diagnostic marker,
@@ -25,8 +26,9 @@ nonisolated struct InputJournalEntry: Hashable, Sendable, Codable {
         case appActive(Bool)
         /// A focus state machine input and the state it produced.
         case focus(FocusEvent, after: FocusDigest)
-        /// The window's full focus state, so replay can start mid-ring.
-        case focusCheckpoint(FocusState)
+        /// The window's full focus state (the machine's JSON), so replay can
+        /// start mid-ring.
+        case focusCheckpoint(FocusCheckpoint)
         /// An AppKit responder report; `suppressed` when it was the echo of
         /// the applier's own `makeFirstResponder` (not reduced).
         case responder(FocusEvent.Responder, suppressed: Bool)

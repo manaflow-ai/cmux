@@ -37,14 +37,6 @@ public nonisolated struct PageTunables {
         "history.surface", section, "History page", help: "Shows cmux://history as the React page. New tabs use it.",
         default: .native, code: "PageTunables.history")
 
-    /// The App Store tab as the React page (react-pages.md A1-A3). Its data comes from the daemon's
-    /// routed `apps.*` ops (page-router-v1). Default native again (hq-6d, 2026-10-13, cx-hnmbt.13):
-    /// the React page still refuses Hide/Show, update, grants, logs and icons, so a release build
-    /// (no Debug Settings) must not get it as its only store. `web` keeps it reachable.
-    public static let appStore = Tunable<PageImplementation>.choice(
-        "apps.store.surface", section, "App Store page", help: "Shows the App Store tab as the React page. New tabs use it.",
-        default: .native, code: "PageTunables.appStore")
-
     /// The CodeRouter app opens as the React CodeRouter page (cmux.coderouter) instead of its
     /// scene pane.
     public static let coderouter = Tunable<PageImplementation>.choice(
@@ -62,5 +54,12 @@ public nonisolated struct PageTunables {
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    public static var all: [TunableDescriptor] { [history.descriptor, appStore.descriptor, coderouter.descriptor, debugSettings.descriptor, cloudMachinesLayout.descriptor] }
+    /// The live web loop (``WebDevOverride``, plans/cmux-next/web-live-reload.md): off by default, so
+    /// a `web-dev.json` overlay is opt-in; off ignores the file without editing it.
+    public static let webDevOverride = Tunable<Bool>.toggle(
+        "webDev.override", section, "Live web reload (web-dev.json)",
+        help: "Loads pages and agent panes from the server or overlay web-dev.json names. Reload a page to apply.",
+        default: false, code: "PageTunables.webDevOverride")
+
+    public static var all: [TunableDescriptor] { [history.descriptor, coderouter.descriptor, debugSettings.descriptor, cloudMachinesLayout.descriptor, webDevOverride.descriptor] }
 }

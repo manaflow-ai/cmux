@@ -21,7 +21,14 @@ public actor MobileIrxHost {
         case stopped
     }
 
-    public internal(set) var phase: Phase = .idle
+    public internal(set) var phase: Phase = .idle {
+        didSet {
+            guard phase != oldValue else { return }
+            for observer in phaseObservers.values { observer.yield(phase) }
+        }
+    }
+    /// Every open ``phaseUpdates()`` stream (the Mobile Pairing page's status).
+    var phaseObservers: [UUID: AsyncStream<Phase>.Continuation] = [:]
     /// The v2 installation id phones see as `mac_device_id`, once provisioned.
     public internal(set) var macDeviceID: String?
 
@@ -32,6 +39,8 @@ public actor MobileIrxHost {
     let journal: IrxJournal
     /// Called once per phone connection that becomes usable (`mobile.rpc.ready`).
     let onUsable: (@Sendable (MobileUsableSession) -> Void)?
+    /// What phones may do here (Settings > Accounts > Phone Access), read per request.
+    let access: PhoneAccessGate
 
     var backend: (any MobileCompatBackend)?
     var identity: IrxIdentity?
@@ -63,9 +72,10 @@ public actor MobileIrxHost {
 
     public init(configuration: MobileHostConfiguration, auth: any MobileHostAuth,
                 makeBackend: @escaping @Sendable () async throws -> any MobileCompatBackend,
-                clock: any Clock<Duration> = ContinuousClock(),
+                clock: any Clock<Duration> = ContinuousClock(), access: PhoneAccessGate = PhoneAccessGate(),
                 onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
         self.onUsable = onUsable
+        self.access = access
         self.configuration = configuration
         self.auth = auth
         self.makeBackend = makeBackend
@@ -97,6 +107,23 @@ public actor MobileIrxHost {
             await teardown()
             if run == lifetime { phase = .failed(String(describing: error)) }
         }
+    }
+
+    /// The current phase, then each change, until the caller stops iterating.
+    public func phaseUpdates() -> AsyncStream<Phase> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Phase.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        phaseObservers[id] = continuation
+        continuation.yield(phase)
+        continuation.onTermination = { [weak self] _ in
+            // task-owner: teardown hop; removing an ended observer from the actor
+            Task { await self?.removePhaseObserver(id) }
+        }
+        return stream
+    }
+
+    private func removePhaseObserver(_ id: UUID) {
+        phaseObservers.removeValue(forKey: id)
     }
 
     /// Closes every phone session and stops the endpoint and control service.

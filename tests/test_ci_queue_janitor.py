@@ -638,6 +638,7 @@ class OwnedMarkerRunTests(unittest.TestCase):
             "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
             "a dispatch workflow as a pull request": self.run_of(path=".github/workflows/iroh-release-gate.yml"),
             "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
+            "the cmux-bot App's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "cmux-bot[bot]"}),
             "fork": self.run_of(head_repository={"id": 2}),
             "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
         }.items():
@@ -698,7 +699,8 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("dry_run:", text)
         self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", ""))
         self.assertIn("\npermissions: {}\n", text)
-        self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
+        # The ci-bot environment holds the sweep's dispatch credentials (118e52e14907).
+        self.assertIn("  sweep:\n    environment: ci-bot\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)

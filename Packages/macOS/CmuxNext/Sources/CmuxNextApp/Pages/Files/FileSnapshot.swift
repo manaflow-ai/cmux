@@ -10,6 +10,8 @@ nonisolated enum FileReadOnlyReason: String, Sendable, Equatable {
     case binary
     /// The file is not writable.
     case permission
+    /// The host opened it as a chat transcript, which an edit could break (a chat's read-only open).
+    case transcript
 }
 
 /// A file as a page gets it: the bytes decoded as UTF-8 with nothing removed (a BOM stays as

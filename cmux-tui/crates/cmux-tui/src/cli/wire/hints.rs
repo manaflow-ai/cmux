@@ -25,6 +25,16 @@ pub(super) fn no_answer() -> &'static str {
     crate::localization::catalog().cli_connection.no_answer()
 }
 
+/// The session refused the connection at its connection limit.
+pub(super) fn session_busy() -> &'static str {
+    crate::localization::catalog().cli_connection.busy()
+}
+
+/// A cmux.protocol/2 envelope whose `type` this command does not expect.
+pub(super) fn unexpected_envelope(kind: &str) -> String {
+    crate::localization::catalog().cli_connection.unexpected_envelope(kind)
+}
+
 /// A reply that is JSON but no cmux.protocol/2 envelope (an older cmux's
 /// command protocol or another program).
 pub(super) fn wrong_protocol() -> &'static str {

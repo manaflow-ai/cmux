@@ -11,7 +11,7 @@ final class ExtensionCrashIndicator {
     private let trampoline = MenuTrampoline()
     private weak var store: BrowserExtensionStore?
     private(set) lazy var button: ChromeIconButton = {
-        let button = ChromeIconButton(icon: .extensionCrashed, label: "",
+        let button = ChromeIconButton(icon: .browserToolbarExtensionsCrashed, label: "",
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Self.identifier)
         return button
@@ -33,7 +33,7 @@ final class ExtensionCrashIndicator {
             }
             return
         }
-        button.setIcon(.extensionCrashed, label: Strings.extensionsCrashed(crashed.map(\.name)))
+        button.setIcon(.browserToolbarExtensionsCrashed, label: Strings.extensionsCrashed(crashed.map(\.name)))
         let target = slot.arrangedSubviews.firstIndex(of: puzzle) ?? slot.arrangedSubviews.count
         if let current = slot.arrangedSubviews.firstIndex(of: button), current == target - 1 { return }
         if arranged { slot.removeArrangedSubview(button) }

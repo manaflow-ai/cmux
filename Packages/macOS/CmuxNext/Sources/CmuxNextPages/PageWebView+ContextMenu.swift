@@ -8,4 +8,20 @@ extension PageWebView {
         get { webView.contextMenuEditor }
         set { webView.contextMenuEditor = newValue }
     }
+
+    /// Keeps WebKit's desktop default items in `menu` (Copy on a selection): what a page without a
+    /// ``contextMenuEditor`` shows. An editor that adds items calls it first.
+    public static func keepDefaultMenuItems(in menu: NSMenu) {
+        PageWKWebView.keepDesktopItems(in: menu)
+    }
+
+    /// The title of Copy in a Chromium page's menu (WebKit titles its own).
+    public static var copyTitle: String {
+        String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .module)
+    }
+
+    /// A menu item titled `title` that runs `handler` (the item keeps the handler alive).
+    public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+        PageMenuAction.item(title, handler: handler)
+    }
 }

@@ -176,8 +176,9 @@ pub enum CloseFocusPolicy {
     MostRecent,
 }
 
-/// What the app reads from the state without recomputing a rule: filled by
-/// every reduction (`FocusState::derive`).
+/// What the app reads from the state without recomputing a rule: kept
+/// current by every reduction (`FocusState::derive`). The shown workspace's
+/// focus history is not here: it is read on request (`recent_panes`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Derived {
@@ -188,8 +189,6 @@ pub struct Derived {
     pub context: Context,
     /// The focused page is in browser focus mode.
     pub browser_focus_mode_active: bool,
-    /// The shown workspace's focus history, newest first.
-    pub recent_panes: Vec<String>,
 }
 
 impl Default for Derived {
@@ -199,7 +198,6 @@ impl Default for Derived {
             underlying: Resolved::None {},
             context: Context::default(),
             browser_focus_mode_active: false,
-            recent_panes: Vec::new(),
         }
     }
 }
@@ -232,8 +230,8 @@ pub struct FocusState {
     /// The sidebar is hidden: it cannot be a focus target.
     pub sidebar_hidden: bool,
     pub close_focus: CloseFocusPolicy,
-    /// Recomputed by every reduction; ignored on input.
-    #[serde(default)]
+    /// Recomputed by every reduction; ignored on input (`import` derives it).
+    #[serde(default, skip_serializing)]
     pub derived: Derived,
 }
 
@@ -261,13 +259,34 @@ impl Default for FocusState {
 
 impl FocusState {
     /// The shown workspace's focus history, newest first.
-    pub fn recent_panes(&self) -> Vec<String> {
+    pub fn recent_panes(&self) -> &[String] {
         self.topology
             .workspace
             .as_ref()
             .and_then(|w| self.history.get(w))
-            .cloned()
-            .unwrap_or_default()
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// A state read from its JSON shape (a journal checkpoint), derived.
+    pub fn import(json: &[u8]) -> serde_json::Result<FocusState> {
+        let mut state: FocusState = serde_json::from_slice(json)?;
+        state.derive();
+        Ok(state)
+    }
+
+    /// The JSON shape: the state with its `derived` values, including the
+    /// shown workspace's focus history (`derived.recentPanes`).
+    pub fn export(&self) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        if let serde_json::Value::Object(object) = &mut value {
+            let mut derived =
+                serde_json::to_value(&self.derived).unwrap_or(serde_json::Value::Null);
+            if let serde_json::Value::Object(fields) = &mut derived {
+                fields.insert("recentPanes".into(), serde_json::json!(self.recent_panes()));
+            }
+            object.insert("derived".into(), derived);
+        }
+        value
     }
 
     pub fn resolved(&self) -> Resolved {
@@ -316,12 +335,16 @@ impl FocusState {
     /// bits, so content-scoped actions cannot run while the user types
     /// there. The palette keeps the bits of what is below it.
     pub fn context(&self) -> Context {
-        if let Some(top) = self.overlays.last()
+        Self::context_of(&self.overlays, &self.underlying())
+    }
+
+    fn context_of(overlays: &[Overlay], underlying: &Resolved) -> Context {
+        if let Some(top) = overlays.last()
             && *top != Overlay::Palette
         {
             return Context::default();
         }
-        match self.underlying() {
+        match underlying {
             Resolved::Terminal { .. } => Context { terminal: true, ..Context::default() },
             Resolved::BrowserPage { .. }
             | Resolved::AddressBar { .. }
@@ -340,14 +363,16 @@ impl FocusState {
         }
     }
 
-    /// Recomputes `derived` from the rest of the state.
+    /// Recomputes `derived` from the rest of the state (one resolution).
     pub fn derive(&mut self) {
-        self.derived = Derived {
-            resolved: self.resolved(),
-            underlying: self.underlying(),
-            context: self.context(),
-            browser_focus_mode_active: self.is_browser_focus_mode_active(),
-            recent_panes: self.recent_panes(),
+        let underlying = self.underlying();
+        let resolved = match self.overlays.last() {
+            Some(top) => Resolved::Overlay { overlay: *top },
+            None => underlying.clone(),
         };
+        let context = Self::context_of(&self.overlays, &underlying);
+        let browser_focus_mode_active = matches!(&resolved, Resolved::BrowserPage { tab, .. }
+            if self.browser_focus_mode.contains(tab));
+        self.derived = Derived { resolved, underlying, context, browser_focus_mode_active };
     }
 }

@@ -7,6 +7,11 @@ const events = new Set([
   "session.updated",
   "session.status",
   "session.idle",
+  "session.execution.succeeded",
+  "session.execution.interrupted",
+  "session.execution.failed",
+  "session.next.step.failed",
+  "session.error",
   "session.compacted",
   "session.deleted",
   "message.updated",
@@ -19,10 +24,11 @@ const events = new Set([
   "question.replied",
   "question.rejected",
 ]);
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
 const sessionRoots = new Map();
 
 function topology(event) {
-  const properties = event?.properties || {};
+  const properties = event?.data || event?.properties || {};
   const info = properties.info || {};
   const sessionId = info.id || properties.sessionID || properties.sessionId;
   if (!sessionId) return {};
@@ -62,6 +68,10 @@ const CmuxTuiJournal = async (context) => ({
     // already records their visible bytes, so spawning one process per token
     // would add load without adding a semantic transition.
     if (!events.has(nativeEvent)) return;
+    // An interrupt (Esc) or a recoverable context overflow arrives as
+    // session.error but the turn continues to idle; it is not a failure.
+    const errorName = (event.properties || event.data || {}).error?.name;
+    if (nativeEvent === "session.error" && NON_TERMINAL_SESSION_ERRORS.has(errorName)) return;
     const sessionTopology = topology(event);
     emit(nativeEvent, {
       event,

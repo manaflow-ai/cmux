@@ -145,6 +145,26 @@ test("snapshot restore posts the snapshot to the account restore route", async (
   assert.equal(calls[0].init.headers["idempotency-key"], "restore-key");
 });
 
+test("snapshot create generates an idempotency key when code mode omits one", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    catalog: relayCatalog,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ id: "snap_created" }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+
+  await broker.request("vm.snapshot.create", { vm_id: "vm_fixture", name: "before-upgrade" });
+
+  assert.equal(calls[0].url, "https://cloud.test/api/vm/vm_fixture/snapshot");
+  assert.equal(calls[0].init.method, "POST");
+  assert.match(calls[0].init.headers["idempotency-key"], /^[0-9a-f-]{36}$/);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { name: "before-upgrade" });
+});
+
 test("every relay operation calls the method and path that its catalog binding declares", async () => {
   const params = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", name: "example.com", path: "/tmp" };
   const values = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", name: "example.com" };

@@ -78,7 +78,13 @@ export const CLOUD_REJECT_CODES = [
   /** An attachment part's type or size differs from the uploaded object's record. */
   "attachment_mismatch",
   /** A human the actor may not reach (no shared team or connection, their settings, or a block); also an unknown account (section 16). */
-  "not_reachable"
+  "not_reachable",
+  /** A read-only member tried to write (send, react, rename, add); it may read, read_cursor.set and leave. */
+  "read_only",
+  /** A role an op cannot set (`participants.set_role` never makes an owner: that is `ownership.transfer`). */
+  "invalid_role",
+  /** The person was removed with a ban; an admin unbans with `participants.unban` before anyone adds them again. */
+  "banned"
 ] as const
 
 export type LocalRejectCode = (typeof LOCAL_REJECT_CODES)[number]

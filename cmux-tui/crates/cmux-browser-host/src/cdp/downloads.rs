@@ -7,6 +7,7 @@
 use super::driver::{CdpDriver, INTERNAL_TIMEOUT, Inner};
 use super::state::{Applied, State};
 use crate::protocol::{DriverError, DriverEvent, required_str, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::PoisonError;
@@ -50,7 +51,7 @@ impl Downloads {
 
 fn event(name: &str, target_id: &str, payload: Value) -> DriverEvent {
     let mut payload = payload;
-    payload["targetId"] = json!(target_id);
+    payload.set("targetId", json!(target_id));
     DriverEvent { name: name.to_owned(), payload }
 }
 

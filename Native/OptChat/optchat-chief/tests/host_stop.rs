@@ -33,7 +33,7 @@ if sys.argv[1:2] == ["run"]:
     held = []
     while True:
         held.append(s.accept()[0])
-elif sys.argv[1:2] == ["shutdown"]:
+elif sys.argv[1:] == ["shutdown", "--end-agents"]:  # the brain ends its agents (cx-qryd0)
     open(home + "/calls", "a").write("shutdown\n")
     os.kill(int(open(home + "/run.pid").read()), signal.SIGTERM)
 "#,

@@ -15,7 +15,10 @@ fn surface_exit_event_retires_the_mirror_before_tree_refresh() {
     assert!(!session.has_surface(7));
     assert!(session.surface_is_exited(7));
     assert!(session.tree_is_stale());
-    assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::SurfaceExited(7))));
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)),
+        Ok(MuxEvent::SurfaceExited(7, _))
+    ));
 }
 
 #[cfg(unix)]

@@ -1,0 +1,133 @@
+2026-10-24T05:27:21.524001Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.144.60:22587 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-24T05:27:21.732412Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+objc[57926]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x117fdc398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x10d650310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+2026-10-24T05:27:22.118152Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:56324 })
+2026-10-23 22:27:24.664 CmuxMobileApp[57926:615565106] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 22:27:24.664 CmuxMobileApp[57926:615565106] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T05:27:38.852408Z  INFO cmux_mobile_link::hybrid: media session up session="639ca1a7-83a9-4bea-a27c-4272db914853"
+2026-10-24T05:27:50.946872Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="5b52b628-3297-4bfb-ae8e-29ff461f175a"
+2026-10-24T05:28:18.854768Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:28:18.854973Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:28:18.857168Z  INFO cmux_mobile_link::hybrid: media session ended session="639ca1a7-83a9-4bea-a27c-4272db914853" reason="killed (test)"
+2026-10-24T05:28:20.020216Z  INFO cmux_mobile_link::hybrid: media session up session="01a957c3-dbdd-4264-bf7f-68152f457f48"
+2026-10-24T05:29:00.021452Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:29:00.021592Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:29:00.021787Z  INFO cmux_mobile_link::hybrid: media session ended session="01a957c3-dbdd-4264-bf7f-68152f457f48" reason="killed (test)"
+2026-10-24T05:29:12.330101Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=transport: the media session's peer connection failed
+2026-10-24T05:29:12.334048Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="66203f9a-a646-4b90-93b9-4f564894154e"
+2026-10-24T05:29:25.642152Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed
+2026-10-24T05:29:29.805177Z  INFO cmux_mobile_link::hybrid: media session up session="a62bb7f0-5a63-4f88-b464-d6dd965d0aaa"
+2026-10-24T05:30:09.807620Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:30:09.807717Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:30:09.808027Z  INFO cmux_mobile_link::hybrid: media session ended session="a62bb7f0-5a63-4f88-b464-d6dd965d0aaa" reason="killed (test)"
+2026-10-24T05:30:10.994721Z  INFO cmux_mobile_link::hybrid: media session up session="206b25be-0dfe-4e46-ac6b-85bf8352ca27"
+2026-10-24T05:30:50.996605Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:30:50.996896Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:30:50.997204Z  INFO cmux_mobile_link::hybrid: media session ended session="206b25be-0dfe-4e46-ac6b-85bf8352ca27" reason="killed (test)"
+2026-10-24T05:30:52.161610Z  INFO cmux_mobile_link::hybrid: media session up session="809dfb37-1856-4ea1-bace-775241267f4f"
+2026-10-24T05:31:32.164022Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:31:32.164377Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:31:32.164697Z  INFO cmux_mobile_link::hybrid: media session ended session="809dfb37-1856-4ea1-bace-775241267f4f" reason="killed (test)"
+2026-10-24T05:31:34.195064Z  INFO cmux_mobile_link::hybrid: media session up session="c33f9b05-07d7-41b3-afa9-986bbc8108f2"
+2026-10-24T05:32:14.196178Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:32:14.196542Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:32:14.197114Z  INFO cmux_mobile_link::hybrid: media session ended session="c33f9b05-07d7-41b3-afa9-986bbc8108f2" reason="killed (test)"
+2026-10-24T05:32:15.365425Z  INFO cmux_mobile_link::hybrid: media session up session="947b9aff-e476-4e1e-b0ac-8aa73bb408d4"
+2026-10-24T05:32:55.370202Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:32:55.370298Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:32:55.370643Z  INFO cmux_mobile_link::hybrid: media session ended session="947b9aff-e476-4e1e-b0ac-8aa73bb408d4" reason="killed (test)"
+2026-10-24T05:32:56.547788Z  INFO cmux_mobile_link::hybrid: media session up session="e3a138fb-7460-4b1c-9ca3-683120406399"
+2026-10-24T05:33:36.551323Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:33:36.551541Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:33:36.551751Z  INFO cmux_mobile_link::hybrid: media session ended session="e3a138fb-7460-4b1c-9ca3-683120406399" reason="killed (test)"
+2026-10-24T05:33:37.718120Z  INFO cmux_mobile_link::hybrid: media session up session="b4b55819-6ea3-4750-8771-a853df9c8fad"
+2026-10-24T05:34:17.719650Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:34:17.719994Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:34:17.720328Z  INFO cmux_mobile_link::hybrid: media session ended session="b4b55819-6ea3-4750-8771-a853df9c8fad" reason="killed (test)"
+2026-10-24T05:34:18.885374Z  INFO cmux_mobile_link::hybrid: media session up session="acbfb367-84f5-4e86-80ad-cf28fc3df076"
+2026-10-24T05:34:58.886998Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:34:58.887297Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:34:58.887752Z  INFO cmux_mobile_link::hybrid: media session ended session="acbfb367-84f5-4e86-80ad-cf28fc3df076" reason="killed (test)"
+2026-10-24T05:35:00.098387Z  INFO cmux_mobile_link::hybrid: media session up session="957dd6ef-2f70-40a0-8f72-7a1333f193a2"
+2026-10-24T05:35:40.104033Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:35:40.104365Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:35:40.104762Z  INFO cmux_mobile_link::hybrid: media session ended session="957dd6ef-2f70-40a0-8f72-7a1333f193a2" reason="killed (test)"
+2026-10-24T05:35:41.277423Z  INFO cmux_mobile_link::hybrid: media session up session="5aa0c6c2-b8ae-442d-94f2-27f62c97d791"
+2026-10-24T05:36:21.279964Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:36:21.280253Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:36:21.280569Z  INFO cmux_mobile_link::hybrid: media session ended session="5aa0c6c2-b8ae-442d-94f2-27f62c97d791" reason="killed (test)"
+2026-10-24T05:36:22.466561Z  INFO cmux_mobile_link::hybrid: media session up session="dfebda8c-3e5e-45a1-8b6e-c8971043e70a"
+2026-10-24T05:37:02.468609Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:37:02.468940Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:37:02.469497Z  INFO cmux_mobile_link::hybrid: media session ended session="dfebda8c-3e5e-45a1-8b6e-c8971043e70a" reason="killed (test)"
+2026-10-24T05:37:04.027443Z  INFO cmux_mobile_link::hybrid: media session up session="c18da7f7-f05c-4a6f-9774-1a6d2b91bf88"
+2026-10-24T05:37:44.029715Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:37:44.030066Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:37:44.030576Z  INFO cmux_mobile_link::hybrid: media session ended session="c18da7f7-f05c-4a6f-9774-1a6d2b91bf88" reason="killed (test)"
+2026-10-24T05:37:45.224372Z  INFO cmux_mobile_link::hybrid: media session up session="0c1b299b-281f-4553-bfb8-688ba4746414"
+2026-10-24T05:38:25.228554Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:38:25.228638Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:38:25.229032Z  INFO cmux_mobile_link::hybrid: media session ended session="0c1b299b-281f-4553-bfb8-688ba4746414" reason="killed (test)"
+2026-10-24T05:38:26.398057Z  INFO cmux_mobile_link::hybrid: media session up session="afbd4df4-506d-4345-936e-5a018f2b8021"
+2026-10-24T05:39:06.401768Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:39:06.401853Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:39:06.402389Z  INFO cmux_mobile_link::hybrid: media session ended session="afbd4df4-506d-4345-936e-5a018f2b8021" reason="killed (test)"
+2026-10-24T05:39:07.603361Z  INFO cmux_mobile_link::hybrid: media session up session="10657fba-598f-41d4-b8fd-550a6e471dbd"
+2026-10-24T05:39:47.605029Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:39:47.605343Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:39:47.606063Z  INFO cmux_mobile_link::hybrid: media session ended session="10657fba-598f-41d4-b8fd-550a6e471dbd" reason="killed (test)"
+2026-10-24T05:39:48.770744Z  INFO cmux_mobile_link::hybrid: media session up session="53e2ec8a-82e9-438f-ad0b-02980e74e556"
+2026-10-24T05:40:28.772462Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:40:28.772874Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:40:28.773553Z  INFO cmux_mobile_link::hybrid: media session ended session="53e2ec8a-82e9-438f-ad0b-02980e74e556" reason="killed (test)"
+2026-10-24T05:40:29.947785Z  INFO cmux_mobile_link::hybrid: media session up session="be059666-5784-4311-8c2d-7b4dcb8876d1"
+2026-10-24T05:41:09.950464Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:41:09.950561Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:41:09.951054Z  INFO cmux_mobile_link::hybrid: media session ended session="be059666-5784-4311-8c2d-7b4dcb8876d1" reason="killed (test)"
+2026-10-24T05:41:22.262576Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=transport: the media session's peer connection failed
+2026-10-24T05:41:22.286083Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="9c7d8ff8-8b15-4287-9be6-58f327cd8ecf"
+2026-10-24T05:41:24.455653Z  INFO cmux_mobile_link::hybrid: media session up session="056cd6e2-c560-45db-962f-70e667e40bb4"
+2026-10-24T05:42:04.459206Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:42:04.459372Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:42:04.460647Z  INFO cmux_mobile_link::hybrid: media session ended session="056cd6e2-c560-45db-962f-70e667e40bb4" reason="killed (test)"
+2026-10-24T05:42:05.634996Z  INFO cmux_mobile_link::hybrid: media session up session="93a9f404-cec1-4ab3-84e5-cbaaed768903"
+2026-10-24T05:42:45.637722Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:42:45.637944Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:42:45.638390Z  INFO cmux_mobile_link::hybrid: media session ended session="93a9f404-cec1-4ab3-84e5-cbaaed768903" reason="killed (test)"
+2026-10-24T05:42:46.827704Z  INFO cmux_mobile_link::hybrid: media session up session="f27ed809-9ae9-424a-ad62-0b5b0efbcfa5"
+2026-10-24T05:43:08.179149Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4295020499 highest=4295020499 hole=false
+2026-10-24T05:43:08.198440Z DEBUG cmux_mobile_link::media: media gate: rejected a frame source=23 current=Some(1) keyframe=true ts=54782304 newest=Some(54782304)
+2026-10-24T05:43:26.829765Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:43:26.830056Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:43:26.830519Z  INFO cmux_mobile_link::hybrid: media session ended session="f27ed809-9ae9-424a-ad62-0b5b0efbcfa5" reason="killed (test)"
+2026-10-24T05:43:28.941280Z  INFO cmux_mobile_link::hybrid: media session up session="78da625e-3743-4d31-a805-52f728959073"
+2026-10-24T05:44:08.943029Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:44:08.943562Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:44:08.944146Z  INFO cmux_mobile_link::hybrid: media session ended session="78da625e-3743-4d31-a805-52f728959073" reason="killed (test)"
+2026-10-24T05:44:10.129704Z  INFO cmux_mobile_link::hybrid: media session up session="89db27c8-cc74-4bbe-85d3-2c2170b89bdf"
+2026-10-24T05:44:50.134222Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:44:50.134333Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:44:50.134718Z  INFO cmux_mobile_link::hybrid: media session ended session="89db27c8-cc74-4bbe-85d3-2c2170b89bdf" reason="killed (test)"
+2026-10-24T05:45:02.413697Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed
+2026-10-24T05:45:15.646908Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed
+2026-10-24T05:45:19.814845Z  INFO cmux_mobile_link::hybrid: media session up session="ba9631a3-b35c-45aa-a772-b412e81d2cdf"
+2026-10-24T05:45:59.817756Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:45:59.817824Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:45:59.818143Z  INFO cmux_mobile_link::hybrid: media session ended session="ba9631a3-b35c-45aa-a772-b412e81d2cdf" reason="killed (test)"
+2026-10-24T05:46:00.987801Z  INFO cmux_mobile_link::hybrid: media session up session="3e580ebb-0084-499c-901b-77265f812378"
+2026-10-24T05:46:40.990077Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:46:40.990322Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:46:40.990778Z  INFO cmux_mobile_link::hybrid: media session ended session="3e580ebb-0084-499c-901b-77265f812378" reason="killed (test)"
+2026-10-24T05:46:42.176281Z  INFO cmux_mobile_link::hybrid: media session up session="9daa7703-5dd0-4ce2-ab4e-f882ba3a6c7a"
+2026-10-24T05:47:22.177298Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:47:22.177711Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:47:22.178125Z  INFO cmux_mobile_link::hybrid: media session ended session="9daa7703-5dd0-4ce2-ab4e-f882ba3a6c7a" reason="killed (test)"
+2026-10-24T05:47:23.898373Z  INFO cmux_mobile_link::hybrid: media session up session="36b82c51-9882-4332-babf-c39193e3c502"
+2026-10-24T05:48:03.900526Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:48:03.900851Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:48:03.901226Z  INFO cmux_mobile_link::hybrid: media session ended session="36b82c51-9882-4332-babf-c39193e3c502" reason="killed (test)"
+2026-10-24T05:48:05.066356Z  INFO cmux_mobile_link::hybrid: media session up session="fbab2790-2dd5-4b0f-a32a-b8a291d06a49"
+2026-10-24T05:48:45.067652Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:48:45.068118Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:48:45.068523Z  INFO cmux_mobile_link::hybrid: media session ended session="fbab2790-2dd5-4b0f-a32a-b8a291d06a49" reason="killed (test)"

@@ -182,7 +182,7 @@ fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
 }
 
 /// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 2 closed.
+/// every other inherited descriptor above 3 close-on-exec.
 fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
     // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
     unsafe {
@@ -193,9 +193,27 @@ fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
         } else if libc::dup2(fd, 3) != 3 {
             return Err(std::io::Error::last_os_error());
         }
+        // Close-on-exec, not closed: `Command::spawn` reports a failed exec
+        // over a private pipe, and closing it aborts the child instead.
         for other in 4..max_fd {
-            libc::close(other);
+            libc::fcntl(other, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod spawn_tests {
+    use super::HostProcess;
+
+    /// A host binary that cannot run is a spawn error. The descriptor step
+    /// used to close `Command::spawn`'s exec-error pipe: the child aborted
+    /// and the spawn looked successful.
+    #[test]
+    fn a_host_binary_that_cannot_run_is_a_spawn_error() {
+        let missing = std::path::Path::new("/nonexistent/cmux-app-host");
+        let result = HostProcess::spawn(missing, &[], "missing", |_| {}, |_| {});
+        let error = result.err().expect("a missing binary does not start");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+    }
 }

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { runPlay, selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
+import { isSubpixelLayoutShift } from "../src/gallery/play";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -145,6 +146,15 @@ describe("gallery shell keyboard emulation", () => {
   });
 });
 
+describe("gallery layout-shift measurement", () => {
+  test("ignores fractional rounding while retaining a half-pixel movement", () => {
+    const rect = (x: number) => ({ x, y: 10, width: 100, height: 20 });
+    expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.49) }])).toBe(true);
+    expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.5) }])).toBe(false);
+    expect(isSubpixelLayoutShift([{ previousRect: rect(10) }])).toBe(false);
+  });
+});
+
 describe("gallery play settle budget", () => {
   // Headless WebKit on the CPU-only CI VM has no Long Animation Frames: the stage times frames by
   // rAF, and one software-painted frame there takes 200-450 ms where Chromium's data shows no frame
@@ -199,5 +209,43 @@ describe("gallery play settle budget", () => {
     expect(step.settleMs).toBeGreaterThan(20);
     expect(step.status).toBe("warn");
     expect(step.problems.join("\n")).toMatch(/settle latency .* \(limit 20 ms; rAF timing, not a gate\)/);
+  });
+});
+
+describe("gallery play waitFor", () => {
+  // composer-row#fast-off waits for the pick its click posts to the native handler: a plain array,
+  // not the DOM. The wait re-checked only on a DOM mutation, so it held or ran out its 5000 ms by
+  // whether some unrelated mutation landed after the pick (gallery health, 2026-10-21).
+  test("sees a condition that turns true without touching the DOM", async () => {
+    const restore = ["requestAnimationFrame", "cancelAnimationFrame", "MutationObserver", "PerformanceObserver"].map(
+      (key) => [key, key in scope, scope[key]] as const,
+    );
+    Object.assign(scope, {
+      MutationObserver: dom.window.MutationObserver,
+      requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+      cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+      PerformanceObserver: class {
+        static supportedEntryTypes = [];
+        observe() {}
+        takeRecords() {
+          return [];
+        }
+        disconnect() {}
+      },
+    });
+    try {
+      let posted = false;
+      setTimeout(() => {
+        posted = true;
+      }, 50);
+      const report = await runPlay((ctx) => ctx.waitFor(() => posted, { capMs: 1000 }), {});
+      expect(report.error).toBeUndefined();
+      expect(report.status).not.toBe("fail");
+    } finally {
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+    }
   });
 });

@@ -5,7 +5,7 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 readme = "README.md"
 publish = false
-description = "cmux remote desktop host engine for Linux (virtual X display): damage capture, H.264 (Cisco's OpenH264 binary by default; x264 opt-in, waiting for a legal decision), cmux.rd/1 over UDP or a stream, XTest input; plus the bench client"
+description = "cmux remote desktop host engine: Linux (virtual X display: damage capture, H.264 with Cisco's OpenH264 binary by default, x264 opt-in waiting for a legal decision, XTest input) and macOS (ScreenCaptureKit, VideoToolbox from the captured IOSurface, CGEvent input); cmux.rd/1 over UDP or a stream; plus the bench client"
 
 # Own workspace: links C libraries (x264, openh264 for the bench), so it stays out of
 # the cmux-tui workspace build until those dependencies are feature-gated for every OS.
@@ -22,16 +22,27 @@ cmux-rd-engine = { path = "../cmux-rd-engine" }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
 cmux-encode = { path = "../cmux-encode" }
+# The secure link of device hub sessions (`cmux-rd serve`).
+cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
+
+# Display capture and input on a macOS host (both MIT OR Apache-2.0).
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = "11"
+core-graphics = { version = "0.25", features = ["highsierra"] }
 
 [build-dependencies]
 cc = "1"
 
 [features]
-default = ["bench", "openh264"]
+# `cmux-rd serve`: device hub sessions over the secure link (cmux-rd-link).
+link = ["dep:cmux-rd-link"]
+default = ["bench", "openh264", "link"]
 # The default encoder: Cisco's OpenH264 binary downloaded from Cisco at run time
 # (`cmux-rd openh264-install`; Cisco pays the royalties), loaded after its pinned SHA-256.
 openh264 = ["cmux-encode/openh264-download"]

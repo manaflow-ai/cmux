@@ -23,11 +23,15 @@ nonisolated enum SectionFlow {
         var fixedGap: CGFloat?
     }
 
-    /// The mode `section` uses in `look`, or nil for rows. Precedence: the
-    /// section's own arrangement when it is inline or grid; otherwise (a
-    /// list, the default) the tray and lines-icons looks tile built-in
-    /// sections. The look only styles; it never overrides a choice.
+    /// The mode `section` uses in `look`, or nil for rows (always nil for the
+    /// pinned section). Precedence: the section's own arrangement when it is
+    /// inline or grid; otherwise (a list, the default) the tray and
+    /// lines-icons looks tile built-in sections. The look only styles; it
+    /// never overrides a choice.
     static func mode(_ section: LayoutSection, look: SectionsLookVariant) -> Mode? {
+        // Pinned workspaces are rows whatever a stored document says: a grid saved before
+        // 2026-10-26 drew them as square tiles (user: "look like normal workspaces").
+        if section.id.rawValue == SidebarDocStore.pinnedSection { return nil }
         switch section.arrangement.layout {
         case .inline: return .inline(iconsOnly: false)
         case .grid: return .grid(columns: section.arrangement.columns)
@@ -43,7 +47,7 @@ nonisolated enum SectionFlow {
 
     /// `labelWidths`: each item's icon + label width (inline); a missing
     /// entry means icon only. `iconWidths`: an icon-only item wider than a
-    /// square on an icon line (the profile avatar with its chevron).
+    /// square on an icon line.
     static func place(_ section: LayoutSection, mode: Mode, x: CGFloat, y: CGFloat, width: CGFloat,
                       labelWidths: [LayoutItemID: CGFloat], iconWidths: [LayoutItemID: CGFloat] = [:],
                       metrics m: SidebarRegionMetrics) -> Result {

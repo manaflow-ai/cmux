@@ -137,12 +137,11 @@ impl SidebarModel {
             self.rows = patch.rows;
         } else {
             for row in patch.rows {
-                match self.rows.iter().position(|current| current.row == row.row) {
-                    Some(index) => self.rows[index] = row,
-                    None => self.rows.push(row),
+                match self.rows.binary_search_by_key(&row.row, |current| current.row) {
+                    Ok(index) => self.rows[index] = row,
+                    Err(index) => self.rows.insert(index, row),
                 }
             }
-            self.rows.sort_by_key(|row| row.row);
         }
     }
 }
@@ -434,8 +433,9 @@ impl Widget for SidebarWidget<'_> {
             .map(|row| {
                 self.model
                     .rows
-                    .iter()
-                    .find(|candidate| usize::from(candidate.row) == row)
+                    .binary_search_by_key(&(row as u16), |candidate| candidate.row)
+                    .ok()
+                    .map(|index| &self.model.rows[index])
                     .map_or_else(|| Line::from(""), |row| render_row(row, self.model))
             })
             .collect::<Vec<_>>();

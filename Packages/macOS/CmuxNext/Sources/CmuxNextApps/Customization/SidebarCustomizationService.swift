@@ -30,8 +30,9 @@ public final class SidebarCustomizationService: SidebarCustomization {
         self.isPresented = isPresented
         // task-owner: the service lives as long as the app; one watch of which app decorates rows.
         appsWatch = Task { [weak self] in
-            for await key in ObservationStream({ [weak self] in self?.implementationKey(Self.rowsInterface) }) {
-                self?.mountRows(key)
+            // A trigger: the same key remounts after a failed render (a fixed script keeps its version).
+            for await key in ObservationStream({ [weak self] in ObservationTrigger(self?.implementationKey(Self.rowsInterface)) }) {
+                self?.mountRows(key.value)
             }
         }
     }

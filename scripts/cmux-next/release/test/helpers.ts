@@ -1,7 +1,7 @@
 /** Test support: temp repository roots, and a fake PlanetScale provider whose branches are real Postgres databases. */
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { BranchProvider } from "../branches.ts"
@@ -9,6 +9,16 @@ import { connectUrl, type Sql } from "../runner.ts"
 import { REPO_ROOT } from "../trees.ts"
 
 export const REAL = (path: string) => join(REPO_ROOT, path)
+
+/** The real cmux-vm tree's newest migration, and the next two free numbers a test adds a file
+ * under. Tests read these instead of naming 0015/0016: a landed migration moves them. */
+const vmMigrations = readdirSync(REAL("workers/cmux-vm/migrations")).filter((name) => /^\d{4}_.+\.sql$/.test(name)).sort()
+export const VM_NEWEST_FILE = vmMigrations.at(-1) ?? ""
+const vmNewest = Number(VM_NEWEST_FILE.slice(0, 4))
+const pad = (n: number) => String(n).padStart(4, "0")
+export const VM_NEWEST = pad(vmNewest)
+export const VM_NEXT = pad(vmNewest + 1)
+export const VM_AFTER_NEXT = pad(vmNewest + 2)
 
 /** A temp root holding the repo's real migration trees, lock and role contract. */
 export const tempRoot = (): string => {

@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The chat's pull requests above the composer (cx-ncc.81, Claude parity): each PR a `gh pr create`
 // in the chat opened shows as a bar with its number, repository, title and state; a later
-// `gh pr merge` marks it merged. The newest two show, the rest behind Show more, and a bar's
+// `gh pr merge` takes its bar away (it lives in the right panel's Changes card). The newest two
+// show, the rest behind Show more, and a bar's
 // dismiss hides it for this chat, also after a reload. The page is the pane's dev entry with its
 // browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
@@ -10,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -24,6 +26,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const CHAT = "0190a000-0000-7000-8000-0000000000b1";
+  const BEFORE_REPLY = "0190a000-0000-7000-8000-0000000000b2";
   const START = Date.UTC(2026, 9, 11, 9, 0, 0);
   const update = (update: Record<string, unknown>) => ({
     method: "session/update",
@@ -60,13 +63,14 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
   const create = (id: string, title: string, number: number) =>
     shell(id, `gh pr create --title "${title}" --body x`, `https://github.com/acme/uploader/pull/${number}\n`);
   const steps: Step[] = [
-    ["mux", "user_message", { text: "Open the three PRs, then merge the first" }],
+    ["mux", "user_message", { text: "Open the four PRs, then merge the first" }],
     ["mux", "turn_started", {}],
     ...create("t1", "Add retry to the uploader", 41),
     ...create("t2", "Cover retry with a test", 42),
     ...create("t3", "Document retry", 43),
-    ...shell("t4", "gh pr merge 41 --squash", "Merged"),
-    ["in", "agent_message_chunk", say("Three PRs open, the first merged.")],
+    ...create("t4", "Log each retry", 44),
+    ...shell("t5", "gh pr merge 41 --squash", "Merged"),
+    ["in", "agent_message_chunk", say("Four PRs open, the first merged.")],
     ["mux", "turn_result", { status: "completed" }],
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
@@ -88,13 +92,24 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     updatedAt: START,
   };
 
-  function answer(method: string): unknown {
+  const beforeReplyEvents = events
+    .filter((event) => event.kind !== "agent_message_chunk")
+    .map((event) => ({
+      ...event,
+      sessionId: BEFORE_REPLY,
+      msg: event.kind === "turn_result" ? { status: "cancelled" } : event.msg,
+    }));
+  const beforeReplySession = { ...session, sessionId: BEFORE_REPLY, title: "PR opened before a reply" };
+
+  function answer(method: string, params?: Record<string, unknown>): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [session, beforeReplySession] };
       case "_acpmux/attach":
+        if (params?.sessionId === BEFORE_REPLY)
+          return { session: beforeReplySession, lastSeq: events.length, events: beforeReplyEvents };
         return { session, lastSeq: events.length, events };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
@@ -122,7 +137,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
         },
       },
     });
@@ -132,6 +147,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
     // again if it stalls, so the test times only the bars.
@@ -139,7 +155,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       const warm = await browser.newPage();
       try {
         await warm.goto(url(CHAT));
-        await warm.getByText("Three PRs open, the first merged.").waitFor({ timeout: 25_000 });
+        await warm.getByText("Four PRs open, the first merged.").waitFor({ timeout: 25_000 });
         await warm.close();
         break;
       } catch (error) {
@@ -154,44 +170,47 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Each bar above the composer: its number, repository, title and state.
-  const bars = (page: import("playwright").Page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll(".acpmux-pr-dock__bar")].map((bar) => [
-        bar.querySelector(".acpmux-pr-dock__number")?.textContent,
-        bar.querySelector(".acpmux-pr-dock__repo")?.textContent,
-        bar.querySelector(".acpmux-pr-dock__title")?.textContent,
-        bar.getAttribute("data-state"),
-      ]),
-    );
-
-  test("the chat's pull requests show above the composer, newest first", async () => {
+  test("PRs share the message footer and remain available after reload", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.goto(url(CHAT));
-    await page.getByText("Three PRs open, the first merged.").waitFor();
-    await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
-    expect(await bars(page)).toEqual([
-      ["#43", "uploader", "Document retry", "open"],
-      ["#42", "uploader", "Cover retry with a test", "open"],
-    ]);
-    expect(await page.locator(".acpmux-pr-dock__bar").first().getAttribute("href")).toBe(
-      "https://github.com/acme/uploader/pull/43",
-    );
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Four PRs open, the first merged.").waitFor();
+      const dock = page.locator(".cv-turn-actions .acpmux-pr-dock");
+      await dock.waitFor();
+      const links = dock.locator(".acpmux-pr-dock__bar");
+      expect(await links.count()).toBe(2);
+      expect(await links.first().innerText()).toContain("#44");
+      expect(await links.first().getAttribute("href")).toBe("https://github.com/acme/uploader/pull/44");
+      expect(await dock.locator(".acpmux-pr-dock__dismiss").count()).toBe(0);
+      await dock.locator(".acpmux-pr-dock__more").click();
+      const popup = page.locator(".acpmux-pr-dock__popover");
+      await popup.waitFor();
+      expect(await popup.locator(".acpmux-pr-dock__bar").count()).toBe(2);
+      expect(await popup.innerText()).toContain("#41");
+      await page.mouse.click(10, 100);
+      await popup.waitFor({ state: "detached" });
+      await page.reload();
+      await dock.waitFor();
+      expect(await links.count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
 
-    await page.getByRole("button", { name: "Show 1 more" }).click();
-    expect((await bars(page)).at(-1)).toEqual(["#41", "uploader", "Add retry to the uploader", "merged"]);
-
-    await page.getByRole("button", { name: "Dismiss pull request #43" }).click();
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#42", "#41"]);
-    // Focus moves to the bar now in its place, not the page.
-    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
-      "Dismiss pull request #42",
-    );
-    // Dismissed for this chat: a reload keeps it hidden.
-    await page.reload();
-    await page.getByText("Three PRs open, the first merged.").waitFor();
-    await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#42", "#41"]);
-    await page.close();
+  test("PR links remain available in a stopped prompt and tool-only session before any reply", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      await page.goto(url(BEFORE_REPLY));
+      const dock = page.locator(".acpmux-pr-fallback .acpmux-pr-dock");
+      await dock.waitFor({ timeout: 10_000 });
+      expect(await page.locator(".acpmux-assistant").count()).toBe(0);
+      expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
+      expect(await dock.locator("a").first().getAttribute("href")).toBe("https://github.com/acme/uploader/pull/44");
+      await page.reload();
+      await dock.waitFor({ timeout: 10_000 });
+      expect(await dock.locator("a").first().getAttribute("href")).toBe("https://github.com/acme/uploader/pull/44");
+    } finally {
+      await page.close();
+    }
   });
 });

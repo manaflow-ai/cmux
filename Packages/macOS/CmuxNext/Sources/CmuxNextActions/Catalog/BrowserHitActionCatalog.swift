@@ -108,7 +108,7 @@ nonisolated enum BrowserHitActionCatalog: ActionCatalogGroup {
                 palette: .exempt(.liveInput), cli: .exempt(.clipboard), placements: [p(.browserSelection, .edit, 0)]),
             // The menu row reads Search Google for "…" (the omnibar's engine).
             row("browser.selection.search",
-                String(localized: "action.browser.selection.search", defaultValue: "Search the Web", bundle: .module),
+                String(localized: "action.browser.selection.search", defaultValue: "Search the Web for Selection", bundle: .module),
                 ["selection", "search", "google", "web"], symbol: "magnifyingglass", arguments: [CatalogArgument.textString],
                 cliName: "browser search-web", cli: .offered, placements: [p(.browserSelection, .navigate, 0)]),
             // The menu row reads Look Up "…"; the dictionary panel is app UI.

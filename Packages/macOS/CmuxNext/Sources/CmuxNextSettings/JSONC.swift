@@ -124,7 +124,7 @@ public struct JSONC {
         var text: String
     }
 
-    private static func parseRoot(_ bytes: [UInt8]) throws -> Node? {
+    static func parseRoot(_ bytes: [UInt8]) throws -> Node? {
         var index = bytes.starts(with: [0xEF, 0xBB, 0xBF]) ? 3 : 0
         index = try skipTrivia(bytes, from: index)
         guard index < bytes.count else { return nil }

@@ -1,0 +1,18 @@
+{
+  "format": "cmux-avatar/1",
+  "id": "sprout",
+  "name": "Sprout",
+  "sheet": "sheet.png",
+  "frame": { "width": 32, "height": 32 },
+  "fps": 8,
+  "pixelArt": true,
+  "faces": "right",
+  "states": {
+    "idle": { "row": 0, "frames": 4 },
+    "working": { "row": 1, "frames": 8, "fps": 10 },
+    "thinking": { "row": 2, "frames": 5, "fps": 8 },
+    "waiting": { "row": 3, "frames": 4, "fps": 8 },
+    "done": { "row": 4, "frames": 5, "loop": false },
+    "error": { "row": 5, "frames": 4, "loop": false }
+  }
+}

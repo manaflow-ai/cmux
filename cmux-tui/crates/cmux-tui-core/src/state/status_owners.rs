@@ -271,8 +271,20 @@ pub(crate) fn process_is_running(_pid: u32) -> bool {
 }
 
 /// Block until `pid` exits. `Ok` at once when it is not running.
-#[cfg(target_vendor = "apple")]
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
 fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
+    wait_for_process_exit_if(pid, || true)
+}
+
+/// Block until `pid` exits. `still_ours` runs once the watch holds the
+/// process (registered on macOS, a pidfd on Linux): false (another process
+/// took a reused pid before the watch began) returns `Ok` at once, as an
+/// exit. `Ok` at once when it is not running.
+#[cfg(target_vendor = "apple")]
+pub(crate) fn wait_for_process_exit_if(
+    pid: u32,
+    still_ours: impl FnOnce() -> bool,
+) -> std::io::Result<()> {
     let pid = libc::pid_t::try_from(pid).map_err(|_| std::io::ErrorKind::InvalidInput)?;
     // SAFETY: plain kqueue calls on a descriptor this function owns.
     unsafe {
@@ -293,6 +305,8 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
         } else if event.flags & libc::EV_ERROR != 0 && event.data != 0 {
             let code = i32::try_from(event.data).unwrap_or(libc::EINVAL);
             if code == libc::ESRCH { Ok(()) } else { Err(std::io::Error::from_raw_os_error(code)) }
+        } else if !still_ours() {
+            Ok(())
         } else {
             loop {
                 let ready =
@@ -311,9 +325,12 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
     }
 }
 
-/// Block until `pid` exits. `Ok` at once when it is not running.
+/// `wait_for_process_exit_if` on Linux (a pidfd).
 #[cfg(target_os = "linux")]
-fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
+pub(crate) fn wait_for_process_exit_if(
+    pid: u32,
+    still_ours: impl FnOnce() -> bool,
+) -> std::io::Result<()> {
     let pid = libc::pid_t::try_from(pid).map_err(|_| std::io::ErrorKind::InvalidInput)?;
     // SAFETY: pidfd_open and poll on a descriptor this function owns.
     unsafe {
@@ -321,6 +338,10 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
         if fd < 0 {
             let error = std::io::Error::last_os_error();
             return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
+        }
+        if !still_ours() {
+            libc::close(fd);
+            return Ok(());
         }
         let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
         let outcome = loop {

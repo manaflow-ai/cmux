@@ -1,16 +1,16 @@
-// What a reader sees of the per-PR gallery diff (compare.ts): the diff page (changed states first,
+// What a reader sees of a published gallery diff (compare.ts): the diff page (changed states first,
 // each as a highlight overlay, a slider and an onion skin; unchanged states folded), the sticky PR
 // comment, and the summary the team feed shows on the PR's card.
 import { STATUS_ORDER, type Outcome, type Status } from "./compare";
 
 export type ReportLinks = {
-  /** The diff page, the PR's gallery and its matrix index, when published. */
+  /** The diff page, gallery and matrix index, when published. */
   diff?: string;
   gallery?: string;
   matrix?: string;
   /** The review feed card for this PR, already filtered and expanded. */
   feed?: string;
-  /** The CI run whose artifact holds the diff page and the renders, until a host serves them. */
+  /** The publisher run whose artifact holds the diff page and renders, until a host serves them. */
   artifact?: string;
   /** The thumbnails' URL prefix: a state's thumbnail is this followed by its key (pr-media raw URLs). */
   thumbBase?: string;

@@ -248,7 +248,7 @@ fn read_line_capped(
             None => (buf.len(), false),
         };
         let room = max.saturating_sub(line.len()).min(take);
-        line.extend_from_slice(&buf[..room]);
+        line.extend(buf.iter().take(room));
         reader.consume(take);
         consumed += take;
         if done {

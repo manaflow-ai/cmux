@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// A set's mark for one state as a still image, from the same geometry and
 /// mark drawing the indicator layer uses, so a notification attachment
@@ -13,8 +14,8 @@ extension StatusIconSet {
                       appearance: NSAppearance? = nil) -> NSImage? {
         var state = state
         if let kind, case .waiting = state { state = .waiting(kind: kind) }
-        let config = StatusIndicatorConfig(iconSet: self)
-        let plan = StatusIndicatorPlan.make(state, style: config.settings.style, animates: false, set: self)
+        let config = StatusIndicatorConfig(iconSet: self, workingLook: StatusWorkingLook.tunable.value)
+        let plan = StatusIndicatorPlan.make(state, style: config.settings.style, animates: false, set: self, working: config.workingLook)
         let pixels = Int((pointSize * scale).rounded())
         guard plan.glyph != .none, pixels > 0,
               let mask = StatusGlyphArt.mask(plan, pixels: pixels, scale: scale, config: config) else { return nil }

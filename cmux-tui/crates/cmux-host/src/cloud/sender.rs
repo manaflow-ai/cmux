@@ -6,6 +6,7 @@
 //! returns, reports the answer with `finished`, and calls `fire` once the
 //! earliest `next_deadline` has passed. There is no tick.
 
+use crate::json::JsonField;
 use std::collections::VecDeque;
 
 use serde_json::{Value, json};
@@ -61,7 +62,7 @@ pub enum Answer {
 
 impl Answer {
     fn ok(&self) -> bool {
-        matches!(self, Answer::Http { status: 200, body } if body["ok"] == true)
+        matches!(self, Answer::Http { status: 200, body } if *body.field("ok") == true)
     }
 }
 
@@ -175,8 +176,7 @@ impl Reporter {
             self.last_sent_at = Some(now);
             // Held: the server applies it at the end of its window, up to one window
             // after this answer, and its window restarts then. Count from there.
-            let held =
-                matches!(answer, Answer::Http { body, .. } if body["value"]["applied"] == false);
+            let held = matches!(answer, Answer::Http { body, .. } if *body.field("value").field("applied") == false);
             if held {
                 self.last_sent_at = Some(now + self.min_interval_ms);
             }
@@ -322,9 +322,11 @@ impl EventQueue {
                 EventOutcome::Delivered
             }
             Answer::Http { status, body } => {
-                let code = body["error"]["code"]
+                let code = body
+                    .field("error")
+                    .field("code")
                     .as_str()
-                    .or_else(|| body["code"].as_str())
+                    .or_else(|| body.field("code").as_str())
                     .unwrap_or("")
                     .to_owned();
                 if code == "cloud.rate_limited" {

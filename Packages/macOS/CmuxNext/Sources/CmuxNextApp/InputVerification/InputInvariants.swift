@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextFocus
 
 /// The global input invariants (plans/cmux-next/input-spec.md), as pure
 /// checks. The live monitor, `debug.focus`, replay and the model fuzzer all

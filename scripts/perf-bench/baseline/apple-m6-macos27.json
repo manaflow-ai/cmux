@@ -1,0 +1,1452 @@
+{
+ "date": "2026-10-20",
+ "machine": {
+  "host": "cmux20",
+  "model": "Mac18,5",
+  "chip": "Apple M6",
+  "cores": 12,
+  "ram_gb": 16,
+  "macos": "27.0",
+  "build": "26A425",
+  "load_start": 1.66,
+  "displays": {
+   "count": 1,
+   "displays": [
+    {
+     "w": 1920,
+     "h": 1080,
+     "hz": 60.0,
+     "builtin": false
+    }
+   ]
+  },
+  "session": "Aqua"
+ },
+ "cmux_ref": "3330ea7facf055addb18846e75fcde6311db7b7a",
+ "browsers": {
+  "cmux-chromium": {
+   "name": "cmux NEXT (Chromium tab)",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/cmux-nightly/3944134600801/cmux NEXT.app",
+   "version": "1.0.0-nightly.3944134600801",
+   "team": "7WLXT3NR37"
+  },
+  "cmux-webkit": {
+   "name": "cmux NEXT (WebKit tab)",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/cmux-nightly/3944134600801/cmux NEXT.app",
+   "version": "1.0.0-nightly.3944134600801",
+   "team": "7WLXT3NR37"
+  },
+  "cmux-terminal": {
+   "name": "cmux NEXT (terminals)",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/cmux-nightly/3944134600801/cmux NEXT.app",
+   "version": "1.0.0-nightly.3944134600801",
+   "team": "7WLXT3NR37"
+  },
+  "chrome": {
+   "name": "Chrome",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/chrome/2026-10-20/Google Chrome.app",
+   "version": "155.0.8059.85",
+   "team": "EQHXZ8M8AV"
+  },
+  "helium": {
+   "name": "Helium",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/helium/0.19.4.1/Helium.app",
+   "version": "0.19.4.1",
+   "team": "S4Q33XPHB4"
+  },
+  "ardia": {
+   "name": "Ardia",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/ardia/v0.2.38/Ardia.app",
+   "version": "0.2.38",
+   "team": "U5L5T3NGVV"
+  },
+  "dia": {
+   "name": "Dia",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/dia/2026-10-20/Dia.app",
+   "version": "1.53.0",
+   "team": "S6N382Y83G"
+  },
+  "safari": {
+   "name": "Safari",
+   "bundle": "/Applications/Safari.app",
+   "version": "27.0",
+   "team": "not set"
+  }
+ },
+ "rows": {
+  "launch-window": {
+   "cmux-chromium": {
+    "median": 315.675,
+    "min": 303.111,
+    "max": 1044.165,
+    "n": 6
+   },
+   "cmux-webkit": {
+    "median": 312.117,
+    "min": 300.367,
+    "max": 1039.067,
+    "n": 6
+   },
+   "cmux-terminal": {
+    "median": 311.309,
+    "min": 304.812,
+    "max": 324.181,
+    "n": 6
+   },
+   "chrome": {
+    "median": 622.646,
+    "min": 310.084,
+    "max": 4376.954,
+    "n": 6
+   },
+   "helium": {
+    "median": 496.465,
+    "min": 293.646,
+    "max": 1892.583,
+    "n": 6
+   },
+   "ardia": {
+    "median": 956.243,
+    "min": 246.363,
+    "max": 1825.449,
+    "n": 6
+   },
+   "dia": {
+    "median": 1083.022,
+    "min": 968.3,
+    "max": 3306.999,
+    "n": 5
+   },
+   "safari": {
+    "median": 484.221,
+    "min": 365.804,
+    "max": 868.676,
+    "n": 6
+   }
+  },
+  "memory-1": {
+   "cmux-chromium": {
+    "median": 932.5,
+    "min": 925.9,
+    "max": 932.7,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 891.9,
+    "min": 874.1,
+    "max": 893.1,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 467.6,
+    "min": 464.4,
+    "max": 470.7,
+    "n": 3
+   },
+   "chrome": {
+    "median": 388.8,
+    "min": 379.2,
+    "max": 416.5,
+    "n": 3
+   },
+   "helium": {
+    "median": 340.0,
+    "min": 339.2,
+    "max": 340.5,
+    "n": 3
+   },
+   "ardia": {
+    "median": 352.0,
+    "min": 350.5,
+    "max": 353.6,
+    "n": 3
+   },
+   "dia": {
+    "median": 581.4,
+    "min": 240.4,
+    "max": 601.5,
+    "n": 3
+   },
+   "safari": {
+    "median": 993.5,
+    "min": 951.7,
+    "max": 1123.2,
+    "n": 3
+   }
+  },
+  "power-idle-visible-1": {
+   "cmux-chromium": {
+    "median": 1.552,
+    "min": 0.983,
+    "max": 1.685,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 52.886,
+    "min": 48.541,
+    "max": 70.151,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 0.059,
+    "min": 0.058,
+    "max": 0.074,
+    "n": 3
+   },
+   "chrome": {
+    "median": 7.128,
+    "min": 5.127,
+    "max": 9.022,
+    "n": 3
+   },
+   "helium": {
+    "median": 32.228,
+    "min": 32.09,
+    "max": 32.446,
+    "n": 3
+   },
+   "ardia": {
+    "median": 0.161,
+    "min": 0.153,
+    "max": 0.174,
+    "n": 3
+   },
+   "dia": {
+    "median": 8.855,
+    "min": 8.482,
+    "max": 8.945,
+    "n": 3
+   },
+   "safari": {
+    "median": 2.611,
+    "min": 2.51,
+    "max": 3.058,
+    "n": 3
+   }
+  },
+  "idle-cpu-1": {
+   "cmux-chromium": {
+    "median": 1.654,
+    "min": 1.054,
+    "max": 1.743,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 3.975,
+    "min": 2.284,
+    "max": 4.211,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 0.085,
+    "min": 0.084,
+    "max": 0.105,
+    "n": 3
+   },
+   "chrome": {
+    "median": 1.872,
+    "min": 1.415,
+    "max": 2.012,
+    "n": 3
+   },
+   "helium": {
+    "median": 1.804,
+    "min": 1.776,
+    "max": 1.861,
+    "n": 3
+   },
+   "ardia": {
+    "median": 0.178,
+    "min": 0.163,
+    "max": 0.182,
+    "n": 3
+   },
+   "dia": {
+    "median": 1.968,
+    "min": 1.718,
+    "max": 1.973,
+    "n": 3
+   },
+   "safari": {
+    "median": 0.768,
+    "min": 0.713,
+    "max": 0.773,
+    "n": 3
+   }
+  },
+  "idle-wakeups-1": {
+   "cmux-chromium": {
+    "median": 27.781,
+    "min": 27.747,
+    "max": 27.83,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 19.8,
+    "min": 18.919,
+    "max": 23.292,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 7.265,
+    "min": 6.866,
+    "max": 8.063,
+    "n": 3
+   },
+   "chrome": {
+    "median": 77.107,
+    "min": 74.63,
+    "max": 77.431,
+    "n": 3
+   },
+   "helium": {
+    "median": 77.307,
+    "min": 76.376,
+    "max": 78.055,
+    "n": 3
+   },
+   "ardia": {
+    "median": 6.833,
+    "min": 6.584,
+    "max": 7.847,
+    "n": 3
+   },
+   "dia": {
+    "median": 77.057,
+    "min": 58.071,
+    "max": 77.307,
+    "n": 3
+   },
+   "safari": {
+    "median": 7.764,
+    "min": 6.068,
+    "max": 8.695,
+    "n": 3
+   }
+  },
+  "memory-10": {
+   "cmux-chromium": {
+    "median": 1110.5,
+    "min": 1107.2,
+    "max": 1127.6,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 1020.0,
+    "min": 999.4,
+    "max": 1021.2,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 565.1,
+    "min": 557.7,
+    "max": 567.6,
+    "n": 3
+   },
+   "chrome": {
+    "median": 578.3,
+    "min": 578.0,
+    "max": 598.1,
+    "n": 3
+   },
+   "helium": {
+    "median": 687.9,
+    "min": 681.0,
+    "max": 733.6,
+    "n": 3
+   },
+   "ardia": {
+    "median": 648.1,
+    "min": 648.1,
+    "max": 660.9,
+    "n": 3
+   },
+   "dia": {
+    "median": 926.0,
+    "min": 592.7,
+    "max": 937.0,
+    "n": 3
+   },
+   "safari": {
+    "median": 376.7,
+    "min": 330.3,
+    "max": 391.3,
+    "n": 3
+   }
+  },
+  "memory-20": {
+   "cmux-chromium": {
+    "median": 1528.8,
+    "min": 1497.7,
+    "max": 1536.7,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 1255.4,
+    "min": 1233.7,
+    "max": 1258.7,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 625.5,
+    "min": 614.1,
+    "max": 630.9,
+    "n": 3
+   },
+   "chrome": {
+    "median": 793.3,
+    "min": 792.1,
+    "max": 840.0,
+    "n": 3
+   },
+   "helium": {
+    "median": 1021.6,
+    "min": 1015.8,
+    "max": 1066.8,
+    "n": 3
+   },
+   "ardia": {
+    "median": 1007.7,
+    "min": 997.8,
+    "max": 1020.0,
+    "n": 3
+   },
+   "dia": {
+    "median": 1263.3,
+    "min": 943.0,
+    "max": 1298.5,
+    "n": 3
+   },
+   "safari": {
+    "median": 543.9,
+    "min": 507.5,
+    "max": 548.3,
+    "n": 3
+   }
+  },
+  "power-idle-visible": {
+   "cmux-chromium": {
+    "median": 105.067,
+    "min": 103.718,
+    "max": 106.012,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 0.741,
+    "min": 0.624,
+    "max": 0.924,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 7.537,
+    "min": 7.419,
+    "max": 7.615,
+    "n": 3
+   },
+   "chrome": {
+    "median": 1.07,
+    "min": 1.056,
+    "max": 1.092,
+    "n": 3
+   },
+   "helium": {
+    "median": 1.157,
+    "min": 1.118,
+    "max": 2.098,
+    "n": 3
+   },
+   "ardia": {
+    "median": 0.906,
+    "min": 0.89,
+    "max": 1.66,
+    "n": 3
+   },
+   "dia": {
+    "median": 6.02,
+    "min": 5.931,
+    "max": 7.309,
+    "n": 3
+   },
+   "safari": {
+    "median": 0.092,
+    "min": 0.077,
+    "max": 54.95,
+    "n": 3
+   }
+  },
+  "idle-cpu-20": {
+   "cmux-chromium": {
+    "median": 2.47,
+    "min": 2.44,
+    "max": 2.471,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 0.799,
+    "min": 0.607,
+    "max": 0.911,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 7.297,
+    "min": 7.231,
+    "max": 7.338,
+    "n": 3
+   },
+   "chrome": {
+    "median": 1.497,
+    "min": 1.454,
+    "max": 1.545,
+    "n": 3
+   },
+   "helium": {
+    "median": 1.675,
+    "min": 1.611,
+    "max": 1.703,
+    "n": 3
+   },
+   "ardia": {
+    "median": 1.264,
+    "min": 1.261,
+    "max": 1.452,
+    "n": 3
+   },
+   "dia": {
+    "median": 7.03,
+    "min": 6.871,
+    "max": 7.207,
+    "n": 3
+   },
+   "safari": {
+    "median": 0.117,
+    "min": 0.101,
+    "max": 5.707,
+    "n": 3
+   }
+  },
+  "idle-wakeups-20": {
+   "cmux-chromium": {
+    "median": 38.437,
+    "min": 37.39,
+    "max": 39.202,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 58.753,
+    "min": 39.85,
+    "max": 192.236,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 7.847,
+    "min": 7.814,
+    "max": 8.313,
+    "n": 3
+   },
+   "chrome": {
+    "median": 102.793,
+    "min": 100.981,
+    "max": 104.289,
+    "n": 3
+   },
+   "helium": {
+    "median": 100.316,
+    "min": 94.746,
+    "max": 105.087,
+    "n": 3
+   },
+   "ardia": {
+    "median": 87.747,
+    "min": 87.448,
+    "max": 88.645,
+    "n": 3
+   },
+   "dia": {
+    "median": 243.524,
+    "min": 236.209,
+    "max": 247.531,
+    "n": 3
+   },
+   "safari": {
+    "median": 4.838,
+    "min": 4.638,
+    "max": 41.746,
+    "n": 3
+   }
+  },
+  "power-switch": {
+   "cmux-chromium": {
+    "median": 9.444,
+    "min": 9.342,
+    "max": 11.909,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 5.541,
+    "min": 5.523,
+    "max": 7.03,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 5.025,
+    "min": 5.002,
+    "max": 5.03,
+    "n": 3
+   },
+   "chrome": {
+    "median": 6.357,
+    "min": 6.051,
+    "max": 81.829,
+    "n": 3
+   },
+   "helium": {
+    "median": 6.413,
+    "min": 6.279,
+    "max": 6.552,
+    "n": 3
+   },
+   "dia": {
+    "median": 5.373,
+    "min": 5.095,
+    "max": 5.423,
+    "n": 3
+   }
+  },
+  "power-scroll": {
+   "cmux-chromium": {
+    "median": 0.774,
+    "min": 0.743,
+    "max": 0.916,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 1.183,
+    "min": 1.119,
+    "max": 1.69,
+    "n": 3
+   },
+   "chrome": {
+    "median": 5.538,
+    "min": 5.137,
+    "max": 81.884,
+    "n": 3
+   },
+   "helium": {
+    "median": 8.321,
+    "min": 8.09,
+    "max": 8.459,
+    "n": 3
+   },
+   "dia": {
+    "median": 10.678,
+    "min": 10.557,
+    "max": 10.835,
+    "n": 3
+   },
+   "safari": {
+    "median": 1.002,
+    "min": 1.0,
+    "max": 1.143,
+    "n": 3
+   }
+  },
+  "power-video": {
+   "cmux-chromium": {
+    "median": 0.788,
+    "min": 0.787,
+    "max": 1.346,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 0.665,
+    "min": 0.503,
+    "max": 1.102,
+    "n": 3
+   },
+   "chrome": {
+    "median": 23.24,
+    "min": 23.086,
+    "max": 23.465,
+    "n": 3
+   },
+   "helium": {
+    "median": 23.521,
+    "min": 23.46,
+    "max": 23.683,
+    "n": 3
+   },
+   "dia": {
+    "median": 24.242,
+    "min": 24.204,
+    "max": 24.25,
+    "n": 3
+   },
+   "safari": {
+    "median": 0.173,
+    "min": 0.151,
+    "max": 17.617,
+    "n": 3
+   }
+  },
+  "power-idle-hidden": {
+   "cmux-chromium": {
+    "median": 0.563,
+    "min": 0.407,
+    "max": 2.87,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 0.472,
+    "min": 0.405,
+    "max": 2.848,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 0.066,
+    "min": 0.047,
+    "max": 0.078,
+    "n": 3
+   },
+   "chrome": {
+    "median": 0.23,
+    "min": 0.228,
+    "max": 0.267,
+    "n": 3
+   },
+   "helium": {
+    "median": 0.301,
+    "min": 0.286,
+    "max": 0.317,
+    "n": 3
+   },
+   "dia": {
+    "median": 5.168,
+    "min": 4.989,
+    "max": 5.174,
+    "n": 3
+   },
+   "safari": {
+    "median": 0.052,
+    "min": 0.048,
+    "max": 0.103,
+    "n": 3
+   }
+  },
+  "memory-closed": {
+   "cmux-chromium": {
+    "median": 954.8,
+    "min": 951.8,
+    "max": 964.0,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 941.3,
+    "min": 906.6,
+    "max": 1148.5,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 504.1,
+    "min": 495.8,
+    "max": 504.3,
+    "n": 3
+   },
+   "chrome": {
+    "median": 373.3,
+    "min": 338.0,
+    "max": 390.7,
+    "n": 3
+   },
+   "helium": {
+    "median": 370.9,
+    "min": 366.9,
+    "max": 436.4,
+    "n": 3
+   },
+   "dia": {
+    "median": 609.2,
+    "min": 286.2,
+    "max": 663.3,
+    "n": 3
+   }
+  },
+  "newtab-paint": {
+   "cmux-webkit": {
+    "median": 259.223,
+    "min": 130.442,
+    "max": 445.873,
+    "n": 15
+   },
+   "chrome": {
+    "median": 88.524,
+    "min": 57.461,
+    "max": 109.353,
+    "n": 15
+   },
+   "helium": {
+    "median": 92.217,
+    "min": 79.74,
+    "max": 380.479,
+    "n": 15
+   },
+   "ardia": {
+    "median": 67.096,
+    "min": 46.035,
+    "max": 102.424,
+    "n": 15
+   },
+   "safari": {
+    "median": 250.134,
+    "min": 152.534,
+    "max": 857.363,
+    "n": 15
+   }
+  },
+  "power-home-idle": {
+   "cmux-terminal": {
+    "median": 0.09,
+    "min": 0.083,
+    "max": 0.132,
+    "n": 3
+   }
+  },
+  "idle-cpu-home": {
+   "cmux-terminal": {
+    "median": 0.125,
+    "min": 0.115,
+    "max": 0.171,
+    "n": 3
+   }
+  },
+  "idle-wakeups-home": {
+   "cmux-terminal": {
+    "median": 8.293,
+    "min": 8.13,
+    "max": 8.579,
+    "n": 3
+   }
+  },
+  "launch-link": {
+   "chrome": {
+    "median": 714.313,
+    "min": 310.15,
+    "max": 4374.554,
+    "n": 6
+   },
+   "helium": {
+    "median": 523.115,
+    "min": 296.69,
+    "max": 2100.583,
+    "n": 6
+   }
+  },
+  "tab-switch": {
+   "chrome": {
+    "median": 16.452,
+    "min": 16.318,
+    "max": 17.677,
+    "n": 3
+   },
+   "helium": {
+    "median": 16.546,
+    "min": 15.311,
+    "max": 16.839,
+    "n": 3
+   }
+  },
+  "tab-switch-chromium-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 18.448,
+    "p90": 19.766,
+    "n": 5
+   }
+  },
+  "tab-switch-chromium-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 20.449,
+    "p90": 21.651,
+    "n": 5
+   }
+  },
+  "tab-switch-chromium-2-click": {
+   "cmux-debug": {
+    "median": 21.267,
+    "p90": 36.057,
+    "n": 5
+   }
+  },
+  "tab-switch-chromium-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 21.656,
+    "p90": 23.41,
+    "n": 20
+   }
+  },
+  "tab-switch-chromium-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 20.756,
+    "p90": 23.03,
+    "n": 20
+   }
+  },
+  "tab-switch-chromium-10-click": {
+   "cmux-debug": {
+    "median": 30.396,
+    "p90": 36.41,
+    "n": 20
+   }
+  },
+  "tab-switch-chromium-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 21.66,
+    "p90": 33.028,
+    "n": 58
+   }
+  },
+  "tab-switch-chromium-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 22.894,
+    "p90": 29.793,
+    "n": 58
+   }
+  },
+  "tab-switch-chromium-30-click": {
+   "cmux-debug": {
+    "median": 29.009,
+    "p90": 35.919,
+    "n": 52
+   }
+  },
+  "tab-switch-webkit-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 15.584,
+    "p90": 17.714,
+    "n": 5
+   }
+  },
+  "tab-switch-webkit-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 11.992,
+    "p90": 19.982,
+    "n": 5
+   }
+  },
+  "tab-switch-webkit-2-click": {
+   "cmux-debug": {
+    "median": 19.62,
+    "p90": 26.062,
+    "n": 5
+   }
+  },
+  "tab-switch-webkit-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 11.752,
+    "p90": 18.515,
+    "n": 20
+   }
+  },
+  "tab-switch-webkit-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 14.907,
+    "p90": 19.849,
+    "n": 20
+   }
+  },
+  "tab-switch-webkit-10-click": {
+   "cmux-debug": {
+    "median": 16.269,
+    "p90": 27.597,
+    "n": 20
+   }
+  },
+  "tab-switch-webkit-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 19.366,
+    "p90": 27.859,
+    "n": 58
+   }
+  },
+  "tab-switch-webkit-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 16.307,
+    "p90": 25.805,
+    "n": 58
+   }
+  },
+  "tab-switch-webkit-30-click": {
+   "cmux-debug": {
+    "median": 18.834,
+    "p90": 28.48,
+    "n": 52
+   }
+  },
+  "tab-switch-markdown-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 15.41,
+    "p90": 17.624,
+    "n": 5
+   }
+  },
+  "tab-switch-markdown-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 7.099,
+    "p90": 14.004,
+    "n": 5
+   }
+  },
+  "tab-switch-markdown-2-click": {
+   "cmux-debug": {
+    "median": 17.627,
+    "p90": 20.934,
+    "n": 5
+   }
+  },
+  "tab-switch-markdown-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 10.928,
+    "p90": 19.546,
+    "n": 20
+   }
+  },
+  "tab-switch-markdown-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 12.059,
+    "p90": 18.407,
+    "n": 20
+   }
+  },
+  "tab-switch-markdown-10-click": {
+   "cmux-debug": {
+    "median": 16.468,
+    "p90": 23.48,
+    "n": 20
+   }
+  },
+  "tab-switch-markdown-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 13.356,
+    "p90": 21.79,
+    "n": 58
+   }
+  },
+  "tab-switch-markdown-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 13.32,
+    "p90": 20.956,
+    "n": 58
+   }
+  },
+  "tab-switch-markdown-30-click": {
+   "cmux-debug": {
+    "median": 16.343,
+    "p90": 22.209,
+    "n": 52
+   }
+  },
+  "tab-switch-chat-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 10.16,
+    "p90": 16.603,
+    "n": 5
+   }
+  },
+  "tab-switch-chat-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 11.843,
+    "p90": 16.5,
+    "n": 5
+   }
+  },
+  "tab-switch-chat-2-click": {
+   "cmux-debug": {
+    "median": 14.742,
+    "p90": 20.14,
+    "n": 5
+   }
+  },
+  "tab-switch-chat-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 13.316,
+    "p90": 17.254,
+    "n": 20
+   }
+  },
+  "tab-switch-chat-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 13.364,
+    "p90": 17.286,
+    "n": 20
+   }
+  },
+  "tab-switch-chat-10-click": {
+   "cmux-debug": {
+    "median": 13.112,
+    "p90": 21.371,
+    "n": 20
+   }
+  },
+  "tab-switch-chat-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 15.694,
+    "p90": 25.072,
+    "n": 58
+   }
+  },
+  "tab-switch-chat-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 13.712,
+    "p90": 24.642,
+    "n": 58
+   }
+  },
+  "tab-switch-chat-30-click": {
+   "cmux-debug": {
+    "median": 17.249,
+    "p90": 24.238,
+    "n": 52
+   }
+  }
+ },
+ "published": {
+  "ardia": {
+   "power-idle-hidden": 3.9,
+   "power-idle-visible": 3.5,
+   "power-scroll": 28.2,
+   "power-video": 82.0,
+   "power-switch": 136,
+   "launch-window": 280,
+   "newtab-paint": 54.9,
+   "idle-wakeups-20": 13.6,
+   "idle-cpu-20": 0.45,
+   "memory-1": 298,
+   "memory-10": 714,
+   "memory-20": 1082
+  },
+  "helium": {
+   "power-idle-hidden": 3.1,
+   "power-idle-visible": 4.0,
+   "power-scroll": 51.9,
+   "power-video": 90.9,
+   "power-switch": 173,
+   "launch-window": 353,
+   "newtab-paint": 71.5,
+   "idle-wakeups-20": 28.1,
+   "idle-cpu-20": 1.02,
+   "memory-1": 374,
+   "memory-10": 773,
+   "memory-20": 1121
+  },
+  "dia": {
+   "power-idle-hidden": 1223,
+   "power-idle-visible": 848,
+   "power-scroll": 626,
+   "power-video": 779,
+   "power-switch": 763,
+   "launch-window": 2262,
+   "newtab-paint": 88.9,
+   "idle-wakeups-20": 38.7,
+   "idle-cpu-20": 1.05,
+   "memory-1": 480,
+   "memory-10": 1273,
+   "memory-20": 1822
+  }
+ },
+ "errors": [
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-webkit",
+   "round": 1,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "ardia",
+   "round": 1,
+   "row": "session-error",
+   "note": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-webkit",
+   "round": 2,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "ardia",
+   "round": 2,
+   "row": "session-error",
+   "note": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "ardia",
+   "round": 3,
+   "row": "session-error",
+   "note": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "launch-window",
+   "note": "no window within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-webkit",
+   "round": 3,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  }
+ ],
+ "method": "scripts/perf-bench/README.md",
+ "job": "6dd1020ca6392079a618a734"
+}

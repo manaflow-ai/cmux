@@ -27,15 +27,19 @@ public struct PersonalWorkspace: Sendable, Hashable, Decodable {
     public var group: WorkspaceGroupID?
     public var browserProfileID: BrowserProfileKey?
     public var theme: String?
+    /// The person's remote-localhost choice for this workspace
+    /// (`personal-remote-localhost-v1`); nil follows `browser.remoteLocalhost`.
+    public var remoteLocalhost: Bool?
 
     public init(sessionID: String, workspaceKey: WorkspaceKey, index: Int, group: WorkspaceGroupID? = nil,
-                browserProfileID: BrowserProfileKey? = nil, theme: String? = nil) {
+                browserProfileID: BrowserProfileKey? = nil, theme: String? = nil, remoteLocalhost: Bool? = nil) {
         self.sessionID = sessionID
         self.workspaceKey = workspaceKey
         self.index = index
         self.group = group
         self.browserProfileID = browserProfileID
         self.theme = theme
+        self.remoteLocalhost = remoteLocalhost
     }
 
     enum CodingKeys: String, CodingKey {
@@ -43,6 +47,7 @@ public struct PersonalWorkspace: Sendable, Hashable, Decodable {
         case sessionID = "session_id"
         case workspaceKey = "workspace_key"
         case browserProfileID = "browser_profile_id"
+        case remoteLocalhost = "remote_localhost"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -53,5 +58,6 @@ public struct PersonalWorkspace: Sendable, Hashable, Decodable {
         group = try c.decodeIfPresent(WorkspaceGroupID.self, forKey: .group)
         browserProfileID = try c.decodeIfPresent(BrowserProfileKey.self, forKey: .browserProfileID)
         theme = try c.decodeIfPresent(String.self, forKey: .theme)
+        remoteLocalhost = try c.decodeIfPresent(Bool.self, forKey: .remoteLocalhost)
     }
 }

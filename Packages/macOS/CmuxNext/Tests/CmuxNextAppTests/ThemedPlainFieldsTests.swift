@@ -61,16 +61,6 @@ import Testing
         try Self.expectThemedField(in: root, scope, placeholder: TasksStrings.newTaskPlaceholder, "new task")
     }
 
-    @Test func theAppStoreSearchDrawsTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let model = AppStoreModel(client: AppsClient(transport: OfflineAppsTransport()))
-        let (window, root) = Self.host(AppStoreRootView(model: model, inPane: true), scope, size: NSSize(width: 900, height: 400))
-        defer { window.contentView = nil; window.close() }
-        try Self.expectThemedField(in: root, scope, placeholder: AppsStrings.search, "app store search")
-        let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
-        #expect(field.accessibilityIdentifier() == "appStore.search")
-    }
-
     @Test func theFeedInboxFilterDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let header = FeedInboxHeader(filter: .constant(FeedInboxFilter()), hasUnread: true, canRefresh: true, canAddConnection: false,
@@ -133,24 +123,4 @@ import Testing
         #expect(field.stringValue.isEmpty, "Escape clears the title: \(field.stringValue)")
         #expect(!Self.isEditing(field, in: window), "and lets go of the keyboard")
     }
-}
-
-/// An app supervisor that is never reachable: the store shows its toolbar and the disconnected banner.
-private final class OfflineAppsTransport: AppsTransport {
-    var availability: AppsAvailability { .unavailable(.notConnected) }
-    var onEvent: ((AppsTransportEvent) -> Void)?
-    private static var offline: AppsTransportError { AppsTransportError(message: "offline", connectionLost: true) }
-
-    func start() {}
-    func list() async throws(AppsTransportError) -> AppsListReply { throw Self.offline }
-    func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
-        throw Self.offline
-    }
-    func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) { throw Self.offline }
-    func unmount(mountID: String) async throws(AppsTransportError) { throw Self.offline }
-    func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) { throw Self.offline }
-    func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
-        throw Self.offline
-    }
-    func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { throw Self.offline }
 }

@@ -104,9 +104,17 @@ export const signsInItself = (id: string): boolean => (providerFor(id)?.signIn ?
 export const displayName = (id: string, ownerName?: string | null) => providerFor(id)?.name ?? ownerName ?? id
 
 /** Hints usable on `platform`; a `cmux` hint means the CLI ships with cmux. */
-export function hintsFor(id: string, platform: Platform): InstallHint[] {
+export function hintsFor(id: string, platform: Platform | null): InstallHint[] {
+  if (platform === null) return []
   return (providerFor(id)?.hints ?? []).filter((h) => !h.platforms || h.platforms.includes(platform))
 }
 
-/** Platform of a machine from the owner's `os` field; macOS when unknown. */
-export const platformOf = (os: string | null | undefined): Platform => (String(os ?? "").toLowerCase().startsWith("linux") ? "linux" : "darwin")
+/** Recognized owner platform only; missing or unsupported systems stay unknown. */
+export function platformOf(os: string | null | undefined): Platform | null {
+  switch (typeof os === "string" ? os.toLowerCase() : "") {
+    case "linux": return "linux"
+    case "darwin":
+    case "macos": return "darwin"
+    default: return null
+  }
+}

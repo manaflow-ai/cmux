@@ -3,10 +3,9 @@
 // theme derives (src/theme/appTheme.ts), then the palette itself. Drawn as SVG: the preview is
 // an image of another theme, so it never paints the page's own surfaces (render rule).
 import { useId } from "react";
+import { AppIllustration } from "./AppIllustration";
 import type { AppTheme } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
-import { rowsByKey, sections } from "../schema";
-import { t, text } from "../strings";
 
 const W = 720;
 const H = 214;
@@ -60,10 +59,6 @@ const LINES: Segment[][] = [
 ];
 const SELECTED = { line: 3, column: 14, length: 12 };
 const CURSOR = { line: 9, column: 21 };
-
-const title = (key: string) => (rowsByKey.get(key) ? text(rowsByKey.get(key)!.title) : key);
-const summary = (key: string) => text(rowsByKey.get(key)?.summary);
-const section = (id: string) => text(sections.find((item) => item.id === id)?.title);
 
 export function ThemePreview({
   theme,
@@ -128,74 +123,7 @@ export function ThemePreview({
         fill={theme.cursorColor ?? theme.foreground}
       />
 
-      <g transform={`translate(${APP_X} 0)`} fontFamily="-apple-system, BlinkMacSystemFont, system-ui, sans-serif">
-        <clipPath id={clip}>
-          <rect width={APP_W} height={H} rx="9" />
-        </clipPath>
-        <g clipPath={`url(#${clip})`}>
-          <rect width={APP_W} height={H} fill={a.content} />
-          <rect width="96" height={H} fill={a.sidebar} />
-          <rect x="96" width="1" height={H} fill={a.separator} />
-          {["general", "appearance", "terminal", "browser"].map((id, index) => (
-            <g key={id} transform={`translate(6 ${16 + index * 24})`}>
-              {index === 1 && <rect width="84" height="20" rx="5" fill={a.selection} />}
-              <circle
-                cx="11"
-                cy="10"
-                r="4"
-                fill="none"
-                stroke={index === 1 ? a.accentText : a.icon}
-                strokeWidth="1.4"
-              />
-              <text x="21" y="14" fontSize="11" fill={a.text}>
-                {truncate(section(id), 11)}
-              </text>
-            </g>
-          ))}
-          <g transform="translate(110 0)">
-            <text x="0" y="28" fontSize="13" fontWeight="600" fill={a.text}>
-              {truncate(section("appearance"), 22)}
-            </text>
-            <text x="0" y="56" fontSize="11" fill={a.text}>
-              {truncate(title("focusRing.enabled"), 20)}
-            </text>
-            <rect x={APP_W - 110 - 40} y="45" width="28" height="16" rx="8" fill={a.accent} />
-            <circle cx={APP_W - 110 - 20} cy="53" r="6" fill={a.onAccent} />
-            <rect y="70" width={APP_W - 124} height="1" fill={a.separator} />
-            <text x="0" y="92" fontSize="11" fill={a.text}>
-              {truncate(title("appearance.density"), 14)}
-            </text>
-            <rect x={APP_W - 110 - 76} y="80" width="64" height="18" rx="5" fill={a.control} />
-            <rect x={APP_W - 110 - 74} y="82" width="30" height="14" rx="4" fill={a.elevated} />
-            <rect y="106" width={APP_W - 124} height="1" fill={a.separator} />
-            <text x="0" y="128" fontSize="11" fill={a.text}>
-              {truncate(title("app.globalHotKey"), 20)}
-            </text>
-            <rect
-              x={APP_W - 110 - 40}
-              y="117"
-              width="28"
-              height="16"
-              rx="8"
-              fill={a.control}
-              stroke={a.controlStroke}
-            />
-            <circle cx={APP_W - 110 - 32} cy="125" r="6" fill={a.icon} />
-            <text x="0" y="146" fontSize="10" fill={a.textSecondary}>
-              {truncate(summary("app.globalHotKey"), 34)}
-            </text>
-            <rect y="160" width={APP_W - 124} height="1" fill={a.separator} />
-            <text x="0" y="184" fontSize="11" fill={a.accentText}>
-              {truncate(t("settingsWindow.showInFinder"), 18)}
-            </text>
-            <rect x={APP_W - 110 - 70} y="172" width="58" height="20" rx="5" fill={a.accent} />
-            <text x={APP_W - 110 - 41} y="186" fontSize="11" fontWeight="500" textAnchor="middle" fill={a.onAccent}>
-              {truncate(t("settingsPage.reset"), 8)}
-            </text>
-          </g>
-        </g>
-        <rect x="0.5" y="0.5" width={APP_W - 1} height={H - 1} rx="9" fill="none" stroke={a.separator} />
-      </g>
+      <AppIllustration app={app} clip={clip} x={APP_X} width={APP_W} height={H} />
     </svg>
   );
 }
@@ -212,8 +140,4 @@ function mixHex(a: string, b: string, fraction: number): string {
         .padStart(2, "0"),
     )
     .join("")}`;
-}
-
-function truncate(value: string, length: number): string {
-  return value.length > length ? `${value.slice(0, length - 1).trimEnd()}…` : value;
 }

@@ -15,11 +15,12 @@ type Props = {
   install?: "running" | "fails";
   /// The update `harness.health` offers.
   update?: string;
+  signInFails?: boolean;
 };
 
 /// The page in a pane, with a host that answers `harness.health` and `shell.*` and records what the
 /// page asks.
-function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Props) {
+function GalleryHarnesses({ acpmux, signedOut, checking, install, update, signInFails }: Props) {
   const [asked, setAsked] = useState<string>();
   const [closed, setClosed] = useState(false);
   const reads = useRef(0);
@@ -46,10 +47,16 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Prop
             });
           return new Promise<never>(() => {});
         }
+        // Record the request before simulating a rejected terminal launch so the play can
+        // observe the attempted login even though the page handles the failure asynchronously.
         setAsked(`${method} ${JSON.stringify(params)}`);
+        if (method === "tab.open" && params.kind === "terminal" && signInFails)
+          return Promise.resolve().then(() => {
+            throw new Error("Terminal could not open");
+          });
         return Promise.resolve({});
       },
-    [signedOut, install, update],
+    [signedOut, install, update, signInFails],
   );
   return (
     <div
@@ -124,6 +131,15 @@ export default componentEntry<Props>({
     "this-mac": {
       note: "Claude Code and Grok ready, Codex signed out, the catalog's other harnesses not installed.",
       props: { acpmux: thisMac, signedOut: ["codex"] },
+      play: signIn,
+    },
+    hover: {
+      note: "Harness action hover states without an automatic play.",
+      props: { acpmux: thisMac, signedOut: ["codex"] },
+    },
+    "sign-in-launch-failed": {
+      note: "Opening the sign-in terminal fails; the row keeps the failure and a Sign In retry.",
+      props: { acpmux: thisMac, signedOut: ["codex"], signInFails: true },
       play: signIn,
     },
     "custom-harness": {

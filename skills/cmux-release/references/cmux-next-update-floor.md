@@ -1,6 +1,6 @@
-# cmux-next update floor (macOS 26)
+# cmux-next update floor
 
-cmux-next deploys to macOS 26. The legacy app deployed to macOS 14. Sparkle only offers an appcast item to a Mac whose macOS is at least the item's `sparkle:minimumSystemVersion`, so the floor must reach every new item or macOS 14/15 users download a build that cannot launch.
+cmux-next deploys to macOS 14.0, the same floor as the legacy app (it was 26.0 before 2026-10-13). Sparkle only offers an appcast item to a Mac whose macOS is at least the item's `sparkle:minimumSystemVersion`, so the floor must reach every new item or older Macs download a build that cannot launch. The pipeline below enforces that whatever the floor is.
 
 ## How the floor gets into the feed
 
@@ -9,9 +9,13 @@ cmux-next deploys to macOS 26. The legacy app deployed to macOS 14. Sparkle only
 3. `scripts/sparkle_generate_appcast.sh` requires `SPARKLE_MINIMUM_SYSTEM_VERSION` (the value from step 2). After `generate_appcast` it runs `enforce`: the item for the new DMG must carry that `sparkle:minimumSystemVersion`. A missing element is inserted and a different value fails the release.
 4. `nightly.yml`, `release.yml` and `scripts/build-sign-upload.sh` pass the floor from the app they built. `release.yml` also greps the final `appcast.xml` for it.
 
-`tests/test_appcast_minimum_system_version.py` and `tests/test_sparkle_generate_appcast_no_deltas.sh` cover these steps (`ci-guards.yml`, group `release-notary`). The app side is `CmuxNextUpdater.AppcastSelector`, tested in `CmuxNextUpdaterTests`.
+`tests/test_appcast_minimum_system_version.py` and `tests/test_sparkle_generate_appcast_no_deltas.sh` cover these steps (`ci-guards.yml`, group `release-notary`). The app side is `CmuxNextUpdater.AppcastSelector`; it has no test target yet.
 
-## What macOS 14/15 users get
+## If the floor rises above macOS 14 again
+
+The two sections below applied while cmux-next required macOS 26. They are kept for the next floor raise.
+
+### What older Macs get
 
 Sparkle picks the newest item the Mac can run. It never offers an item above the Mac's macOS, and it reports "requires a newer macOS" when the newest item is too new.
 
@@ -19,7 +23,7 @@ Nightly: the feed lists the new build plus the two previous builds (kept for del
 
 Stable: the feed lists only the new release. Without further action, a macOS 14/15 Mac stays on whichever legacy release it has, which may be older than the last legacy release.
 
-## Keep macOS 14/15 on the last legacy build (stable)
+### Keep older Macs on the last legacy build (stable)
 
 After the final legacy stable release, and before the first cmux-next stable release:
 
@@ -32,4 +36,4 @@ The file is not committed yet because the final legacy release does not exist. S
 
 ## Homebrew
 
-`update-homebrew.yml` and `scripts/build-sign-upload.sh` write `depends_on macos: :tahoe` into the cask. The symbol form means "this macOS or newer"; Homebrew deprecated the `">= :tahoe"` comparison string (issue 5877), and `tests/test_ci_homebrew_cask_macos_dependency.sh` derives the symbol from the app target's deployment target.
+`update-homebrew.yml` and `scripts/build-sign-upload.sh` write `depends_on macos: :sonoma` into the cask (macOS 14). The symbol form means "this macOS or newer"; Homebrew deprecated the `">= :sonoma"` comparison string (issue 5877), and `tests/test_ci_homebrew_cask_macos_dependency.sh` derives the symbol from the app target's deployment target.

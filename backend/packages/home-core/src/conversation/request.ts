@@ -35,6 +35,8 @@ export interface OpRequest {
    * host's, not the caller's. Without it only an agent's owner may add it.
    */
   readonly trusted_participant?: boolean | null
+  /** Cloud `participants.add`: the host found a ban row for the participant (roles.ts). */
+  readonly banned?: boolean | null
 }
 
 /** One committed op: the new head, the message row to upsert, and the change to publish. */

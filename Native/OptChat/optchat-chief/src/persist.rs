@@ -30,6 +30,7 @@ impl Persister {
         dir: PathBuf,
         db: PathBuf,
         backup: Option<Backup>,
+        retention: Option<crate::turn_retention::TurnRetention>,
         log: crate::brain::Log,
     ) -> std::io::Result<Persister> {
         let (tx, rx) = channel::<String>();
@@ -68,6 +69,11 @@ impl Persister {
                             log(&format!(
                                 "committing the memory after turn {key} failed: {e} (said once)"
                             ));
+                        }
+                        if let Some(retention) = &retention
+                            && let Err(e) = retention.cleanup()
+                        {
+                            log(&format!("cleaning expired turn transcripts failed: {e}"));
                         }
                     }
                     if let Some(backup) = backup.as_mut() {

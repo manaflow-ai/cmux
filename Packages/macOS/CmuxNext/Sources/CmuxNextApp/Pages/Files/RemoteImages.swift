@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 
 /// Fetches one remote image for the markdown page's `__image` prefix.

@@ -1,0 +1,150 @@
+{
+  "title": "Launch clip: wallpapers and glass",
+  "settings": {
+    "appearance": {
+      "theme": "Soft Blue",
+      "backgroundBlur": "glass"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Workspace infra",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "infra"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Workspace docs-site",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "docs-site"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "shot": false
+    },
+    {
+      "title": "A shell in app",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; uname -sm; echo; ls /System/Applications | head -12\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Split right",
+      "cmux": [
+        "action",
+        "run",
+        "splitRight"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Agent chat beside the terminal",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 4,
+      "shot": false,
+      "optional": "agent chat needs the agent backend on this runner"
+    },
+    {
+      "title": "No wallpaper",
+      "wait": 2
+    },
+    {
+      "title": "The Great Wave",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.background",
+        "hokusai-great-wave"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Water lilies",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.background",
+        "monet-water-lilies"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Impression, Sunrise",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.background",
+        "monet-impression-sunrise"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Frosted glass",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.backgroundBlur",
+        "frosted"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Clear glass",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.backgroundBlur",
+        "glass-clear"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Clay Orange over the art",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Clay Orange"
+      ],
+      "wait": 3
+    }
+  ]
+}

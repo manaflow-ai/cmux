@@ -1,0 +1,129 @@
+/* A feature tip (ui/FeatureTip.tsx; leo-workspace design/feature-tips.md). The shipped look is the
+   popup glass (.ui-popup.ui-glass, ui/glass/glass.css): theme tint, the shared blur and the hairline
+   rim, the popup radius and the raised elevation. It opens in one frame and fades out as every popup
+   does (ui/popupSurface.css). The "New" pill takes the surface's accent: the agent pane's neutral
+   --agent-accent (no system blue there), the theme accent elsewhere. Two looks stay in the gallery:
+   `accent` (the reference's accent-filled callout, as accent-tinted glass, never opaque) and `veil`
+   (the card role's thinner veil). */
+.ui-feature-tip {
+  --ui-feature-tip-accent: var(--agent-accent, var(--cmux-accent, currentColor));
+  --ui-feature-tip-ink: var(--ui-fg, var(--cmux-text, CanvasText));
+  --ui-feature-tip-ink-2: var(--ui-fg-2, var(--cmux-text-secondary, GrayText));
+  --glass-elevation: var(--elevation-2);
+  position: relative;
+  box-sizing: border-box;
+  /* A popup scrolls inside itself (ui/ui.css); a tip is one sentence, and its arrow sits outside it. */
+  overflow: visible;
+  max-height: none;
+  min-width: 0;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+  border-radius: var(--ds-radius-popup, 8px);
+  color: var(--ui-feature-tip-ink);
+  z-index: var(--layer-tooltip, 1000);
+}
+
+.ui-feature-tip[data-look="accent"] {
+  --glass-tint: color-mix(in srgb, var(--cmux-accent, currentColor) 62%, transparent);
+  --glass-edge: color-mix(in srgb, var(--cmux-accent, currentColor) 80%, transparent);
+  --ui-feature-tip-accent: var(--cmux-on-accent, Canvas);
+  --ui-feature-tip-ink: var(--cmux-on-accent, Canvas);
+  --ui-feature-tip-ink-2: color-mix(in srgb, var(--cmux-on-accent, Canvas) 84%, transparent);
+}
+
+.ui-feature-tip[data-look="veil"] {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) light-dark(45%, 22%), transparent);
+  --glass-elevation: 0 0 transparent;
+}
+
+.ui-feature-tip-head {
+  display: flex;
+  /* The pill and the X keep to the title's first line when it wraps. */
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+}
+
+.ui-feature-tip-title {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.ui-feature-tip-new {
+  flex: none;
+  margin-block-start: 2px;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control, 6px);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ui-feature-tip-accent);
+  background: color-mix(in srgb, var(--ui-feature-tip-accent) 16%, transparent);
+}
+
+.ui-feature-tip-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--ui-feature-tip-ink-2);
+}
+
+.ui-feature-tip-close:hover {
+  color: var(--ui-feature-tip-ink);
+  background: color-mix(in srgb, var(--ui-feature-tip-ink) 10%, transparent);
+}
+
+.ui-feature-tip-body {
+  margin: 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--ui-feature-tip-ink-2);
+}
+
+/* The arrow: a clipped half of a rotated square in the card's own tint and rim, its point at the
+   control. Base UI places it along the edge and marks its side. */
+.ui-feature-tip-arrow {
+  position: absolute;
+  width: 16px;
+  aspect-ratio: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ui-feature-tip-arrow[data-side="bottom"] {
+  top: -8px;
+}
+.ui-feature-tip-arrow[data-side="top"] {
+  bottom: -8px;
+  transform: rotate(180deg);
+}
+.ui-feature-tip-arrow::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 11px;
+  aspect-ratio: 1;
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .ui-feature-tip-arrow::before {
+    background: var(--glass-opaque);
+  }
+}
+:root[data-reduce-transparency] .ui-feature-tip-arrow::before {
+  background: var(--glass-opaque);
+}

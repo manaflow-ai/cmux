@@ -1,13 +1,16 @@
-//! Every daemon of one uid binds its terminal hosts' sockets in the same
+//! Every daemon of one uid binds its terminal hosts' sockets under the same
 //! `/tmp/cmux-th-<uid>` directory, whatever its HOME or state directory
-//! (`sun_path` is about 100 bytes on macOS, so the endpoint stays short).
+//! (`sun_path` is about 100 bytes on macOS, so the endpoint stays short), in
+//! the flat directory today; a record may also name a per-install
+//! subdirectory (one per session; each build has its own app session,
+//! cx-t2sqm.13), where a later build binds (cx-t2sqm.18).
 //! Records and liveness proofs stay in each daemon's own state directory, and
 //! a daemon reaches the shared directory only through the endpoint of a
 //! record it owns. This test proves that one daemon's recovery and cleanup
 //! leave another daemon's host and socket untouched.
 
 use super::*;
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 
 #[test]
 fn a_daemon_prunes_only_its_own_hosts_in_the_shared_endpoint_directory() {
@@ -77,4 +80,74 @@ fn a_daemon_prunes_only_its_own_hosts_in_the_shared_endpoint_directory() {
         CapabilityRights::RENDERER,
     )
     .expect("daemon A's host stopped accepting renderers");
+}
+
+/// cx-t2sqm.13: daemons of two installs (two sessions: each build has its
+/// own app session) bind their hosts' sockets in two per-install
+/// directories under the shared `/tmp/cmux-th-<uid>`, so one build's socket
+/// cleanup never reaches another build's sockets; both endpoints stay short.
+/// This build accepts the per-install path but binds flat by default (two
+/// phases, cx-t2sqm.18); the debug seam makes it bind per-install here, and
+/// a restarted daemon adopts a host at that path.
+#[test]
+fn hosts_of_two_installs_bind_in_two_install_directories() {
+    let mut a = RecoveryHarness::start_unstarted("install-dir-a");
+    a.extra_env.push(("CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT".into(), "1".into()));
+    a.restart();
+    let mut b = RecoveryHarness::start_unstarted("install-dir-b");
+    b.session = "host-recovery-other-install".into();
+    b.extra_env.push(("CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT".into(), "1".into()));
+    b.restart();
+    assert_ne!(a.session, b.session);
+
+    run_cat_workspace(&a.socket, 1, "install-a");
+    run_cat_workspace(&b.socket, 1, "install-b");
+    let (_, a_record) = wait_for_host_records(&a.host_root(), 1).remove(0);
+    let (_, b_record) = wait_for_host_records(&b.host_root(), 1).remove(0);
+    let a_endpoint = PathBuf::from(&a_record.endpoint);
+    let b_endpoint = PathBuf::from(&b_record.endpoint);
+    let a_dir = a_endpoint.parent().unwrap();
+    let b_dir = b_endpoint.parent().unwrap();
+    assert_ne!(a_dir, b_dir, "two installs share a socket directory");
+    assert_eq!(a_dir.parent(), b_dir.parent(), "the install directories are not siblings");
+    // SAFETY: getuid has no preconditions.
+    let shared = PathBuf::from(format!("/tmp/cmux-th-{}", unsafe { libc::getuid() }));
+    assert_eq!(a_dir.parent(), Some(shared.as_path()));
+    for endpoint in [&a_endpoint, &b_endpoint] {
+        assert!(endpoint.as_os_str().len() < 104, "endpoint too long for sun_path: {endpoint:?}");
+        assert!(
+            fs::symlink_metadata(endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()),
+            "no host socket at {endpoint:?}"
+        );
+    }
+    let mode = fs::symlink_metadata(a_dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700, "the install directory is not private");
+
+    // A daemon that binds flat (the default) adopts the per-install host
+    // after a restart: the record validates and the host keeps serving.
+    let (a_terminal, a_host) = (a_record.terminal_id.clone(), a_record.host_pid);
+    a.extra_env.clear();
+    a.sigkill();
+    a.restart();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    let surface = loop {
+        let resolved = request(
+            &a.socket,
+            serde_json::json!({"id": 5, "cmd": "resolve-terminal", "terminal_id": &a_terminal}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "the per-install host was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let marker = format!("install-dir-adopted-{}", std::process::id());
+    request(
+        &a.socket,
+        serde_json::json!({"id": 6, "cmd": "send", "surface": surface, "text": format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&a.socket, surface, &marker).contains(&marker));
+    assert_eq!(wait_for_host_records(&a.host_root(), 1)[0].1.host_pid, a_host);
 }

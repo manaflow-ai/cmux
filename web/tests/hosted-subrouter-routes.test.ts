@@ -438,7 +438,7 @@ describe("hosted Subrouter account routes", () => {
       nested: { accessToken: "must-not-leak" },
     }];
 
-    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    const response = await accountsRoute.GET(request("/api/subrouter/accounts", { headers: { "x-cmux-view-open": "1" } }));
     const text = await response.text();
 
     expect(response.status).toBe(200);

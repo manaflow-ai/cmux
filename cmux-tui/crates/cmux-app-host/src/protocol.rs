@@ -147,6 +147,8 @@ pub enum FatalReason {
     Memory,
     /// One entry point ran past its interrupt deadline.
     Interrupt,
+    /// The VM used up its CPU window ([`crate::vm::CpuBudget`]).
+    CpuBudget,
     /// The engine failed in a way the VM cannot recover from.
     Engine,
 }
@@ -156,6 +158,7 @@ impl FatalReason {
         match self {
             Self::Memory => "memory",
             Self::Interrupt => "interrupt",
+            Self::CpuBudget => "cpu-budget",
             Self::Engine => "engine",
         }
     }

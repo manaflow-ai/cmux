@@ -89,5 +89,51 @@ class NotesTest(unittest.TestCase):
             release.notes("0.1.0", SHA[:12], "manaflow-ai/cmux", "2.31")
 
 
+class ReleaseVersionTest(unittest.TestCase):
+    """A host-only release keeps the binary on the one cmux-next version (check-version-surfaces)."""
+
+    def crate(self, tmp: str, package_extra: str = "") -> Path:
+        root = Path(tmp)
+        (root / "Cargo.toml").write_text('[workspace]\nmembers = ["h"]\n[workspace.package]\nversion = "1.0.0"\n')
+        (root / "h").mkdir()
+        cargo = root / "h/Cargo.toml"
+        cargo.write_text(f'[package]\nname = "cmux-browser-host"\nversion.workspace = true\n{package_extra}')
+        return cargo
+
+    def test_without_a_revision_the_release_is_the_crate_version(self):
+        release = load()
+        with tempfile.TemporaryDirectory() as tmp:
+            cargo = self.crate(tmp)
+            self.assertEqual(release.release_version(cargo), "1.0.0")
+            self.assertEqual(release.tag_version("cmux-browser-host-v1.0.0", str(cargo)), "1.0.0")
+
+    def test_a_revision_names_the_release_and_the_tag_must_match_it(self):
+        release = load()
+        with tempfile.TemporaryDirectory() as tmp:
+            cargo = self.crate(tmp, "[package.metadata.cmux-release]\nrevision = 1\n")
+            self.assertEqual(release.crate_version(cargo), "1.0.0")
+            self.assertEqual(release.release_version(cargo), "1.0.0-r1")
+            self.assertEqual(release.tag_version("cmux-browser-host-v1.0.0-r1", str(cargo)), "1.0.0-r1")
+            for tag in ("cmux-browser-host-v1.0.0", "cmux-browser-host-v1.0.1", "cmux-browser-host-v1.0.0-r2"):
+                with self.assertRaises(SystemExit):
+                    release.tag_version(tag, str(cargo))
+
+    def test_archives_entries_and_notes_take_a_revision(self):
+        release = load()
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "cmux-browser-host"
+            binary.write_bytes(b"\x7fELF")
+            archives = [str(release.package(str(binary), "1.0.0-r1", target, tmp)) for target in release.TARGETS]
+            self.assertTrue(archives[0].endswith("cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz"))
+            entries = release.entries("https://example.test/r", "1.0.0-r1", archives)
+            self.assertEqual({e["version"] for e in entries["packages"]}, {"1.0.0-r1"})
+            self.assertIn("cmux-browser-host 1.0.0-r1 for Linux", release.notes("1.0.0-r1", SHA, "manaflow-ai/cmux", "2.31"))
+
+    def test_the_crate_carries_the_next_host_release(self):
+        # 1.0.0 shipped (cmux-browser-host-v1.0.0); the goto fix after it ships as 1.0.0-r1.
+        release = load()
+        self.assertEqual(release.release_version(ROOT / "cmux-tui/crates/cmux-browser-host/Cargo.toml"), "1.0.0-r1")
+
+
 if __name__ == "__main__":
     unittest.main()

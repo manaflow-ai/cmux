@@ -9,6 +9,7 @@
 //! member's first certificate works and a member who left loses access
 //! within one interval.
 
+use crate::json::JsonField;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -54,7 +55,7 @@ pub fn sync_once<H: Http>(
         Answer::Transport => Err("team_vm.ssh_ca: no answer (token or network)".into()),
         Answer::Http { status: 200, body } => {
             let value = body.get("value").cloned().unwrap_or(Value::Null);
-            if value["team"] != client.bound().team.as_str() {
+            if *value.field("team") != client.bound().team.as_str() {
                 return Err("team_vm.ssh_ca answered for another team".into());
             }
             let snapshot: Snapshot =
@@ -62,7 +63,12 @@ pub fn sync_once<H: Http>(
             store::apply(paths, &snapshot, now_wall_ms / 1000, check_krl)
         }
         Answer::Http { status, body } => {
-            let code = body["error"]["code"].as_str().or(body["code"].as_str()).unwrap_or("");
+            let code = body
+                .field("error")
+                .field("code")
+                .as_str()
+                .or(body.field("code").as_str())
+                .unwrap_or("");
             Err(format!("team_vm.ssh_ca: HTTP {status} {code}"))
         }
     }
@@ -80,7 +86,7 @@ pub fn accounts_once<H: Http>(
         Answer::Transport => Err("team_vm.accounts: no answer (token or network)".into()),
         Answer::Http { status: 200, body } => {
             let value = body.get("value").cloned().unwrap_or(Value::Null);
-            if value["team"] != client.bound().team.as_str() {
+            if *value.field("team") != client.bound().team.as_str() {
                 return Err("team_vm.accounts answered for another team".into());
             }
             let view: accounts::View =
@@ -92,7 +98,12 @@ pub fn accounts_once<H: Http>(
             Ok(done)
         }
         Answer::Http { status, body } => {
-            let code = body["error"]["code"].as_str().or(body["code"].as_str()).unwrap_or("");
+            let code = body
+                .field("error")
+                .field("code")
+                .as_str()
+                .or(body.field("code").as_str())
+                .unwrap_or("");
             Err(format!("team_vm.accounts: HTTP {status} {code}"))
         }
     }

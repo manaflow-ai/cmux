@@ -1,27 +1,18 @@
 // The registry buttons at the end of a section (Welcome Checklist, Make Default Terminal, Import
 // from Browser, Reload Configuration, ...), as the Swift window showed them. The app gives their
 // titles and availability; a press runs the action (cmux.app.action.run).
-import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useStore } from "../context";
+import { sectionActionsQuery } from "../sectionQueries";
 
-type SectionAction = { id: string; title: string; enabled: boolean };
+const NONE: never[] = [];
 
+/** The section's buttons, from the query its route's loader (or a hover on its link) filled. */
 export function SectionActions({ section }: { section: string }) {
-  // A new section is a new list (its own read on mount).
-  return <SectionActionList key={section} section={section} />;
-}
-
-function SectionActionList({ section }: { section: string }) {
   const store = useStore();
-  const [actions, setActions] = useState<SectionAction[]>([]);
-  const mounted = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node) void store.sectionActions(section).then(setActions);
-    },
-    [store, section],
-  );
+  const actions = useQuery(sectionActionsQuery(store, section)).data ?? NONE;
   return (
-    <div ref={mounted} data-section-actions={section}>
+    <div data-section-actions={section}>
       {actions.length > 0 && (
         <section className="group">
           <div className="section-actions">

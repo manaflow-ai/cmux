@@ -7,8 +7,9 @@ use cmux_app_host::ToHost;
 use serde_json::Value;
 use std::time::Instant;
 
+use super::host::HostProcess;
 use super::mirror::Origin;
-use super::supervisor::{ApiError, HostKey, HostState, Inner, Out, Responder, Supervisor};
+use super::supervisor::{ApiError, Host, HostKey, HostState, Inner, Out, Responder, Supervisor};
 
 /// Answered runs kept for replay.
 const RUN_KEYS: usize = 256;
@@ -39,6 +40,32 @@ enum Target {
     Host(HostKey, String),
     /// The app's server (`servers.rs`).
     Server,
+}
+
+/// A run not sent to a process yet. Its responder must not belong to the
+/// outgoing generation: neither that process's exit nor its callbacks can
+/// settle it. The replacement receives it under the current grant.
+pub(super) struct PendingRun {
+    callback: u64,
+    export: String,
+    args: Value,
+    gesture: Option<String>,
+    respond: Responder,
+}
+
+impl PendingRun {
+    pub(super) fn dispatch(self, host: &mut Host, process: &HostProcess) {
+        let Self { callback, export, args, gesture, respond } = self;
+        host.runs.insert(callback, respond);
+        if let Some(token) = &gesture {
+            host.run_gestures.insert(callback, token.clone());
+        }
+        process.send(&ToHost::Run { cb: callback, export, args, gesture });
+    }
+
+    pub(super) fn refuse(self, code: &str, message: &str) -> Out {
+        Out::Respond(self.respond, Err(ApiError::new(code, message)))
+    }
 }
 
 pub(super) enum RunKey {
@@ -93,8 +120,7 @@ impl Supervisor {
                     let gesture = gesture.filter(|_| origin == Origin::User).and_then(|token| {
                         inner.gestures.accept_client(app, &token, Instant::now())
                     });
-                    let message = ToHost::Run { cb: 0, export, args, gesture };
-                    self.start_run_locked(&mut inner, &key, message, respond)
+                    self.start_run_locked(&mut inner, &key, export, args, gesture, respond)
                 }
             }
         };
@@ -212,7 +238,9 @@ impl Supervisor {
         &self,
         inner: &mut Inner,
         key: &HostKey,
-        mut message: ToHost,
+        export: String,
+        args: Value,
+        gesture: Option<String>,
         respond: Responder,
     ) -> Vec<Out> {
         let fresh = !inner.hosts.contains_key(key);
@@ -225,20 +253,16 @@ impl Supervisor {
         }
         let cb = host.next_cb;
         host.next_cb += 1;
-        host.runs.insert(cb, respond);
-        if let ToHost::Run { cb: slot, gesture, .. } = &mut message {
-            *slot = cb;
-            if let Some(token) = gesture {
-                host.run_gestures.insert(cb, token.clone());
-            }
-        }
+        let pending = PendingRun { callback: cb, export, args, gesture, respond };
         match (host.state, host.process.clone()) {
-            (HostState::Starting | HostState::Running, Some(process)) => process.send(&message),
+            (HostState::Starting | HostState::Running, Some(process)) => {
+                pending.dispatch(host, &process);
+            }
             (HostState::Stopping, Some(_)) => {
                 host.state = HostState::Restarting;
-                host.queued_runs.push(message);
+                host.queued_runs.push(pending);
             }
-            _ => host.queued_runs.push(message),
+            _ => host.queued_runs.push(pending),
         }
         if fresh { self.spawn_locked(inner, key) } else { vec![] }
     }

@@ -12,8 +12,9 @@ main-thread watchdog stopped the app).
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. The app needs an ACP harness with id `fake`
-(cmux-tui/crates/acpmux/tests/fake_agent.py) in `$HOME/.config/cmux/harnesses/fake.toml`,
-written before the launch. Each check opens a new workspace, starts a chat on the fake harness
+(cmux-tui/crates/acpmux/tests/fake_agent.py) in `harnesses/fake.toml` of the build's own acpmux
+home (`$HOME/.acpmux/builds/<bundle id>/`; never `~/.config/cmux/harnesses`, which shipped builds
+read), written before the launch. Each check opens a new workspace, starts a chat on the fake harness
 and clicks a header button through `debug.agent_pane` (a native click on the page). It closes
 the workspaces it made and never launches or quits the app.
 
@@ -201,7 +202,7 @@ def main():
     rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{pane}", "focus": True})
     chat = wait(lambda: chat_pane(workspace), 60, 1)
     if not (chat and start_fake_chat(chat)):
-        sys.exit("the fake harness did not start a chat (is fake.toml in the app's HOME?)")
+        sys.exit("the fake harness did not start a chat (is fake.toml in the build's acpmux home?)")
     check_header("New Agent Chat", workspace, chat)
     close_created()
 

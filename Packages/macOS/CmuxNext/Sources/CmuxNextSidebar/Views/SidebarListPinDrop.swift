@@ -11,12 +11,13 @@ import AppKit
 @MainActor enum SidebarListPinDrop {
     /// Probes the band under `windowPoint`; true while a section holds the drag.
     static func holds(_ list: SidebarListView, _ drag: SidebarListDrag, at windowPoint: NSPoint) -> Bool {
+        if drag.docItems != nil { return false } // on the document the band draws no section: the list takes every drop
         guard case .workspaces = drag.payload, let sidebar = sidebar(of: list) else { return false }
         let wasHeld = drag.pinTarget != nil
         drag.pinTarget = SidebarPinDrops.pinDrop(sidebar, at: windowPoint)
         guard drag.pinTarget != nil else {
             // Back over the list: its slot opens again.
-            if wasHeld { list.reload(animated: true) }
+            if wasHeld { list.showDragLayout() }
             return false
         }
         drag.lastWindowPoint = windowPoint
@@ -26,7 +27,7 @@ import AppKit
         drag.lift.setRefused(false)
         // The slot a return to the list starts from; the list shows no slot meanwhile.
         drag.target = drag.origin.map(DropTarget.position)
-        if !wasHeld { list.reload(animated: true) }
+        if !wasHeld { list.showDragLayout() }
         return true
     }
 
@@ -40,7 +41,7 @@ import AppKit
         list.leaving.formUnion(ids)
         list.model.send(.dropOnLayoutSection(ids, section: pin.section, index: pin.index))
         list.suppressed = drag.hiddenKeys
-        list.reload(animated: true)
+        list.reload(animated: true, adopt: true)
         list.land(drag, at: slot) { [weak list] in
             list?.leaving.subtract(ids)
             list?.reload(animated: true)
@@ -48,9 +49,10 @@ import AppKit
         return true
     }
 
-    /// Hides the outline (a cancelled drag).
+    /// Hides the outline and the line (a drop or a cancelled drag).
     static func end(_ list: SidebarListView) {
-        if let sidebar = sidebar(of: list) { _ = SidebarPinDrops.pinDrop(sidebar, at: nil) }
+        guard let sidebar = sidebar(of: list) else { return }
+        _ = SidebarPinDrops.pinDrop(sidebar, at: nil)
     }
 
     /// The sidebar that holds the list (and the band above it).

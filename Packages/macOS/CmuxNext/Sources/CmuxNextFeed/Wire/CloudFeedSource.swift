@@ -12,9 +12,18 @@ import CmuxNextWakeups
 public final class CloudFeedSource: FeedSource {
     /// Returns a fresh bearer token (a Stack session token today; an install token later).
     public typealias TokenProvider = @Sendable () async throws -> String
+    /// One wire connection with `bearer`: returns or throws when the socket closes, and calls
+    /// `onSnapshot` when a snapshot made the mirror current. Tests pass a fake; nil is the socket.
+    typealias Connect = @MainActor (_ bearer: String, _ onSnapshot: () -> Void) async throws -> Void
+    /// The wire upgrade was answered 401: the server refused this token.
+    nonisolated struct Unauthorized: Error, Sendable {}
+    /// The disconnected reason while the loop holds a token the server refused.
+    static let unauthorizedReason = "the server refused this sign-in token; waiting for a new one"
 
     private let wireURL: URL
     private let token: TokenProvider
+    private let connect: Connect?
+    private let reconnect: Backoff
     private let device: String
     private var sink: (@MainActor (FeedSourceEvent) -> Void)?
     private var runner: Task<Void, Never>?
@@ -32,13 +41,19 @@ public final class CloudFeedSource: FeedSource {
     private var unread: [String: Date] = [:]
     private var known: Set<String> = []
 
-    public init(apiBaseURL: URL, device: String, token: @escaping TokenProvider) {
+    public convenience init(apiBaseURL: URL, device: String, token: @escaping TokenProvider) {
+        self.init(apiBaseURL: apiBaseURL, device: device, token: token, reconnect: Backoff(initial: .milliseconds(500), maximum: .seconds(30)), connect: nil)
+    }
+
+    init(apiBaseURL: URL, device: String, token: @escaping TokenProvider, reconnect: Backoff, connect: Connect?) {
         var c = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
         c.scheme = c.scheme == "http" ? "ws" : "wss"
         c.path = "/v1/wire/feed"
         wireURL = c.url ?? apiBaseURL
         self.device = device
         self.token = token
+        self.reconnect = reconnect
+        self.connect = connect
     }
 
     public func start(_ sink: @escaping @MainActor (FeedSourceEvent) -> Void) {
@@ -118,15 +133,36 @@ public final class CloudFeedSource: FeedSource {
     // MARK: - Connection
 
     private func run(_ generation: Int) async {
-        var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
+        var backoff = reconnect
+        /// The token a 401 refused: no socket opens with it again. The loop asks the provider on
+        /// the Backoff schedule (no request reaches the server) until it returns another token;
+        /// a sign-in or account change also restarts the loop through `start` or `reset`.
+        var refused: String?
         // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
         while !Task.isCancelled {
-            sink?(.connection(.connecting))
             var reason = "closed"
+            var bearer: String?
             do {
-                try await session(onSnapshot: { backoff.reset() })
+                let next = try await token()
+                guard generation == self.generation else { return }
+                if next == refused {
+                    // concurrency-allow: Backoff.wait is an async sleep while the token is refused, not a blocking wait.
+                    do { try await backoff.wait(owner: "feed.cloud.unauthorized") } catch { return }
+                    continue
+                }
+                refused = nil
+                bearer = next
+                sink?(.connection(.connecting))
+                if let connect {
+                    try await connect(next) { backoff.reset() }
+                } else {
+                    try await session(bearer: next) { backoff.reset() }
+                }
             } catch is CancellationError {
                 return
+            } catch is Unauthorized {
+                refused = bearer
+                reason = Self.unauthorizedReason
             } catch {
                 reason = String(describing: error)
             }
@@ -142,31 +178,13 @@ public final class CloudFeedSource: FeedSource {
     /// This app's version (`CFBundleShortVersionString`), sent on every wire connect.
     static let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
-    /// A Worker that reads the upgrade's Authorization header names this header on every wire 401.
-    static let wireAuthHeader = "x-cmux-wire-auth"
-
-    /// The upgrade's 401 lacked `x-cmux-wire-auth`: a Worker from before cx-dgsp, which reads only the legacy subprotocol.
-    private struct LegacyWorker: Error {}
-
-    /// The token goes in the Authorization header, which Workers invocation logs never record
-    /// (cx-dgsp). Only a Worker that does not read it yet gets the legacy `bearer.` subprotocol, once.
-    private func session(onSnapshot: () -> Void) async throws {
-        let bearer = try await token()
-        do {
-            try await session(bearer: bearer, legacy: false, onSnapshot: onSnapshot)
-        } catch is LegacyWorker {
-            try await session(bearer: bearer, legacy: true, onSnapshot: onSnapshot)
-        }
-    }
-
-    private func session(bearer: String, legacy: Bool, onSnapshot: () -> Void) async throws {
+    /// The token goes only in the Authorization header, which Workers invocation logs never record
+    /// (cx-dgsp). The legacy `bearer.` subprotocol is retired: a 401 is final for this token, and
+    /// the run loop opens no socket with it again (`Unauthorized`).
+    private func session(bearer: String, onSnapshot: () -> Void) async throws {
         var request = URLRequest(url: wireURL)
-        if legacy {
-            request.setValue("cmux.wire.v1, bearer.\(bearer)", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        } else {
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-            request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        }
+        request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         // updates.minimumVersion (enterprise P17-4): the server refuses older clients with client.too_old.
         if let version = Self.clientVersion { request.setValue(version, forHTTPHeaderField: "x-cmux-client-version") }
         let task = URLSession.shared.webSocketTask(with: request)
@@ -175,20 +193,16 @@ public final class CloudFeedSource: FeedSource {
         socket = task
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
-        var first = true
         // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
         while !Task.isCancelled {
             let message: URLSessionWebSocketTask.Message
             do {
                 message = try await task.receive()
             } catch {
-                if first, !legacy, let response = task.response as? HTTPURLResponse, response.statusCode == 401,
-                   response.value(forHTTPHeaderField: Self.wireAuthHeader) == nil {
-                    throw LegacyWorker()
-                }
+                // A refused upgrade fails the first receive; its HTTP answer is the task's response.
+                if (task.response as? HTTPURLResponse)?.statusCode == 401 { throw Unauthorized() }
                 throw error
             }
-            first = false
             let data: Data
             switch message {
             case let .string(text): data = Data(text.utf8)

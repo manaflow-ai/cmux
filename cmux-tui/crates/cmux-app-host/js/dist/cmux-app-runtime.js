@@ -896,6 +896,9 @@
     effect(() => {
       const result = fn();
       untrack(() => {
+        const isEmpty = !(Array.isArray(result) ? result : [result]).some((v) => v instanceof ViewNode);
+        if (current && current.ids.length === 0 && isEmpty)
+          return;
         if (current) {
           disposeOwner(current.owner);
           for (const old of current.ids)

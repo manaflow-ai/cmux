@@ -224,6 +224,62 @@ mod apps {
         );
     }
 
+    /// Spins for `ms` of VM time.
+    const SPIN: &str = "(ms) => { const t = Date.now(); while (Date.now() - t < ms) {} return ms }";
+
+    /// The per-entry deadline alone lets an app run 249 ms every 50 ms; the CPU window (2 s of VM
+    /// time in any 10 s) stops it (leo-workspace design/app-store.md, the first primitive). The
+    /// entries spin 150 ms and idle 50 ms on the VM clock, so all of them fall in one window; the
+    /// entry deadline is raised to 5 s here so a loaded runner's pause in a spin cannot turn the
+    /// window's kill into an entry-deadline interrupt.
+    #[test]
+    fn entries_of_150_ms_every_50_ms_are_killed_within_the_cpu_window() {
+        let limits = Limits { entry_deadline: Duration::from_secs(5), ..Limits::default() };
+        let mut h =
+            Harness::with(&app(r#"return { render: () => Text("ok") }"#), json!({}), limits);
+        let mut error = None;
+        // 2 s of budget is used up by the 14th entry; 30 would be 4.5 s of VM time.
+        for _ in 0..30 {
+            match h.vm.eval_json(&format!("({SPIN})(150)")) {
+                Ok(result) => assert_eq!(result, Ok(json!(150))),
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
+            h.vm.advance_clock(Duration::from_millis(50));
+        }
+        let error = error.expect("killed within 30 entries of 150 ms (4.5 s of VM time in 6 s)");
+        assert!(
+            matches!(error, VmError::Fatal { reason: FatalReason::CpuBudget, .. }),
+            "{error:?}"
+        );
+        assert_eq!(h.vm.dead(), Some(FatalReason::CpuBudget));
+        assert!(h.vm.unmount("m").is_err(), "a dead VM refuses every entry");
+    }
+
+    /// 1 ms every 50 ms is 2% of a core, well under the 20% budget: a minute of it (on the VM's
+    /// clock, so the test does not sleep for one) is never stopped.
+    #[test]
+    fn entries_of_1_ms_every_50_ms_run_for_a_minute_and_are_never_killed() {
+        let mut h = Harness::new(&app(r#"return { render: () => Text("ok") }"#));
+        for entry in 0..1200 {
+            let result = h.vm.eval_json(&format!("({SPIN})(1)"));
+            assert_eq!(result, Ok(Ok(json!(1))), "entry {entry}");
+            h.vm.advance_clock(Duration::from_millis(49));
+        }
+        assert_eq!(h.vm.dead(), None);
+        assert_eq!(h.mount("m", "render", json!({})), None);
+        assert_eq!(h.texts("m"), ["ok"]);
+    }
+
+    /// The script profile has no CPU window: a script cell is the person's own code.
+    #[test]
+    fn the_script_profile_has_no_cpu_window() {
+        assert_eq!(Limits::script().cpu, None);
+        assert_eq!(Limits::default().cpu, Some(cmux_app_host::CpuBudget::default()));
+    }
+
     #[test]
     fn memory_past_the_limit_kills_only_its_vm() {
         let limits = Limits { memory_bytes: 8 * 1024 * 1024, ..Limits::default() };

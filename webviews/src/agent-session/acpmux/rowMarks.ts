@@ -2,6 +2,7 @@
 // read the whole chat (the folder-trust ask's prompt count, the ended edit turn). Kept across
 // snapshots: only the rows after the first that differs from the previous snapshot's (by object)
 // are read again, so a long chat's stream reads its last rows alone.
+import { endsTurn } from "./diff";
 import type { AcpmuxRow } from "./model";
 
 export type RowMarks = {
@@ -31,13 +32,16 @@ export function markRows(rows: readonly AcpmuxRow[], previous?: RowMarks): RowMa
   };
   const lists = [marks.prompts, marks.summaries, marks.editedFiles];
   for (let index = from; index < rows.length; index += 1) {
-    const at = MARKED.indexOf(rows[index]!.kind as (typeof MARKED)[number]);
-    if (at >= 0) lists[at]!.push(index);
+    const row = rows[index]!;
+    const at = MARKED.indexOf(row.kind as (typeof MARKED)[number]);
+    // The summary of a part a Send now cancelled does not end the turn (diff.ts endsTurn): the
+    // turn goes on, and its checkpoint pair exists only once it ends.
+    if (at >= 0 && (row.kind !== "turnSummary" || endsTurn(row))) lists[at]!.push(index);
   }
   return marks;
 }
 
-/// The id of the last edited-files row when a turn summary follows it.
+/// The id of the last edited-files row when a summary that ends its turn follows it.
 export function endedEditRow(marks: RowMarks): string | undefined {
   const edit = marks.editedFiles.at(-1);
   if (edit === undefined) return undefined;

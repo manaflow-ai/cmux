@@ -20,13 +20,13 @@ final class AgentQuestionOptionRowView: NSView {
     var onClick: (() -> Void)?
     private(set) var content: Content?
     private let keycap = CALayer()
-    private let keycapLabel = NSTextField(labelWithString: "")
-    private let title = NSTextField(wrappingLabelWithString: "")
-    private let detail = NSTextField(wrappingLabelWithString: "")
+    private let keycapLabel = ChromeLabel(labelWithString: "")
+    private let title = ChromeLabel(wrappingLabelWithString: "")
+    private let detail = ChromeLabel(wrappingLabelWithString: "")
     private let check = NSImageView()
     private var frames: AgentQuestionCardLayout.Row?
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: .zero)
@@ -37,7 +37,6 @@ final class AgentQuestionOptionRowView: NSView {
         for label in [keycapLabel, title, detail] {
             label.isSelectable = false
             label.drawsBackground = false
-            label.isBordered = false
             addSubview(label)
         }
         keycapLabel.alignment = .center

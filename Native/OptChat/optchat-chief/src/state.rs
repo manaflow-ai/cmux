@@ -62,14 +62,31 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// The turn session kept for the next turn (`Settings::keep_turn_session`):
+    /// a host that restarts ends it (it knows nothing of its history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_session: Option<String>,
     /// E22: what the last turn answered (message ids): a spawn made after
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub last_answers: Vec<String>,
+    /// The (conversation, run) of those answers, for reports of a late spawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<(String, String)>,
     /// E22: what a turn stopped for a newer message answered: the next turn
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carry_answers: Vec<String>,
+    /// The Chief conversation's person messages that no posted reply has
+    /// answered yet (brain/reply_ledger.rs, user 2026-10-21: "the Chief never
+    /// forgets to respond"). Kept across restarts; a message leaves only when
+    /// a reply posts, the owner stops its turn, or the failure note posts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub awaiting: Vec<Awaiting>,
+    /// The outcome ledger (brain/outcome_ledger.rs): finished subagents whose
+    /// outcome no Chief post has told the person yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub untold: Vec<Untold>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -85,6 +102,15 @@ pub struct HostState {
     /// Section 9: each `spawn` call and its subagents, by spawn id.
     #[serde(default)]
     pub spawns: BTreeMap<String, SpawnRecord>,
+    /// `control cap N`: the live cap set at run time (0: no cap); None: the
+    /// env's (`OPTCHAT_MAX_LIVE_SUBAGENTS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_cap: Option<usize>,
+    /// `control cloud PEER|off`: the acpmux peer subagents run on by
+    /// default, set at run time (empty: off, local); None: the env's
+    /// (`OPTCHAT_SUBAGENT_PEER`). plans/cmux-next/cloud-subagents-DESIGN.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_peer: Option<String>,
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
@@ -101,12 +127,19 @@ pub struct HostState {
     /// cleared when its note is logged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resumes: Vec<Resume>,
+    /// Completed report projections whose owner append was interrupted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_reports: Vec<PendingReport>,
     /// The view up to and including the last turn's marked block, by size
     /// and hash (`optchat_core::mark_piece`): saved with that turn's
     /// messages, so the first turn after a restart still marks within the
     /// API's lookback of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_mark: Option<MarkRecord>,
+    /// The frozen view of spec 5a and where its delta starts: the turns'
+    /// input repeats it byte for byte until a re-render (optchat_core::turn_input).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frozen: Option<FrozenRecord>,
     /// G9: the floor of each side conversation (not the main one) the
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -116,6 +149,96 @@ pub struct HostState {
     /// retracts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_notice: Option<PostedNotice>,
+    /// The thread root of each user message of the Chief conversation that
+    /// is itself a thread reply, by message id (a top-level message is its
+    /// own root and has no entry): a reply to it, even a subagent's report
+    /// after a restart, goes into that thread. At most
+    /// [`MESSAGE_ROOTS_KEPT`], oldest dropped first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub message_roots: Vec<(String, String)>,
+    /// Wakes the Chief asked for with `sleep` (brain/wakes.rs), soonest
+    /// first. At most [`WAKES_KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wakes: Vec<Wake>,
+    /// Watches the Chief started with `watch` (brain/watches.rs), oldest
+    /// first. At most `WATCHES_KEPT`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watches: Vec<Watch>,
+    /// The number of the last watch started (`w<N>`); ids never repeat.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub last_watch: u64,
+}
+
+/// One watch the Chief started with `watch`: the host runs `command` off
+/// the turn until a line of its output matches `until` (or, without
+/// `until`, it exits), or `deadline_ms` passes, then a note wakes the Chief.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Watch {
+    /// `w<N>`.
+    pub id: String,
+    /// The shell command (`sh -c`).
+    pub command: String,
+    /// A regex on its output lines; None: fire when the command exits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    /// The Chief's own words, shown in the note.
+    #[serde(default)]
+    pub note: String,
+    /// When the Chief started it (ms since the epoch).
+    pub asked_ms: u64,
+    /// When it fires as timed out (ms since the epoch).
+    pub deadline_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PendingReport {
+    pub conversation: String,
+    pub run: Value,
+    pub steps: Vec<Value>,
+}
+
+/// How many pending wakes `HostState::wakes` keeps.
+pub const WAKES_KEPT: usize = 8;
+
+/// One wake the Chief asked for with `sleep`: at `at_ms` (wall clock, ms
+/// since the epoch) a note with `note` starts a turn.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wake {
+    /// When it is due (ms since the epoch).
+    pub at_ms: u64,
+    /// When the Chief asked for it (ms since the epoch).
+    pub asked_ms: u64,
+    /// Why: the Chief's own words, shown in the wake note.
+    #[serde(default)]
+    pub note: String,
+    /// `until: event`: a turn for a user message or a report that starts
+    /// first drops this wake.
+    #[serde(default)]
+    pub until_event: bool,
+}
+
+/// How many thread roots `HostState::message_roots` keeps.
+pub const MESSAGE_ROOTS_KEPT: usize = 512;
+
+impl HostState {
+    /// Records that user message `id` is a reply in the thread of `root`.
+    pub fn note_root(&mut self, id: &str, root: &str) {
+        if id == root || self.message_roots.iter().any(|(m, _)| m == id) {
+            return;
+        }
+        self.message_roots.push((id.to_owned(), root.to_owned()));
+        let extra = self.message_roots.len().saturating_sub(MESSAGE_ROOTS_KEPT);
+        self.message_roots.drain(..extra);
+    }
+
+    /// The thread root of user message `id`: its recorded root, else itself.
+    pub fn root_of(&self, id: &str) -> String {
+        self.message_roots
+            .iter()
+            .find(|(m, _)| m == id)
+            .map(|(_, r)| r.clone())
+            .unwrap_or_else(|| id.to_owned())
+    }
 }
 
 /// A notice the host posted and may take back.
@@ -177,10 +300,21 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// The originating conversation; reports must not follow the Chief into another chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
     /// E22: the messages that turn answered; each turn its reports cause
     /// answers them too, and says while a subagent of it still works.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
+}
+
+impl SubRecord {
+    /// Starting or running and not cancelled: a cancelled one whose session
+    /// never ends its turn is not at work (#7).
+    pub fn at_work(&self) -> bool {
+        matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
+    }
 }
 
 impl SpawnRecord {
@@ -190,6 +324,19 @@ impl SpawnRecord {
             .iter()
             .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
     }
+
+    /// A subagent still works for user message `id`: its own `answers` (a
+    /// tell) name it, or it has none and the spawn's do.
+    pub fn working_for(&self, id: &str) -> bool {
+        self.subs.iter().any(|s| {
+            let for_it = if s.answers.is_empty() {
+                self.answers.iter().any(|a| a == id)
+            } else {
+                s.answers.iter().any(|a| a == id)
+            };
+            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,7 +345,8 @@ pub enum SubStatus {
     /// Its session is being created.
     #[default]
     Starting,
-    /// It waits for a free slot (`subagents::MAX_LIVE` run at once).
+    /// It waits for a free slot (`OPTCHAT_MAX_LIVE_SUBAGENTS` run at once;
+    /// no cap by default).
     Queued,
     /// A turn runs, or one ended and was not read yet.
     Running,
@@ -219,6 +367,31 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// That workspace's public id (`ws_…`), when its place can name it: its
+    /// report's work is shown there (show.rs `block_in`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ws_id: Option<String>,
+    /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
+    /// local subagents count against the live cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// Its own sandbox key's public id (`vmk_...`, agent_keys.rs) until it is
+    /// revoked; the key itself is never stored here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_key: Option<String>,
+    /// Its own VM (`peer` chief-sub-<id>) was deleted after it finished and
+    /// its work was pushed: a tell can no longer reach it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_deleted: bool,
+    /// When its own VM was last seen with this subagent not live (ms since
+    /// the epoch); the VM is deleted `cloud.deleteAfterPausedDays` after
+    /// it. Saved, so a host restart does not start the wait again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_idle_since: Option<u64>,
+    /// The fleet jobs its last report waits on (`fleet-wait: JOB` lines,
+    /// fleet_wait.rs): its VM stays paused until one ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fleet_wait: Vec<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]
@@ -235,10 +408,133 @@ pub struct SubRecord {
     /// The task's first characters (the workspace title).
     #[serde(default)]
     pub title: String,
-    /// `ask` when it was spawned under the spawn floor (a remote-origin turn
-    /// or a live ask child): a person answers its permission requests.
+    /// `ask` when it was spawned under the spawn floor (a turn another
+    /// person started, or a live ask child): the host refuses its local
+    /// effects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<String>,
+    /// A queued subagent's launch, saved so a restarted host still starts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_launch: Option<QueuedLaunch>,
+    /// Automatic continues in a row after error stops (auto_resume.rs);
+    /// 0 again after a run that ends with a real report.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resume_attempts: u32,
+    /// Landing follow-ups the host sent it (sub_watch `unlanded`, a676):
+    /// a report that says its work is not landed gets one before the Chief
+    /// hears of it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub land_followups: u32,
+    /// The harness it moves to (its account hit a usage limit) once the
+    /// brain takes the move; saved, so a restart still moves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<String>,
+    /// It was moved off a harness whose account hit a usage limit, and has
+    /// not ended a run with a real report since: it is not moved again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
+    /// Messages the Chief sent it that it has not got yet (queued or
+    /// starting, or held while paused), oldest first. Saved, so a restart
+    /// never drops one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inbox: Vec<InboxMessage>,
+    /// Keys of the tells already taken (newest last, at most
+    /// [`TELL_KEYS_KEPT`]): a repeat with one of them is not sent again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tell_keys: Vec<String>,
+    /// The prompt to send the moment the interrupted turn stops
+    /// (`control interrupt|restart` with a message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_stop: Option<String>,
+    /// `control pause`: no auto-resume, the inbox is held until `resume`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
+    /// `control cancel`: it is over; nothing starts or resumes it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancelled: bool,
+    /// `control priority`: a queued one with a higher value starts first.
+    #[serde(default, skip_serializing_if = "is_zero_i64")]
+    pub priority: i64,
+    /// Its pending permission request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<PendingPermission>,
+    /// The user messages the turn that last told it answered (`tell` during
+    /// a turn): its report answers them, and goes into their thread. This is
+    /// retained after Home projection consumes the report so reply/send on
+    /// the report line still targets the assignment's thread.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
+    /// The (conversation, run) assigning the current work, captured at spawn or tell.
+    /// Cleared when its report is consumed. None means no known Home projection route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_run: Option<(String, String)>,
+    /// When its session last changed (ms since the epoch): stuck detection.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub active_ms: u64,
+    /// The stuck note of this run was sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stuck_noted: bool,
+    /// Its task as spawned (the start, for `control status`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task: String,
+    /// Automatic continues of a silent run (sub_watch.rs) in this run.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub auto_continues: u32,
+    /// When the last automatic continue was sent (ms since the epoch).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub continued_ms: u64,
+    /// Its session exists but its first prompt (view and task) is not sent
+    /// yet: tells wait in the inbox so they never arrive before the task.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub awaiting_task: bool,
+}
+
+/// How many tell keys a subagent keeps for dedupe.
+pub const TELL_KEYS_KEPT: usize = 64;
+
+/// A message for a subagent that has not reached it yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxMessage {
+    pub text: String,
+    /// When the Chief sent it (ms since the epoch).
+    #[serde(default)]
+    pub at_ms: u64,
+}
+
+/// A subagent's permission request that waits for an answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingPermission {
+    pub id: String,
+    pub request: Value,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+fn is_zero_i64(n: &i64) -> bool {
+    *n == 0
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+/// What a queued subagent starts with: its task, directory, effort and
+/// security floor (`Some("ask")` under the spawn floor).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedLaunch {
+    pub task: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floor: Option<String>,
+    /// The harness it starts on (a subagent moved off a harness whose
+    /// account hit a usage limit); None: the engine of now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -320,6 +616,8 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
+                // This pre-provenance format names no other person: the
+                // owner's (the Chief never asks, 2026-10-20).
                 ..Item::default()
             })
             .collect()
@@ -329,6 +627,12 @@ impl PendingTurn {
 /// One logged item's source, so a restart can finish its bookkeeping: a
 /// human message moves the read cursor, a child's report marks the child
 /// reported (else reconcile would queue the same report again).
+/// `requires_approval` (another person's text: its turn's local effects
+/// are refused) is stored as `other_person`. Records of older builds stored
+/// `requires_approval`, true also for the owner's own turns that only had
+/// unknown provenance; a resume carried it forward, so one old record gated
+/// every turn after each restart (2026-10-20). Their key is ignored: they
+/// read as the owner's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     /// The conversation seq of a human message.
@@ -353,6 +657,14 @@ pub struct Item {
     /// A paired device sent the message (or the resume note of such a turn).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The message came from someone other than the Chief's owner, or the
+    /// resumed turn otherwise required approval for effects.
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_approval: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
@@ -372,6 +684,14 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The cut turn carried another person's text: the resume turn refuses
+    /// its local effects too.
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_approval: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
     /// the log already and are not logged again).
@@ -384,6 +704,14 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The report came from a subagent spawned under the spawn floor
+    /// (another person's turn): the turn that reads it refuses local effects.
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_approval: bool,
     /// The user stopped the subagent: its report is logged with the next
     /// turn and starts none (the reference client's stopped report).
     #[serde(default)]
@@ -401,11 +729,34 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.report_run = None;
                     sub.stopped = false;
                     sub.floor = *floor;
                 }
             }
         }
+    }
+
+    /// Subagents whose automatic continue (auto_resume.rs) was planned but
+    /// not sent, with the planned attempt: the run ended, `resume_attempts`
+    /// is set, and the Chief has not paused or cancelled it. The plan's
+    /// backoff or network wait is a thread that dies with the host, so a
+    /// restarted host re-arms these.
+    pub fn pending_auto_resumes(&self) -> Vec<(String, u32)> {
+        let mut pending: Vec<(String, u32)> = self
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| {
+                s.resume_attempts > 0
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !s.paused
+                    && !s.cancelled
+            })
+            .map(|s| (s.id.clone(), s.resume_attempts))
+            .collect();
+        pending.sort();
+        pending
     }
 
     /// The subagent `id` and its spawn id.
@@ -502,6 +853,15 @@ fn fields(state: &HostState) -> BTreeMap<String, String> {
 }
 
 impl StateFile {
+    /// Where a turn's attached files are saved (`brain::files`): the
+    /// `attachments` folder beside the state, in the Chief's home.
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("attachments")
+    }
+
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),
@@ -711,4 +1071,193 @@ impl MarkRecord {
         let prefix = view.get(..self.bytes)?;
         (crate::trace::hash(prefix) == self.hash).then_some(prefix)
     }
+}
+
+/// `optchat_core::Frozen` as saved: the view's parts and its unbuilt parts by
+/// name (`id+n`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrozenRecord {
+    pub parts: Vec<String>,
+    pub front: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unbuilt: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cuts: Vec<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starts: Vec<u64>,
+}
+
+fn node_names(parts: &[optchat_core::NodeId]) -> Vec<String> {
+    parts.iter().map(|p| p.name()).collect()
+}
+
+/// Parts by name; None when one does not parse.
+pub fn parse_nodes(names: &[String]) -> Option<Vec<optchat_core::NodeId>> {
+    names
+        .iter()
+        .map(|name| {
+            let (id, n) = name.split_once('+')?;
+            optchat_core::NodeId::from_name(id.parse().ok()?, n.parse().ok()?)
+        })
+        .collect()
+}
+
+impl FrozenRecord {
+    pub fn of(frozen: &optchat_core::Frozen) -> FrozenRecord {
+        FrozenRecord {
+            parts: node_names(&frozen.parts),
+            front: frozen.front,
+            unbuilt: node_names(&frozen.unbuilt),
+            cuts: frozen.cuts.clone(),
+            starts: frozen.starts.clone(),
+        }
+    }
+
+    /// The record as optchat-core takes it; None when a part does not parse
+    /// (then the turn renders a new view).
+    pub fn frozen(&self) -> Option<optchat_core::Frozen> {
+        Some(optchat_core::Frozen {
+            parts: parse_nodes(&self.parts)?,
+            front: self.front,
+            unbuilt: parse_nodes(&self.unbuilt)?,
+            cuts: self.cuts.clone(),
+            starts: self.starts.clone(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod auto_resume_tests {
+    use super::{HostState, SpawnRecord, SubRecord, SubStatus};
+
+    fn sub(id: &str, status: SubStatus, attempts: u32) -> SubRecord {
+        SubRecord {
+            id: id.to_owned(),
+            status,
+            resume_attempts: attempts,
+            ..SubRecord::default()
+        }
+    }
+
+    #[test]
+    fn a_planned_continue_survives_a_host_restart() {
+        let mut state = HostState::default();
+        let mut paused = sub("a5", SubStatus::Done, 1);
+        paused.paused = true;
+        let mut cancelled = sub("a6", SubStatus::Reported, 1);
+        cancelled.cancelled = true;
+        state.spawns.insert(
+            "spawn-1".to_owned(),
+            SpawnRecord {
+                subs: vec![
+                    sub("a1", SubStatus::Done, 2),
+                    sub("a2", SubStatus::Reported, 1),
+                    sub("a3", SubStatus::Running, 1),
+                    sub("a4", SubStatus::Done, 0),
+                    paused,
+                    cancelled,
+                ],
+                ..SpawnRecord::default()
+            },
+        );
+        let saved = serde_json::to_vec(&state).unwrap();
+        let restarted: HostState = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(
+            restarted.pending_auto_resumes(),
+            vec![("a1".to_owned(), 2), ("a2".to_owned(), 1)]
+        );
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::{Item, PendingTurn, Resume, SpawnRef};
+
+    #[test]
+    fn old_approval_flags_are_dropped_and_another_person_round_trips() {
+        // Records of older builds: an explicit old flag and a missing one.
+        let old_item: Item = serde_json::from_str(r#"{"seq":1,"requires_approval":true}"#).unwrap();
+        let old_resume: Resume =
+            serde_json::from_str(r#"{"messages":["continue"],"requires_approval":true}"#).unwrap();
+        let old_spawn: SpawnRef =
+            serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();
+        assert!(!old_item.requires_approval);
+        assert!(!old_resume.requires_approval);
+        assert!(!old_spawn.requires_approval);
+        let legacy_turn = PendingTurn {
+            seqs: vec![Some(7), None],
+            ..PendingTurn::default()
+        };
+        assert!(
+            legacy_turn
+                .opening()
+                .iter()
+                .all(|item| !item.requires_approval)
+        );
+
+        let item = Item {
+            requires_approval: true,
+            ..Item::default()
+        };
+        let resume = Resume {
+            requires_approval: true,
+            ..Resume::default()
+        };
+        let spawn = SpawnRef {
+            spawn: "spawn-1".to_owned(),
+            subs: Vec::new(),
+            requires_approval: true,
+            quiet: false,
+        };
+        let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
+        let resume_again: Resume =
+            serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
+        let spawn_again: SpawnRef =
+            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
+        assert!(item_again.requires_approval);
+        assert!(resume_again.requires_approval);
+        assert!(spawn_again.requires_approval);
+    }
+}
+
+/// A finished subagent whose outcome the person has not been told yet
+/// (brain/outcome_ledger.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Untold {
+    /// The subagent's id (`a12`).
+    pub id: String,
+    /// When its report was delivered (ms since the epoch).
+    pub since_ms: u64,
+    /// Retry turns started for it so far.
+    #[serde(default)]
+    pub tries: u32,
+    /// When the next check is due (ms since the epoch); None until a turn
+    /// that saw its report has ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+}
+
+/// A person message of the Chief conversation that waits for a reply
+/// (brain/reply_ledger.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Awaiting {
+    /// The message's id in the conversation.
+    pub id: String,
+    pub seq: u64,
+    /// When it arrived (ms since the epoch).
+    pub since_ms: u64,
+    /// The start of its text, for the retry note and the failure note.
+    #[serde(default)]
+    pub preview: String,
+    /// Retry turns started for it so far.
+    #[serde(default)]
+    pub tries: u32,
+    /// When the next check is due (ms since the epoch); None while a turn
+    /// that sees it is queued or running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+    /// Why the last turn left it unanswered (`NO_REPLY`, a silent end, an
+    /// error, a refused post), for the retry note and the failure note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }

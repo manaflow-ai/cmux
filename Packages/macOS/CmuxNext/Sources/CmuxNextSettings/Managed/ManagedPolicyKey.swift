@@ -27,11 +27,19 @@ public nonisolated enum ManagedPreferenceLocation {
     /// override an administrator's profile.
     public static func defaultReader(environment: [String: String] = ProcessInfo.processInfo.environment) -> any ManagedPreferenceReader {
         #if DEBUG
+        let chromeFile = environment[ChromePolicyDocument.fileOverrideKey].flatMap { $0.isEmpty ? nil : $0 }
+        let chrome: any ChromePolicyReading = chromeFile.map { PlistChromePolicyReader(url: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)) }
+            ?? CFChromePolicyReader()
+        let cmuxBrowser: any ChromePolicyReading = chromeFile == nil
+            ? CFChromePolicyReader(domain: ChromePolicyDocument.cmuxDomain) : FixedChromePolicyReader(.empty)
         if let path = environment[ManagedPreferences.fileOverrideKey], !path.isEmpty {
-            return PlistManagedPreferenceReader(url: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            let cmux = PlistManagedPreferenceReader(url: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            return ChromePolicyManagedPreferenceReader(cmux: cmux, chrome: chrome, cmuxBrowser: cmuxBrowser)
         }
+        return ChromePolicyManagedPreferenceReader(cmux: CFManagedPreferenceReader(), chrome: chrome, cmuxBrowser: cmuxBrowser)
+        #else
+        return ChromePolicyManagedPreferenceReader(cmux: CFManagedPreferenceReader())
         #endif
-        return CFManagedPreferenceReader()
     }
 
     /// Files whose changes mean a profile was installed or removed. macOS
@@ -42,18 +50,19 @@ public nonisolated enum ManagedPreferenceLocation {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [URL] {
         #if DEBUG
-        if let path = environment[ManagedPreferences.fileOverrideKey], !path.isEmpty {
-            return [URL(fileURLWithPath: (path as NSString).expandingTildeInPath)]
+        let overrides = [ManagedPreferences.fileOverrideKey, ChromePolicyDocument.fileOverrideKey]
+            .compactMap { environment[$0] }.filter { !$0.isEmpty }
+        if !overrides.isEmpty {
+            return overrides.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
         }
         #endif
         let root = URL(fileURLWithPath: "/Library/Managed Preferences", isDirectory: true)
         let file = "\(ManagedPreferences.domain).plist"
         let legacy = "\(ManagedPreferences.legacyDomain).plist"
-        return [
-            root.appending(path: file),
-            root.appending(path: userName).appending(path: file),
-            root.appending(path: legacy),
-            root.appending(path: userName).appending(path: legacy)
-        ]
+        let chrome = "\(ChromePolicyDocument.chromeDomain).plist"
+        let browser = "\(ChromePolicyDocument.cmuxDomain).plist"
+        return [file, legacy, chrome, browser].flatMap { name in
+            [root.appending(path: name), root.appending(path: userName).appending(path: name)]
+        }
     }
 }

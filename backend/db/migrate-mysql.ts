@@ -5,22 +5,32 @@
  *   bun migrate-mysql.ts --branch development        apply pending migrations (credentials from env)
  *   bun migrate-mysql.ts --branch staging [--verify] same for staging; --verify only checks the history
  *   bun migrate-mysql.ts --url-env MYSQL_URL         a scratch MySQL (tests, CI service container)
+ *   bun migrate-mysql.ts --lint --base <git rev>     also check the history against that revision (append-only)
+ *   bun migrate-mysql.ts --branch staging --phase expand   apply only the pending files before the first
+ *                                                    contract file (CI: before the Worker deploy); --phase all after it
+ *   bun migrate-mysql.ts --gate-release --staging-url-env S --release-url-env R
+ *                                                    staging first: refuse a production deploy request unless staging
+ *                                                    ran every file and the release branch schema equals staging
  *
  * Credentials come from the environment, never from arguments: either MYSQL_URL-style URL in the
  * variable named by --url-env, or DATABASE_HOST/DATABASE_USERNAME/DATABASE_PASSWORD/DATABASE_NAME
  * (source ~/.secrets/cmux-next-vitess-<branch>-admin.env first). The main branch never runs here:
- * production schema changes go through PlanetScale deploy requests.
+ * production schema changes go through PlanetScale deploy requests. Rules and gates: vitess-guard.ts and
+ * plans/cmux-next/db-migrations-DESIGN.md.
  */
 import { createHash } from "node:crypto"
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { execFileSync } from "node:child_process"
 import mysql from "mysql2/promise"
+import { historyProblems, lintMysqlFile, pendingForPhase, releaseGateProblems, schemaSnapshot } from "./vitess-guard.ts"
 
 const DIR = join(import.meta.dirname, "drizzle-mysql")
 
 export interface Migration {
   readonly name: string
   readonly checksum: string
+  readonly text: string
   readonly statements: ReadonlyArray<string>
 }
 
@@ -33,6 +43,7 @@ export const loadMigrations = (dir = DIR): Array<Migration> =>
       return {
         name: f.replace(/\.sql$/, ""),
         checksum: createHash("sha256").update(text).digest("hex"),
+        text,
         statements: text.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)
       }
     })
@@ -73,7 +84,12 @@ export const connect = async (urlEnv?: string) => {
   return conn
 }
 
-export const apply = async (conn: mysql.Connection, migrations: ReadonlyArray<Migration>, verifyOnly = false): Promise<{ applied: Array<string>; pending: Array<string> }> => {
+export const apply = async (
+  conn: mysql.Connection,
+  migrations: ReadonlyArray<Migration>,
+  verifyOnly = false,
+  phase: "expand" | "all" = "all"
+): Promise<{ applied: Array<string>; pending: Array<string> }> => {
   await conn.query(
     "CREATE TABLE IF NOT EXISTS schema_migrations (name varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY, checksum char(64) CHARACTER SET ascii NOT NULL, applied_at datetime(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)))"
   )
@@ -87,19 +103,38 @@ export const apply = async (conn: mysql.Connection, migrations: ReadonlyArray<Mi
   const pending = migrations.filter((m) => !done.has(m.name))
   if (verifyOnly) return { applied: [], pending: pending.map((m) => m.name) }
   const applied: Array<string> = []
-  for (const m of pending) {
+  const now = pendingForPhase(pending, phase)
+  for (const m of now) {
     // MySQL DDL commits implicitly, so a migration is not atomic: each one is small and re-runnable
     // only after a fix; the history row is written after its last statement succeeds.
     for (const s of m.statements) await conn.query(s)
     await conn.query("INSERT INTO schema_migrations (name, checksum) VALUES (?, ?)", [m.name, m.checksum])
     applied.push(m.name)
   }
-  return { applied, pending: [] }
+  return { applied, pending: pending.slice(now.length).map((m) => m.name) }
+}
+
+/** The files of drizzle-mysql at a git revision: file name to content. */
+const filesAt = (rev: string): Record<string, string> => {
+  const git = (...a: Array<string>) => execFileSync("git", ["-C", import.meta.dirname, ...a], { encoding: "utf8" })
+  const root = git("rev-parse", "--show-toplevel").trim()
+  const rel = DIR.slice(root.length + 1)
+  const out: Record<string, string> = {}
+  for (const f of git("ls-tree", "--name-only", `${rev}:${rel}`).split("\n").filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f))) out[f] = git("show", `${rev}:${rel}/${f}`)
+  return out
 }
 
 if (import.meta.main) {
   const migrations = loadMigrations()
-  const problems = migrations.flatMap((m) => lintSql(m.name, m.statements))
+  const problems = migrations.flatMap((m) => [...lintSql(m.name, m.statements), ...lintMysqlFile(`${m.name}.sql`, m.text)])
+  const base = arg("--base")
+  if (base) {
+    try {
+      problems.push(...historyProblems(filesAt(base), Object.fromEntries(migrations.map((m) => [`${m.name}.sql`, m.text]))))
+    } catch (e) {
+      problems.push(`--base ${base} does not resolve: ${(e as Error).message.split("\n")[0]}`)
+    }
+  }
   if (problems.length > 0) {
     for (const p of problems) console.error(p)
     process.exit(1)
@@ -108,22 +143,58 @@ if (import.meta.main) {
     console.log(`lint ok: ${migrations.length} migration(s)`)
     process.exit(0)
   }
+  if (process.argv.includes("--gate-release")) {
+    const stagingEnv = arg("--staging-url-env")
+    const releaseEnv = arg("--release-url-env")
+    if (!stagingEnv || !releaseEnv || !process.env[stagingEnv] || !process.env[releaseEnv]) {
+      console.error("usage: --gate-release --staging-url-env S --release-url-env R (both variables set)")
+      process.exit(2)
+    }
+    const staging = await connect(stagingEnv)
+    const release = await connect(releaseEnv)
+    try {
+      const [rows] = (await staging.query("SELECT name, checksum FROM schema_migrations")) as unknown as [Array<{ name: string; checksum: string }>]
+      const gate = releaseGateProblems({
+        migrations,
+        stagingHistory: new Map(rows.map((r) => [r.name, r.checksum])),
+        stagingSchema: await schemaSnapshot(staging),
+        releaseSchema: await schemaSnapshot(release)
+      })
+      if (gate.length > 0) {
+        for (const p of gate) console.error(`gate: ${p}`)
+        process.exit(1)
+      }
+      console.log(`gate ok: staging ran all ${migrations.length} migration(s) and the release branch schema equals staging`)
+    } finally {
+      await staging.end()
+      await release.end()
+    }
+    process.exit(0)
+  }
   const branch = arg("--branch")
   const urlEnv = arg("--url-env")
+  const phase = arg("--phase") ?? "all"
+  if (phase !== "expand" && phase !== "all") {
+    console.error("--phase must be expand or all")
+    process.exit(2)
+  }
   if (!urlEnv && branch !== "development" && branch !== "staging") {
     console.error("usage: --branch development|staging, or --url-env VAR (main uses PlanetScale deploy requests)")
     process.exit(2)
   }
   const conn = await connect(urlEnv)
   try {
-    const result = await apply(conn, migrations, process.argv.includes("--verify"))
+    const result = await apply(conn, migrations, process.argv.includes("--verify"), phase)
     if (process.argv.includes("--verify")) {
       if (result.pending.length > 0) {
         console.error(`pending: ${result.pending.join(", ")}`)
         process.exit(1)
       }
       console.log("verify ok: history matches")
-    } else console.log(result.applied.length > 0 ? `applied: ${result.applied.join(", ")}` : "up to date")
+    } else {
+      console.log(result.applied.length > 0 ? `applied: ${result.applied.join(", ")}` : "up to date")
+      if (result.pending.length > 0) console.log(`left for after the deploy (contract phase): ${result.pending.join(", ")}`)
+    }
   } finally {
     await conn.end()
   }

@@ -2,8 +2,16 @@
 """Release helpers for cmux-browser-host (plans/cmux-next/browser-host.md 6d).
 
   browser-host-release.py version TAG CARGO_TOML
-      print the version a cmux-browser-host-vX.Y.Z tag names; exit 1 when the
-      tag is malformed or differs from the crate's [package] version.
+      print the version a cmux-browser-host-vX.Y.Z[-rN] tag names; exit 1 when
+      the tag is malformed or differs from the release version.
+  browser-host-release.py crate-version CARGO_TOML
+      print the release version (the name of push-build archives too): the
+      crate's version (`version.workspace = true` resolves to the workspace's
+      [workspace.package] version), plus `-rN` when the crate sets
+      [package.metadata.cmux-release] revision = N. The binary stays on the one
+      cmux-next version (scripts/cmux-next/check-version-surfaces.sh checks the
+      copy the macOS app bundles), so a host-only Linux release takes a revision
+      instead of a crate bump.
   browser-host-release.py package BINARY VERSION TARGET OUTDIR
       write OUTDIR/cmux-browser-host-VERSION-TARGET.tar.gz holding
       bin/cmux-browser-host, LICENSE (the repository's GPL-3.0-or-later text)
@@ -38,20 +46,54 @@ NAME = "cmux-browser-host"
 TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
 # Channel manifest schema 2 (decision MANIFEST-ARCH): arch and target are required per entry.
 SCHEMA = 2
-VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-r[0-9]+)?")
 ROOT = Path(__file__).resolve().parents[2]
 LICENSE = ROOT / "LICENSE"
 NOTICES = ROOT / "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
 
 
+def crate_version(cargo_toml: Path) -> str:
+    """The crate's [package] version; `version.workspace = true` takes the workspace's.
+
+    The workspace is the nearest Cargo.toml with a [workspace] table, starting with the crate's
+    own (a crate can be its workspace root), as Cargo finds it. Anything else that is not a plain
+    version string is an error, not a mismatch.
+    """
+    version = tomllib.loads(cargo_toml.read_text())["package"]["version"]
+    if version == {"workspace": True}:
+        for directory in cargo_toml.resolve().parents:
+            manifest = directory / "Cargo.toml"
+            if not manifest.is_file():
+                continue
+            workspace = tomllib.loads(manifest.read_text()).get("workspace")
+            if workspace is not None:
+                version = (workspace.get("package") or {}).get("version")
+                break
+    if not isinstance(version, str):
+        raise SystemExit(f"{cargo_toml}: cannot read the crate version (got {version!r})")
+    return version
+
+
+def release_version(cargo_toml: Path) -> str:
+    """The crate version plus `-rN` for [package.metadata.cmux-release] revision = N."""
+    package = tomllib.loads(cargo_toml.read_text())["package"]
+    revision = ((package.get("metadata") or {}).get("cmux-release") or {}).get("revision")
+    version = crate_version(cargo_toml)
+    if revision is None:
+        return version
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise SystemExit(f"{cargo_toml}: [package.metadata.cmux-release] revision must be a positive integer (got {revision!r})")
+    return f"{version}-r{revision}"
+
+
 def tag_version(tag: str, cargo_toml: str) -> str:
     match = re.fullmatch(rf"{NAME}-v({VERSION_RE.pattern})", tag)
     if not match:
-        raise SystemExit(f"tag must be {NAME}-vX.Y.Z (got {tag!r})")
-    crate = tomllib.loads(Path(cargo_toml).read_text())["package"]["version"]
-    if crate != match.group(1):
-        raise SystemExit(f"tag {tag} names {match.group(1)} but {cargo_toml} says {crate}")
-    return crate
+        raise SystemExit(f"tag must be {NAME}-vX.Y.Z or {NAME}-vX.Y.Z-rN (got {tag!r})")
+    release = release_version(Path(cargo_toml))
+    if release != match.group(1):
+        raise SystemExit(f"tag {tag} names {match.group(1)} but {cargo_toml} says {release}")
+    return release
 
 
 def package(binary: str, version: str, target: str, outdir: str) -> Path:
@@ -114,6 +156,8 @@ def notes(version: str, sha: str, repository: str, glibc_floor: str) -> str:
 def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[0] == "version":
         print(tag_version(argv[1], argv[2]))
+    elif len(argv) == 2 and argv[0] == "crate-version":
+        print(release_version(Path(argv[1])))
     elif len(argv) == 5 and argv[0] == "package":
         print(package(*argv[1:]))
     elif len(argv) == 5 and argv[0] == "notes":

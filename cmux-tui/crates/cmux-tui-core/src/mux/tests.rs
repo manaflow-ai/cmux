@@ -8,18 +8,22 @@ mod agent_hook_fences;
 mod agent_hook_retry;
 mod agent_presence;
 mod agent_reports;
+mod agent_roster_catch_up;
 mod agent_roster_restore;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;
 mod diagnostics;
 mod dock_columns;
+mod exit_snapshot_cost;
+mod history_agent_fold;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
 mod layout_undo;
 mod layout_undo_commit;
+mod lone_dock;
 mod matrix;
 mod notifications;
 mod pane_close;
@@ -191,6 +195,8 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         public_id: restore_workspace_id(1),
         key: "first".into(),
         name: "Duplicate".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "test".into(),
     };
     let empty_workspace = RegistryWorkspace {
@@ -198,6 +204,8 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         public_id: restore_workspace_id(2),
         key: "empty".into(),
         name: "Duplicate".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "test".into(),
     };
     let first_screen = restore_screen_id(1);

@@ -1,6 +1,6 @@
 // Pages draw the caret and selected text in the Ghostty config's colors (cx-wqn5): every caret
 // reads `--cmux-caret` (the cursor color, WebTheme.swift) and every selection
-// `--cmux-text-selection` (the config's `selection-background`, else the accent tint), so a
+// `--cmux-text-selection` (the config's `selection-background` or `appearance.highlightColor`, else the derived text-field color), so a
 // config edit reaches them in place. A caret in another themed color (the shell mode's accent)
 // carries a `caret-color: <reason>` comment on its line.
 import { describe, expect, test } from "bun:test";

@@ -11,6 +11,7 @@ import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
+import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -40,7 +41,11 @@ export function mountAppsPage(
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("store.window.title");
-  createRoot(root).render(<AppsPage store={store} strings={strings} />);
+  createRoot(root).render(
+    <UiProvider container={root} dir={languageDirection(strings.language)}>
+      <AppsPage store={store} strings={strings} />
+    </UiProvider>,
+  );
   return store;
 }
 

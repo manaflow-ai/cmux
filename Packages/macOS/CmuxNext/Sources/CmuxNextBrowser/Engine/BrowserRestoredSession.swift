@@ -14,7 +14,7 @@ protocol BrowserRestoredSessionHost {
     /// Shows Back and Forward as available or not.
     func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool)
     func currentScrollY() async -> Double?
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
     func load(_ url: URL)
 }
 
@@ -112,6 +112,11 @@ class BrowserRestoredSession {
     /// knows; `measuringScroll` also asks the shown page.
     func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
         guard let tab else { return nil }
+        // Where the page said its scrolling settled (no page question): a crash after it keeps it.
+        // Not while a restore still scrolls the page back: its load reports the top first.
+        if pendingScrollY == nil, restoringEntry == nil, let report = tab.state.scrollReport {
+            knownScrollY[report.url] = report.y
+        }
         if measuringScroll, pendingScrollY == nil, restoringEntry == nil, let url = tab.state.url, let y = await tab.currentScrollY() {
             // The page may have moved on while it answered.
             if tab.state.url == url { knownScrollY[url] = y }
@@ -199,7 +204,7 @@ class BrowserRestoredSession {
         restoringEntry = entry
         let literal = Self.javaScriptString(entry.url.absoluteString)
         do {
-            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated)
+            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated, gesture: .cmux)
         } catch {
             tab.load(entry.url)
         }
@@ -212,7 +217,19 @@ class BrowserRestoredSession {
         restoringEntry = nil
         // Another page committed (the replace did not navigate): its scroll
         // position is not the saved entry's.
-        if url == entry.url { pendingScrollY = entry.scrollY }
+        if Self.sameDocumentURL(url, entry.url) { pendingScrollY = entry.scrollY }
+    }
+
+    /// File URLs can differ only by the macOS `/private` alias or symlink
+    /// spelling even though they identify the same document. Keep the saved
+    /// scroll restore attached to that commit; web URLs still require exact
+    /// identity so a different navigation cannot inherit the position.
+    private static func sameDocumentURL(_ actual: URL?, _ expected: URL) -> Bool {
+        guard let actual else { return false }
+        if actual == expected { return true }
+        guard actual.isFileURL, expected.isFileURL else { return false }
+        return actual.standardizedFileURL.resolvingSymlinksInPath()
+            == expected.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// A main-frame document committed; `formPost` when its request was a
@@ -267,7 +284,7 @@ class BrowserRestoredSession {
           return true;
         })(\(y))
         """
-        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated) }
+        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated, gesture: .cmux) }
     }
 
     static func isWebPage(_ url: URL) -> Bool {

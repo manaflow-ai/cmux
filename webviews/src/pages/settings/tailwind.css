@@ -7,6 +7,9 @@
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @source "./";
 @source "../../ui";
+/* `collapse` is the page's own open/close class (layout.css). Tailwind's `collapse` utility sets
+   `visibility: collapse`, which hid every search result and the No Results line. */
+@source not inline("collapse");
 
 @theme inline {
   --color-fg: var(--text);

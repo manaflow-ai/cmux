@@ -26,7 +26,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
-    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
     // Keep the generated binding fingerprint tied to the public terminal API.
     // Hosted build caches can otherwise restore bindings from an older
@@ -68,11 +67,19 @@ fn main() {
     // host (no Visual Studio, e.g. a rustup gnu toolchain with MSYS2) would
     // otherwise get `-target native-native-msvc` and fail the zig build with
     // "failed to find libc installation: WindowsSdkNotFound".
-    let deployment_target =
-        env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|value| !value.is_empty());
-    if let Some(target_arg) =
-        build_support::zig_target_arg(&target, &host, deployment_target.as_deref())
-    {
+    // macOS targets name Ghostty's own macOS minimum (see zig_target_arg).
+    let config_zig = ghostty_dir.join("src/build/Config.zig");
+    let macos_min = if target.ends_with("-apple-darwin") {
+        std::fs::read_to_string(&config_zig)
+            .ok()
+            .and_then(|text| build_support::ghostty_macos_min(&text))
+            .unwrap_or_else(|| {
+                panic!("no macOS minimum (osVersionMin .macos) found in {}", config_zig.display())
+            })
+    } else {
+        String::new()
+    };
+    if let Some(target_arg) = build_support::zig_target_arg(&target, &host, &macos_min) {
         command.arg(target_arg);
     }
     // macOS builds use a baseline CPU, not the build Mac's. Valgrind's

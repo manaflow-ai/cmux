@@ -12,6 +12,12 @@ use crate::mux::terminal_respawn::manual::TabRestartError;
 /// stay. Unix owners only.
 pub(super) const CAPABILITY: &str = "tab-restart-v1";
 
+/// Advertises that `restart-tab` of a keep-layout tab (`kept_tabs`) starts
+/// the new shell in the kept directory and ends the keep once the new shell
+/// is in the tab: `relaunch` is null again, an exit closes the tab and a
+/// host loss respawns it (`terminal_respawn.rs`, `RespawnPlan::kept`).
+pub(super) const KEPT_LAYOUT_CAPABILITY: &str = "tab-restart-kept-layout-v1";
+
 /// `restart-tab`.
 #[derive(Deserialize)]
 pub(super) struct Params {
@@ -24,7 +30,10 @@ pub(super) struct Params {
 /// Accepts the restart and starts the worker; the tree shows the tab
 /// restarting, then running under a new incarnation.
 pub(super) fn restart(mux: &Arc<Mux>, params: Params) -> anyhow::Result<Value> {
-    let surface = resolve_tab_refs(mux, std::slice::from_ref(&params.surface))?[0];
+    let surface = resolve_tab_refs(mux, std::slice::from_ref(&params.surface))?
+        .first()
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("tab {:?} did not resolve", params.surface))?;
     let accepted = mux.restart_dead_tab(surface)?;
     Ok(json!({
         "surface": surface,

@@ -32,7 +32,9 @@ use crate::observability::TransportSnapshot;
 
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
-pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
+pub use dial::{
+    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, SocksDialer, resolve_dial_target,
+};
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
     IrohListener, IrohProvider, IrohProviderConfig, IrohRoute, load_or_create_iroh_secret,

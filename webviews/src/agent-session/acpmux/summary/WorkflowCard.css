@@ -1,0 +1,145 @@
+/* A Claude workflow's card in the transcript (WorkflowCard.tsx): a hairline box with fixed
+   lines, so its height never changes as it runs. */
+.acpmux-workflow-card {
+  --acpmux-workflow-bar-height: 4px;
+  --acpmux-workflow-detail-height: 18px;
+  /* Its own height wherever it sits (a flex column would stretch it). */
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(100%, 360px);
+  box-sizing: border-box;
+  margin: 4px 0;
+  padding: 8px 16px 12px;
+  border: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 12%, transparent));
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-workflow-card-wrap {
+  position: relative;
+  width: min(100%, 360px);
+}
+.acpmux-workflow-card-wrap .acpmux-workflow-card {
+  width: 100%;
+}
+.acpmux-workflow-card__side-tab {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: var(--layer-raised);
+  display: grid;
+  place-items: center;
+  width: calc(var(--ds-control-icon) + 2px);
+  height: calc(var(--ds-control-icon) + 2px);
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-card__side-tab:hover,
+.acpmux-workflow-card__side-tab:focus-visible {
+  background: var(--acpmux-pill-hover);
+  color: var(--agent-text);
+}
+.acpmux-workflow-card__side-tab:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-workflow-card:hover:not(:disabled) {
+  background: color-mix(in oklab, currentColor 5%, transparent);
+}
+.acpmux-workflow-card:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-workflow-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  line-height: 20px;
+  padding-right: var(--ds-control-row);
+}
+.acpmux-workflow-card__head > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-card__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-workflow-card__meta {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-workflow-card__latest,
+.acpmux-workflow-card__focus {
+  min-width: 0;
+  height: var(--acpmux-workflow-detail-height);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 18px;
+}
+.acpmux-workflow-card__focus {
+  display: flex;
+  gap: 8px;
+}
+.acpmux-workflow-card__progress {
+  display: block;
+  height: var(--acpmux-workflow-bar-height);
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--agent-muted) 18%, transparent);
+}
+.acpmux-workflow-card__progress > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  border-radius: inherit;
+  background: var(--agent-accent);
+  transition: transform var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-workflow-card__phases {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-workflow-card__phases > span {
+  flex: 1 1 0;
+  min-width: 14px;
+  height: var(--acpmux-workflow-bar-height);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--agent-muted) 24%, transparent);
+}
+.acpmux-workflow-card__phases > span[data-state="completed"] {
+  background: var(--agent-muted);
+}
+.acpmux-workflow-card__phases > span[data-state="running"] {
+  background: var(--agent-accent);
+}
+.acpmux-workflow-card__phases > span[data-state="failed"] {
+  background: var(--agent-status-failure);
+}

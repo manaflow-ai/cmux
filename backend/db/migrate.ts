@@ -1,7 +1,9 @@
 /**
  * Migrations for PlanetScale `cmux-next` (never `cmux-prod`). Plain SQL files,
  * applied in order, each in its own transaction, recorded with a checksum in
- * `schema_migrations`. PlanetScale Postgres has no deploy requests, so safety
+ * `schema_migrations`. A file whose one statement is CREATE or DROP INDEX
+ * CONCURRENTLY runs outside a transaction (Postgres refuses it inside one);
+ * the lint keeps such a statement alone in its file, as the release rails do. PlanetScale Postgres has no deploy requests, so safety
  * comes from expand/contract rules (checked on the parsed SQL) and the pre-merge
  * pipeline (skills/cmux-backend-migrations/SKILL.md).
  *
@@ -88,6 +90,47 @@ const expandProblems = (stmts: Array<Node>): Array<string> => {
   return problems
 }
 
+/** CREATE INDEX CONCURRENTLY (named) or DROP INDEX CONCURRENTLY; neither can run in a transaction block. */
+export type ConcurrentIndex =
+  | { readonly kind: "create"; readonly schema: string | undefined; readonly name: string }
+  | { readonly kind: "drop" }
+
+const concurrentStatement = (stmt: Node): boolean => {
+  const k = kind(stmt)
+  const b = stmt[k]
+  if (k === "IndexStmt" || k === "DropStmt") return b.concurrent === true
+  // REINDEX ... CONCURRENTLY carries it as an option.
+  if (k === "ReindexStmt") return (b.params ?? []).some((p: Node) => p.DefElem?.defname === "concurrently")
+  return false
+}
+
+/** The file's concurrent index statement when it is the file's only statement (what the runner applies outside a transaction). */
+export const concurrentIndexOf = async (sql: string): Promise<ConcurrentIndex | undefined> => {
+  const { parse } = await import("libpg-query")
+  const stmts: Array<Node> = ((await parse(sql)) as { stmts?: Array<{ stmt: Node }> }).stmts?.map((s) => s.stmt) ?? []
+  if (stmts.length !== 1) return undefined
+  const [stmt] = stmts
+  if (kind(stmt!) === "IndexStmt" && stmt!.IndexStmt.concurrent === true && stmt!.IndexStmt.idxname) {
+    return { kind: "create", schema: stmt!.IndexStmt.relation?.schemaname || undefined, name: stmt!.IndexStmt.idxname }
+  }
+  if (kind(stmt!) === "DropStmt" && stmt!.DropStmt.concurrent === true && stmt!.DropStmt.removeType === "OBJECT_INDEX") return { kind: "drop" }
+  return undefined
+}
+
+/** Problems with CONCURRENTLY statements: each must be alone in its file and safe to run again after an interruption. */
+const concurrentProblems = (stmts: Array<Node>): Array<string> => {
+  const concurrent = stmts.filter(concurrentStatement)
+  if (!concurrent.length) return []
+  if (stmts.length !== 1) return ["a CONCURRENTLY statement must be the only statement in its file (the runner applies it outside a transaction)"]
+  const [stmt] = concurrent
+  const k = kind(stmt!)
+  const b = stmt![k]
+  if (k === "IndexStmt" && (!b.idxname || !b.if_not_exists)) return ["write CREATE INDEX CONCURRENTLY IF NOT EXISTS <name> so a retry can find and rebuild an invalid index"]
+  if (k === "DropStmt" && (b.removeType !== "OBJECT_INDEX" || !b.missing_ok)) return ["write DROP INDEX CONCURRENTLY IF EXISTS so a retry is safe"]
+  if (k === "ReindexStmt") return ["REINDEX CONCURRENTLY is not a migration; run it as an operator task"]
+  return []
+}
+
 export const lintFile = async (name: string, sql: string): Promise<Array<string>> => {
   const { parse } = await import("libpg-query")
   const errors: Array<string> = []
@@ -102,6 +145,7 @@ export const lintFile = async (name: string, sql: string): Promise<Array<string>
     return [...errors, `${name}: does not parse: ${(e as Error).message}`]
   }
   if (stmts.some((s) => kind(s) === "TransactionStmt")) errors.push(`${name}: do not write BEGIN/COMMIT; the runner wraps each file in a transaction`)
+  for (const p of concurrentProblems(stmts)) errors.push(`${name}: ${p}`)
   if (phase === "expand") for (const p of expandProblems(stmts)) errors.push(`${name}: ${p}; use a separate "-- phase: contract" migration`)
   return errors
 }
@@ -201,6 +245,24 @@ if (import.meta.main) {
           continue
         }
         const sql = readFileSync(join(dir, f), "utf8")
+        const concurrent = await concurrentIndexOf(sql)
+        if (concurrent) {
+          // No transaction: a failure leaves no tracking row, so the next run starts the file
+          // again. CREATE INDEX CONCURRENTLY that fails leaves an INVALID index, which IF NOT
+          // EXISTS would then skip: drop it first so the retry builds a valid one.
+          const index =
+            concurrent.kind === "create"
+              ? (concurrent.schema ? `${client.escapeIdentifier(concurrent.schema)}.` : "") + client.escapeIdentifier(concurrent.name)
+              : undefined
+          const validity = async () =>
+            (await client.query<{ valid: boolean | null }>("SELECT (SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass($1)) AS valid", [index])).rows[0]!.valid
+          if (index && (await validity()) === false) await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${index}`)
+          await client.query(sql)
+          if (index && (await validity()) !== true) throw new Error(`${f}: index ${index} is not valid after CREATE INDEX CONCURRENTLY`)
+          await client.query("INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)", [f, checksum(sql)])
+          console.log(`applied ${f} to ${target} (outside a transaction)`)
+          continue
+        }
         await client.query("BEGIN")
         try {
           await client.query(sql)

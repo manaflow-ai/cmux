@@ -4,16 +4,19 @@ import Foundation
 // section 4). The daemon only transports: ConversationDO owns each cloud
 // conversation and UserDO owns the inbox. Trusted local connections only.
 
-/// `cloud-inbox-list`: the account inbox (UserDO `inbox.list`).
+/// `cloud-inbox-list`: one page of the account inbox (UserDO `inbox.list`), `limit` entries from
+/// `cursor` (the `nextCursor` of the page before; nil: the first page).
 public struct CloudInboxListRequest: DaemonRequest {
     public typealias Response = CloudInboxList
     public static let command = "cloud-inbox-list"
     public static let maxLimit = 200
     public var limit: Int?
     public var includeArchived: Bool?
-    public init(limit: Int? = nil, includeArchived: Bool? = nil) {
+    public var cursor: String?
+    public init(limit: Int? = nil, includeArchived: Bool? = nil, cursor: String? = nil) {
         self.limit = limit.map { min(max($0, 1), Self.maxLimit) }
         self.includeArchived = includeArchived
+        self.cursor = cursor
     }
 }
 

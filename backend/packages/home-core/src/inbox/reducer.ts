@@ -25,6 +25,11 @@ export interface InboxEntry {
   readonly dm_peer?: string
   /** The user left or was removed; kept as a tombstone so an older bump cannot resurrect it. */
   readonly removed: boolean
+  /**
+   * A large group (conversation/large.ts): it bumps this entry only when the user is named, so
+   * `inbox.list` pulls the row's title, last message and counts from the conversation.
+   */
+  readonly large?: boolean
   readonly unread: number
   readonly mentions: number
   readonly counts_rev: number
@@ -62,6 +67,8 @@ export interface InboxBumpParams {
   readonly last_approval?: boolean
   readonly last_mention?: boolean
   readonly joined_seq?: number
+  /** A large group: the inbox pulls this entry's fields when it lists (InboxEntry.large). */
+  readonly large?: boolean
 }
 
 /** The small per-user head next to the entry rows. */
@@ -158,7 +165,8 @@ export const validBump = (params: unknown): params is InboxBumpParams => {
     (p.last_author_kind === undefined || p.last_author_kind === "human" || p.last_author_kind === "agent") &&
     (p.last_approval === undefined || typeof p.last_approval === "boolean") &&
     (p.last_mention === undefined || typeof p.last_mention === "boolean") &&
-    (p.joined_seq === undefined || isCount(p.joined_seq))
+    (p.joined_seq === undefined || isCount(p.joined_seq)) &&
+    (p.large === undefined || typeof p.large === "boolean")
   )
 }
 
@@ -172,7 +180,8 @@ const conversationFields = (bump: InboxBumpParams) => ({
   preview: bump.preview,
   ...(bump.preview_attachments === undefined ? {} : { preview_attachments: { kind: bump.preview_attachments.kind, count: bump.preview_attachments.count } }),
   ...(bump.dm_peer === undefined ? {} : { dm_peer: bump.dm_peer }),
-  removed: bump.removed === true
+  removed: bump.removed === true,
+  ...(bump.large === true ? { large: true } : {})
 })
 
 /**
@@ -198,7 +207,7 @@ export const bumpEntry = (entry: InboxEntry | undefined, bump: InboxBumpParams):
   }
   let next = entry
   if (bump.rev > entry.rev) {
-    const { dm_peer: _peer, preview_attachments: _files, ...withoutPeer } = entry
+    const { dm_peer: _peer, preview_attachments: _files, large: _large, ...withoutPeer } = entry
     next = { ...withoutPeer, ...conversationFields(bump) }
   }
   // Checked for every bump, also a stale one, so the result does not depend on arrival order.

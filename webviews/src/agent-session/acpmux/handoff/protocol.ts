@@ -141,7 +141,7 @@ export class AcpmuxRpcError extends Error {
   readonly data?: unknown;
   readonly handoff?: Handoff;
   constructor(error: { code?: unknown; message?: string; data?: unknown }) {
-    super(error.message ?? "acpmux request failed");
+    super(error.message ?? translate("handoff.error.requestFailed"));
     this.code = error.code;
     this.data = error.data;
     const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;

@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
+import { GitHubTokenMintedParams } from "./integrations.ts"
 import { DisplayName, TeamId, TeamRole, UserId } from "./schemas.ts"
 
 /**
@@ -47,6 +48,7 @@ export const TeamOwnerCountInitParams = Schema.Struct({ count: Schema.Int.check(
 export const teamMemberInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("team.owner_count.init", TeamOwnerCountInitParams, "Internal: sets a Stack team's owner count once (heads from before it was kept); a count of 0 records that the team has no owner."),
   internal("team.stack_mirror", TeamStackMirrorParams, "Internal: TeamDO mirrors a Stack team (create, rename, delete) as Stack answers it now."),
+  internal("team.github.token_minted", GitHubTokenMintedParams, "Internal: the team's ConnectionDO minted a GitHub installation token; audit only."),
   internal("team.member.provision", TeamMemberProvisionParams, "Internal: adds a member Stack lists, or sets an existing member's role to the one Stack's permissions give now; removal is team.member.remove.")
 ]
 

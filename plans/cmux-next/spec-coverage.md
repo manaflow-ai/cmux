@@ -105,7 +105,7 @@ Source: spec/sidebar-sections.md, spec/visuals/**, spec/plan-tab-search.md, spec
 | Inferred busy after 3 s (U3, U7) | IN PROGRESS | coordinator: status indicator lead | Swift settings landed. Daemon `extra.busy` on unlanded branch status-rust. |
 | `status run` notify at 10 s when not visible (U4, U8) | IN PROGRESS | coordinator: status indicator lead | Settings exist. Visibility decision and CLI remain. |
 | Daemon `workspace_status.set` fields, TTL/owner clear, CLI `status set/clear/list/run` (U9) | IN PROGRESS | coordinator: status indicator lead | Branch status-rust 896d36f7dbc unlanded. |
-| `cmux status wait`, `terminal wait --until idle/prompt` (U9 later) | IN PROGRESS | coordinator: status indicator lead | Not started. |
+| `cmux status wait`, `terminal wait --until idle/prompt` (U9 later) | DONE | coordinator: status indicator lead | Both built (cx-6so.14): event-driven, `--timeout` exits 124; tests `tests/cli/status_wait.rs`, `tests/cli/terminal_wait_until.rs`. |
 | Style none hides only loading (U10) | DONE | CmuxNextDesign/StatusIndicator/StatusIndicatorPlan.swift | - |
 
 ### Layout model

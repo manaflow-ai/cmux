@@ -38,7 +38,7 @@ enum WorkspaceUnreadMark {
     /// `echoWindow`; a verb the user picks always goes out when it differs.
     static func set(_ marked: Bool, on workspaces: [WorkspaceModel], daemon: DaemonService, throttled: Bool = false,
                     now: ContinuousClock.Instant = .now) {
-        guard daemon.supports(DaemonCapabilities.shared.notificationMarkUnread) else { return }
+        guard daemon.supports(DaemonCapability.notificationMarkUnread.rawValue) else { return }
         for workspace in workspaces {
             guard let key = workspace.key, needsSend(marked, workspace.markedUnread, last: sent[workspace.id], throttled: throttled, now: now) else { continue }
             sent[workspace.id] = (marked, now)

@@ -35,6 +35,22 @@ fn resource_revision(mux: &Mux) -> u64 {
     mux.with_state(|state| state.resource_revision)
 }
 
+/// A journaled value as a full projection writes it: the journal adds each
+/// workspace's key (`extra.key`, state/values.rs), which never changes and
+/// which a projection leaves out.
+fn projected_form(resource: &str, mut value: Value) -> Value {
+    if resource == "workspace"
+        && let Some(object) = value.as_object_mut()
+        && let Some(extra) = object.get_mut("extra").and_then(Value::as_object_mut)
+    {
+        extra.remove("key");
+        if extra.is_empty() {
+            object.remove("extra");
+        }
+    }
+    value
+}
+
 /// The incremental store must hold exactly what a full rewrite of the
 /// current state would write: every row the full projection names is
 /// stored with the same value, and no stale live row remains (a stale
@@ -55,6 +71,7 @@ fn assert_store_matches_full_projection(mux: &Mux) {
         let resource = change["resource"].as_str().unwrap();
         let id = change["id"].as_str().unwrap();
         if let Some(Some(stated)) = registry.stated_topology_value_for_test(resource, id) {
+            let stated = projected_form(resource, stated);
             assert_eq!(stated, change["value"], "journal states a stale {resource} {id}");
         }
     }

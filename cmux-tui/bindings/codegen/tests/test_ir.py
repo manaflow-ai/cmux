@@ -189,6 +189,16 @@ class IrTests(unittest.TestCase):
                 "result": "PaneSurfaceResult",
                 "fields": {
                     "pane": ("ref", "Id", "required", False, False, None, None, None),
+                    "side": (
+                        "ref",
+                        "ColumnSide",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        12,
+                        "column-left-v1",
+                    ),
                     "width": (
                         "scalar",
                         "float32",

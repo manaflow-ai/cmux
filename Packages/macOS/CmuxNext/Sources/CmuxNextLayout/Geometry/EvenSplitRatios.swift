@@ -13,6 +13,23 @@ public nonisolated enum EvenSplitRatios {
         return result
     }
 
+    /// The ratio changes that give every cell of the same-axis chain under `top` an equal share
+    /// (a close, `CloseSizing`). Unchanged splits are left out.
+    public static func changes(equalizing top: SplitNode, axis: SplitAxis) -> [SplitRatioChange] {
+        var result: [SplitRatioChange] = []
+        equalize(top, axis: axis, into: &result)
+        return result
+    }
+
+    private static func equalize(_ node: SplitNode, axis: SplitAxis, into result: inout [SplitRatioChange]) {
+        guard case let .split(id, nodeAxis, ratio, a, b) = node, nodeAxis == axis else { return }
+        let wa = Double(a.cellCount(along: axis)), wb = Double(b.cellCount(along: axis))
+        let even = wa / (wa + wb)
+        if abs(even - ratio) > 1e-6 { result.append(SplitRatioChange(split: id, ratio: even)) }
+        equalize(a, axis: axis, into: &result)
+        equalize(b, axis: axis, into: &result)
+    }
+
     /// The highest node of the same-axis chain directly above `pane`; nil
     /// when the pane's parent splits across the other axis (or it is the root).
     private static func chainTop(of pane: PaneID, axis: SplitAxis, in root: SplitNode) -> SplitNode? {

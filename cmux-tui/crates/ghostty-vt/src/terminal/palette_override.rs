@@ -95,8 +95,20 @@ pub(super) enum PaletteTarget {
 }
 
 impl PaletteOverrideTracker {
-    pub(super) fn write(&mut self, data: &[u8]) {
+    pub(super) fn is_ground(&self) -> bool {
+        matches!(self.state, PaletteTrackState::Ground)
+    }
+
+    /// Original byte-at-a-time write, kept as the exactness reference.
+    pub(super) fn write_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    pub(super) fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
                 PaletteTrackState::Ground => match byte {

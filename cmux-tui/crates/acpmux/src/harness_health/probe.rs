@@ -30,8 +30,17 @@ pub(super) fn run_for(
     limit: Duration,
     family: Option<&str>,
 ) -> Result<(bool, String), String> {
+    // A sign-in check (`family` set) reads the user's credentials: none while
+    // agent launches are off (cx-9ettq). `--version` checks still run.
+    if family.is_some() && crate::launch_policy::agent_launch_disabled() {
+        return Err(crate::launch_policy::DISABLED_MESSAGE.to_owned());
+    }
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
+    // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     crate::login_env::apply_std_for(&mut cmd, family, Some(env));
     crate::config::scrub_nested_claude_env_for(&mut cmd, family);
     cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -71,7 +80,14 @@ pub(super) fn run_for(
     let mut text = Vec::new();
     for _ in 0..2 {
         match rx.recv_timeout(limit.saturating_sub(started.elapsed())) {
-            Ok(part) => text.extend(part),
+            Ok(part) => {
+                // Each pipe is its own stream: end a control the first left open (ST) so it does
+                // not hide the second's lines from the cleaned answer.
+                if !text.is_empty() {
+                    text.extend_from_slice(b"\x1b\\\n");
+                }
+                text.extend(part);
+            }
             // Both pipes closed.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             // Something it started still holds the output.
@@ -112,7 +128,11 @@ pub fn installed_version(path: &str) -> Result<String, String> {
         Some(v) => Ok(v),
         None if ok => Err(format!("`{path} --version` printed no version")),
         None => {
-            Err(format!("`{path} --version` failed: {}", text.lines().next().unwrap_or("").trim()))
+            let first = crate::stderr::clean_stderr_lines(&text)
+                .into_iter()
+                .find(|line| !line.is_empty())
+                .unwrap_or_default();
+            Err(format!("`{path} --version` failed: {first}"))
         }
     }
 }
@@ -123,20 +143,65 @@ pub fn auth_check(
     argv: &[String],
     env: &BTreeMap<String, String>,
     family: &str,
-) -> Result<bool, String> {
-    run_for(argv, env, TIMEOUT, Some(family)).map(|(ok, _)| ok)
+) -> Result<(bool, String), String> {
+    run_for(argv, env, TIMEOUT, Some(family))
+}
+
+/// `codex login status` with the harness's `env`: Some(true) signed in (exit
+/// 0), Some(false) only for Codex's own "Not logged in"; None for any other
+/// failure (a custom provider, a bad config, an older CLI, no `codex` here),
+/// which says nothing about a sign-in.
+pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
+    codex_login_status_argv(&["codex", "login", "status"].map(String::from), env)
+}
+
+/// `codex_login_status` running `argv`: the configured codex binary and its
+/// global options, then `login status`.
+pub fn codex_login_status_argv(argv: &[String], env: &BTreeMap<String, String>) -> Option<bool> {
+    match run_for(argv, env, TIMEOUT, Some("codex")) {
+        Ok((true, _)) => Some(true),
+        Ok((false, text)) if text.to_ascii_lowercase().contains("not logged in") => Some(false),
+        _ => None,
+    }
 }
 
 /// Whether `latest` is newer than `installed`, by their numeric parts. A
 /// version that does not parse is never called outdated.
 pub fn is_newer(latest: &str, installed: &str) -> bool {
+    compare_versions(latest, installed) == Some(std::cmp::Ordering::Greater)
+}
+
+/// Numeric version ordering, retaining the difference between equality and
+/// a version that cannot be compared. Missing evidence is not equality.
+pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     fn parts(v: &str) -> Option<Vec<u64>> {
         let core = v.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
         core.split('.').map(|p| p.parse().ok()).collect()
     }
-    let (Some(mut a), Some(mut b)) = (parts(latest), parts(installed)) else { return false };
+    let (mut a, mut b) = (parts(left)?, parts(right)?);
     let n = a.len().max(b.len());
     a.resize(n, 0);
     b.resize(n, 0);
-    a > b
+    Some(a.cmp(&b))
+}
+
+#[cfg(all(test, unix))]
+mod pipe_tests {
+    /// A control one pipe leaves open never hides the other pipe's lines.
+    #[test]
+    fn a_control_left_open_on_stdout_does_not_hide_stderr() {
+        let script = "printf '\\033Psecret'; printf 'error: not found\\n' >&2; exit 1";
+        let (ok, text) = super::run(
+            &["/bin/sh".to_owned(), "-c".to_owned(), script.to_owned()],
+            &std::collections::BTreeMap::new(),
+            std::time::Duration::from_secs(10),
+        )
+        .unwrap();
+        assert!(!ok);
+        let lines: Vec<String> = crate::stderr::clean_stderr_lines(&text)
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(lines, vec!["error: not found"], "{text:?}");
+    }
 }

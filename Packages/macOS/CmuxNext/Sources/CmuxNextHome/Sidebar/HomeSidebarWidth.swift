@@ -11,10 +11,21 @@ public struct HomeSidebarWidth: Sendable {
     public static let minimum: CGFloat = 76
     public static let standard: CGFloat = 320
 
-    /// `width` kept between `minimum` and half of `window` (a window
-    /// narrower than twice the minimum keeps the minimum).
-    public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum) -> CGFloat {
-        max(minimum, min(width, window / 2))
+    /// The narrowest the transcript beside the list gets while the list can still shrink: about
+    /// 30 characters of a bubble. Below it the list drops to its avatar-only minimum first, so a
+    /// narrow Home column never wraps its bubbles one word per line (dogfood 2026-10-19).
+    public static let transcriptMinimum: CGFloat = 280
+
+    /// `width` kept between `minimum` and the smaller of half of `window` and what leaves the
+    /// transcript ``transcriptMinimum`` (a window too narrow for both keeps the list's minimum).
+    public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum,
+                             transcriptMinimum: CGFloat = transcriptMinimum) -> CGFloat {
+        max(minimum, min(width, window / 2, window - transcriptMinimum))
+    }
+
+    /// The narrowest Home column that shows the list at its minimum and the transcript at its own.
+    public static func columnMinimum(listMinimum: CGFloat = minimum, divider: CGFloat = 1) -> CGFloat {
+        listMinimum + divider + transcriptMinimum
     }
 
     private let defaults: UserDefaults

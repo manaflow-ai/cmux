@@ -17,7 +17,7 @@ enum SettingsIconAssets {
         case .image?, .svg?: break
         default: return nil
         }
-        guard let owner, owner.supports(DaemonCapabilities.shared.iconAssets), let connection = owner.connection,
+        guard let owner, owner.supports(DaemonCapability.iconAssets.rawValue), let connection = owner.connection,
               let blob = try? await IconAssetClient(connection).get(icon) else { return nil }
         return await encoded(blob.data, mediaType: blob.mediaType)
     }

@@ -253,6 +253,9 @@ fn macos_app_support_loads_after_xdg() {
     assert_eq!(loaded.files.len(), 2);
 }
 
+/// At opacity 0.8 the tertiary ink also holds over the tint on a white desktop
+/// (bc3a679f27b, Swift `SeeThroughInkTests`), so it keeps the primary ink here;
+/// the spec's oracle (derive_theme_tokens.py) gives the same values.
 #[test]
 fn low_contrast_and_opacity_match_swift() {
     let input = ThemeInput {
@@ -268,7 +271,7 @@ fn low_contrast_and_opacity_match_swift() {
          strip_background #303030@0.80
          text_primary #9D9D9D
          text_secondary #9D9D9D
-         text_tertiary #7D7D7D
+         text_tertiary #9D9D9D
          text_selection #373737
          highlight_text #303030
          shadow #070707",

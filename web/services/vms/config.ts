@@ -28,8 +28,24 @@ export function vmCreateDisabledReason(
   if (isFalseFlag(env[providerEnabledEnvKey(provider)])) {
     return `${provider} VM creation is disabled`;
   }
+  if (provider === "gcp") {
+    const gcpReason = gcpLabsDisabledReason(env);
+    if (gcpReason) return gcpReason;
+  }
   if (!vmPrivateNetworkEnabled(env)) {
     return "Cloud VM creation requires private networking";
+  }
+  return null;
+}
+
+/**
+ * Why the GCP Labs provider is off, or null when it is on. It is off unless
+ * both CMUX_VM_GCP_LABS_ENABLED and CMUX_VM_GCP_ENABLED are set true. This
+ * gates every Compute Engine call the driver makes, not only creation.
+ */
+export function gcpLabsDisabledReason(env: VmRuntimeEnv = process.env): string | null {
+  if (!isTrueFlag(env.CMUX_VM_GCP_LABS_ENABLED) || !isTrueFlag(env.CMUX_VM_GCP_ENABLED)) {
+    return "GCP Cloud VM provider is a Labs feature and is disabled by default";
   }
   return null;
 }
@@ -38,6 +54,8 @@ export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
+    case "gcp":
+      return "CMUX_VM_GCP_ENABLED";
     default:
       return assertNever(provider);
   }

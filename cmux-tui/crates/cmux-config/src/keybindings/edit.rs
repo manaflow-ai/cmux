@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value};
 
-use super::{Entry, parse};
+use super::{Entry, FirstStroke, parse};
 use crate::jsonc::{self, JsoncError};
 
 /// One binding an edit names: command, keys (keybindings.json syntax) and
@@ -32,10 +32,10 @@ impl From<JsoncError> for EditError {
 }
 
 /// The same checks `parse` applies (stroke syntax, at most four strokes, a
-/// new binding's first stroke with cmd or ctrl), so an edit never writes an
-/// entry the reader then drops.
-fn strokes(key: &str, binds: bool) -> Result<Vec<String>, EditError> {
-    super::keys(key, binds).map_err(|(_, message)| EditError::InvalidKey(message))
+/// new binding's first stroke with cmd or ctrl, or bare under a bare-key
+/// page's `when`), so an edit never writes an entry the reader then drops.
+fn strokes(key: &str, first: FirstStroke<'_>) -> Result<Vec<String>, EditError> {
+    super::keys(key, first).map_err(|(_, message)| EditError::InvalidKey(message))
 }
 
 fn readable(source: &str) -> Result<Vec<Entry>, EditError> {
@@ -48,7 +48,7 @@ fn readable(source: &str) -> Result<Vec<Entry>, EditError> {
 
 /// The file's own (non-removal) entry for `target`, if any.
 fn user_entry(entries: &[Entry], target: &Target) -> Result<Option<usize>, EditError> {
-    let keys = strokes(&target.key, false)?;
+    let keys = strokes(&target.key, FirstStroke::Any)?;
     Ok(entries
         .iter()
         .find(|entry| {
@@ -82,7 +82,8 @@ pub fn set(
     replaces: Option<&Target>,
 ) -> Result<String, EditError> {
     let entries = readable(source)?;
-    let key = strokes(&binding.key, true)?.join(" ");
+    let key =
+        strokes(&binding.key, FirstStroke::Binds { when: binding.when.as_deref() })?.join(" ");
     if key.is_empty() {
         return Err(EditError::InvalidKey("a binding needs at least one stroke".to_string()));
     }
@@ -107,7 +108,7 @@ pub fn remove(source: &str, target: &Target) -> Result<String, EditError> {
 }
 
 fn removal(source: &str, target: &Target) -> Result<String, EditError> {
-    let key = strokes(&target.key, false)?.join(" ");
+    let key = strokes(&target.key, FirstStroke::Any)?.join(" ");
     Ok(jsonc::array_append(
         source,
         &json(&key, &format!("-{}", target.command), target.when.as_deref(), None),

@@ -47,6 +47,8 @@ extension UpdaterService {
         log.append("update card closed: \(option.rawValue) version=\(shownUpdateVersion ?? "none")")
         storeUpdateSnooze(snooze)
         followCardExpiry()
+        // A hidden found update no longer holds the fast check back (``TipUpdateCheck``).
+        tipCheck.refresh(self)
     }
 
     /// The person asked to check or install, or an update the organization requires is shown

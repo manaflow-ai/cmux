@@ -176,7 +176,7 @@ impl App {
                 if screen.viewport_splits.is_empty() {
                     exact_split_for_pane_edge(
                         &screen.layout,
-                        self.content_area,
+                        self.active_frame_area(),
                         Some(screen.active_pane),
                         pane,
                         split_edge,
@@ -185,7 +185,7 @@ impl App {
                 } else {
                     exact_split_for_pane_edge_with_viewport(
                         &screen.layout,
-                        self.content_area,
+                        self.active_frame_area(),
                         Some(screen.active_pane),
                         pane,
                         split_edge,
@@ -246,7 +246,7 @@ impl App {
         pane: PaneId,
         edge: PaneEdge,
     ) -> Option<PaneResizeDragTarget> {
-        if self.content_area.width == 0 {
+        if self.active_frame_area().width == 0 {
             return None;
         }
         let screen = self.tree.active_screen()?;
@@ -256,7 +256,7 @@ impl App {
         {
             let layout = layout_screen_with_viewport(
                 &screen.layout,
-                self.content_area,
+                self.active_frame_area(),
                 Some(screen.active_pane),
                 screen.viewport_base_width.unwrap_or(1.0),
                 &screen.viewport_splits,
@@ -285,8 +285,8 @@ impl App {
                     pane: column.representative,
                     edge,
                     column_x: column.rect.x,
-                    viewport_x: self.content_area.x,
-                    viewport_width: self.content_area.width,
+                    viewport_x: self.active_frame_area().x,
+                    viewport_width: self.active_frame_area().width,
                     viewport_offset: self.viewport_offset,
                 });
             }
@@ -300,7 +300,7 @@ impl App {
         let target = if screen.viewport_splits.is_empty() {
             exact_split_for_pane_edge(
                 &screen.layout,
-                self.content_area,
+                self.active_frame_area(),
                 Some(screen.active_pane),
                 pane,
                 split_edge,
@@ -309,7 +309,7 @@ impl App {
         } else {
             exact_split_for_pane_edge_with_viewport(
                 &screen.layout,
-                self.content_area,
+                self.active_frame_area(),
                 Some(screen.active_pane),
                 pane,
                 split_edge,
@@ -331,7 +331,7 @@ impl App {
             area: target.area,
             minimum_ratio,
             maximum_ratio,
-            viewport_x: self.content_area.x,
+            viewport_x: self.active_frame_area().x,
             viewport_offset: self.viewport_offset,
         })
     }

@@ -78,7 +78,8 @@
 //!     "position": "column"
 //!   },
 //!   "viewport": {
-//!     "animation": true
+//!     "animation": true,
+//!     "docked_workspaces": false
 //!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
@@ -637,6 +638,8 @@ struct RawScrollbar {
 #[serde(deny_unknown_fields)]
 struct RawViewport {
     animation: Option<bool>,
+    /// Prototype: docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md).
+    docked_workspaces: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -660,11 +663,15 @@ impl Default for Scrollbar {
 #[derive(Debug, Clone, Copy)]
 pub struct Viewport {
     pub animation: bool,
+    /// Docked workspaces: edge docks that each hold a workspace around the
+    /// active workspace. Off unless configured; see
+    /// [`crate::feature_flags::docked_workspaces_enabled`].
+    pub docked_workspaces: bool,
 }
 
 impl Default for Viewport {
     fn default() -> Self {
-        Self { animation: true }
+        Self { animation: true, docked_workspaces: false }
     }
 }
 

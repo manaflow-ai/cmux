@@ -18,6 +18,7 @@
 //! (`/etc/cmux/daemon-instance-id`), not a second metadata read (the agent is
 //! the single metadata reader); a parked machine (the bake's id) refuses.
 
+use crate::json::JsonField;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -112,8 +113,8 @@ pub fn machine_instance(paths: &Paths) -> Result<String, String> {
 /// This clone's key; a key made for another instance id is replaced.
 pub fn team_key(paths: &Paths, instance: &str, rng: &SystemRandom) -> Result<InstallKey, String> {
     if let Some(saved) = read_json::<Value>(paths, TEAM_KEY_FILE)
-        && saved["instance_id"] == instance
-        && let Some(text) = saved["pkcs8"].as_str()
+        && *saved.field("instance_id") == instance
+        && let Some(text) = saved.field("pkcs8").as_str()
         && let Ok(key) = InstallKey::from_pkcs8_base64url(text, rng)
     {
         return Ok(key);
@@ -164,7 +165,7 @@ pub fn commit(paths: &Paths, instance: &str, bound: &TeamBound) -> Result<(), St
     let key = read_json::<Value>(paths, TEAM_KEY_FILE).ok_or("no team key: enroll first")?;
     let enrolled =
         read_json::<EnrollRecord>(paths, TEAM_ENROLL_FILE).ok_or("no enroll on this clone")?;
-    if key["instance_id"] != instance
+    if *key.field("instance_id") != instance
         || enrolled
             != (EnrollRecord {
                 instance_id: instance.into(),

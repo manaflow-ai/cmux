@@ -38,6 +38,9 @@ pub(super) struct UpdateParams {
     color: Option<Option<String>>,
     #[serde(default, deserialize_with = "super::present_nullable")]
     icon: Option<Option<String>>,
+    /// The proxy (#24432); null makes the profile direct again.
+    #[serde(default, deserialize_with = "super::present_nullable")]
+    proxy: Option<Option<Value>>,
 }
 
 /// `move-browser-profile`: an insertion index among browser profiles.
@@ -70,9 +73,16 @@ pub(super) fn create(mux: &Mux, params: CreateParams) -> anyhow::Result<Value> {
 }
 
 pub(super) fn update(mux: &Mux, params: UpdateParams) -> anyhow::Result<Value> {
-    let update = BrowserProfileUpdate { name: params.name, color: params.color, icon: params.icon };
+    let update = BrowserProfileUpdate {
+        name: params.name,
+        color: params.color,
+        icon: params.icon,
+        proxy: params.proxy,
+    };
+    // Resolve the id or exact name under the same registry lock as the update.
     let (profile, changed) = mux.personal_mutation(|registry| {
-        registry.update_browser_profile(&params.browser_profile, update)
+        let browser_profile = registry.resolve_browser_profile_id(&params.browser_profile)?;
+        registry.update_browser_profile(&browser_profile, update)
     })?;
     Ok(json!({"browser_profile": profile, "changed": changed}))
 }

@@ -48,8 +48,9 @@ struct AgentPaneSecretRelayTests {
 
     @Test func theAppsAcpmuxOffersTheSecretTools() throws {
         let environment = try #require(AcpmuxEnvironment.resolve(
-            tag: nil, bundledBinDirectory: nil, environment: ["PATH": "/bin"],
-            userHome: URL(fileURLWithPath: "/tmp", isDirectory: true), uid: 501, isExecutable: { _ in true }))
+            build: nil, bundledBinDirectory: nil, environment: ["PATH": "/bin"],
+            userHome: URL(fileURLWithPath: "/tmp", isDirectory: true), uid: 501, isExecutable: { _ in true },
+            executableOverride: nil))
         #expect(environment.childEnvironment["ACPMUX_SECRET_TOOLS"] == "1")
     }
 }

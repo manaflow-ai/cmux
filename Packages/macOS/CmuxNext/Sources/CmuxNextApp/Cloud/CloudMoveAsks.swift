@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -89,7 +90,7 @@ final class CloudMoveAsks {
             for await loaded in ObservationStream({ [weak services] in services?.daemon.store.isLoaded ?? true }) where loaded {
                 guard let self, let services else { return }
                 let retries = services.cloud.moveRetries
-                for tab in retries.tabs where asks[tab] == nil && services.locateTab(tab)?.0.agentSession != nil {
+                for tab in retries.tabs where asks[tab] == nil && services.locateTab(tab, onMachine: services.machines.local.machineID)?.0.agentSession != nil {
                     guard let retry = retries[tab], dismissed()[tab] != Self.fingerprint(retry) else { continue }
                     let text = switch retry {
                     case .show: CloudMoveStrings.unfinishedShow
@@ -193,7 +194,8 @@ final class CloudMoveAsks {
 
     // MARK: "Always" folders
 
-    private static func fingerprint(_ retry: CloudMoveRetries.Retry) -> String {
+    /// A Retry as text: a launch offer Dismissed stays dismissed until its tab's Retry changes.
+    static func fingerprint(_ retry: CloudMoveRetries.Retry) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         return (try? encoder.encode(retry)).map { String(decoding: $0, as: UTF8.self) } ?? ""

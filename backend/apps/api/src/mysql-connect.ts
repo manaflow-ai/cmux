@@ -16,6 +16,8 @@ export interface MysqlTarget {
 export interface MysqlClient {
   query(sql: string, values?: Array<unknown>): Promise<unknown>
   end(): Promise<void>
+  /** Closes the socket now, without waiting for queued commands (a query that hangs). */
+  destroy(): void
 }
 
 export const connectMysql = async (target: MysqlTarget, options: { readonly timeoutMs?: number } = {}): Promise<MysqlClient> => {
@@ -33,9 +35,16 @@ export const connectMysql = async (target: MysqlTarget, options: { readonly time
     dateStrings: true,
     connectTimeout: options.timeoutMs ?? 10_000
   })
-  await conn.query("SET time_zone = '+00:00'")
+  try {
+    await conn.query("SET time_zone = '+00:00'")
+  } catch (error) {
+    // The caller never gets a client to close, so close the socket here.
+    conn.destroy()
+    throw error
+  }
   return {
     query: (sql, values) => conn.query(sql, values),
-    end: () => conn.end()
+    end: () => conn.end(),
+    destroy: () => conn.destroy()
   }
 }

@@ -166,7 +166,12 @@ enum Command {
     Ping,
     ShutdownDaemon { pid: u32 },
 }
-
+"""
+            )
+            # The router lives in server/command_dispatch.rs.
+            (server.parent / "server").mkdir()
+            (server.parent / "server/command_dispatch.rs").write_text(
+                """\
 fn handle_command_with_cancellation(cmd: Command) {
     match cmd {
         Command::Ping => {}
@@ -212,7 +217,12 @@ fn handle_command_with_cancellation(cmd: Command) {
 enum Command {
     ShutdownDaemon { pid: u32 },
 }
-
+"""
+            )
+            # The router lives in server/command_dispatch.rs.
+            (server.parent / "server").mkdir()
+            (server.parent / "server/command_dispatch.rs").write_text(
+                """\
 fn handle_command_with_cancellation(cmd: Command) {
     match cmd {
         Command::ShutdownDaemon { .. } => {

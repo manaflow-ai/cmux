@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextSettings
@@ -27,7 +28,7 @@ struct SidebarStatusBlockTests {
                       WorkspaceStatus.Entry(key: "tests", text: "412 passed", color: "green")],
             progress: WorkspaceStatus.Progress(value: 0.4, label: "Linking"),
             logCount: 1, lastLog: WorkspaceStatus.LogLine(level: "warning", text: "2 warnings"))
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+        store.session.apply(.snapshot(mirror), in: store)
 
         let sections = SidebarMapping.shared.sections(store.sidebarSections,
                                                       machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))
@@ -58,5 +59,37 @@ struct SidebarStatusBlockTests {
         let (_, reported, _) = layout(["agentStatus": .bool(false), "log": .bool(false), "progress": .bool(false)])
         #expect(reported.height == SidebarLayoutMetrics.standard.rowHeight)
         #expect(reported.content?.detail == nil)
+    }
+
+    @Test func reportedEntriesUseTintedOneLinePillsAndKeepTheVisibleCap() {
+        let status = SidebarWorkspaceStatus(entries: [
+            .init(key: "approval", text: "Awaiting approval", tint: .palette(.green), state: "waiting"),
+            .init(key: "tests", text: "Tests failed", tint: .palette(.red), state: "error"),
+            .init(key: "build", text: "Building", tint: .palette(.orange), state: "busy"),
+            .init(key: "extra", text: "Hidden", state: "success")
+        ])
+        let view = WorkspaceStatusView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
+        view.configure(status, reservesBar: false)
+        view.layoutSubtreeIfNeeded()
+        view.updateLayer()
+        view.layoutSubtreeIfNeeded()
+
+        let labels = view.subviews.compactMap { $0 as? NSTextField }
+        let pills = view.subviews.filter { type(of: $0) == NSView.self }
+        #expect(labels.count == 4) // three entries plus the folded "1 more" line
+        #expect(pills.count == 4)
+        #expect(labels[0].stringValue == "Awaiting approval")
+        #expect(labels[1].stringValue == "Tests failed")
+        #expect(labels[0].maximumNumberOfLines == 1)
+        #expect(labels[1].maximumNumberOfLines == 1)
+        #expect(pills[0].layer?.cornerRadius ?? 0 > 0)
+        #expect(pills[0].layer?.backgroundColor != nil)
+        #expect(pills[1].layer?.backgroundColor != nil)
+        #expect(pills[2].isHidden)
+        #expect(labels[0].frame.width < view.bounds.width)
+        // The pill label is wide enough for its text, so nothing truncates.
+        #expect(labels[0].frame.width >= ceil(labels[0].cell?.cellSize.width ?? 0))
+        // A pill keeps the plain status line height, so rows do not grow.
+        #expect(labels[0].frame.height == labels[2].frame.height)
     }
 }

@@ -21,7 +21,7 @@ struct TabHoverCardNewTabTests {
             let cell = try #require(strip.cells[id])
             return strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip)
         }
-        #expect(strip.hoverCardTarget(at: try center(TabID("page")))?.id == TabID("page"))
-        #expect(strip.hoverCardTarget(at: try center(TabID("new"))) == nil)
+        #expect(strip.hoverCard.target(at: try center(TabID("page")))?.id == TabID("page"))
+        #expect(strip.hoverCard.target(at: try center(TabID("new"))) == nil)
     }
 }

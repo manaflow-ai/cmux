@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextHistory
 import Foundation
 import Testing
 
@@ -25,13 +26,13 @@ struct ClosedBlankItemsTests {
 
     /// One closed item as `closed.list` lists it. A tab item carries its tab's name, as the daemon
     /// records it.
-    private static func closed(_ kind: String, name: String? = nil, _ tabs: String...) throws -> ClosedItem {
+    private static func closed(_ kind: String, name: String? = nil, _ tabs: String...) throws -> CmuxNextDaemon.ClosedItem {
         let label = name.map { "\"\($0)\"" } ?? "null"
         let json = """
         {"id":"closed_1","kind":"\(kind)","name":\(label),"workspace_id":null,"pane_id":null,"index":0,"closed_at_ms":1,
          "screens":[{"name":null,"tabs":[\(tabs.joined(separator: ","))]}],"window":null,"member_count":1,"members":[]}
         """
-        return try JSONDecoder().decode(ClosedItem.self, from: Data(json.utf8))
+        return try JSONDecoder().decode(CmuxNextDaemon.ClosedItem.self, from: Data(json.utf8))
     }
 
     @Test func untouchedNewTabPagesAndTheirWorkspacesAreLeftOut() throws {
@@ -55,5 +56,29 @@ struct ClosedBlankItemsTests {
             "untitled chat: Terminal · -",
             "workspace with a terminal: workspace-7 · /Users/you/src/cmux",
         ])
+    }
+
+    /// One row per page (Leo 2026-10-14): a page closed again shows once, at its newest close,
+    /// newest first, by the key the daemon's history list uses (`DaemonClosedHistory.pageKey`).
+    /// Terminals and chats carry no identity beyond a name or folder, so each close of them stays
+    /// its own row.
+    @Test func aPageClosedAgainShowsOnceAtItsNewestClose() throws {
+        let example = """
+            {"kind":"browser","name":null,"cwd":null,"url":"https://example.com/","browser_profile_id":null,"pinned":false}
+            """
+        let cmux = example.replacingOccurrences(of: "example.com", with: "cmux.com")
+        func entry(_ id: String, _ tab: String) throws -> CmuxNextDaemon.ClosedItem {
+            var item = try Self.closed("tab", tab)
+            item.id = id
+            return item
+        }
+        let shown = try DaemonClosedHistory.newestOnce([
+            entry("cmux", cmux),
+            entry("shell-2", Self.terminal),
+            entry("example-2", example),
+            entry("shell-1", Self.terminal),
+            entry("example-1", example),
+        ]) { ($0, "local") }.map(\.id)
+        #expect(shown == ["cmux", "shell-2", "example-2", "shell-1"])
     }
 }

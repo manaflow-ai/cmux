@@ -326,3 +326,42 @@ fn live_host_that_refuses_every_protocol_is_unadoptable_not_adopting() {
     );
     wait_for_process_and_group_absent(host_pid);
 }
+
+/// A shell's exit reaches subscribers with its typed `end` in the
+/// `surface-exited` event itself, so a client shows "Process exited (code 7)"
+/// at once instead of waiting for the next tree (cx-6so.19).
+#[test]
+fn r41_surface_exited_event_carries_the_typed_end() {
+    let harness = RecoveryHarness::start("exited-event-end");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", "read line; exit 7"],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let mut events = subscribe(&harness.socket);
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": "\n"}),
+    );
+
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    let exited = loop {
+        assert!(Instant::now() < deadline, "no surface-exited event for surface {surface}");
+        let mut line = String::new();
+        if events.read_line(&mut line).unwrap_or(0) == 0 {
+            panic!("the subscription closed before surface {surface} exited");
+        }
+        let event: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if event["event"] == "surface-exited" && event["surface"].as_u64() == Some(surface) {
+            break event;
+        }
+    };
+    assert_eq!(exited["end"], serde_json::json!({"kind": "exited", "code": 7}), "{exited}");
+}

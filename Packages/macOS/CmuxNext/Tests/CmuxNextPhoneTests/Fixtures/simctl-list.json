@@ -1,0 +1,29 @@
+{
+  "devices" : {
+    "com.apple.CoreSimulator.SimRuntime.iOS-27-0" : [
+      { "udid" : "6A05764C-FFD1-4B40-AA2E-AD27ADAC7A56", "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro",
+        "state" : "Booted", "name" : "iPhone 18 Pro" },
+      { "udid" : "65012AB1-DD13-4B23-981E-A5EA94DE2A0E", "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-17e",
+        "state" : "Shutdown", "name" : "iPhone 17e" }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.iOS-18-0" : [
+      { "udid" : "91925BDD-6613-44B8-AABE-EA24F2E72474", "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB",
+        "state" : "Shutdown", "name" : "iPad Pro 11-inch (M4)" },
+      { "udid" : "2F003CA7-8D5F-4B8D-AD72-0666F22137F1", "isAvailable" : false,
+        "availabilityError" : "runtime profile not found",
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation",
+        "state" : "Shutdown", "name" : "iPhone SE (3rd generation)" },
+      { "udid" : "C1A1B1C1-0000-4000-8000-000000000001", "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-16",
+        "state" : "Booting", "name" : "iPhone 16" }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.watchOS-11-0" : [
+      { "udid" : "D1D1D1D1-0000-4000-8000-000000000002", "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-10-46mm",
+        "state" : "Shutdown", "name" : "Apple Watch Series 10 (46mm)" }
+    ]
+  }
+}

@@ -34,14 +34,21 @@ export async function pickFolder(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
+  refused?: () => void,
 ): Promise<FolderAsk | undefined> {
   let reply: unknown;
   try {
     reply = await callNative("workspace.useFolder", { cwd });
   } catch (error) {
     // The host's own refusal of the path (not a folder) uses nothing.
-    if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "transport.path_invalid")
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "transport.path_invalid"
+    ) {
+      refused?.();
       return undefined;
+    }
     use(cwd);
     return undefined;
   }
@@ -109,6 +116,7 @@ export function StartFolderAsk({
   ask,
   current,
   error,
+  confirming,
   onUse,
   onCancel,
 }: {
@@ -116,6 +124,7 @@ export function StartFolderAsk({
   /// The chat's start folder now, when it has one (else it starts in the private folder).
   current?: string;
   error?: string;
+  confirming?: boolean;
   onUse(): void;
   onCancel(): void;
 }) {
@@ -124,7 +133,7 @@ export function StartFolderAsk({
     <output className="acpmux-switch-notice acpmux-folder-choice acpmux-start-folder-ask" aria-live="polite">
       {ask.reason === "home" ? t("startFolder.homeQuestion") : t("startFolder.root", { folder: ask.cwd })}{" "}
       {ask.reason === "home" && (
-        <button type="button" className="acpmux-folder-choice-button" onClick={onUse}>
+        <button type="button" className="acpmux-folder-choice-button" disabled={confirming} onClick={onUse}>
           {t("startFolder.useHome")}
         </button>
       )}{" "}

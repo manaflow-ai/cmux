@@ -29,11 +29,15 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
         /// User input, or nothing to describe: search, or the highlighted
         /// suggestion's kind.
         case input(symbol: String)
-        /// The page's indicator (`PageInfoIndicator`). While focused it keeps
-        /// the icon but drops the text label.
-        case page(focused: Bool)
+        /// The page's indicator (`PageInfoIndicator`), its text label
+        /// included, at rest and while focused: as in Chromium, only user
+        /// input replaces it (`LocationIconView::GetShowText`), so focusing
+        /// moves nothing (Lawrence 2026-10-30, msg 18159).
+        case page
         /// An extension keyword session: the extension's name.
         case keyword(name: String)
+        /// A search engine keyword session: "Search YouTube".
+        case engineKeyword(label: String)
     }
 
     public init(_ state: OmnibarState) {
@@ -52,7 +56,10 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
 
     private static func chip(for state: OmnibarState) -> Chip {
         let search = PageInfoIndicator.searchSymbol
-        if let keyword = state.keyword, state.hasFocus { return .keyword(name: keyword.name) }
+        if let keyword = state.keyword, state.hasFocus {
+            // Chrome's keyword chip for a search engine: "Search YouTube".
+            return keyword.searchEngine == nil ? .keyword(name: keyword.name) : .engineKeyword(label: Strings.searchKeyword(engine: keyword.name))
+        }
         switch state.phase {
         case .editing:
             if let row = state.popup.highlighted, state.popup.rows.indices.contains(row) {
@@ -60,9 +67,11 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
             }
             return .input(symbol: search)
         case .focused:
-            return state.pageURL == nil ? .input(symbol: search) : .page(focused: true)
+            // Chromium `OmniboxView::IsEditingOrEmpty`: an empty box (the New
+            // Tab page) shows the search icon, at rest and focused alike.
+            return state.permanentText.isEmpty ? .input(symbol: search) : .page
         case .idle, .committing:
-            return state.fieldText.isEmpty || state.retainedText != nil ? .input(symbol: search) : .page(focused: false)
+            return state.fieldText.isEmpty || state.retainedText != nil ? .input(symbol: search) : .page
         }
     }
 }

@@ -8,7 +8,7 @@ enum SheetDismissal {
     /// Ends every sheet attached to `windows` (nested sheets first).
     /// Returns how many ended.
     @discardableResult
-    static func endAll(in windows: [NSWindow] = NSApp.windows) -> Int {
+    static func endAll(in windows: [NSWindow] = NSApp?.windows ?? []) -> Int {
         var ended = CmuxDialogCenter.shared.records.count
         CmuxDialogCenter.shared.dismissAll()
         for window in windows {

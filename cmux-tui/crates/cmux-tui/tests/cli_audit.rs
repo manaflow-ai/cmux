@@ -161,6 +161,29 @@ fn tab_new_terminal_is_tab_create_terminal() {
 }
 
 #[test]
+fn tab_pane_and_terminal_lists_take_a_workspace() {
+    // A Codex interop proof run: `tab list --workspace ws_…` was an unknown
+    // flag, so an agent had to join screens, panes and tabs by hand.
+    let daemon = Daemon::start("scoped");
+    let first = daemon.json(&["workspace", "create", "--name", "first"])["value"].clone();
+    daemon.ok(&["workspace", "create", "--name", "second"]);
+    let workspace = first["workspace_id"].as_str().unwrap();
+    for (scope, key) in [("tab", "tab_id"), ("pane", "pane_id")] {
+        let listed = daemon.json(&[scope, "list", "--workspace", workspace]);
+        let ids: Vec<&str> =
+            listed.as_array().unwrap().iter().filter_map(|row| row["id"].as_str()).collect();
+        assert_eq!(ids, vec![first[key].as_str().unwrap()], "{scope} list: {listed}");
+    }
+    let terminals = daemon.json(&["terminal", "list", "--workspace", workspace]);
+    let tabs: Vec<&str> =
+        terminals.as_array().unwrap().iter().filter_map(|row| row["tab_id"].as_str()).collect();
+    assert_eq!(tabs, vec![first["tab_id"].as_str().unwrap()], "terminal list: {terminals}");
+    let screen = first["screen_id"].as_str().unwrap();
+    let panes = daemon.json(&["pane", "list", "--screen", screen]);
+    assert_eq!(panes.as_array().map(Vec::len), Some(1), "pane list --screen: {panes}");
+}
+
+#[test]
 fn cmux_ls_lists_workspaces() {
     let daemon = Daemon::start("ls");
     daemon.ok(&["workspace", "create", "--name", "listed"]);

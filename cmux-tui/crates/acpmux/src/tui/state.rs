@@ -140,7 +140,25 @@ pub enum AppMsg {
     Models(Value),
     HarnessCatalog(u64, Value),
     Sessions(Vec<Value>),
-    Attached { id: String, detail: Value, events: Vec<Value> },
+    Attached {
+        id: String,
+        detail: Value,
+        events: Vec<Value>,
+        /// The cursor used for an automatic lag recovery, if this was not an
+        /// initial attach.  Recovery pages merge into the existing transcript
+        /// instead of replacing it.
+        after_seq: Option<u64>,
+        has_more: bool,
+        last_seq: u64,
+    },
+    /// A recovery attach failed.  Keeping this distinct from an ordinary
+    /// request error lets the UI clear the in-flight guard and report that a
+    /// manual recovery is required.
+    RecoveryFailed {
+        id: String,
+        after_seq: u64,
+        error: String,
+    },
     Agents(Vec<String>, Option<String>),
     Status(Value),
     Info(String),

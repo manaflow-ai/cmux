@@ -116,7 +116,31 @@ def merge_keys(
     """Three-way merge one mapping by key. Returns ((key, side) list, conflicts).
 
     `side` is "ours" or "theirs", naming which file the key's text comes from.
+    Keys keep ours' order; a key only theirs has goes before the key that follows
+    it in theirs, so merging the base into a branch leaves the base's order alone.
     """
+    decided, conflicts = _decide_keys(base, ours, theirs, label)
+    side_of = dict(decided)
+    before: dict[str | None, list[str]] = {}
+    following: str | None = None
+    for key in reversed(list(theirs)):
+        if key in ours:
+            if key in side_of:
+                following = key
+        elif key in side_of:
+            before.setdefault(following, []).insert(0, key)
+    ordered: list[tuple[str, str]] = []
+    for key in [k for k in ours if k in side_of] + [None]:
+        ordered.extend((placed, side_of[placed]) for placed in before.get(key, []))
+        if key is not None:
+            ordered.append((key, side_of[key]))
+    return ordered, conflicts
+
+
+def _decide_keys(
+    base: dict, ours: dict, theirs: dict, label: str
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Which side each surviving key's text comes from, and the conflicting keys."""
     ordered: list[tuple[str, str]] = []
     conflicts: list[str] = []
     for key in list(ours) + [k for k in theirs if k not in ours]:

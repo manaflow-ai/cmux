@@ -2,8 +2,8 @@
 """The tree-addressed cmux-tui publication carries the Linux daemon too.
 
 Linux daemon mode (GPUI) fetches cmux-tui by the same tree key as the macOS
-app (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target). Both
-tree publishers in cmux-tui-artifacts.yml must therefore download the Linux
+app (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target). The
+tree publisher in cmux-tui-artifacts.yml (publish-tree) must therefore download the Linux
 musl build artifacts beside the macOS one, and take the list of companions
 from the publisher (scripts/ci/publish-cmux-tui-tree.py --list-companions)
 instead of a hand-written copy that can drift from it.
@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-tui-artifacts.yml"
-TREE_JOBS = ("publish-tree", "publish-pr-tree")
+TREE_JOBS = ("publish-tree",)
 ARTIFACTS = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-x86_64-unknown-linux-musl",
              "cmux-tui-aarch64-unknown-linux-musl")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$", re.M)

@@ -4,7 +4,7 @@ export const CLOUD_TELEMETRY_MAX_SPANS = 100;
 export const CLOUD_TELEMETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export const cloudOperations = [
-  "create", "open", "list", "status", "stats", "rename", "delete", "pause", "resume",
+  "create", "open", "list", "status", "stats", "rename", "delete", "pause", "resume", "restart",
   "snapshot", "fork", "restore", "resize", "exec", "port", "publication", "domain",
   "base", "session", "workspace", "terminal", "file", "environment", "tunnel",
   "connect", "refresh", "notification", "agent", "network", "agent_updates", "unknown",

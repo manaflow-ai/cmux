@@ -168,7 +168,6 @@ export function FileSearch({
               tabIndex={-1}
               aria-selected={index === selected}
               className={`acpmux-file-result${index === selected ? " acpmux-menu-active" : ""}`}
-              title={match.path}
               onPointerMove={() => setActive(index)}
               onMouseDown={(event) => {
                 event.preventDefault();

@@ -7,8 +7,8 @@
 // install the whole table there. The language is the first of the app's languages
 // (`navigator.languages`, which follows the app's preferred localizations) that is loaded.
 //
-// The language is a reactive value: a small store that follows `languagechange` (and
-// `setPaneLanguage`). Components read strings through `useT()`, so a language change
+// The language is a reactive value: a small store that follows the page window's
+// `languagechange` (and `setPaneLanguage`). Components read strings through `useT()`, so a language change
 // re-renders them under either React Compiler; a module-level function read during render
 // would look constant to the compiler and keep memoized strings stale. `translate` is for
 // code outside render (event handlers, clients), where the current language is read once.
@@ -46,13 +46,31 @@ let active: PaneLanguage = paneLanguage();
 setDocumentLanguage(active);
 const listeners = new Set<() => void>();
 
+// The window whose `languagechange` the store follows. It is attached on first use (a read, a
+// subscribe or a switch), not when the module loads: bun shares one module cache across test
+// files, so this module may first load before any window exists, and a later file installs its
+// own. Each use compares one reference; when the global window is a different one, the listener
+// moves to it, so the old window keeps none.
+let followed: typeof globalThis.window | undefined;
+const followLanguageChange = () => setPaneLanguage(paneLanguage());
+function followWindow(): void {
+  const view = globalThis.window as typeof globalThis.window | undefined;
+  if (view === followed) return;
+  followed?.removeEventListener("languagechange", followLanguageChange);
+  followed = view;
+  followed?.addEventListener("languagechange", followLanguageChange);
+}
+followWindow();
+
 /** The language the pane renders in now. */
 export function currentLanguage(): PaneLanguage {
+  followWindow();
   return active;
 }
 
 /** Switches the pane's language; every component that reads strings through `useT()` re-renders. */
 export function setPaneLanguage(next: PaneLanguage): void {
+  followWindow();
   setDocumentLanguage(next);
   if (next === active) return;
   active = next;
@@ -61,11 +79,10 @@ export function setPaneLanguage(next: PaneLanguage): void {
 
 /** Calls `listener` after each language change; returns the unsubscribe function. */
 export function subscribeLanguage(listener: () => void): () => void {
+  followWindow();
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
-
-globalThis.window?.addEventListener("languagechange", () => setPaneLanguage(paneLanguage()));
 
 const pluralRules = new Map<PaneLanguage, Intl.PluralRules>();
 /** `key`, or for a plural string the form `lang`'s plural rules pick for `values.n`. */
@@ -89,7 +106,7 @@ export function translateKey(key: CatalogKey, values: StringValues, lang: PaneLa
 }
 
 /** A pane string, with `{name}` placeholders filled. Outside render only; components use `useT()`. */
-export function translate(key: StringKey, values: StringValues = {}, lang: PaneLanguage = active): string {
+export function translate(key: StringKey, values: StringValues = {}, lang: PaneLanguage = currentLanguage()): string {
   return translateKey(key, values, lang);
 }
 

@@ -1,6 +1,7 @@
 /// The agent chat's reply rows (decisions D4 and D5): what a path chip outside the session's
 /// folders does, and when a web image in a reply loads. Both decide what leaves the project or
-/// the machine, so an agent may not change them (``SettingsSchema/agentRefusedKeys``).
+/// the machine, so an agent may not change them (``SettingsSchema/agentRefusedKeys``). Also Needs
+/// you in the chat header (``AgentPaneNeedsYouSetting``), an App Store item an agent may set.
 nonisolated enum AgentPaneSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
@@ -32,6 +33,15 @@ nonisolated enum AgentPaneSettingsSchema {
                 ]),
                 default: .string(AgentPaneReplySetting.fallback.remoteImages.rawValue),
                 keywords: ["agent", "chat", "image", "remote", "web", "privacy", "tracking"]
+            ),
+            SettingDescriptor(
+                AgentPaneNeedsYouSetting.enabledPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.needsYou", "Needs You"),
+                help: SettingsText.keyed("settings.agentPane.needsYou.help",
+                                         "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."),
+                kind: .toggle,
+                default: .bool(AgentPaneNeedsYouSetting.fallback),
+                keywords: ["agent", "chat", "needs you", "inbox", "asks", "approvals", "badge"]
             ),
         ]
     }

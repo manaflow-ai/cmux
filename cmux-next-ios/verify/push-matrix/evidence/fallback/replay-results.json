@@ -1,0 +1,22 @@
+[
+ {
+  "row": "replay",
+  "pass": true,
+  "note": "post 200 {'queued': True, 'delivered': True}; Mac: {'state': 'applied', 'sig': 'f891a29677e3bf8b2178ea27c0612a4b2090447e1ad611d746caeff4d61d68d6bca82a0a4cb35e2f12c62f9408126489ffd522a78bb18b85d8c773d99d941d07'}; re-read: by design a copy of a settled reply answers its first outcome (applied, signed); the program's terminal shows V2.4.1 once (checked by hand after the run)"
+ },
+ {
+  "row": "tamper",
+  "pass": true,
+  "note": "post 200; Mac: {'state': 'rejected', 'reason': 'unsealed', 'sig': '1095d624f35eceae18d8ae1671af958d270ecb26c67c2df0fd7e8aa4819a9168ec8b65d13503802c9db468220fcb91559a3b1e5a84e0ae43c07a66670089ee5a'}"
+ },
+ {
+  "row": "rebind",
+  "pass": true,
+  "note": "post 200; Mac: {'state': 'rejected', 'reason': 'unsealed', 'sig': 'f7249eda55ce2141ac176fd93d5f16b602c2206ef840b0d363aad60615e539efaf12042bb9f608206d8c9408c4c9ef4d884643eb18cce734e31b071744c93cf2'}"
+ },
+ {
+  "row": "expired",
+  "pass": true,
+  "note": "captured at 1792800359231, replayed at 1792801197653; post 200; Mac: {'state': 'rejected', 'reason': 'expired', 'sig': '2ee93159849dc240accb602f6a89c57e7bfb30edb4daa25b6e08cacbb27b1d628f0aeab3c7671cddbf5e771df585d3fc93078fb615d0d060dd7afe367b08c9da'}"
+ }
+]

@@ -11,7 +11,7 @@ if [ "$#" -eq 1 ]; then
 fi
 . /etc/cmux/agent-config.sh
 . /etc/cmux/agent-auth.sh
-cmux_codex_apply_auth_mode
+cmux_codex_apply_auth_mode || exit $?
 if [ "$cmux_codex_own_provider" = 1 ]; then
   # Ahead of the caller's arguments, so a -c the caller passes still wins.
   exec /usr/local/libexec/cmux-codex-real -c 'model_provider="openai"' "$@"

@@ -29,7 +29,9 @@ CONFIG = ROOT / ".github" / "actionlint.yaml"
 
 # Files actionlint is allowed to skip a rule in. An entry here is a deferred
 # defect, not an exemption: the reason belongs beside it in actionlint.yaml.
-SUPPRESSED = {".github/workflows/test-ios.yml"}
+# nightly.yml: only the constant `if: false` of the two retired release-surface
+# ack jobs, kept in main's shape (see actionlint.yaml).
+SUPPRESSED = {".github/workflows/nightly.yml", ".github/workflows/test-ios.yml"}
 
 failures: list[str] = []
 

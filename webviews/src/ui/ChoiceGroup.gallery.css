@@ -5,7 +5,7 @@
   min-height: 280px;
   padding: 28px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .choice-group-gallery-copy {
@@ -13,6 +13,7 @@
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .choice-group-gallery-copy strong {
@@ -40,7 +41,6 @@
   padding: 0 10px;
   border-radius: 6px;
   color: var(--cmux-text, CanvasText);
-  cursor: default;
 }
 
 .choice-group-gallery-option:hover {
@@ -67,15 +67,18 @@
 .choice-group-gallery-label strong {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .choice-group-gallery-label small {
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 64%, transparent));
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .choice-group-gallery-receipt {
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }

@@ -131,12 +131,14 @@ pub(super) fn move_tab_to_split(
     edge: String,
     ratio: Option<f32>,
     respawn: Option<SplitRespawnRequest>,
+    keep_focus: bool,
     transaction: Option<String>,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let edge = crate::TabDropEdge::parse(&edge)?;
-    let outcome = split_tab(mux, client, surface, pane, edge, ratio, respawn, transaction)?;
+    let outcome =
+        split_tab(mux, client, surface, pane, edge, ratio, respawn, keep_focus, transaction)?;
     Ok(tab_drag_outcome_json(&outcome))
 }
 
@@ -165,7 +167,7 @@ pub(super) fn move_tab_to_new_workspace(
     let (key, workspace_index) = mux
         .with_state(|state| {
             let index = state.workspace_index(workspace)?;
-            Some((state.workspaces[index].key.clone(), index))
+            Some((state.workspaces.get(index)?.key.clone(), index))
         })
         .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
     let (_, pane) = surface_placement(mux, surface);
@@ -554,7 +556,8 @@ pub(super) fn surface_placement(
         let pane = state.pane_of(surface);
         let workspace = pane
             .and_then(|pane| state.screen_of(pane))
-            .map(|(workspace, _)| state.workspaces[workspace].id);
+            .and_then(|(workspace, _)| state.workspaces.get(workspace))
+            .map(|workspace| workspace.id);
         (workspace, pane)
     })
 }

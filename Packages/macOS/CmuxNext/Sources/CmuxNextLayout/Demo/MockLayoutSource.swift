@@ -66,6 +66,9 @@ public final class MockLayoutSource {
             push()
             model.focus(pane)
             return
+        case .newColumnLeft:
+            // The demo's mock daemon opens columns on the right only.
+            return
         case let .split(pane, axis):
             let new = PaneID(makeID("p"))
             split(pane, axis: axis, newPane: new, newFirst: false)

@@ -149,7 +149,7 @@ pub(super) fn forward_mux_event(
             Err(_) => ForwardMuxOutcome::Stop,
         };
     }
-    if let MuxEvent::SurfaceExited(surface) = &event {
+    if let MuxEvent::SurfaceExited(surface, _) = &event {
         mux_titles.remove(*surface);
     }
     let terminal = matches!(event, MuxEvent::Empty);

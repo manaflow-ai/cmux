@@ -267,6 +267,9 @@ final class ScrollPrefetcher {
     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
         guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
+        PaletteScope.with(PaletteScope.palette(of: r)) { updateScoped(r) } // cmux: in its view's palette
+    }
+    private func updateScoped(_ r: RowRecycler) {
         let y = r.bounds.minY, t = r.clock()
         if t < r.pageJumpUntil {
             // A track-click page: the jump is no velocity, and the page code prepares its rows.
@@ -287,11 +290,12 @@ final class ScrollPrefetcher {
         let rect = velocity < 0 ? CGRect(x: 0, y: r.bounds.minY - far, width: r.bounds.width, height: far)
                                 : CGRect(x: 0, y: r.bounds.maxY, width: r.bounds.width, height: far)
         let n = r.layout.model.count
+        let scale = r.labRenderScale // its window view's (two views can show at two scales)
         for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
             guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec, let ref = MediaPlaceholder.ref(spec) else { continue } // checked
             if MediaCache.thumb(ref) == nil { MediaCache.requestThumb(ref) }
             let dist = velocity < 0 ? r.bounds.minY - a.frame.maxY : a.frame.minY - r.bounds.maxY
-            if dist < near, !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec); ScrollPrefetcher.requests += 1 }
+            if dist < near, !RowBitmaps.shared.has(spec, scale: scale) { RowBitmaps.shared.request(spec, scale: scale); ScrollPrefetcher.requests += 1 }
         }
     }
 }

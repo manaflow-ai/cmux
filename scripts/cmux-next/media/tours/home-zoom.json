@@ -1,0 +1,22 @@
+{
+  "title": "Chief chat zoom",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Home with the Chief at actual size", "cmux": ["action", "run", "home.show"], "wait": 4,
+     "optional": "the Chief's daemon may not start on this runner"},
+    {"title": "Zoom in", "cmux": ["action", "run", "home.zoomIn"], "wait": 0.5, "shot": false,
+     "optional": "Chief zoom needs this build"},
+    {"title": "Zoom in", "cmux": ["action", "run", "home.zoomIn"], "wait": 0.5, "shot": false,
+     "optional": "Chief zoom needs this build"},
+    {"title": "Zoomed in to 130%: text, bubbles and field larger and sharp", "cmux": ["action", "run", "home.zoomIn"], "wait": 2,
+     "optional": "Chief zoom needs this build"},
+    {"title": "Actual size again", "cmux": ["action", "run", "home.zoomReset"], "wait": 1, "shot": false,
+     "optional": "Chief zoom needs this build"},
+    {"title": "Zoom out", "cmux": ["action", "run", "home.zoomOut"], "wait": 0.5, "shot": false,
+     "optional": "Chief zoom needs this build"},
+    {"title": "Zoomed out to 80%", "cmux": ["action", "run", "home.zoomOut"], "wait": 2,
+     "optional": "Chief zoom needs this build"},
+    {"title": "Back to actual size", "cmux": ["action", "run", "home.zoomReset"], "wait": 2,
+     "optional": "Chief zoom needs this build"}
+  ]
+}

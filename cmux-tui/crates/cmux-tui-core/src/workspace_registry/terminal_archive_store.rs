@@ -11,6 +11,10 @@
 //! - at most [`MAX_ARCHIVES`] rows and none older than
 //!   [`MAX_ARCHIVE_AGE_MS`]; a deleted archive's reopened tab starts without
 //!   the old screen;
+//! - at most [`ARCHIVE_BLOB_BUDGET_BYTES`] of gzip screens across all rows;
+//!   past it the oldest rows lose their screen and keep the program line,
+//!   and Recently Closed marks their tabs `scrollback_not_kept` (the mux
+//!   publishes those groups again);
 //! - triggers on `closed_groups` delete an archive once no closed-history
 //!   group names its terminal (its group was reopened), and an archive is
 //!   stored only while a group names its terminal.
@@ -24,7 +28,9 @@ use anyhow::Context;
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use rusqlite::{OptionalExtension, Transaction, params};
+use std::collections::HashSet;
+
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::WorkspaceRegistry;
 
@@ -32,6 +38,10 @@ use super::WorkspaceRegistry;
 pub(crate) const ARCHIVE_MAX_SCREEN_BYTES: usize = 1024 * 1024;
 /// Most archives kept; the oldest go first.
 pub(crate) const MAX_ARCHIVES: usize = 100;
+/// Most gzip screen bytes all archives keep (`history.closed.blobBudgetMB`,
+/// plans/cmux-next/reopen-closed.md section 2); past it the oldest archives
+/// lose their screen first.
+pub(crate) const ARCHIVE_BLOB_BUDGET_BYTES: u64 = 2048 * 1024 * 1024;
 /// An archive older than this is deleted (a printed secret does not stay).
 pub(crate) const MAX_ARCHIVE_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 /// Longest stored program name, in bytes (cut at a character boundary).
@@ -181,14 +191,17 @@ fn gunzip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
 impl WorkspaceRegistry {
     /// Store `archives` in one transaction (a later archive of the same
     /// terminal replaces its row), then keep only the newest
-    /// [`MAX_ARCHIVES`].
+    /// [`MAX_ARCHIVES`] and, of their screens, only the newest that fit in
+    /// `blob_budget_bytes` ([`ARCHIVE_BLOB_BUDGET_BYTES`] outside tests).
+    /// Returns the closed groups whose terminal lost its screen here.
     pub(crate) fn put_terminal_archives(
         &mut self,
         archives: &[ArchiveRow<'_>],
         now_ms: u64,
-    ) -> anyhow::Result<()> {
+        blob_budget_bytes: u64,
+    ) -> anyhow::Result<Vec<String>> {
         if archives.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -232,8 +245,36 @@ impl WorkspaceRegistry {
                 i64::try_from(now_ms.saturating_sub(MAX_ARCHIVE_AGE_MS))?,
             ],
         )?;
+        // Newest first, a screen stays while it and every newer screen fit.
+        let evicted = {
+            let mut statement = tx.prepare(
+                "SELECT DISTINCT named.closed_id FROM closed_group_terminals AS named
+                 WHERE named.terminal_id IN (
+                   SELECT terminal_id FROM (
+                     SELECT terminal_id,
+                       SUM(length(screen)) OVER (ORDER BY rowid DESC) AS kept_bytes
+                     FROM terminal_archives WHERE screen IS NOT NULL
+                   ) WHERE kept_bytes > ?1
+                 )
+                 ORDER BY named.closed_id",
+            )?;
+            statement
+                .query_map([i64::try_from(blob_budget_bytes).unwrap_or(i64::MAX)], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        tx.execute(
+            "UPDATE terminal_archives SET screen = NULL WHERE rowid IN (
+               SELECT rowid FROM (
+                 SELECT rowid, SUM(length(screen)) OVER (ORDER BY rowid DESC) AS kept_bytes
+                 FROM terminal_archives WHERE screen IS NOT NULL
+               ) WHERE kept_bytes > ?1
+             )",
+            [i64::try_from(blob_budget_bytes).unwrap_or(i64::MAX)],
+        )?;
         tx.commit()?;
-        Ok(())
+        Ok(evicted)
     }
 
     /// The archive of public terminal `terminal_id`.
@@ -283,6 +324,23 @@ impl WorkspaceRegistry {
             .optional()?
             .is_some())
     }
+}
+
+/// The terminals whose archive lost its screen to the byte budget: their
+/// reopened tabs start without scrollback. Empty before the table exists.
+pub(crate) fn evicted_terminals(connection: &Connection) -> anyhow::Result<HashSet<String>> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'terminal_archives')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(HashSet::new());
+    }
+    let mut statement = connection.prepare(
+        "SELECT terminal_id FROM terminal_archives WHERE screen IS NULL AND screen_bytes > 0",
+    )?;
+    Ok(statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<_, _>>()?)
 }
 
 #[cfg(test)]

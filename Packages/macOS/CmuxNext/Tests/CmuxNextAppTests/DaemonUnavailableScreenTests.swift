@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+@testable import CmuxNextDaemonRecovery
 import Testing
 
 /// The window cmux shows when its background service cannot start says so in plain words and

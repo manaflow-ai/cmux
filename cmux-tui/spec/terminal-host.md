@@ -306,6 +306,14 @@ the host's authoritative VT parser is at the same snapshot boundary. A client
 that does not negotiate the flag receives the original v4 bytes and must
 reject an unnegotiated trailing field.
 
+With `FLAG_SHELL_ACTIVITY` also negotiated, the snapshot next appends the
+host's OSC 133 shell state: `flags:u8` (bit 0 a command runs, bit 1 it took
+the terminal for interaction, bit 2 its line modes were seen off, bit 3 the
+shell sits at its prompt; bits 1 and 2 only with bit 0, other bits zero), then
+`busy_since_ms:u64` when bit 0 is set and `prompt_since_ms:u64` when bit 3 is.
+The times are Unix ms, so they mean the same to the adopting daemon. Any
+`FLAG_PROGRAM_STATUS` tail follows it.
+
 Legacy `Resized` producer payload:
 
 ```text
@@ -412,6 +420,11 @@ it only when the host record advertises `supports_viewer_size_priority`.
 `FLAG_PTY_CUSTODY` is bit 6 and is valid only in protocol-v4 `ClientHello` and
 `HostHello`, alone. Hosts that predate it reject a hello carrying it, so the
 owner sets it only when the host record advertises `supports_pty_custody`.
+
+`FLAG_SHELL_ACTIVITY` is bit 8 and is valid only in protocol-v4 `ClientHello`
+and `HostHello`, with `FLAG_TERMINAL_METADATA`. Hosts that predate it reject a
+hello carrying it, so a client sets it only when the host record advertises
+`supports_shell_activity`, which records before version 4 must not set.
 
 ## PTY custody and adoption
 

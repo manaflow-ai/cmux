@@ -256,11 +256,12 @@ tree pushes):
   `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
   `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
   died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended,
-  restart_exhausted, restart_failed, other`. The last two come from the respawn supervisor
+  owner_gone, restart_exhausted, restart_failed, other`. `owner_gone` is a host that ended its
+  shell after the orphan grace with no owner, or on a `SIGTERM` while orphaned (cx-3ryj). The last two come from the respawn supervisor
   (cx-6so.49): a placed terminal lost with its host respawns after a bounded backoff (0, 2, 10,
   30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
   `restart_failed` when a respawn launch fails. The owner start respawns committed respawnable
-  losses an earlier owner never ran (also `session_shutdown`).
+  losses an earlier owner never ran (also `session_shutdown` and `owner_gone`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;
   unknown future values decode as nil / `.other`.
@@ -271,8 +272,12 @@ The banner text and the "Restart Shell Here" / "Close" actions belong to the tab
 lost: <reason words>", `unadoptable` "Running under an older cmux; close to end it", `reconnecting`
 "Reconnecting…", `failed` "Lost connection to the terminal" with Reconnect.
 
-Not covered yet: the `surface-exited` event carries no `end` (clients read it from the next tree);
-`failed` has no daemon-side retry trigger beyond a new adoption.
+The `surface-exited` event carries the terminal's typed `end` as the tab JSON shows it, taken
+when the exit detaches its views (which leaves no tab to read it from), so a client shows the
+reason at once. It is null only where no end is known (a sidebar plugin's surface). A `failed` link is retried by the daemon:
+past the reconnect budget (16 failures, about 12 s) the terminal reads `failed`, and its reader
+keeps retrying the host every 2 s, doubling to 60 s. A host that answers makes it `running`
+again; a dead host ends it with its typed end. A close or shutdown stops the retry within 250 ms.
 
 No common protocol version: a host closes an owner hello without HostHello when it shares no
 version with this build (a newer build's host after a rollback). A host of this build closes it the

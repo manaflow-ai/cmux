@@ -7,6 +7,7 @@ import { isGoPlanEnabled } from "./goPlanFlag";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
+  isFounderSubscriptionRow,
   isPaidPlanId,
   manualVmPlanOverride,
   resolveProPlanStatus,
@@ -43,6 +44,11 @@ export type PersonalBillingJson = {
     /** Who bills the plan; an `apple` plan is managed in the App Store. */
     readonly billingSource: PersonalBillingSource;
     readonly manageUrl: string | null;
+    /**
+     * The account owns Founder's Edition, Pro for life from a one-time
+     * purchase. It is not `subscription`, so it has nothing to switch or cancel.
+     */
+    readonly foundersEdition: boolean;
   };
   readonly subscription: PersonalSubscriptionJson | null;
   readonly goPlanEnabled: boolean;
@@ -126,9 +132,9 @@ export async function loadDashboardBilling(
 }
 
 async function loadPersonalBilling(user: DashboardBillingUser): Promise<PersonalBillingJson> {
-  const [status, subscription, goPlanEnabled] = await Promise.all([
+  const [status, { subscription, foundersEdition }, goPlanEnabled] = await Promise.all([
     resolveProPlanStatus(user),
-    latestActiveStripeSubscription(user.id),
+    activePersonalSubscriptions(user.id),
     isGoPlanEnabled(user.id),
   ]);
   return {
@@ -138,6 +144,7 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
       billingManagement: status.billingManagement,
       billingSource: status.billingSource,
       manageUrl: status.manageUrl,
+      foundersEdition,
     },
     subscription,
     goPlanEnabled,
@@ -146,12 +153,17 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
   };
 }
 
-/** The user's current Pro/Max subscription, Max first. */
-export async function latestActiveStripeSubscription(
+/**
+ * The user's current Pro/Max subscription, Max first, and whether they own
+ * Founder's Edition. A Founder's Edition purchase is stored as an active Pro
+ * row, but it is a one-time purchase, never the subscription.
+ */
+export async function activePersonalSubscriptions(
   stackUserId: string,
-): Promise<PersonalSubscriptionJson | null> {
+): Promise<{ readonly subscription: PersonalSubscriptionJson | null; readonly foundersEdition: boolean }> {
   const rows = await cloudDb()
     .select({
+      id: stripeSubscriptions.id,
       plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
@@ -172,15 +184,19 @@ export async function latestActiveStripeSubscription(
       desc(stripeSubscriptions.currentPeriodEnd),
       desc(stripeSubscriptions.updatedAt),
     )
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
+    .limit(10);
+  const row = rows.find((candidate) => !isFounderSubscriptionRow(candidate));
   return {
-    plan: row.plan ?? null,
-    status: row.status,
-    currentPeriodEnd: isoDate(row.currentPeriodEnd),
-    cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
-    price: subscriptionPriceFromRaw(row.raw),
+    foundersEdition: rows.some(isFounderSubscriptionRow),
+    subscription: row
+      ? {
+          plan: row.plan ?? null,
+          status: row.status,
+          currentPeriodEnd: isoDate(row.currentPeriodEnd),
+          cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
+          price: subscriptionPriceFromRaw(row.raw),
+        }
+      : null,
   };
 }
 

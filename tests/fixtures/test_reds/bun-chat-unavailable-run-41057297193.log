@@ -1,0 +1,73 @@
+2026-10-30T12:43:25.5268846Z bun test v1.4.4 (38afee6c8)
+2026-10-30T12:43:25.5561790Z 
+2026-10-30T12:43:25.5562433Z ##[group]webviews/test/chat-unavailable.test.ts:
+2026-10-30T12:43:25.5772240Z (pass) chatUnavailable > no machine down: a chat the pane saw leave the list was deleted; one never seen is not found [0.16ms]
+2026-10-30T12:43:25.5772692Z (pass) chatUnavailable > a machine still on its first attempts is loading until the grace ends [0.04ms]
+2026-10-30T12:43:25.5773057Z (pass) chatUnavailable > a machine that is down names itself and when it was last seen [0.03ms]
+2026-10-30T12:43:25.5773375Z (pass) chatUnavailable > peer status keeps only well-typed fields [0.06ms]
+2026-10-30T12:43:25.5807974Z 128 |       }),
+2026-10-30T12:43:25.5808095Z 129 |     );
+2026-10-30T12:43:25.5808199Z 130 | 
+2026-10-30T12:43:25.5808422Z 131 |   test("a deleted chat names the machine it was on, not the tab's", () => {
+2026-10-30T12:43:25.5808721Z 132 |     const html = render({ reason: "deleted", machine: "build-box" }, "Studio");
+2026-10-30T12:43:25.5809024Z 133 |     expect(html).toContain("It&#x27;s no longer on build-box.");
+2026-10-30T12:43:25.5809221Z                        ^
+2026-10-30T12:43:25.5809382Z error: expect(received).toContain(expected)
+2026-10-30T12:43:25.5809490Z 
+2026-10-30T12:43:25.5809597Z Expected to contain: "It&#x27;s no longer on build-box."
+2026-10-30T12:43:25.5811640Z Received: "<div class=\"acpmux-empty acpmux-unavailable\" data-unavailable=\"deleted\" role=\"alert\"><svg class=\"acpmux-empty-glyph\" width=\"36\" height=\"36\" viewBox=\"0 0 36 36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"4.75\" y=\"6.75\" width=\"26.5\" height=\"22.5\" rx=\"6\"></rect><path d=\"M13.5 18h9\"></path></svg><h2 class=\"acpmux-empty-title acpmux-unavailable-title\">unavailable.deleted.title</h2><div class=\"acpmux-unavailable-copy\"><p class=\"acpmux-unavailable-detail\">unavailable.deleted.detailOn</p><p class=\"acpmux-unavailable-detail acpmux-unavailable-session\">unavailable.session</p><div class=\"acpmux-unavailable-actions\"><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"remove\">unavailable.remove</button><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"resume\">link.missing.resume</button></div></div></div>"
+2026-10-30T12:43:25.5813151Z 
+2026-10-30T12:43:25.5813363Z       at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/chat-unavailable.test.ts:133:18)
+2026-10-30T12:43:25.5813580Z 
+2026-10-30T12:43:25.5826421Z ##[error]Expected to contain: "It&#x27;s no longer on build-box."
+Received: "<div class=\"acpmux-empty acpmux-unavailable\" data-unavailable=\"deleted\" role=\"alert\"><svg class=\"acpmux-empty-glyph\" width=\"36\" height=\"36\" viewBox=\"0 0 36 36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"4.75\" y=\"6.75\" width=\"26.5\" height=\"22.5\" rx=\"6\"></rect><path d=\"M13.5 18h9\"></path></svg><h2 class=\"acpmux-empty-title acpmux-unavailable-title\">unavailable.deleted.title</h2><div class=\"acpmux-unavailable-copy\"><p class=\"acpmux-unavailable-detail\">unavailable.deleted.detailOn</p><p class=\"acpmux-unavailable-detail acpmux-unavailable-session\">unavailable.session</p><div class=\"acpmux-unavailable-actions\"><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"remove\">unavailable.remove</button><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"resume\">link.missing.resume</button></div></div></div>"
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/chat-unavailable.test.ts:133:18)
+2026-10-30T12:43:25.5829077Z (fail) ChatUnavailableState > a deleted chat names the machine it was on, not the tab's [3.50ms]
+2026-10-30T12:43:25.5829438Z 135 |     expect(render({ reason: "deleted" }, "Studio")).toContain("It&#x27;s no longer on Studio.");
+2026-10-30T12:43:25.5829662Z 136 |   });
+2026-10-30T12:43:25.5829770Z 137 | 
+2026-10-30T12:43:25.5829963Z 138 |   test("a chat never seen here is not found, never deleted", () => {
+2026-10-30T12:43:25.5830217Z 139 |     const html = render({ reason: "notFound" }, "Studio");
+2026-10-30T12:43:25.5830449Z 140 |     expect(html).toContain("Can&#x27;t find this chat");
+2026-10-30T12:43:25.5830624Z                        ^
+2026-10-30T12:43:25.5830790Z error: expect(received).toContain(expected)
+2026-10-30T12:43:25.5830903Z 
+2026-10-30T12:43:25.5830999Z Expected to contain: "Can&#x27;t find this chat"
+2026-10-30T12:43:25.5832987Z Received: "<div class=\"acpmux-empty acpmux-unavailable\" data-unavailable=\"notFound\" role=\"alert\"><svg class=\"acpmux-empty-glyph\" width=\"36\" height=\"36\" viewBox=\"0 0 36 36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"4.75\" y=\"6.75\" width=\"26.5\" height=\"22.5\" rx=\"6\"></rect><path d=\"M13.5 18h9\"></path></svg><h2 class=\"acpmux-empty-title acpmux-unavailable-title\">unavailable.notFound.title</h2><div class=\"acpmux-unavailable-copy\"><p class=\"acpmux-unavailable-detail\">unavailable.notFound.detailOn</p><p class=\"acpmux-unavailable-detail acpmux-unavailable-session\">unavailable.session</p><div class=\"acpmux-unavailable-actions\"><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"resume\">link.missing.resume</button><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"close\">link.missing.close</button></div></div></div>"
+2026-10-30T12:43:25.5834477Z 
+2026-10-30T12:43:25.5834680Z       at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/chat-unavailable.test.ts:140:18)
+2026-10-30T12:43:25.5834895Z 
+2026-10-30T12:43:25.5838692Z ##[error]Expected to contain: "Can&#x27;t find this chat"
+Received: "<div class=\"acpmux-empty acpmux-unavailable\" data-unavailable=\"notFound\" role=\"alert\"><svg class=\"acpmux-empty-glyph\" width=\"36\" height=\"36\" viewBox=\"0 0 36 36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"4.75\" y=\"6.75\" width=\"26.5\" height=\"22.5\" rx=\"6\"></rect><path d=\"M13.5 18h9\"></path></svg><h2 class=\"acpmux-empty-title acpmux-unavailable-title\">unavailable.notFound.title</h2><div class=\"acpmux-unavailable-copy\"><p class=\"acpmux-unavailable-detail\">unavailable.notFound.detailOn</p><p class=\"acpmux-unavailable-detail acpmux-unavailable-session\">unavailable.session</p><div class=\"acpmux-unavailable-actions\"><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"resume\">link.missing.resume</button><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"close\">link.missing.close</button></div></div></div>"
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/chat-unavailable.test.ts:140:18)
+2026-10-30T12:43:25.5840964Z (fail) ChatUnavailableState > a chat never seen here is not found, never deleted [0.35ms]
+2026-10-30T12:43:25.5841347Z 150 |       { reason: "offline" as const, machine: "box" },
+2026-10-30T12:43:25.5841574Z 151 |       { reason: "connecting" as const, machine: "box" },
+2026-10-30T12:43:25.5841739Z 152 |     ];
+2026-10-30T12:43:25.5841888Z 153 |     for (const unavailable of cases) {
+2026-10-30T12:43:25.5842167Z 154 |       const html = render(unavailable, "Studio");
+2026-10-30T12:43:25.5842382Z 155 |       expect(html).toContain("Session 01a1201b-d3c3");
+2026-10-30T12:43:25.5842554Z                          ^
+2026-10-30T12:43:25.5842714Z error: expect(received).toContain(expected)
+2026-10-30T12:43:25.5842815Z 
+2026-10-30T12:43:25.5842899Z Expected to contain: "Session 01a1201b-d3c3"
+2026-10-30T12:43:25.5844855Z Received: "<div class=\"acpmux-empty acpmux-unavailable\" data-unavailable=\"deleted\" role=\"alert\"><svg class=\"acpmux-empty-glyph\" width=\"36\" height=\"36\" viewBox=\"0 0 36 36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"4.75\" y=\"6.75\" width=\"26.5\" height=\"22.5\" rx=\"6\"></rect><path d=\"M13.5 18h9\"></path></svg><h2 class=\"acpmux-empty-title acpmux-unavailable-title\">unavailable.deleted.title</h2><div class=\"acpmux-unavailable-copy\"><p class=\"acpmux-unavailable-detail\">unavailable.deleted.detailOn</p><p class=\"acpmux-unavailable-detail acpmux-unavailable-session\">unavailable.session</p><div class=\"acpmux-unavailable-actions\"><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"remove\">unavailable.remove</button><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"resume\">link.missing.resume</button></div></div></div>"
+2026-10-30T12:43:25.5846350Z 
+2026-10-30T12:43:25.5846549Z       at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/chat-unavailable.test.ts:155:20)
+2026-10-30T12:43:25.5846762Z 
+2026-10-30T12:43:25.5850462Z ##[error]Expected to contain: "Session 01a1201b-d3c3"
+Received: "<div class=\"acpmux-empty acpmux-unavailable\" data-unavailable=\"deleted\" role=\"alert\"><svg class=\"acpmux-empty-glyph\" width=\"36\" height=\"36\" viewBox=\"0 0 36 36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"4.75\" y=\"6.75\" width=\"26.5\" height=\"22.5\" rx=\"6\"></rect><path d=\"M13.5 18h9\"></path></svg><h2 class=\"acpmux-empty-title acpmux-unavailable-title\">unavailable.deleted.title</h2><div class=\"acpmux-unavailable-copy\"><p class=\"acpmux-unavailable-detail\">unavailable.deleted.detailOn</p><p class=\"acpmux-unavailable-detail acpmux-unavailable-session\">unavailable.session</p><div class=\"acpmux-unavailable-actions\"><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"remove\">unavailable.remove</button><button type=\"button\" class=\"acpmux-unavailable-action\" data-action=\"resume\">link.missing.resume</button></div></div></div>"
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/chat-unavailable.test.ts:155:20)
+2026-10-30T12:43:25.5852771Z (fail) ChatUnavailableState > every case keeps the session id and Resume; Close Tab on all but deleted (Remove from Sidebar) [0.33ms]
+2026-10-30T12:43:25.5852999Z 
+2026-10-30T12:43:25.5853135Z ##[endgroup]
+2026-10-30T12:43:25.5853200Z 
+2026-10-30T12:43:25.5853254Z  4 pass
+2026-10-30T12:43:25.5853364Z  3 fail
+2026-10-30T12:43:25.5853478Z  22 expect() calls
+2026-10-30T12:43:25.5853646Z Ran 7 tests across 1 file. [54.00ms]
+2026-10-30T12:43:25.5854451Z FAST_CHECKS_RECEIPT={"source_sha": "45595bf919e47e56176a1ffa3ab3727841ea67d0", "source_tree": "d3cf5c75253d0aa35cf364c926848b007c77b102", "head_after": "45595bf919e47e56176a1ffa3ab3727841ea67d0", "command_started_at": 1793364205.5247781, "command_seconds": 0.06, "exit_code": 1, "command_pgid": 11643, "run_id": "41057297193", "cpu_count": 32}
+2026-10-30T12:43:25.5890577Z ##[error]Process completed with exit code 1.

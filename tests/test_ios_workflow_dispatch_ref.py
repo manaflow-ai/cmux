@@ -97,9 +97,9 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         )
         self.assertIn("target_sha: ${{ steps.target.outputs.sha }}", detect)
         self.assertIn("ref: ${{ github.ref }}", detect)
-        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", detect)
-        # Full history must stay blobless: fetching every blob of every branch
-        # overran the job's five-minute timeout and cancelled routing.
+        # A pull request checks out its merge commit and the base tip it
+        # was merged onto (depth 2), not every branch's history.
+        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}", detect)
         self.assertIn("filter: blob:none", detect)
         # A blobless clone must never need the promisor remote mid-step:
         # rename scoring would lazily fetch blobs and exit 128 if that fails.
@@ -261,6 +261,82 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
             for runner in ("pending", "failure", "cancelled", "skipped"):
                 with self.subTest(job=job, runner=runner):
                     self.assertFalse(self.admitted(job, runner=runner))
+
+
+def git(cwd: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+
+class IOSChangeDetectionTests(unittest.TestCase):
+    """Runs the detect step's script in a depth-2 clone of a pull request's
+    merge commit, the way actions/checkout leaves it."""
+
+    def detect(self, pr_files: dict[str, str], base_files: dict[str, str] | None = None,
+               head_sha: str | None = None) -> dict[str, str]:
+        temp = Path(tempfile.mkdtemp(prefix="ios-detect."))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(temp)])
+        origin = temp / "origin"
+        origin.mkdir()
+        git(origin, "init", "-q", "-b", "main")
+        (origin / "README").write_text("root\n")
+        git(origin, "add", "-A")
+        git(origin, "commit", "-q", "-m", "root")
+        for number in range(3):  # history the shallow clone must not need
+            (origin / f"old{number}.txt").write_text("old\n")
+            git(origin, "add", "-A")
+            git(origin, "commit", "-q", "-m", f"old {number}")
+        git(origin, "checkout", "-q", "-b", "pr")
+        for path, text in pr_files.items():
+            (origin / path).parent.mkdir(parents=True, exist_ok=True)
+            (origin / path).write_text(text)
+        git(origin, "add", "-A")
+        git(origin, "commit", "-q", "-m", "pr")
+        head = git(origin, "rev-parse", "HEAD")
+        git(origin, "checkout", "-q", "main")
+        for path, text in (base_files or {"base-moved.txt": "x\n"}).items():
+            (origin / path).parent.mkdir(parents=True, exist_ok=True)
+            (origin / path).write_text(text)
+        git(origin, "add", "-A")
+        git(origin, "commit", "-q", "-m", "base moves on")
+        base = git(origin, "rev-parse", "HEAD")
+        git(origin, "merge", "-q", "--no-ff", "-m", "merge", head)
+        merge = git(origin, "rev-parse", "HEAD")
+
+        work = temp / "work"
+        work.mkdir()
+        git(work, "init", "-q")
+        git(work, "remote", "add", "origin", origin.as_uri())
+        git(work, "fetch", "-q", "--no-tags", "--depth=2", "--filter=blob:none", "origin", merge)
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+        self.assertEqual(git(work, "rev-parse", "--is-shallow-repository"), "true")
+
+        step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["detect-ios-changes"]["steps"]
+                    if step.get("id") == "detect")
+        script = step["run"].replace("${{ github.event_name }}", "pull_request")
+        output = temp / "out"
+        output.write_text("")
+        done = subprocess.run(["bash", "-c", script], cwd=work, capture_output=True, text=True,
+                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output),
+                                   "GIT_CONFIG_GLOBAL": os.devnull})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_an_ios_change_runs_tests_and_lint(self) -> None:
+        self.assertEqual(self.detect({"ios/App.swift": "x\n"}), {"should_run": "true", "should_lint": "true"})
+
+    def test_a_package_change_runs_only_the_lint(self) -> None:
+        self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
+                         {"should_run": "false", "should_lint": "true"})
+
+    def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
+        self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),
+                         {"should_run": "false", "should_lint": "false"})
+
+    def test_a_checkout_that_is_not_the_pull_requests_merge_runs_everything(self) -> None:
+        self.assertEqual(self.detect({"docs/note.md": "x\n"}, head_sha="0" * 40),
+                         {"should_run": "true", "should_lint": "true"})
 
 
 if __name__ == "__main__":

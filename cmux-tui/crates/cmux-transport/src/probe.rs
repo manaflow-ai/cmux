@@ -48,23 +48,22 @@ impl Probe {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, ProbeError> {
-        if bytes.len() != PROBE_LEN {
+        let Ok(bytes) = <&[u8; PROBE_LEN]>::try_from(bytes) else {
             return Err(ProbeError::Length(bytes.len()));
-        }
-        if bytes[0..4] != MAGIC {
+        };
+        let [m0, m1, m2, m3, kind, i0, i1, i2, i3, i4, i5, i6, i7, p0, p1] = *bytes;
+        if [m0, m1, m2, m3] != MAGIC {
             return Err(ProbeError::Magic);
         }
-        let kind = match bytes[4] {
+        let kind = match kind {
             1 => ProbeKind::Ping,
             2 => ProbeKind::Pong,
             other => return Err(ProbeError::Kind(other)),
         };
-        let mut id = [0u8; 8];
-        id.copy_from_slice(&bytes[5..13]);
         Ok(Self {
             kind,
-            id: u64::from_be_bytes(id),
-            path: PathId(u16::from_be_bytes([bytes[13], bytes[14]])),
+            id: u64::from_be_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
+            path: PathId(u16::from_be_bytes([p0, p1])),
         })
     }
 

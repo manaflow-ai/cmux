@@ -1,0 +1,38 @@
+{
+  "id": "assistant-a672-remembers",
+  "owner": "a672",
+  "about": "an old fact from memory comes back unprompted when relevant",
+  "history": [
+    {
+      "kind": "user",
+      "text": "Leo's birthday is Oct 30. Don't let me forget."
+    },
+    {
+      "kind": "talk",
+      "text": "Noted: Leo's birthday, Oct 30."
+    },
+    {
+      "kind": "user",
+      "text": "fix the omnibar"
+    },
+    {
+      "kind": "talk",
+      "text": "- a904: omnibar fix"
+    }
+  ],
+  "turns": [
+    {
+      "text": "I'm planning my week (Oct 27 to Oct 31). anything I should not forget?",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "(?i)leo"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)birthday"
+        }
+      ]
+    }
+  ]
+}

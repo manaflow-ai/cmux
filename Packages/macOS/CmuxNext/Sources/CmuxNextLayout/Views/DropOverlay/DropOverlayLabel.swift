@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// when the rect is narrower than the tunable minimum or labels are off.
 @MainActor
 final class DropOverlayLabel {
-    let field = NSTextField(labelWithString: "")
+    let field = ChromeLabel(labelWithString: "")
 
     init() {
         field.alignment = .center
@@ -25,7 +25,7 @@ final class DropOverlayLabel {
         field.font = Typography.bodyEmphasized
         if field.stringValue != frame.label { field.stringValue = frame.label }
         // The natural text size (a truncating label reports no intrinsic width).
-        let size = field.cell?.cellSize ?? field.intrinsicContentSize
+        let size = field.naturalSize
         let width = min(size.width, max(rect.width - Metrics.space3 * 2, 0))
         field.frame = CGRect(x: rect.midX - width / 2, y: rect.midY - size.height / 2, width: width, height: size.height).integral
     }
@@ -37,6 +37,6 @@ final class DropOverlayLabel {
 
 /// A plain flipped view that never takes hits.
 final class PassthroughView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

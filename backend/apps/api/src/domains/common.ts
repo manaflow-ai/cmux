@@ -1,6 +1,7 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
+import { HostNetworkBoundParams } from "./host-network-params.ts"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
   ok: false,
@@ -18,6 +19,8 @@ export const InstallRegisterServerParams = Schema.Struct({
   /** When the server last saw the principal's sso_team fresh (a pairing approval, a machine create; cx-44j.51). */
   sso_seen_at: Schema.optionalKey(Schema.Int)
 })
+
+export const ServerNetworkConfirmedParams = Schema.Struct({ host: HostId, install: InstallId, owner_user: UserId, wg_public_key: WgPublicKey, network: ServerNetworkReservation })
 
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})
@@ -451,6 +454,7 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         name: DisplayName,
         platform: Platform,
         wg_public_key: WgPublicKey,
+        network: Schema.optionalKey(ServerNetworkReservation),
         owner_user: UserId,
         approved_by: UserId
       }),
@@ -461,6 +465,18 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  ["server.network.confirmed", {
+    name: "server.network.confirmed", owner: "cloud:TeamDO", class: "mutation", risk: "mutate-own", target: "host", principals: ["system"],
+    params: ServerNetworkConfirmedParams,
+    result: Schema.Unknown, errors: [], docs: "Internal: verified registration of an already approved server network identity.",
+    cli: { path: "", visible: false }, mcp: { expose: "never", group: "internal" }
+  } as CloudOpDef],
+  ["host.network.bound", {
+    name: "host.network.bound", owner: "cloud:TeamDO", class: "mutation", risk: "mutate-own", target: "host", principals: ["system"],
+    params: HostNetworkBoundParams,
+    result: Schema.Unknown, errors: [], docs: "Internal: verified registration of this client install's own network identity.",
+    cli: { path: "", visible: false }, mcp: { expose: "never", group: "internal" }
+  } as CloudOpDef],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
   ...feedInternalOps.map((d) => [d.name, d] as const),

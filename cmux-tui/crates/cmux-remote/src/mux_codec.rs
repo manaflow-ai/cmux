@@ -130,6 +130,21 @@ impl<R> AssembledMuxLine<R> {
     }
 }
 
+/// Magic, message id, part index and part count of a line packet; `None`
+/// when the packet is shorter than the header.
+fn parse_header(packet: &[u8]) -> Option<([u8; 4], u64, u32, u32)> {
+    let (magic, rest) = packet.split_first_chunk::<4>()?;
+    let (message, rest) = rest.split_first_chunk::<8>()?;
+    let (part, rest) = rest.split_first_chunk::<4>()?;
+    let (parts, _) = rest.split_first_chunk::<4>()?;
+    Some((
+        *magic,
+        u64::from_be_bytes(*message),
+        u32::from_be_bytes(*part),
+        u32::from_be_bytes(*parts),
+    ))
+}
+
 impl<R> MuxLineAssembler<R> {
     pub(crate) fn push_retaining(
         &mut self,
@@ -137,12 +152,12 @@ impl<R> MuxLineAssembler<R> {
         packet: Bytes,
         retained: R,
     ) -> Result<Option<AssembledMuxLine<R>>, MuxCodecError> {
-        if packet.len() < HEADER_BYTES || packet[..4] != MAGIC {
+        let Some((magic, message, part, parts)) = parse_header(&packet) else {
+            return Err(MuxCodecError::InvalidPacket);
+        };
+        if magic != MAGIC {
             return Err(MuxCodecError::InvalidPacket);
         }
-        let message = u64::from_be_bytes(packet[4..12].try_into().unwrap());
-        let part = u32::from_be_bytes(packet[12..16].try_into().unwrap());
-        let parts = u32::from_be_bytes(packet[16..20].try_into().unwrap());
         if parts == 0
             || part >= parts
             || parts as usize > self.maximum.div_ceil(CHUNK_BYTES)
@@ -150,47 +165,46 @@ impl<R> MuxLineAssembler<R> {
         {
             return Err(MuxCodecError::InvalidPacket);
         }
-        if !self.lines.contains_key(&message) {
-            if self.lines.len() >= MAX_IN_FLIGHT_LINES {
-                return Err(MuxCodecError::TooManyLines);
-            }
-            self.lines.insert(
-                message,
-                PartialLine {
-                    lane,
-                    parts: vec![None; parts as usize],
-                    retained: Vec::with_capacity(parts as usize),
-                    received: 0,
-                    bytes: 0,
-                },
-            );
+        if !self.lines.contains_key(&message) && self.lines.len() >= MAX_IN_FLIGHT_LINES {
+            return Err(MuxCodecError::TooManyLines);
         }
-        let line = self.lines.get_mut(&message).expect("line was inserted");
-        if line.lane != lane
-            || line.parts.len() != parts as usize
-            || line.parts[part as usize].is_some()
-        {
+        let line = self.lines.entry(message).or_insert_with(|| PartialLine {
+            lane,
+            parts: vec![None; parts as usize],
+            retained: Vec::with_capacity(parts as usize),
+            received: 0,
+            bytes: 0,
+        });
+        if line.lane != lane || line.parts.len() != parts as usize {
             return Err(MuxCodecError::InvalidPacket);
         }
+        let Some(slot) = line.parts.get_mut(part as usize).filter(|slot| slot.is_none()) else {
+            return Err(MuxCodecError::InvalidPacket);
+        };
         let payload = packet.slice(HEADER_BYTES..);
         if line.bytes.saturating_add(payload.len()) > self.maximum
             || self.bytes.saturating_add(payload.len()) > MAX_IN_FLIGHT_BYTES
         {
             return Err(MuxCodecError::LineTooLarge(line.bytes.saturating_add(payload.len())));
         }
-        line.bytes += payload.len();
+        let payload_len = payload.len();
+        *slot = Some(payload);
+        line.bytes += payload_len;
         line.received += 1;
-        self.bytes += payload.len();
-        line.parts[part as usize] = Some(payload);
+        self.bytes += payload_len;
         line.retained.push(retained);
         if line.received != line.parts.len() {
             return Ok(None);
         }
-        let line = self.lines.remove(&message).expect("complete line exists");
+        let Some(line) = self.lines.remove(&message) else {
+            return Err(MuxCodecError::InvalidPacket);
+        };
         self.bytes = self.bytes.saturating_sub(line.bytes);
         let mut joined = BytesMut::with_capacity(line.bytes);
-        for part in line.parts {
-            joined.extend_from_slice(&part.expect("all parts received"));
+        // `received == parts.len()` and every slot is filled once, so no part
+        // is missing here.
+        for part in line.parts.into_iter().flatten() {
+            joined.extend_from_slice(&part);
         }
         let payload = joined.freeze();
         if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {

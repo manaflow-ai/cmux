@@ -67,7 +67,7 @@ export function redactEndpoint(endpoint: string): string {
     url.searchParams.delete("token");
     return url.toString();
   } catch {
-    return "(invalid endpoint)";
+    return "(invalid endpoint)"; // l10n-allow: wire log text, never rendered
   }
 }
 
@@ -81,7 +81,7 @@ function withoutSecret(text: string): string {
       message.params.value = "(secret)";
     return JSON.stringify(message);
   } catch {
-    return "(secret answer)";
+    return "(secret answer)"; // l10n-allow: wire log text, never rendered
   }
 }
 

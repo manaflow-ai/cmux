@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use async_trait::async_trait;
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
 use bytes::Bytes;
+use cmux_tui_core::net_keepalive::WebSocketKeepalive;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request as ClientRequest;
@@ -174,22 +175,72 @@ pub async fn connect_websocket_via(
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
 }
 
+/// The daemon side of a direct WebSocket link. While [`FrameLink::receive`]
+/// waits, it pings a silent peer every [`WebSocketKeepalive::ping_interval`];
+/// once nothing has arrived for [`WebSocketKeepalive::dead_peer_timeout`] (a
+/// half-open connection) it drops the socket and fails the link.
+///
+/// Liveness is counted per whole message here (axum does not expose partial
+/// frames), so a single inbound message that takes longer than the dead-peer
+/// timeout to arrive fails the link. The Cloud carrier caps a frame at
+/// 64 KiB, so that takes a link slower than about 1 KB/s.
 pub struct AxumWebSocketLink {
     description: String,
     maximum: usize,
-    sender: Mutex<SplitSink<WebSocket, AxumMessage>>,
-    receiver: Mutex<SplitStream<WebSocket>>,
+    keepalive: WebSocketKeepalive,
+    /// Each half is taken (dropped) when the peer is declared dead; the
+    /// socket closes once both are gone.
+    sender: Mutex<Option<SplitSink<WebSocket, AxumMessage>>>,
+    receiver: Mutex<Option<SplitStream<WebSocket>>>,
+    /// Set when the peer is declared dead, so a send blocked on the dead
+    /// peer gives up and drops its half.
+    dead: watch::Sender<bool>,
 }
 
 impl AxumWebSocketLink {
     pub fn new(description: impl Into<String>, maximum: usize, socket: WebSocket) -> Self {
+        Self::with_keepalive(description, maximum, socket, WebSocketKeepalive::default())
+    }
+
+    pub fn with_keepalive(
+        description: impl Into<String>,
+        maximum: usize,
+        socket: WebSocket,
+        keepalive: WebSocketKeepalive,
+    ) -> Self {
         let (sender, receiver) = socket.split();
         Self {
             description: description.into(),
             maximum,
-            sender: Mutex::new(sender),
-            receiver: Mutex::new(receiver),
+            keepalive,
+            sender: Mutex::new(Some(sender)),
+            receiver: Mutex::new(Some(receiver)),
+            dead: watch::Sender::new(false),
         }
+    }
+
+    /// Ping the peer unless a data frame is being written: the Ping then
+    /// waits for nothing, and a write stuck on a dead peer cannot stall the
+    /// dead-peer clock. The write is bounded by one ping interval.
+    async fn ping(&self) -> Result<(), LinkError> {
+        let Ok(mut sender) = self.sender.try_lock() else { return Ok(()) };
+        let Some(sender) = sender.as_mut() else { return Err(LinkError::Closed) };
+        match tokio::time::timeout(
+            self.keepalive.ping_interval,
+            sender.send(AxumMessage::Ping(Bytes::new())),
+        )
+        .await
+        {
+            Ok(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
+            Err(_) => Ok(()),
+        }
+    }
+
+    fn dead_peer_error(&self) -> LinkError {
+        LinkError::Transport(format!(
+            "WebSocket peer sent nothing for {:?}",
+            self.keepalive.dead_peer_timeout
+        ))
     }
 }
 
@@ -205,17 +256,52 @@ impl FrameLink for AxumWebSocketLink {
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         ensure_size(frame.len(), self.maximum)?;
-        self.sender
-            .lock()
-            .await
-            .send(AxumMessage::Binary(frame))
-            .await
-            .map_err(|error| LinkError::Transport(error.to_string()))
+        let mut dead = self.dead.subscribe();
+        let mut sender = self.sender.lock().await;
+        let Some(sink) = sender.as_mut() else { return Err(LinkError::Closed) };
+        let sent = tokio::select! {
+            biased;
+            _ = dead.wait_for(|dead| *dead) => None,
+            result = sink.send(AxumMessage::Binary(frame)) => Some(result),
+        };
+        // The dead-peer path could not take this half while the send held
+        // it; drop it here so the socket closes now.
+        if *self.dead.borrow() {
+            sender.take();
+            return Err(self.dead_peer_error());
+        }
+        match sent {
+            Some(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
+            None => Err(self.dead_peer_error()),
+        }
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        let mut receiver = self.receiver.lock().await;
+        let Some(stream) = receiver.as_mut() else { return Ok(None) };
+        // Silence counts only while this call waits: a caller that stops
+        // reading (ingress backpressure) is not a dead peer.
+        let mut idle_since = tokio::time::Instant::now();
         loop {
-            match self.receiver.lock().await.next().await {
+            let next = match tokio::time::timeout(self.keepalive.ping_interval, stream.next()).await
+            {
+                Ok(next) => next,
+                Err(_) => {
+                    if idle_since.elapsed() >= self.keepalive.dead_peer_timeout {
+                        self.dead.send_replace(true);
+                        receiver.take();
+                        if let Ok(mut sender) = self.sender.try_lock() {
+                            sender.take();
+                        }
+                        return Err(self.dead_peer_error());
+                    }
+                    self.ping().await?;
+                    continue;
+                }
+            };
+            // Any frame, a Pong included, is liveness.
+            idle_since = tokio::time::Instant::now();
+            match next {
                 Some(Ok(AxumMessage::Binary(frame))) => {
                     ensure_size(frame.len(), self.maximum)?;
                     return Ok(Some(frame));
@@ -232,13 +318,32 @@ impl FrameLink for AxumWebSocketLink {
         }
     }
 
+    /// Send a Close frame (bounded by one ping interval: the peer may be
+    /// gone), then drop both halves so the socket closes now rather than
+    /// whenever the link itself is dropped.
     async fn close(&self) -> Result<(), LinkError> {
-        self.sender
-            .lock()
-            .await
-            .close()
-            .await
-            .map_err(|error| LinkError::Transport(error.to_string()))
+        let mut dead = self.dead.subscribe();
+        let mut sender = self.sender.lock().await;
+        let result = match sender.as_mut() {
+            Some(sink) => tokio::select! {
+                biased;
+                _ = dead.wait_for(|dead| *dead) => Ok(()),
+                closed = tokio::time::timeout(self.keepalive.ping_interval, sink.close()) => {
+                    match closed {
+                        Ok(result) => {
+                            result.map_err(|error| LinkError::Transport(error.to_string()))
+                        }
+                        Err(_) => Ok(()),
+                    }
+                }
+            },
+            None => Ok(()),
+        };
+        sender.take();
+        if let Ok(mut receiver) = self.receiver.try_lock() {
+            receiver.take();
+        }
+        result
     }
 }
 

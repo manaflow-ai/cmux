@@ -670,7 +670,7 @@ fn run_upgrade(rest: &[OsString]) -> Result<i32, Error> {
     const PRICING_URL: &str = "https://cmux.com/pricing";
     println!("Upgrade cmux Pro or Team:\n  {PRICING_URL}");
     if !no_browser && std::env::var_os("CODEROUTER_NO_BROWSER").is_none() {
-        let _ = webbrowser::open(PRICING_URL);
+        crate::browser::open(PRICING_URL);
     }
     Ok(0)
 }

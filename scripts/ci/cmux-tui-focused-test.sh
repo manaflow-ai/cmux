@@ -43,4 +43,4 @@ if [[ ! -s "$normal_names" ]]; then
   echo "::error::test_filter '$filter' selected no Rust tests" >&2
   exit 1
 fi
-cargo test --workspace --locked "$filter" -- "$@"
+cargo test --workspace --locked --no-fail-fast "$filter" -- "$@"

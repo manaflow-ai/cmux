@@ -12,10 +12,13 @@
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
+use cmux_json::JsonSet as _;
+
 mod checkpoint;
 mod commit;
 mod commit_args;
 mod diff;
+mod diff_pages;
 mod files;
 mod journal;
 mod list;
@@ -151,19 +154,19 @@ fn status(repository: &Repository) -> Result<Value, ResourceError> {
         "behind":clamp(headers.behind),
     });
     if let Some(branch) = headers.branch {
-        value["branch"] = json!(branch);
+        value.set("branch", json!(branch));
     }
     if let Some(head) = headers.head {
-        value["head"] = json!(head);
+        value.set("head", json!(head));
     }
     if let Some(upstream) = headers.upstream {
-        value["upstream"] = json!(upstream);
+        value.set("upstream", json!(upstream));
     }
     if let Some((_, base)) = repository.base_branch() {
-        value["base"] = json!(base);
+        value.set("base", json!(base));
     }
     if let Some(main) = repository.main_checkout() {
-        value["worktree"] = json!({"main_root": main.to_string_lossy()});
+        value.set("worktree", json!({"main_root": main.to_string_lossy()}));
     }
     Ok(value)
 }
@@ -191,7 +194,7 @@ fn branches(
         "suggested_bases":suggested,
     });
     if let Some(current) = listing.current {
-        value["current"] = json!(current);
+        value.set("current", json!(current));
     }
     Ok(value)
 }
@@ -205,20 +208,20 @@ fn branch_json(branch: &refs::BranchRef) -> Value {
         "current":branch.current,
     });
     if let Some(upstream) = &branch.upstream {
-        value["upstream"] = json!(upstream);
+        value.set("upstream", json!(upstream));
     }
     if branch.upstream_gone {
-        value["upstream_gone"] = json!(true);
+        value.set("upstream_gone", json!(true));
     }
     if let Some(ahead) = branch.ahead {
-        value["ahead"] = json!(ahead);
+        value.set("ahead", json!(ahead));
     }
     if let Some(behind) = branch.behind {
-        value["behind"] = json!(behind);
+        value.set("behind", json!(behind));
     }
     if let Some(committed_at) = branch.committed_at.and_then(|seconds| u32::try_from(seconds).ok())
     {
-        value["committed_at"] = json!(committed_at);
+        value.set("committed_at", json!(committed_at));
     }
     value
 }

@@ -64,6 +64,7 @@ The old app and cmux-next both ship a CLI named `cmux` in `Contents/Resources/bi
 
 - Old-app terminal: the old app's shell integration puts its own bin first after the rc files, so `cmux` is the Swift CLI and `CMUX_SOCKET_PATH` is the old app's socket.
 - cmux-next terminal: the terminal env puts cmux-next's own `Contents/Resources/bin` first and sets `CMUX_BUNDLED_CLI_PATH` to its `cmux` (`GhosttyShellIntegration.apply`), and `CMUX_SOCKET_PATH` is cmux-next's socket. Before 2026-10-06 the bin dir was appended, so a cmux-next launched from an old-app terminal inherited a PATH where the Swift CLI won and every old verb failed with `Unknown method workspace.create`. An rc file that prepends another dir holding a `cmux` (a dev shim, `/usr/local/bin`) still wins; shims that honor `CMUX_BUNDLED_CLI_PATH` exec the right CLI.
+- Agent shells (2026-10-20): an agent chat's agent gets the bundled bin dir first (acpmux `agent_path`), but Codex and Claude Code run each command in a fresh `zsh -lc`, which reads `.zprofile` again (on the dogfood Mac it put a PyPI `cmux` 0.13.4 from `~/.local/bin` first, and Codex lost the app's verbs). acpmux therefore starts every agent with `ZDOTDIR=<Resources>/cmux-cli-path/zsh-agent` and the user's ZDOTDIR in `CMUX_CLI_AGENT_ZDOTDIR` (`login_env::agent_shell_env`); the layer runs the user's startup files from the user's ZDOTDIR and moves the bundled bin dir back to the front after each, then restores the user's ZDOTDIR (test: `scripts/cmux-next/tests/cli-path-agent-shell.test.sh`). zsh only: an agent whose shell is bash or fish still gets the login PATH order. `cmux agents doctor` row `cli.shadow` names any non-app `cmux` on PATH older than the CLI (with the uninstall command). No PyPI shim was published: the PyPI `cmux` is cmux-tui's release, whose PyPI step is off in the nightly and needs the release workflow's publishing credentials.
 - Plain shell (Terminal.app, ssh): the first `cmux` on PATH. Install cmux CLI in PATH (`cmux settings install-cli-in-path`) links `/usr/local/bin/cmux` to the running app's CLI. When that path is another app's CLI (a link into another bundle) or a file, it refuses: the app asks Replace, Install as cmux-next, or Cancel, and the CLI action takes `--replace` or `--cmux_next`. `/usr/local/bin/cmux-next` never shadows the old app's `cmux`. Reinstalling over this app's own link is silent.
 
 Shared release identity (decision kept, 2026-10-06): a cmux-next release build and the old app's release build both use bundle id `com.cmuxterm.app` and the control socket `~/.local/state/cmux/cmux.sock`, so only one of them can run as the release app at a time. Debug, tagged and channel builds use their own sockets (`ControlSocketPath`).
@@ -181,12 +182,38 @@ On `feat-cmux-next-browser-input` (browser group 4):
   events, which needs engine input support (not done; temporary until browser step e routes
   `press` to the host's `input.key`). `select` with words is this verb; bare `select` is the
   tab verb. Selector actions do not retry for an element that has not appeared yet.
+- `browser.page.mouse {kind: down|up|move|click, x, y, button?, click_count?, modifiers?}`,
+  `browser.page.wheel {x, y, dx?, dy?, modifiers?}`, `browser.page.insert_text {text}` and
+  `browser.page.key {key, kind?: down|up|press, modifiers?}`: raw input at a viewport point
+  (CSS px) or on the focused element, as native input: trusted events (`isTrusted`) with the
+  browser's default actions (Tab moves focus, a held button drags, a wheel scrolls), which real
+  sites check for. A WebKit page gets AppKit events to its web view (`WebKitNativeInput`, the
+  browser host driver's path); a Chromium page gets DevTools `Input.dispatchMouseEvent`,
+  `Input.dispatchKeyEvent` and `Input.insertText` (`BrowserNativeInputs`). Neither moves the
+  person's pointer or keyboard focus. The answer's `native` says which ran: with no engine view (a
+  WebKit page in no window, a Chromium page with no browser, AppKit's back and forward buttons,
+  and for a wheel a WebKit window on no screen, where WebKit would hold a native wheel; an
+  occluded window on a screen gets the native wheel; decided before sending, so it scrolls once)
+  the input runs as page events instead (untrusted, no default actions): a mouse down focuses
+  what it hits, a right down sends `contextmenu`, an up after a down of the same button clicks, a
+  wheel the page does not cancel scrolls the box under the point, and a printable key press
+  types its character. Text needs an editable focus either way (`not_editable`). Daemon
+  `browser.input.mouse|wheel|text|key` on a page the app draws (WebKit or CEF) run as these: the
+  daemon answers `browser_rendered_by_app` and the CLI and MCP route the verb
+  (`cli/app_browser_route.rs`).
+  `pointer_frame_seq` names a daemon frame and is not read there.
 
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 
 - `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
   app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
   `mcp.enabled`.
+
+The curated CLI also offers `cmux machine list --json` and
+`cmux machine <selector> show --json` for the connected owner's machine catalog.
+Remote entries are read-only metadata from existing admitted app routes. These
+commands do not enroll, dial, open sessions or execute work; the full
+`cmux-tui machine ... session ...` plumbing remains outside the curated CLI.
 
 ## Numeric refs replacement
 

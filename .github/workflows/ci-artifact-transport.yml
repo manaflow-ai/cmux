@@ -11,6 +11,7 @@ on:
       - scripts/ci/parallel_artifact_download.py
       - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
+      - docs/ci/node-product-cache-maintenance.md
       - scripts/ci/peer_product_source.py
       - scripts/ci/restore-app-host-test-product.sh
       - scripts/ci/relocate_package_framework_rpaths.py
@@ -33,6 +34,7 @@ on:
       - scripts/ci/parallel_artifact_download.py
       - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
+      - docs/ci/node-product-cache-maintenance.md
       - scripts/ci/peer_product_source.py
       - scripts/ci/restore-app-host-test-product.sh
       - scripts/ci/relocate_package_framework_rpaths.py

@@ -24,6 +24,24 @@ public final class CmuxToastCenter {
     private var entries: [Int: Entry] = [:]
     private var stacks: [ObjectIdentifier: CmuxToastStack] = [:]
     private var nextSerial = 1
+    /// Notices the person closed, quiet until their timer ends.
+    private var quieted: [QuietKey: DemandTimer] = [:]
+    /// How long a notice the person closed stays quiet: the same message
+    /// (same id and detail, no action) asked for again in that time does not show.
+    /// A toast with an action (Undo, Reopen, Retry) is never quieted.
+    public var closedCooldown: Duration = .seconds(120)
+
+    /// A notice by what it says: its id, message and detail.
+    private struct QuietKey: Hashable {
+        let id: String
+        let message: String
+        let detail: String?
+        init(_ toast: CmuxToast) {
+            id = toast.id
+            message = toast.message
+            detail = toast.detail
+        }
+    }
 
     public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastOverlayHost()) {
         self.clock = clock
@@ -37,9 +55,14 @@ public final class CmuxToastCenter {
         let serial = nextSerial
         nextSerial += 1
         let handle = CmuxToastHandle(serial: serial, toast: toast, center: self)
+        // The person closed this notice a moment ago: it does not come back yet.
+        if isQuieted(toast) {
+            handle.finish(.closed)
+            return handle
+        }
         let view = CmuxToastView(toast: toast)
         view.onAction = { [weak handle] in handle?.runAction() }
-        view.onClose = { [weak self] in self?.end(serial, .closed) }
+        view.onClose = { [weak self] in self?.closedByPerson(serial) }
         view.onHover = { [weak self, weak handle] hovered in
             guard let handle else { return }
             self?.setHovered(hovered, handle)
@@ -47,6 +70,8 @@ public final class CmuxToastCenter {
         let key = ObjectIdentifier(window)
         var stack = stacks[key] ?? CmuxToastStack()
         let newest = stack.serials.last
+        // The same toast again while it shows (a repeated refusal): it stays in place and is not announced again.
+        let repeats = newest.flatMap { entries[$0]?.handle.toast } == toast
         let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true)
         stacks[key] = stack
         entries[serial] = Entry(handle: handle, view: view, window: window, timer: DemandTimer(owner: "toast", clock: clock))
@@ -66,9 +91,11 @@ public final class CmuxToastCenter {
         startTimer(serial)
         // A toast that appears under a still pointer holds at once.
         if view.isHovered { setHovered(true, handle) }
-        NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
-            .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
-        ])
+        if !repeats {
+            NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
+                .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        }
         return handle
     }
 
@@ -83,7 +110,10 @@ public final class CmuxToastCenter {
     /// focused responder has nothing to undo (a text field, terminal, editor
     /// or page with its own undo keeps the key).
     public func takesUndoKey(in window: NSWindow) -> Bool {
-        stacks[ObjectIdentifier(window)]?.newestUndo != nil && !Self.responderCanUndo(window.firstResponder)
+        guard let serial = stacks[ObjectIdentifier(window)]?.newestUndo else { return false }
+        let responder = window.firstResponder
+        // The toast's own step on top of the responder's undo stack does not take the key from it.
+        return !Self.responderCanUndo(responder) || entries[serial]?.handle.ownsUndoTop?(responder?.undoManager) == true
     }
 
     /// Runs the newest undo toast's action in `window`; false when none shows.
@@ -105,6 +135,16 @@ public final class CmuxToastCenter {
         return true
     }
 
+    /// Closes the newest toast with `id` in `window`, as its close button
+    /// does; false when none shows.
+    @discardableResult
+    public func close(id: String, in window: NSWindow) -> Bool {
+        let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
+        guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }) else { return false }
+        closedByPerson(serial)
+        return true
+    }
+
     /// The responder chain from `responder` has an undo manager that can undo.
     public static func responderCanUndo(_ responder: NSResponder?) -> Bool {
         responder?.undoManager?.canUndo == true
@@ -120,6 +160,27 @@ public final class CmuxToastCenter {
         } else if entries[handle.serial]?.timer.isScheduled == false {
             startTimer(handle.serial)
         }
+    }
+
+    // MARK: Quiet after close
+
+    /// Whether `toast` is a notice the person closed less than
+    /// ``closedCooldown`` ago (same id, message and detail, no action).
+    public func isQuieted(_ toast: CmuxToast) -> Bool {
+        toast.action == nil && quieted[QuietKey(toast)] != nil
+    }
+
+    /// The close button: the toast ends, and a notice without an action
+    /// stays quiet for ``closedCooldown``.
+    func closedByPerson(_ serial: Int) {
+        if let toast = entries[serial]?.handle.toast, toast.action == nil, closedCooldown > .zero {
+            let quiet = QuietKey(toast)
+            quieted[quiet]?.cancel()
+            let timer = DemandTimer(owner: "toast.quiet", clock: clock)
+            quieted[quiet] = timer
+            timer.schedule(after: closedCooldown) { @MainActor [weak self] in self?.quieted[quiet] = nil }
+        }
+        end(serial, .closed)
     }
 
     // MARK: Ending
@@ -143,8 +204,12 @@ public final class CmuxToastCenter {
 
     private func relayout(_ key: ObjectIdentifier) {
         let serials = stacks[key]?.serials ?? []
+        let newestUndo = stacks[key]?.newestUndo
         for (index, serial) in serials.reversed().enumerated() {
-            if let view = entries[serial]?.view { host.move(view, to: index) }
+            guard let view = entries[serial]?.view else { continue }
+            host.move(view, to: index)
+            // Cmd-Z runs the newest undo toast only: only its Undo shows the key.
+            view.showsUndoKey = serial == newestUndo
         }
         // The toasts moved under a possibly still pointer: a hovered toast
         // that moved away loses its hold and its timer starts again (cx-3wu5).
@@ -153,7 +218,7 @@ public final class CmuxToastCenter {
     }
 
     private func startTimer(_ serial: Int) {
-        guard let entry = entries[serial] else { return }
+        guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
         entry.timer.schedule(after: entry.handle.toast.duration) { @MainActor [weak self] in
             self?.end(serial, .timeout)
         }
@@ -167,6 +232,10 @@ public final class CmuxToastHandle {
     public let toast: CmuxToast
     public var onAction: (() -> Void)?
     public var onDismiss: ((CmuxToastDismissReason) -> Void)?
+    /// Whether this toast's step is the top of the given undo stack (an undo
+    /// toast that also put its step on the window's undo stack): Cmd-Z then
+    /// stays the toast's while it shows.
+    public var ownsUndoTop: ((UndoManager?) -> Bool)?
     public private(set) var isDismissed = false
     let serial: Int
     private weak var center: CmuxToastCenter?

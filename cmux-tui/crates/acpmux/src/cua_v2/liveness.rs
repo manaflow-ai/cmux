@@ -76,9 +76,10 @@ pub fn check(owner: Option<Owner>, socket: &Path) -> Result<(), Stale> {
     }
 }
 
-/// The start time of `pid` as the app records it, on macOS.
+/// The start time of `pid` as the app records it, on macOS (also the
+/// Claude Code registry check, `adopt_live`).
 #[cfg(target_os = "macos")]
-fn start_time(pid: i32) -> Option<(u64, u64)> {
+pub(crate) fn start_time(pid: i32) -> Option<(u64, u64)> {
     // SAFETY: proc_bsdinfo is plain C data; all zero bytes is a valid value.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;

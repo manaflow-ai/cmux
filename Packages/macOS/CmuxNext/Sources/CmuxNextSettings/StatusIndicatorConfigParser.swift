@@ -10,6 +10,7 @@ enum StatusIndicatorConfigParser {
         var settings = StatusIndicatorSettings()
         guard var reader = ConfigFieldReader(root, at: path, diagnostics: &diagnostics) else { return settings }
         if let value = reader.choice("style", StatusIndicatorStyle.self) { settings.style = value }
+        if let value = reader.choice("animation", StatusIndicatorAnimation.self) { settings.animation = value }
         if let value = reader.number("size", range: Double(StatusIndicatorSettings.scaleRange.lowerBound)...Double(StatusIndicatorSettings.scaleRange.upperBound)) {
             settings.scale = CGFloat(value)
         }

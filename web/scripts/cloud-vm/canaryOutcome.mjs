@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 /**
  * Classifies the response captured by the Cloud VM edge canary.
  *
@@ -60,4 +62,33 @@ export function edgeCanaryProblems({
     problems.push(`claude turn through the edge did not answer: ${claudeTail ?? ""}`);
   }
   return problems;
+}
+
+/**
+ * Retry an idempotent guest edge probe only when curl could not resolve its
+ * expected alias. Provider/API errors and HTTP refusals remain single attempts.
+ * The attempt cap and the caller's signal bound retries; cancellation also
+ * interrupts the delay and is forwarded to the active guest request.
+ * @param {(signal?: AbortSignal) => Promise<{ stdout?: string, stderr?: string, exitCode?: number }>} run
+ * @param {string} host
+ * @param {{ attempts?: number, delayMs?: number, signal?: AbortSignal }} [options]
+ * @returns {Promise<{ stdout?: string, stderr?: string, exitCode?: number }>}
+ */
+export async function retryGuestEdgeRequest(
+  run,
+  host,
+  { attempts = 4, delayMs = 1_000, signal } = {},
+) {
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new RangeError("guest edge retry attempts must be positive");
+  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    signal?.throwIfAborted();
+    const result = await run(signal);
+    const resolverMiss = typeof host === "string" && host !== "" &&
+      [result?.stdout, result?.stderr].some((output) => typeof output === "string" &&
+        output.split(/\r?\n/).some((line) => line.trim() === `curl: (6) Could not resolve host: ${host}`));
+    if (!resolverMiss || attempt + 1 === attempts) return result;
+    if (delayMs > 0) await sleep(delayMs, undefined, { signal });
+  }
 }

@@ -2,6 +2,7 @@
 //! palette, and the opted-in `overrides`), shared by attach, render and
 //! snapshot replies.
 
+use crate::panic_free::JsonFields;
 use serde_json::{Value, json};
 
 use crate::{Rgb, TerminalColors};
@@ -37,11 +38,14 @@ pub(crate) fn terminal_colors_json(colors: TerminalColors, include_overrides: bo
     // Older generated SDKs reject unknown fields. Only viewers that opted in
     // before attaching receive the additional provenance object.
     if include_overrides {
-        value["overrides"] = json!({
-            "fg": color_hex(colors.fg_override),
-            "bg": color_hex(colors.bg_override),
-            "cursor": color_hex(colors.cursor_override),
-        });
+        value.insert(
+            "overrides",
+            json!({
+                "fg": color_hex(colors.fg_override),
+                "bg": color_hex(colors.bg_override),
+                "cursor": color_hex(colors.cursor_override),
+            }),
+        );
     }
     value
 }

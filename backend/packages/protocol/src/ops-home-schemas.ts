@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Home messaging wire schemas (plans/cmux-next/home-messaging.md sections 2 and 4), matching
@@ -8,22 +9,22 @@ import { Schema } from "effect"
  */
 
 const CROCKFORD26 = "[0-9A-HJKMNP-TV-Z]{26}"
-export const ConversationId = Schema.String.check(Schema.isPattern(new RegExp(`^conv_(dm_)?${CROCKFORD26}$`))).annotate({
+export const ConversationId = Schema.String.check(isPattern(new RegExp(`^conv_(dm_)?${CROCKFORD26}$`))).annotate({
   identifier: "ConversationId",
   description: "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
 })
 /** Engine-minted (`msg_` + 20 hex) or ULID-style (`msg_<26>`, local conversations). */
-export const MessageId = Schema.String.check(Schema.isPattern(/^msg_[0-9A-Za-z]{1,64}$/)).annotate({ identifier: "MessageId" })
-export const InviteId = Schema.String.check(Schema.isPattern(new RegExp(`^inv_${CROCKFORD26}$`))).annotate({ identifier: "InviteId" })
-export const AddressId = Schema.String.check(Schema.isPattern(new RegExp(`^addr_${CROCKFORD26}$`))).annotate({
+export const MessageId = Schema.String.check(isPattern(/^msg_[0-9A-Za-z]{1,64}$/)).annotate({ identifier: "MessageId" })
+export const InviteId = Schema.String.check(isPattern(new RegExp(`^inv_${CROCKFORD26}$`))).annotate({ identifier: "InviteId" })
+export const AddressId = Schema.String.check(isPattern(new RegExp(`^addr_${CROCKFORD26}$`))).annotate({
   identifier: "AddressId",
   description: "HMAC id of a normalized email or phone; never the raw address."
 })
-export const ParticipantId = Schema.String.check(Schema.isPattern(new RegExp(`^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_${CROCKFORD26})$`))).annotate({
+export const ParticipantId = Schema.String.check(isPattern(new RegExp(`^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_${CROCKFORD26})$`))).annotate({
   identifier: "ParticipantId",
   description: "user_<id>, agent_<name> or addr_<26> (an invited address)."
 })
-export const ClientToken = Schema.String.check(Schema.isPattern(/^[\x21-\x7e]{1,128}$/)).annotate({
+export const ClientToken = Schema.String.check(isPattern(/^[\x21-\x7e]{1,128}$/)).annotate({
   identifier: "ClientToken",
   description: "1 to 128 printable ASCII characters (idempotency key, client_msg_id)."
 })
@@ -34,6 +35,11 @@ export const PartIndex = Schema.Number.check(Schema.isInt(), Schema.isGreaterTha
 
 export const ConversationKind = Schema.Literals(["chief", "dm", "group"]).annotate({ identifier: "ConversationKind" })
 
+/** Group roles (home-core conversation/roles.ts): one owner; admins manage people; read_only members only read. */
+export const ParticipantRole = Schema.Literals(["owner", "admin", "member", "read_only"]).annotate({ identifier: "HomeParticipantRole" })
+/** A role an op may grant (never owner: that is ownership.transfer). */
+export const GrantableRole = Schema.Literals(["admin", "member", "read_only"]).annotate({ identifier: "HomeGrantableRole" })
+
 export const Participant = Schema.Struct({
   id: ParticipantId,
   kind: Schema.Literals(["human", "agent", "address"]),
@@ -41,7 +47,7 @@ export const Participant = Schema.Struct({
   agent_class: Schema.optionalKey(Schema.Literals(["mux", "agent"])),
   acp_session: Schema.optionalKey(Schema.String),
   owner_user: Schema.optionalKey(Schema.String),
-  role: Schema.optionalKey(Schema.Literals(["owner", "member"])),
+  role: Schema.optionalKey(ParticipantRole),
   joined_seq: Schema.optionalKey(Seq),
   added_by: Schema.optionalKey(Schema.String),
   left_at: Schema.optionalKey(Timestamp)
@@ -63,7 +69,7 @@ export const TextRun = Schema.Struct({
   link: Schema.optionalKey(Schema.String)
 }).annotate({ identifier: "HomeTextRun", description: "A styled range of a text part, in UTF-16 code units." })
 
-const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
+const Sha256 = Schema.String.check(isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
 
 /**
  * The owners count a link preview's title and site in code points and its URL in UTF-8 bytes
@@ -222,7 +228,8 @@ export const ConversationSummary = Schema.Struct({
   state: Schema.optionalKey(Schema.Literals(["active", "archived"])),
   settings: Schema.optionalKey(ConversationSettings),
   invites: Schema.optionalKey(Schema.Array(PublicInvite)),
-  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30)))
+  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30))),
+  member_count: Schema.optionalKey(Seq.annotate({ description: "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them." }))
 }).annotate({ identifier: "HomeConversationSummary" })
 
 /** The owner's answer to a conversation mutation (home-core domain `value`). */
@@ -248,6 +255,8 @@ export const InboxEntry = Schema.Struct({
   ),
   dm_peer: Schema.optionalKey(ParticipantId),
   removed: Schema.Boolean,
+  large: Schema.optionalKey(Schema.Boolean.annotate({ description: "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)." })),
+  member_count: Schema.optionalKey(Seq),
   unread: Seq,
   mentions: Seq,
   counts_rev: Seq,

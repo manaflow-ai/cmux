@@ -1,6 +1,7 @@
 import { Exit, Schema } from "effect"
 import { checkSubsetSchema, checkSubsetValue, type SubsetResult } from "./feed-schema-subset.ts"
 import { OpRisk } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * The feed kind registry (plans/cmux-next/feed.md 3.4): each built-in kind has
@@ -21,7 +22,7 @@ export const FeedAttachment = Schema.Struct({
   name: NonEmpty(200),
   mime: NonEmpty(100),
   size: Int(0, MAX_FILE_BYTES),
-  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+  sha256: Schema.String.check(isPattern(/^[a-f0-9]{64}$/)),
   /** Where the bytes are: an R2 key (cloud) or a local store key; never a URL with credentials. */
   ref: NonEmpty(512)
 }).annotate({ identifier: "FeedAttachment", description: "A file attached to a feed item or an answer." })

@@ -122,7 +122,28 @@ pub fn mint(prefix: &str) -> String {
     }
     time.reverse();
     let mut random = [0u8; 8];
-    let _ = getrandom::fill(&mut random);
+    if getrandom::fill(&mut random).is_err() {
+        // Never all zeros: two mints in one millisecond would derive the
+        // same task id. A per-process counter, the pid and the clock's
+        // nanoseconds keep each mint distinct.
+        random = fallback_random();
+    }
     let tail: String = random.iter().map(|b| ALPHABET[usize::from(*b) % 36] as char).collect();
     format!("{prefix}{}{tail}", String::from_utf8_lossy(&time))
+}
+
+/// Eight bytes unique per call in this process (and, through the pid and
+/// the clock, across processes), for when the OS random source fails.
+fn fallback_random() -> [u8; 8] {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos() as u64);
+    // splitmix64 of the three, so neighbors differ in every digit.
+    let mut x =
+        n.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ (u64::from(std::process::id()) << 32) ^ nanos;
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    (x ^ (x >> 31)).to_le_bytes()
 }

@@ -1,0 +1,24 @@
+# Soft Blue Light: white surfaces, soft grey chrome and a blue accent. A cmux theme (dark pair: Soft Blue).
+# cmux-accent = #3666f0
+palette = 0=#1d1d1d
+palette = 1=#c8372d
+palette = 2=#1f8a4c
+palette = 3=#9a6400
+palette = 4=#2c67c5
+palette = 5=#8a4fd6
+palette = 6=#16808f
+palette = 7=#6e6e6e
+palette = 8=#5a5a5a
+palette = 9=#de4a3f
+palette = 10=#2a9d5c
+palette = 11=#ad7500
+palette = 12=#3f7ad6
+palette = 13=#9b62e0
+palette = 14=#1f95a6
+palette = 15=#8c8c8c
+background = #ffffff
+foreground = #1d1d1d
+cursor-color = #1d1d1d
+cursor-text = #ffffff
+selection-background = #d6e2f6
+selection-foreground = #1d1d1d

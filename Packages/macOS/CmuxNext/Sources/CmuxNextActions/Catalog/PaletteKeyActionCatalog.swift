@@ -17,7 +17,7 @@ nonisolated enum PaletteKeyActionCatalog: ActionCatalogGroup {
         ("paletteKey.submitAlternate", "action.paletteKey.submitAlternate", "Palette: Run Item's Other Command", "return"),
         ("paletteKey.openActions", "action.paletteKey.openActions", "Palette: Show Actions", "list.bullet"),
         ("paletteKey.closeActions", "action.paletteKey.closeActions", "Palette: Hide Actions", "list.bullet"),
-        ("paletteKey.toggleActions", "action.paletteKey.toggleActions", "Palette: Show or Hide Actions", "list.bullet"),
+        ("paletteKey.toggleActions", "action.paletteKey.toggleActions", "Palette: Show/Hide Actions", "list.bullet"),
         ("paletteKey.escape", "action.paletteKey.escape", "Palette: Clear or Close", "escape"),
         ("paletteKey.enterRow", "action.paletteKey.enterRow", "Palette: Open Item", "chevron.right"),
         ("paletteKey.leaveLevel", "action.paletteKey.leaveLevel", "Palette: Up One Level", "chevron.left"),

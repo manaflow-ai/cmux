@@ -37,6 +37,14 @@ test("pager matching removes locale and nightly prefixes", () => {
   );
 });
 
+test("nightly-only pages keep their own path for sidebar and pager matching", () => {
+  // The nightly zone serves /docs/next/spaces; the nav must mark that page, not
+  // the release fallback (Getting Started).
+  expect(docsNavPath("/docs/next/spaces", "en")).toBe("/docs/next/spaces");
+  expect(docsNavPath("/en/docs/nightly/next", "en")).toBe("/docs/next");
+  expect(docsNavPath("/docs/base", "en")).toBe("/docs/base");
+});
+
 test("Base appears only in nightly documentation navigation", () => {
   const releasePaths = flatNavItems(navItemsForLocale("en", "release")).map(
     (item) => item.href,

@@ -2,6 +2,11 @@
 //! cmux.json `agents.chats.enabled`, `.discovery`, `.roots` and the roots
 //! managed config adds. Every store is a synthetic fixture in a temp home.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::{ChatService, ChatSources};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

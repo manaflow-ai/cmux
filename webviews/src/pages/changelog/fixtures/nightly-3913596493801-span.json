@@ -1,0 +1,1159 @@
+[
+  {
+    "build": "3913596493801",
+    "changes": ["cmux-next: a static status look, on under Reduce Motion (cx-sya4n) (#21659)"],
+    "date": "2026-10-18",
+    "head": "22637785a4f108001d714191dd56f63578d31a61",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21659,
+        "title": "cmux-next: a static status look, on under Reduce Motion (cx-sya4n)"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3913596493801",
+    "summary": [
+      {
+        "group": "changed",
+        "title": "A static status look, on under Reduce Motion"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-18",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "A static status look, on under Reduce Motion"
+          },
+          "title": {
+            "en": "A static status look, on under Reduce Motion"
+          }
+        }
+      ],
+      "headline": {
+        "en": "A static status look, on under Reduce Motion"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.3913596493801"
+    }
+  },
+  {
+    "build": "3913526554901",
+    "changes": [
+      "fix(ci): send light-lane GUI suites to the std GUI runners, not Blacksmith (#21658)",
+      "perf-gate: a tab switch is timed in the app (debug.tab_switch: intent to shown, to the next frame) and must show on the next frame; the socket reply, which waits for the daemon's confirm, is reported only (cx-8w027.21)"
+    ],
+    "date": "2026-10-18",
+    "head": "e11d7606ec7645d6dbe66a85c523a533f1f4e8d0",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21658,
+        "title": "fix(ci): send light-lane GUI suites to the std GUI runners, not Blacksmith"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf-gate: a tab switch is timed in the app (debug.tab_switch: intent to shown, to the next frame) and must show on the next frame; the socket reply, which waits for the daemon's confirm, is reported only (cx-8w027.21)"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3913526554901",
+    "summary": [],
+    "version": 1
+  },
+  {
+    "build": "3913514606901",
+    "changes": [
+      "fix(cmux-next): restore composer row rhythm and open-chip wash (#21645)",
+      "ci(cmux-next): run the split guard's classifier from the base (#21646)",
+      "cmux NEXT perf-split: split budget lands in a follow-up push (perf-gate.py reserved by perf-fanout) (cx-8w027.14)",
+      "cmux NEXT: an agent page that never paints drops its loading spinner after 8 s (cx-txnr) (#21640)",
+      "cmux NEXT perf-split: TabModel.focusSurface; expectations by tab id inline (CmuxNextApp size cap) (cx-8w027.14)",
+      "cx-6so.49: respawn a terminal whose host ended at the orphan grace (#20211)",
+      "cmux NEXT: Retry Now and Restart cmux-tui on the not-connected screens (cx-jniyz.1) (#20765)",
+      "perf-gate: relaunch waits for the restore to end (every terminal of the grid live, tab lists and counters still for 3 reads) before it measures (cx-8w027.20)",
+      "perf-gate: relaunch checks the grid's New Tab pages came back and lets the restore settle before it measures (cx-8w027.20, review)",
+      "cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot (cx-8w027.20)",
+      "perf-gate: a relaunch scenario: tabs and split again in the grid the app restored on the same tag (cx-8w027.20)",
+      "cmux NEXT perf-split: review: name which tabs a surface expectation finds; the optimistic split keeps its view (cx-8w027.14)",
+      "cmux NEXT perf-split: a tab the window minted is named by its id; the daemon's confirm sends no topology (split 2 topology per pair) (cx-8w027.14)"
+    ],
+    "date": "2026-10-18",
+    "head": "c25d784ff7cbe6cf5e705c9059c52466f88aa09b",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21645,
+        "title": "fix(cmux-next): restore composer row rhythm and open-chip wash"
+      },
+      {
+        "author": "Leo",
+        "pr": 21646,
+        "title": "ci(cmux-next): run the split guard's classifier from the base"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: split budget lands in a follow-up push (perf-gate.py reserved by perf-fanout) (cx-8w027.14)"
+      },
+      {
+        "author": "Leo",
+        "pr": 21640,
+        "title": "cmux NEXT: an agent page that never paints drops its loading spinner after 8 s (cx-txnr)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: TabModel.focusSurface; expectations by tab id inline (CmuxNextApp size cap) (cx-8w027.14)"
+      },
+      {
+        "author": "Leo",
+        "pr": 20211,
+        "title": "cx-6so.49: respawn a terminal whose host ended at the orphan grace"
+      },
+      {
+        "author": "Leo",
+        "pr": 20765,
+        "title": "cmux NEXT: Retry Now and Restart cmux-tui on the not-connected screens (cx-jniyz.1)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf-gate: relaunch waits for the restore to end (every terminal of the grid live, tab lists and counters still for 3 reads) before it measures (cx-8w027.20)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf-gate: relaunch checks the grid's New Tab pages came back and lets the restore settle before it measures (cx-8w027.20, review)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot (cx-8w027.20)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf-gate: a relaunch scenario: tabs and split again in the grid the app restored on the same tag (cx-8w027.20)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: review: name which tabs a surface expectation finds; the optimistic split keeps its view (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: a tab the window minted is named by its id; the daemon's confirm sends no topology (split 2 topology per pair) (cx-8w027.14)"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3913514606901",
+    "summary": [
+      {
+        "group": "fixed",
+        "title": "Restore composer row rhythm and open-chip wash"
+      },
+      {
+        "group": "changed",
+        "title": "An agent page that never paints drops its loading spinner after 8 s"
+      },
+      {
+        "group": "changed",
+        "title": "Respawn a terminal whose host ended at the orphan grace"
+      },
+      {
+        "group": "changed",
+        "title": "Retry Now and Restart cmux-tui on the not-connected screens"
+      },
+      {
+        "group": "changed",
+        "title": "Cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot"
+      },
+      {
+        "group": "changed",
+        "title": "Cmux NEXT perf-split: review: name which tabs a surface expectation finds; the…"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-18",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Restore composer row rhythm and open-chip wash"
+          },
+          "title": {
+            "en": "Restore composer row rhythm and open-chip wash"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-1",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "An agent page that never paints drops its loading spinner after 8 s"
+          },
+          "title": {
+            "en": "An agent page that never paints drops its loading spinner…"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-2",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Respawn a terminal whose host ended at the orphan grace"
+          },
+          "title": {
+            "en": "Respawn a terminal whose host ended at the orphan grace"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-4",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot"
+          },
+          "title": {
+            "en": "Cmux NEXT perf-fanout: a restored New Tab page reads no…"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-5",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Cmux NEXT perf-split: review: name which tabs a surface expectation finds; the…"
+          },
+          "title": {
+            "en": "Cmux NEXT perf-split: review: name which tabs a surface…"
+          }
+        }
+      ],
+      "headline": {
+        "en": "Restore composer row rhythm and open-chip wash"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.3913514606901"
+    }
+  },
+  {
+    "build": "3913267407001",
+    "changes": [
+      "cmux NEXT: a thought dates its first and latest chunk (#21630)",
+      "plan(next): workspace auto-naming that keeps up (hq#1957) (#21629)",
+      "CmuxNext: a tab dropped on a strip lands by the pointer (cx-6ggef) (#21626)",
+      "ci(gallery-link): post one PR receipt with commit, checks and app (#21636)",
+      "perf(cmux-next): PointerHover refresh reads one window's targets (cx-8w027.10 c)",
+      "cmux NEXT perf-palette: terminal colors blend with the window on a theme change (GhosttyNextKit e4831af81, cx-8w027.11)",
+      "cmux-next: prefetch review fixes (service asks beside the start, EINTR, mark slots for first_window, .object literals)",
+      "cmux-next: drop the early GPU channel feature (no measured effect on the first window's wait)",
+      "cmux-next: ask CoreLocation and LocalAuthentication off the main thread before Chromium does",
+      "cmux-next: establish Chromium's GPU channel early; time CefInitialize's own call and the ready hooks",
+      "os-smoke: print the deeper stack of each long stall of the cold first tab",
+      "cmux-next: read the Chromium framework into the file cache before CefInitialize",
+      "cmux-next: time Chromium's start steps (debug.cef start_steps); os-smoke prints the cold first tab's timeline"
+    ],
+    "date": "2026-10-18",
+    "head": "a4d3373f82a51588885e44016824b3866759df68",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21630,
+        "title": "cmux NEXT: a thought dates its first and latest chunk"
+      },
+      {
+        "author": "Leo",
+        "pr": 21629,
+        "title": "plan(next): workspace auto-naming that keeps up (hq#1957)"
+      },
+      {
+        "author": "Leo",
+        "pr": 21626,
+        "title": "CmuxNext: a tab dropped on a strip lands by the pointer (cx-6ggef)"
+      },
+      {
+        "author": "Leo",
+        "pr": 21636,
+        "title": "ci(gallery-link): post one PR receipt with commit, checks and app"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf(cmux-next): PointerHover refresh reads one window's targets (cx-8w027.10 c)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-palette: terminal colors blend with the window on a theme change (GhosttyNextKit e4831af81, cx-8w027.11)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: prefetch review fixes (service asks beside the start, EINTR, mark slots for first_window, .object literals)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: drop the early GPU channel feature (no measured effect on the first window's wait)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: ask CoreLocation and LocalAuthentication off the main thread before Chromium does"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: establish Chromium's GPU channel early; time CefInitialize's own call and the ready hooks"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "os-smoke: print the deeper stack of each long stall of the cold first tab"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: read the Chromium framework into the file cache before CefInitialize"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: time Chromium's start steps (debug.cef start_steps); os-smoke prints the cold first tab's timeline"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3913267407001",
+    "summary": [
+      {
+        "group": "changed",
+        "title": "A thought dates its first and latest chunk"
+      },
+      {
+        "group": "changed",
+        "title": "A tab dropped on a strip lands by the pointer"
+      },
+      {
+        "group": "changed",
+        "title": "Cmux NEXT perf-palette: terminal colors blend with the window on a theme change"
+      },
+      {
+        "group": "changed",
+        "title": "Drop the early GPU channel feature (no measured effect on the first window's wait)"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-18",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "A thought dates its first and latest chunk"
+          },
+          "title": {
+            "en": "A thought dates its first and latest chunk"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-1",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "A tab dropped on a strip lands by the pointer"
+          },
+          "title": {
+            "en": "A tab dropped on a strip lands by the pointer"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-2",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Cmux NEXT perf-palette: terminal colors blend with the window on a theme change"
+          },
+          "title": {
+            "en": "Cmux NEXT perf-palette: terminal colors blend with the…"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-3",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Drop the early GPU channel feature (no measured effect on the first window's wait)"
+          },
+          "title": {
+            "en": "Drop the early GPU channel feature (no measured effect on…"
+          }
+        }
+      ],
+      "headline": {
+        "en": "A thought dates its first and latest chunk"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.3913267407001"
+    }
+  },
+  {
+    "build": "3913107309201",
+    "changes": [
+      "fix(cmux-next): restore workspace title motion tunable (#21592)",
+      "perf-gate: a switch budget of 0 sidebar row configures and 0 band updates (cx-8w027.17)",
+      "sidebar: drop a stray fragment from the bandsDrawSelectionChange removal (cx-8w027.17)",
+      "sidebar: a top-item selection repaints the old and new item; no band update, no list reload (cx-8w027.17)",
+      "perf-gate: sidebar list reloads name their caller (debug.sidebar_perf list_reloads@file:line; the gate prints them per switch) (cx-8w027.17)",
+      "docs: add acpmux agent coordination skill (#21245)",
+      "docs(agent-chat): propose progressive transcript disclosure (#21171)",
+      "cmux-tui: workspace list in the cmux app lists the sidebar order (#20722)",
+      "test(cmux-next): CSI 996 reports dark for a plain theme in dark mode (#20043)",
+      "fix(cmux-next): avoid invisible divider occlusion holes (#21190)",
+      "fix(cmux-next): theme the tab overflow action accent (#21152)",
+      "fix(cmux-next): expose workspace selection to accessibility (#21126)",
+      "cmux NEXT perf-split: split snapshot budget stays 4 (the shell's titles vary); base-red skip for acpmux protocol_ir_is_current (cx-gz5dx) (cx-8w027.14)",
+      "cmux-next strip: a moving column keeps the larger traffic-light inset until it rests",
+      "cmux NEXT perf-split: budget comment names only proven causes (cx-8w027.14)",
+      "cmux NEXT perf-split: split+close budget 2 applies, 3 topology sends, 3 snapshots per pair (measured, cx-8w027.14)",
+      "motion-record strip: also scroll with the sidebar hidden, the strip under the traffic lights",
+      "Revert \"cmux-next strip: terminals in the keep-alive band keep drawing, so a column scrolled in is never blank\"",
+      "strip-scroll-check: camera from the prompt text overlap, the pills' consensus where no text is shared; text extent from a resting frame",
+      "cmux NEXT perf-split: snapshot sources name a new pane's first runs (cx-8w027.14)",
+      "cmux NEXT perf-split: list split-client-split-id-v1 for the same-tree identify check; spec names which layouts carry split_id (review, cx-8w027.14)",
+      "cmux NEXT perf-split: debug.layout_counters names the fields each pane snapshot re-run changed (cx-8w027.14)",
+      "strip-scroll-check: per-frame camera dx, pill rigidity, blank columns and motion start for a strip recording",
+      "cmux NEXT perf-split: WorkspaceBlueprint.capture matches the split's resourceID (cx-8w027.14)",
+      "cmux-next strip: terminals in the keep-alive band keep drawing, so a column scrolled in is never blank",
+      "cmux-next strip: a column's tab bar lays out for where its pane rests, never pinned to the traffic lights while the camera scrolls",
+      "cmux NEXT perf-split: the daemon names an optimistic split by its client-minted split_id; delete ScreenModel.splitNames (cx-8w027.14)",
+      "motion-record: strip surface, focus left/right across a scrolling strip of tabbed columns"
+    ],
+    "date": "2026-10-18",
+    "head": "c15ae68b2f7a1e2f7683c82b7c092f26e6bfc9f5",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21592,
+        "title": "fix(cmux-next): restore workspace title motion tunable"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf-gate: a switch budget of 0 sidebar row configures and 0 band updates (cx-8w027.17)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "sidebar: drop a stray fragment from the bandsDrawSelectionChange removal (cx-8w027.17)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "sidebar: a top-item selection repaints the old and new item; no band update, no list reload (cx-8w027.17)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "perf-gate: sidebar list reloads name their caller (debug.sidebar_perf list_reloads@file:line; the gate prints them per switch) (cx-8w027.17)"
+      },
+      {
+        "author": "Leo",
+        "pr": 21245,
+        "title": "docs: add acpmux agent coordination skill"
+      },
+      {
+        "author": "Leo",
+        "pr": 21171,
+        "title": "docs(agent-chat): propose progressive transcript disclosure"
+      },
+      {
+        "author": "Leo",
+        "pr": 20722,
+        "title": "cmux-tui: workspace list in the cmux app lists the sidebar order"
+      },
+      {
+        "author": "Leo",
+        "pr": 20043,
+        "title": "test(cmux-next): CSI 996 reports dark for a plain theme in dark mode"
+      },
+      {
+        "author": "Leo",
+        "pr": 21190,
+        "title": "fix(cmux-next): avoid invisible divider occlusion holes"
+      },
+      {
+        "author": "Leo",
+        "pr": 21152,
+        "title": "fix(cmux-next): theme the tab overflow action accent"
+      },
+      {
+        "author": "Leo",
+        "pr": 21126,
+        "title": "fix(cmux-next): expose workspace selection to accessibility"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: split snapshot budget stays 4 (the shell's titles vary); base-red skip for acpmux protocol_ir_is_current (cx-gz5dx) (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next strip: a moving column keeps the larger traffic-light inset until it rests"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: budget comment names only proven causes (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: split+close budget 2 applies, 3 topology sends, 3 snapshots per pair (measured, cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "motion-record strip: also scroll with the sidebar hidden, the strip under the traffic lights"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "Revert \"cmux-next strip: terminals in the keep-alive band keep drawing, so a column scrolled in is never blank\""
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "strip-scroll-check: camera from the prompt text overlap, the pills' consensus where no text is shared; text extent from a resting frame"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: snapshot sources name a new pane's first runs (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: list split-client-split-id-v1 for the same-tree identify check; spec names which layouts carry split_id (review, cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: debug.layout_counters names the fields each pane snapshot re-run changed (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "strip-scroll-check: per-frame camera dx, pill rigidity, blank columns and motion start for a strip recording"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: WorkspaceBlueprint.capture matches the split's resourceID (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next strip: terminals in the keep-alive band keep drawing, so a column scrolled in is never blank"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next strip: a column's tab bar lays out for where its pane rests, never pinned to the traffic lights while the camera scrolls"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux NEXT perf-split: the daemon names an optimistic split by its client-minted split_id; delete ScreenModel.splitNames (cx-8w027.14)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "motion-record: strip surface, focus left/right across a scrolling strip of tabbed columns"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3913107309201",
+    "summary": [
+      {
+        "group": "fixed",
+        "title": "Restore workspace title motion tunable"
+      },
+      {
+        "group": "fixed",
+        "title": "Avoid invisible divider occlusion holes"
+      },
+      {
+        "group": "fixed",
+        "title": "Theme the tab overflow action accent"
+      },
+      {
+        "group": "fixed",
+        "title": "Expose workspace selection to accessibility"
+      },
+      {
+        "group": "changed",
+        "title": "A moving column keeps the larger traffic-light inset until it rests"
+      },
+      {
+        "group": "changed",
+        "title": "Cmux NEXT perf-split: snapshot sources name a new pane's first runs"
+      },
+      {
+        "group": "changed",
+        "title": "Terminals in the keep-alive band keep drawing, so a column scrolled in is never blank"
+      },
+      {
+        "group": "changed",
+        "title": "A column's tab bar lays out for where its pane rests, never pinned to the traffic lights…"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-18",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Restore workspace title motion tunable"
+          },
+          "title": {
+            "en": "Restore workspace title motion tunable"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-1",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Avoid invisible divider occlusion holes"
+          },
+          "title": {
+            "en": "Avoid invisible divider occlusion holes"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-2",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Theme the tab overflow action accent"
+          },
+          "title": {
+            "en": "Theme the tab overflow action accent"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-3",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Expose workspace selection to accessibility"
+          },
+          "title": {
+            "en": "Expose workspace selection to accessibility"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-4",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "A moving column keeps the larger traffic-light inset until it rests"
+          },
+          "title": {
+            "en": "A moving column keeps the larger traffic-light inset until…"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-5",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Cmux NEXT perf-split: snapshot sources name a new pane's first runs"
+          },
+          "title": {
+            "en": "Cmux NEXT perf-split: snapshot sources name a new pane's…"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-6",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Terminals in the keep-alive band keep drawing, so a column scrolled in is never blank"
+          },
+          "title": {
+            "en": "Terminals in the keep-alive band keep drawing, so a column…"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-7",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "A column's tab bar lays out for where its pane rests, never pinned to the traffic lights…"
+          },
+          "title": {
+            "en": "A column's tab bar lays out for where its pane rests,…"
+          }
+        }
+      ],
+      "headline": {
+        "en": "Restore workspace title motion tunable"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.3913107309201"
+    }
+  },
+  {
+    "build": "3912903869801",
+    "changes": ["feat(cmux-next): add responsive priority sidebar ordering (#21281)"],
+    "date": "2026-10-18",
+    "head": "f5fdfe063ac82d29264f47bc9e140f07c38ddfe1",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21281,
+        "title": "feat(cmux-next): add responsive priority sidebar ordering"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3912903869801",
+    "summary": [
+      {
+        "group": "new",
+        "title": "Add responsive priority sidebar ordering"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-18",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "new",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Add responsive priority sidebar ordering"
+          },
+          "title": {
+            "en": "Add responsive priority sidebar ordering"
+          }
+        }
+      ],
+      "headline": {
+        "en": "Add responsive priority sidebar ordering"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.3912903869801"
+    }
+  },
+  {
+    "build": "3912866882501",
+    "changes": ["test(next): isolate cloud bring-back cases (#21612)"],
+    "date": "2026-10-18",
+    "head": "03065a96654b5b0a7dd286659f24405f97c55ea4",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21612,
+        "title": "test(next): isolate cloud bring-back cases"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3912866882501",
+    "summary": [],
+    "version": 1
+  },
+  {
+    "build": "3912814684901",
+    "changes": ["ci: cache cmux-next fast-tier builds (#21583)"],
+    "date": "2026-10-18",
+    "head": "ef0c4a3f6ff4a1a19961dc42b40db1ca3bd630b4",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21583,
+        "title": "ci: cache cmux-next fast-tier builds"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3912814684901",
+    "summary": [],
+    "version": 1
+  },
+  {
+    "build": "3912754417501",
+    "changes": [
+      "ci(next): keep post-publication checks off the feed gate (#21577)",
+      "ci: the scheme binary-module guard clears only a DerivedData with outputs, keeps its digest through a stale-module retry, shows a failed resolve (review, cx-8w027.7)",
+      "ci: the scheme binary-module guard makes DerivedData before its stamp (cx-8w027.7)",
+      "ci: the kept-DerivedData scheme and Release compiles build cold when a binary target's headers change (cx-8w027.7)"
+    ],
+    "date": "2026-10-18",
+    "head": "e04ac062c1a73dc7d89e850295892e655d210155",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21577,
+        "title": "ci(next): keep post-publication checks off the feed gate"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "ci: the scheme binary-module guard clears only a DerivedData with outputs, keeps its digest through a stale-module retry, shows a failed resolve (review, cx-8w027.7)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "ci: the scheme binary-module guard makes DerivedData before its stamp (cx-8w027.7)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "ci: the kept-DerivedData scheme and Release compiles build cold when a binary target's headers change (cx-8w027.7)"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3912754417501",
+    "summary": [],
+    "version": 1
+  },
+  {
+    "build": "3912602396401",
+    "changes": [
+      "perf(acpmux): preserve normalized recent session entries (#21566)",
+      "fix(cmux-next): fail the no-build capability check on a capability in two lists",
+      "fix(cmux-next): keep workspace-name-source-v1 only in the unserved list",
+      "ci(cmux-next): add advisory split-plan guard (#21579)",
+      "fix(cmux-next): align composer control chrome (#21574)",
+      "fix(ci): avoid dead GUI runner fallback (#21591)",
+      "ci: plan OR guard conditions without native routing (#21530)",
+      "acpmux: add host-qualified session receipts (#21380)",
+      "fix(cmux-next): keep sidebar close and hover state local (#21543)",
+      "ci: fetch only the nightly acpmux companion (#21192)",
+      "ci: reuse cmux-next web bundles across Linux and macOS (#21189)",
+      "ci: rebase rendered-state tour postconditions (#21570)",
+      "perf(acpmux): skip inactive sidebar grouping (#21557)",
+      "cmux-next: spare window rekey refuses another store instead of a precondition (crash ratchet)",
+      "fix(cmux-next): keep no-activate watchdog evidence alive (#21548)",
+      "coordination: move the #21558 remote-link note out of COORDINATION.md",
+      "feat(gallery): add orchestration lab foundation (#21532)",
+      "feat(cmux-next): persist auto names across capable daemons (#21445)",
+      "ci: bound cmux-next ghostty initialization (#21565)",
+      "cmux-next tours: surface degraded visual coverage (#21562)",
+      "fix(cmux-next): stabilize tooltip and local browser restore tests (#21286)",
+      "cmux-next: no spare Chromium window while a Chromium page is being created",
+      "os-smoke: observe lazy_launch past the launch preload delay; timeouts report stalls after the first tab",
+      "cmux-next: recent-use record from user tabs only; probe phase hardening (review)",
+      "cmux-next: warm Chromium at launch only after recent use; first-tab signals",
+      "cmux-next: a window that becomes the spare again is no longer the last shown pane",
+      "cmux-next: spare Chromium window review fixes",
+      "cmux-next: start Chromium and a spare window at idle moments after launch"
+    ],
+    "date": "2026-10-18",
+    "head": "5addcb044de418a2341c8f3130a57274a1dfb726",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 21566,
+        "title": "perf(acpmux): preserve normalized recent session entries"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "fix(cmux-next): fail the no-build capability check on a capability in two lists"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "fix(cmux-next): keep workspace-name-source-v1 only in the unserved list"
+      },
+      {
+        "author": "Leo",
+        "pr": 21579,
+        "title": "ci(cmux-next): add advisory split-plan guard"
+      },
+      {
+        "author": "Leo",
+        "pr": 21574,
+        "title": "fix(cmux-next): align composer control chrome"
+      },
+      {
+        "author": "Leo",
+        "pr": 21591,
+        "title": "fix(ci): avoid dead GUI runner fallback"
+      },
+      {
+        "author": "Leo",
+        "pr": 21530,
+        "title": "ci: plan OR guard conditions without native routing"
+      },
+      {
+        "author": "Leo",
+        "pr": 21380,
+        "title": "acpmux: add host-qualified session receipts"
+      },
+      {
+        "author": "Leo",
+        "pr": 21543,
+        "title": "fix(cmux-next): keep sidebar close and hover state local"
+      },
+      {
+        "author": "Leo",
+        "pr": 21192,
+        "title": "ci: fetch only the nightly acpmux companion"
+      },
+      {
+        "author": "Leo",
+        "pr": 21189,
+        "title": "ci: reuse cmux-next web bundles across Linux and macOS"
+      },
+      {
+        "author": "Leo",
+        "pr": 21570,
+        "title": "ci: rebase rendered-state tour postconditions"
+      },
+      {
+        "author": "Leo",
+        "pr": 21557,
+        "title": "perf(acpmux): skip inactive sidebar grouping"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: spare window rekey refuses another store instead of a precondition (crash ratchet)"
+      },
+      {
+        "author": "Leo",
+        "pr": 21548,
+        "title": "fix(cmux-next): keep no-activate watchdog evidence alive"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "coordination: move the #21558 remote-link note out of COORDINATION.md"
+      },
+      {
+        "author": "Leo",
+        "pr": 21532,
+        "title": "feat(gallery): add orchestration lab foundation"
+      },
+      {
+        "author": "Leo",
+        "pr": 21445,
+        "title": "feat(cmux-next): persist auto names across capable daemons"
+      },
+      {
+        "author": "Leo",
+        "pr": 21565,
+        "title": "ci: bound cmux-next ghostty initialization"
+      },
+      {
+        "author": "Leo",
+        "pr": 21562,
+        "title": "cmux-next tours: surface degraded visual coverage"
+      },
+      {
+        "author": "Leo",
+        "pr": 21286,
+        "title": "fix(cmux-next): stabilize tooltip and local browser restore tests"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: no spare Chromium window while a Chromium page is being created"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "os-smoke: observe lazy_launch past the launch preload delay; timeouts report stalls after the first tab"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: recent-use record from user tabs only; probe phase hardening (review)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: warm Chromium at launch only after recent use; first-tab signals"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: a window that becomes the spare again is no longer the last shown pane"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: spare Chromium window review fixes"
+      },
+      {
+        "author": "Lawrence Chen",
+        "title": "cmux-next: start Chromium and a spare window at idle moments after launch"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.3912602396401",
+    "summary": [
+      {
+        "group": "new",
+        "title": "Persist auto names across capable daemons"
+      },
+      {
+        "group": "fixed",
+        "title": "Align composer control chrome"
+      },
+      {
+        "group": "fixed",
+        "title": "Keep sidebar close and hover state local"
+      },
+      {
+        "group": "fixed",
+        "title": "Keep no-activate watchdog evidence alive"
+      },
+      {
+        "group": "changed",
+        "title": "Preserve normalized recent session entries"
+      },
+      {
+        "group": "changed",
+        "title": "Skip inactive sidebar grouping"
+      },
+      {
+        "group": "changed",
+        "title": "Surface degraded visual coverage"
+      },
+      {
+        "group": "changed",
+        "title": "No spare Chromium window while a Chromium page is being created"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-18",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "new",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Persist auto names across capable daemons"
+          },
+          "title": {
+            "en": "Persist auto names across capable daemons"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-1",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Align composer control chrome"
+          },
+          "title": {
+            "en": "Align composer control chrome"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-2",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Keep sidebar close and hover state local"
+          },
+          "title": {
+            "en": "Keep sidebar close and hover state local"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-3",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Keep no-activate watchdog evidence alive"
+          },
+          "title": {
+            "en": "Keep no-activate watchdog evidence alive"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-4",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Preserve normalized recent session entries"
+          },
+          "title": {
+            "en": "Preserve normalized recent session entries"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-5",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Skip inactive sidebar grouping"
+          },
+          "title": {
+            "en": "Skip inactive sidebar grouping"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-6",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Surface degraded visual coverage"
+          },
+          "title": {
+            "en": "Surface degraded visual coverage"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-7",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "No spare Chromium window while a Chromium page is being created"
+          },
+          "title": {
+            "en": "No spare Chromium window while a Chromium page is being…"
+          }
+        }
+      ],
+      "headline": {
+        "en": "Persist auto names across capable daemons"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.3912602396401"
+    }
+  }
+]

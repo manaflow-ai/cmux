@@ -25,27 +25,38 @@ struct CrashNoticeTests {
     }
 
     /// Force Quit of an app hung at restore records no signal. A second
-    /// quick kill restores without browser pages, so a page that hangs the
-    /// app cannot loop.
+    /// quick kill is a safe restart (`crashedPages` holds the pages that run
+    /// started), so a page that hangs the app cannot loop.
     @Test func aRestoreThatHangsTwiceSkipsBrowserPages() throws {
         let first = try Self.previous(signal: nil, survived: false)
         #expect(!LaunchRecovery.decide(previous: first).isRestart)
         #expect(LaunchRecovery.watchesForLoop(previous: first))
         let second = try Self.previous(signal: nil, recovery: true, survived: false)
-        #expect(LaunchRecovery.decide(previous: second).skipsBrowserPages)
+        #expect(LaunchRecovery.decide(previous: second).isSafeRestart)
         #expect(!LaunchRecovery.watchesForLoop(previous: try Self.previous(signal: nil)))
+    }
+
+    /// A safe restart holds only the pages the quick-ending run started; a plain restart holds none.
+    @Test func aSafeRestartHoldsOnlyThePagesTheEndedRunStarted() throws {
+        let safe = try Self.previous(signal: "\(SIGSEGV)\n", recovery: true, survived: false, startedPages: ["tab-a"])
+        #expect(LaunchRecovery.decide(previous: safe).crashedPages == ["tab-a"])
+        let plain = try Self.previous(signal: "\(SIGSEGV)\n", startedPages: ["tab-a"])
+        #expect(LaunchRecovery.decide(previous: plain).crashedPages.isEmpty)
+        let old = try Self.previous(signal: "\(SIGSEGV)\n", recovery: true, survived: false)
+        #expect(LaunchRecovery.decide(previous: old).crashedPages.isEmpty, "a marker without started pages holds none")
     }
 
     /// What the next launch reads from the files a previous run left:
     /// `run.json` still there (no quit removed it), `run.signal` and
     /// `run.exception`.
     private static func previous(signal: String?, recovery: Bool = false, survived: Bool = true,
-                                 exception: RecordedException? = nil) throws -> PreviousRun? {
+                                 exception: RecordedException? = nil, startedPages: [String]? = nil) throws -> PreviousRun? {
         let directory = FileManager.default.temporaryDirectory.appending(path: "crash-notice-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let run = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: recovery,
+        var run = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: recovery,
                               survived: survived, signal: nil, quitting: false)
+        run.startedPages = startedPages
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
         try encoder.encode(run).write(to: directory.appending(path: "run.json"))

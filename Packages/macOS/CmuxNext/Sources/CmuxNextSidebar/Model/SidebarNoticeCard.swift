@@ -63,10 +63,17 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// After `shownAction` was sent: the action sent when this notice leaves
     /// the card (another card took the slot); nil sends none.
     public var hiddenAction: String?
+    /// The answer to something the person just asked for (an update check's
+    /// progress and result): it takes the bottom-left slot from the Now
+    /// Playing and "cmux Updated!" cards, so the answer is never behind them.
+    public var userAsked: Bool
+    /// Something waits on the person's answer (``SidebarAsks``): the card
+    /// takes the slot from every other card, the staged update card too.
+    public var awaitsAnswer = false
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,
-                dismissTitle: String? = nil, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil) {
+                dismissTitle: String? = nil, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil, userAsked: Bool = false) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
@@ -81,5 +88,6 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.dismissMenu = dismissMenu
         self.shownAction = shownAction
         self.hiddenAction = hiddenAction
+        self.userAsked = userAsked
     }
 }

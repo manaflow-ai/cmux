@@ -3,6 +3,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import postgres, { type Sql } from "postgres";
 import { cloudDb, closeCloudDbForTests } from "../db/client";
 import { createDrizzleHexclaveMirrorStore, type HexclaveUserState } from "../services/auth/hexclave/mirrorStore";
+import { writeIdentitySnapshot } from "../services/auth/identitySnapshot";
+import type { AuthedUser } from "../services/vms/auth";
 import {
   OTHER_TEAM_ID,
   projectPermission,
@@ -23,7 +25,7 @@ beforeAll(() => {
 });
 beforeEach(async () => {
   if (!enabled) return;
-  await sql`truncate hexclave_pending_revocations, hexclave_team_permissions, hexclave_project_permissions, hexclave_team_memberships, hexclave_users, hexclave_teams, hexclave_tombstones, hexclave_webhook_events`;
+  await sql`truncate stack_identity_snapshots, hexclave_pending_revocations, hexclave_team_permissions, hexclave_project_permissions, hexclave_team_memberships, hexclave_users, hexclave_teams, hexclave_tombstones, hexclave_webhook_events`;
 });
 afterAll(async () => {
   if (!enabled) return;
@@ -79,6 +81,43 @@ dbTest("a gone user is tombstoned and its memberships and permissions cascade aw
   expect(await sql`select entity_type from hexclave_tombstones where entity_id = ${USER_ID}`).toEqual([{ entity_type: "user" }]);
   // The team itself is not the user's to delete.
   expect(await sql`select count(*)::int as n from hexclave_teams`).toEqual([{ n: 1 }]);
+});
+
+dbTest("a pre-revocation identity result cannot recreate removed membership", async () => {
+  await store().reconcileUser(USER_ID, async () => present());
+  const stale: AuthedUser = {
+    id: USER_ID,
+    displayName: "Test User",
+    primaryEmail: "test@example.com",
+    billingCustomerType: "team",
+    billingTeamId: TEAM_ID,
+    selectedTeamId: TEAM_ID,
+    teams: [{ id: TEAM_ID, displayName: "Acme", billingPlanId: "team", billingSeats: 1 }],
+    teamIds: [TEAM_ID],
+    completeTeamList: true,
+    userBillingPlanId: null,
+    billingPlanId: "team",
+    billingSeats: 1,
+  };
+
+  await writeIdentitySnapshot(stale, { completeTeamList: true });
+  await writeIdentitySnapshot({
+    ...stale,
+    id: "snapshot-only-user",
+    primaryEmail: "snapshot-only@example.com",
+  }, { completeTeamList: true });
+  expect(await sql`select count(*)::int as n from stack_identity_snapshots where user_id = ${USER_ID}`)
+    .toEqual([{ n: 1 }]);
+  expect(await sql`select count(*)::int as n from stack_identity_snapshots`)
+    .toEqual([{ n: 2 }]);
+
+  await store().reconcileTeam(TEAM_ID, async () => null);
+  expect(await sql`select count(*)::int as n from stack_identity_snapshots`)
+    .toEqual([{ n: 0 }]);
+  await writeIdentitySnapshot(stale, { completeTeamList: true });
+
+  expect(await sql`select count(*)::int as n from stack_identity_snapshots where user_id = ${USER_ID}`)
+    .toEqual([{ n: 0 }]);
 });
 
 /** Poll pg_locks until some session waits on an advisory lock; bounded, condition-based. */
@@ -209,4 +248,16 @@ dbTest("snapshot writes skip entities the mirror wrote or tombstoned after the s
   expect(await mirror.applySnapshotTeam(serverTeam({ id: OTHER_TEAM_ID }), laterSnapshot)).toBe(false);
   expect(await mirror.applySnapshotUser(staleUser, laterSnapshot)).toBe(true);
   expect(await sql`select team_id from hexclave_team_memberships`).toEqual([{ team_id: TEAM_ID }]);
+});
+
+dbTest("a snapshot write cannot clear a pending membership revocation", async () => {
+  const mirror = store();
+  await mirror.reconcileUser(USER_ID, async () => present());
+  await mirror.reconcileUser(USER_ID, async () => present({ teams: [], teamPermissions: [] }));
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(true);
+
+  const state = present() as Extract<HexclaveUserState, { kind: "present" }>;
+  expect(await mirror.applySnapshotUser(state, new Date(Date.now() + 60_000))).toBe(false);
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(true);
+  expect(await sql`select count(*)::int as n from hexclave_team_memberships`).toEqual([{ n: 0 }]);
 });

@@ -12,6 +12,9 @@ public struct Backoff: Sendable {
     public var multiplier: Double
     /// Fraction of the delay drawn at random, in 0...1 (0.2: ±20%).
     public var jitter: Double
+    /// Full jitter (``fullJitter(initial:maximum:random:)``): each delay is drawn from 0 up to the capped
+    /// exponential base, so many waiters that failed together never re-send together.
+    public private(set) var full = false
     public private(set) var attempt = 0
     private var random: @Sendable () -> Double
 
@@ -29,10 +32,20 @@ public struct Backoff: Sendable {
         self.random = random
     }
 
+    /// Full-jitter exponential spacing (a re-send that only repairs a lost request): attempt n waits a uniform
+    /// draw in 0..<min(`maximum`, `initial` * 2^n).
+    public static func fullJitter(initial: Duration, maximum: Duration,
+                                  random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) -> Backoff {
+        var backoff = Backoff(initial: initial, maximum: maximum, multiplier: 2, jitter: 1, random: random)
+        backoff.full = true
+        return backoff
+    }
+
     /// The delay before the next attempt; grows until `maximum`.
     public mutating func next() -> Duration {
         let base = min(initial.inSeconds * pow(multiplier, Double(min(attempt, 62))), maximum.inSeconds)
         attempt += 1
+        if full { return .seconds(base * min(max(random(), 0), 1)) }
         let spread = base * jitter * (random() * 2 - 1)
         return .seconds(min(max(base + spread, initial.inSeconds * (1 - jitter)), maximum.inSeconds))
     }

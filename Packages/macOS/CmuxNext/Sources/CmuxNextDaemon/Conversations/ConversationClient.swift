@@ -11,12 +11,12 @@ public struct ConversationClient: Sendable {
     }
 
     public static func supported(by connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.shared.localConversations) == true
+        await connection.identity?.supports(DaemonCapability.localConversations.rawValue) == true
     }
 
     private func require() async throws {
         guard await Self.supported(by: connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.localConversations])
+            throw DaemonError.missingCapabilities([DaemonCapability.localConversations.rawValue])
         }
     }
 
@@ -54,6 +54,12 @@ public struct ConversationClient: Sendable {
     public func op(_ request: ConversationOpRequest) async throws -> ConversationOpResult {
         try await require()
         return try await connection.request(request)
+    }
+
+    /// `conversation-link-resolve`: opens a permalink (conversation-tree-v1).
+    public func resolveLink(_ url: String) async throws -> ConversationLinkTarget {
+        try await require()
+        return try await connection.request(ConversationLinkResolveRequest(url: url))
     }
 
     public func typing(_ conversation: String, actor: String, on: Bool) async throws {

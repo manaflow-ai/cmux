@@ -43,24 +43,12 @@ visible or user-owned simulator, and keep at most three local simulators booted.
 
 ## Cross-tag Mac access for DEV iPhone builds
 
-A DEV iPhone build pairs only with the Mac DEV build sharing its tag. When a task needs
-the phone to also see other Mac dev builds (multi-Mac verification, dogfooding another
-task's Mac from an existing phone build), grant those tags at runtime through the
-same-tag Mac's debug socket instead of rebuilding or re-pairing the phone:
-
-```bash
-CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags add <mac-tag> [more-tags]
-CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags list
-CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags remove <mac-tag>
-CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags clear
-```
-
-The grant set persists on that Mac and on the phone (per phone build tag), pushes live
-to a connected phone, and otherwise applies on the phone's next connect. Removing a tag
-disconnects and hides that Mac on the phone. Release lanes (`default`, `nightly`, `rc`,
-`staging`) are never grantable, and only the phone's exact-tag Mac can change its grant
-set. Use this whenever the user asks to let another Mac dev build connect to their
-iPhone build; do not mint a shared tag or rebuild the phone for that.
+A DEV iPhone build pairs only with the Mac DEV build sharing its tag. Classic cmux
+granted other Mac tags at runtime with `cmux-debug-cli.sh mobile compatible-tags`;
+cmux-next has no `mobile` CLI scope and its Mac host reports an empty
+`mac_compatible_mac_tags` list (`MobileCompatHostInfo.swift`), so that grant does not
+exist here yet. To dogfood another Mac build from a phone, build the phone with that
+Mac's tag. Do not mint a shared tag.
 
 ## iOS dev auth
 

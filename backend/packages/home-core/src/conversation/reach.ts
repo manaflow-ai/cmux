@@ -34,6 +34,11 @@ export interface HumanReach {
   readonly connected: boolean
   /** The target's setting (UserDO `home.settings.set`). */
   readonly allow_requests_from: AllowRequestsFrom
+  /**
+   * Both verified emails have the same company domain and the target trusts it
+   * (`trust_same_domain`, home-messaging-invites DESIGN 2.4); counts like a shared team.
+   */
+  readonly same_domain?: boolean
   /** Either side blocked the other (16.6); not resolved until the pair state exists. */
   readonly blocked?: boolean
 }
@@ -49,7 +54,7 @@ export type ReachDecision = { readonly ok: true; readonly display_name: string }
 /** The rule above, for one target. `undefined` = the Worker found no link (or no account). */
 export const reachDecision = (reach: HumanReach | undefined): ReachDecision => {
   if (!reach || reach.blocked === true) return { ok: false, code: NOT_REACHABLE }
-  const allowed = reach.allow_requests_from !== "nobody" && (reach.shared_team || reach.connected)
+  const allowed = reach.allow_requests_from !== "nobody" && (reach.shared_team || reach.connected || reach.same_domain === true)
   if (!allowed) return { ok: false, code: NOT_REACHABLE }
   return { ok: true, display_name: safeDisplayName(reach.display_name, FALLBACK) }
 }

@@ -22,7 +22,9 @@ function render(expression, values) {
   return expression.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, code) => evaluate(code, values));
 }
 
-for (const jobName of ["app-host-unit-tests", "tests-build-and-lag"]) {
+// bc97a912895b deleted app-host-unit-tests and tests-build-and-lag; the compiled product now
+// reaches the shell regressions job (id cli-product-tests) through the same transport chain.
+for (const jobName of ["cli-product-tests"]) {
   for (const enabled of [true, false]) {
     test(`${jobName}: actual workflow selects ${enabled ? "authenticated verified R2 bytes" : "measured GitHub fallback"}`, (t) => {
       const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-artifact-workflow-"));
@@ -75,7 +77,7 @@ else:
 
       const local = job.steps.find((step) => step.id === "node-products");
       const restore = job.steps.find((step) => step.id === "r2-products");
-      const fallback = job.steps.find((step) => step.name === "Download compiled app-host test product");
+      const fallback = job.steps.find((step) => step.name === "Download compiled test product");
       assert.equal(local.run, 'python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"');
       const values = {
         github: { token: "read-only-job-token" },
@@ -114,6 +116,7 @@ else:
         "peer-products": { outputs: { hit: "false" } },
         "restore-layers": { outputs: { hit: "false" } },
         "r2-products": { outputs: { hit: outputs.hit } },
+        "parallel-products": { outputs: { hit: "false" } },
       } }) === "true";
       assert.equal(downloadFallback, !enabled);
       assert.equal(fallback.uses, "./.github/actions/download-test-product");

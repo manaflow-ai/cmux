@@ -295,16 +295,13 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
     }
 
-    @MainActor @Test func policyRefusesTypesAndSizesBeforeCopying() async throws {
+    @MainActor @Test func policyRefusesSizesBeforeCopying() async throws {
         let root = try temporaryDirectory()
         let cache = root.appendingPathComponent("cache")
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
-        await #expect(throws: HomeAttachmentError.typeRefused(mimeType: "image/svg+xml", name: "attachment.svg")) {
-            try await store.prepareAttachment(data: Data("<svg/>".utf8), typeIdentifier: UTType.svg.identifier)
-        }
-        let script = root.appendingPathComponent("run.sh")
-        try Data("echo".utf8).write(to: script)
-        await #expect(throws: HomeAttachmentError.self) { try await store.prepareAttachment(fileURL: script) }
+        let empty = root.appendingPathComponent("empty.txt")
+        try Data().write(to: empty)
+        await #expect(throws: HomeAttachmentError.empty(name: "empty.txt")) { try await store.prepareAttachment(fileURL: empty) }
 
         // A sparse file one byte over the limit: refused from its size, never read.
         let big = root.appendingPathComponent("big.mp4")
@@ -408,8 +405,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
     }
 
     /// The owner's name rules: 1 to 255 characters, no control characters
-    /// or path separators, not blank, `.` or `..`, and no denied extension
-    /// whatever the type.
+    /// or path separators, not blank, `.` or `..`; any extension.
     @Test func namesFollowTheOwnersRules() throws {
         let longest = String(repeating: "\u{E9}", count: 251) + ".txt"
         try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: longest)
@@ -418,10 +414,8 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
                 try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: bad)
             }
         }
-        for denied in ["run.sh", "app.JS", "page.html", "x.svg", "Setup.dmg", "tool.exe"] {
-            #expect(throws: HomeAttachmentError.typeRefused(mimeType: "text/plain", name: denied)) {
-                try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: denied)
-            }
+        for active in ["run.sh", "app.JS", "page.html", "x.svg", "Setup.dmg", "tool.exe"] {
+            try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: active)
         }
         // A file's own name is made valid before the check.
         #expect(HomeAttachmentPolicy.sendableName("a\u{1}b/c.txt") == "a_b_c.txt")
@@ -494,16 +488,15 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             let prepares = (try? await store.prepareAttachment(data: sample, typeIdentifier: identifier)) != nil
             #expect(HomeAttachmentPolicy.accepts(typeIdentifier: identifier) == prepares, "\(identifier)")
         }
-        // A refused type, refused by both.
-        #expect(!HomeAttachmentPolicy.accepts(typeIdentifier: UTType.svg.identifier))
-        await #expect(throws: HomeAttachmentError.self) {
-            try await store.prepareAttachment(data: Data("<svg/>".utf8), typeIdentifier: UTType.svg.identifier)
-        }
-        // Files: the extension decides, as in prepare(fileURL:).
+        // An SVG goes as text, never as its own type.
+        #expect(HomeAttachmentPolicy.accepts(typeIdentifier: UTType.svg.identifier))
+        let svg = try await store.prepareAttachment(data: Data("<svg/>".utf8), typeIdentifier: UTType.svg.identifier)
+        #expect(svg.ref.mimeType == "text/plain")
+        // Files: any file but a folder.
         let script = root.appendingPathComponent("run.sh")
         try Data("echo".utf8).write(to: script)
-        #expect(!HomeAttachmentPolicy.accepts(fileURL: script))
-        await #expect(throws: HomeAttachmentError.self) { try await store.prepareAttachment(fileURL: script) }
+        #expect(HomeAttachmentPolicy.accepts(fileURL: script))
+        #expect(try await store.prepareAttachment(fileURL: script).ref.mimeType == "text/plain")
         #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("Screen Shot.tiff")))
         #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("notes.md")))
     }

@@ -34,12 +34,22 @@ cp "$S/install-cef-license.sh" "$TMP/copy/scripts/cmux-next/"
 printf 'edited\n' > "$TMP/copy/scripts/cmux-next/cef-license/LICENSE.txt"
 if "$TMP/copy/scripts/cmux-next/install-cef-license.sh" "$TMP/dist3" "$TMP/res" 2>/dev/null; then fail "an edited stock LICENSE.txt passed"; fi
 
-# 4. bundle-map.json requires LICENSE.txt for the CEF framework, the shim and the helpers.
+# 4. bundle-map.json requires LICENSE.txt for the CEF framework, the shim and the helpers,
+#    and for every other entry that links CEF (8e3fe348b0f5 added the remote browser host
+#    and its helpers, which load the app's CEF).
 python3 - "$ROOT/scripts/cmux-next/notices/bundle-map.json" <<'PY' || fail "bundle-map.json does not require CEF's LICENSE.txt"
 import json, sys
 need = "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"
 entries = json.load(open(sys.argv[1]))["entries"]
-cef = [e for e in entries if "CREDITS.html" in " ".join(e["notices"])]
-assert len(cef) == 3 and all(need in e["notices"] for e in cef), cef
+# WebRTC also cites Chromium's CREDITS.html, but it is a separate framework
+# and does not load CEF. Select the CEF-linked paths explicitly so that a
+# Chromium attribution does not make this CEF license check a false positive.
+core = {"Contents/Frameworks/Chromium Embedded Framework.framework/*",
+        "Contents/Frameworks/libcmux_cef_shim.dylib",
+        "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
+        "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
+        "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*"}
+cef = [e for e in entries if e["path"] in core]
+assert core <= {e["path"] for e in cef} and all(need in e["notices"] for e in cef), cef
 PY
 printf 'cef-license tests: ok\n'

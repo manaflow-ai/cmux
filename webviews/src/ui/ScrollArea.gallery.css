@@ -1,0 +1,14 @@
+.scroll-area-motion-gallery {
+  display: grid;
+  gap: 12px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  color: var(--cmux-text, #eee);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 12px;
+}
+.scroll-area-motion-gallery__controls { display: flex; gap: 8px; }
+.scroll-area-motion-gallery__viewport { height: 116px; padding: 4px 10px 4px 4px; }
+.scroll-area-motion-gallery__item { padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, currentColor 7%, transparent); }
+.scroll-area-motion-gallery__item + .scroll-area-motion-gallery__item { margin-top: 4px; }

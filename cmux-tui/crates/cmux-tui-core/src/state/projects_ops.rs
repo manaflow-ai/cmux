@@ -216,6 +216,10 @@ impl Mux {
     /// The daemon's own import of `scans` (startup, a source file changed):
     /// each list is complete, under the same rules as `project.observe`.
     pub(crate) fn state_project_import(&self, scans: &[SourceScan]) -> anyhow::Result<StateCommit> {
+        anyhow::ensure!(
+            scans.iter().all(|scan| scan.entries.len() <= MAX_OBSERVATIONS),
+            "project import: at most {MAX_OBSERVATIONS} entries per source"
+        );
         let mutation = WorkspaceMutation::daemon_local("project-sources");
         let sources: Vec<&str> = scans.iter().map(|scan| scan.source).collect();
         let fingerprint =

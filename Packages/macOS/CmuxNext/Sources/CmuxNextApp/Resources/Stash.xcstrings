@@ -1,0 +1,530 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "stash.refusal.noPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد صفحة ويب هنا لحفظها. يحفظ «حفظ وإغلاق» صفحات المتصفح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje nema web stranice za spremanje. Spremi i zatvori čuva stranice preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen webside at gemme her. Gem og luk gemmer browsersider."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier gibt es keine Webseite zum Speichern. „Speichern und schließen“ behält Browserseiten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No web page here to save. Save and Close keeps browser pages."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí no hay ninguna página web que guardar. Guardar y cerrar conserva páginas del navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune page web à enregistrer ici. Enregistrer et fermer conserve les pages du navigateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna pagina web da salvare qui. Salva e chiudi conserva le pagine del browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存できるウェブページがありません。「保存して閉じる」はブラウザのページを保存します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានទំព័របណ្ដាញនៅទីនេះដើម្បីរក្សាទុកទេ។ រក្សាទុក ហើយបិទ រក្សាទុកទំព័រកម្មវិធីរុករក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장할 웹 페이지가 없습니다. 저장 후 닫기는 브라우저 페이지를 보관합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen nettside å lagre her. Lagre og lukk tar vare på nettlesersider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak strony internetowej do zapisania. Zapisz i zamknij zachowuje strony przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há página da web para salvar aqui. Salvar e fechar guarda páginas do navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь нет веб-страницы для сохранения. «Сохранить и закрыть» сохраняет страницы браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีหน้าเว็บให้บันทึกที่นี่ บันทึกและปิดจะเก็บหน้าเบราว์เซอร์ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burada kaydedilecek web sayfası yok. Kaydet ve Kapat tarayıcı sayfalarını saklar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут немає вебсторінки для збереження. «Зберегти й закрити» зберігає сторінки браузера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có trang web nào ở đây để lưu. Lưu và đóng giữ lại các trang trình duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里没有可保存的网页。“保存并关闭”只保存浏览器页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡沒有可儲存的網頁。「儲存並關閉」只保存瀏覽器頁面。"
+          }
+        }
+      }
+    },
+    "stash.refusal.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة عمل هنا يمكن حفظها. تبقى مساحات العمل الرئيسية والخفية ومساحات الأجهزة الأخرى مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje nema radnog prostora koji se može spremiti. Početni, anonimni i radni prostori drugih računara ostaju otvoreni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet arbejdsområde her kan gemmes. Hjem, inkognito og andre maskiners arbejdsområder forbliver åbne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier lässt sich kein Arbeitsbereich speichern. Home-, Inkognito- und Arbeitsbereiche anderer Rechner bleiben offen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspace here can be saved. Home, incognito and other machines' workspaces stay open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí no hay ningún espacio de trabajo que se pueda guardar. Los de inicio, incógnito y de otras máquinas siguen abiertos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun espace de travail à enregistrer ici. Les espaces d’accueil, de navigation privée et des autres machines restent ouverts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna area di lavoro qui può essere salvata. Le aree Home, in incognito e di altre macchine restano aperte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存できるワークスペースがありません。ホーム、シークレット、他のマシンのワークスペースは開いたままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានកន្លែងធ្វើការនៅទីនេះដែលអាចរក្សាទុកបានទេ។ កន្លែងធ្វើការដើម អនាមិក និងរបស់ម៉ាស៊ីនផ្សេងទៀត នៅតែបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장할 수 있는 작업 공간이 없습니다. 홈, 시크릿, 다른 기기의 작업 공간은 열린 채로 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen arbeidsområder her kan lagres. Hjem-, inkognito- og andre maskiners arbeidsområder forblir åpne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak przestrzeni roboczej do zapisania. Przestrzenie domowe, incognito i z innych maszyn pozostają otwarte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma área de trabalho aqui pode ser salva. As de início, anônimas e de outras máquinas continuam abertas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь нет рабочего пространства, которое можно сохранить. Домашнее, инкогнито и пространства других машин остаются открытыми."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเวิร์กสเปซที่บันทึกได้ที่นี่ เวิร์กสเปซหลัก แบบไม่ระบุตัวตน และของเครื่องอื่นจะยังเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burada kaydedilebilecek çalışma alanı yok. Ana, gizli ve diğer makinelerin çalışma alanları açık kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут немає робочої області, яку можна зберегти. Домашня, анонімна та області інших машин лишаються відкритими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có không gian làm việc nào ở đây có thể lưu. Không gian chính, ẩn danh và của máy khác vẫn mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里没有可保存的工作区。主页、无痕和其他机器的工作区保持打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡沒有可儲存的工作區。首頁、無痕和其他機器的工作區保持開啟。"
+          }
+        }
+      }
+    },
+    "stash.refusal.otherMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن حفظ وإغلاق علامات تبويب هذا الـ Mac فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogu se spremiti i zatvoriti samo kartice ovog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun denne Macs faner kan gemmes og lukkes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Tabs dieses Macs können gespeichert und geschlossen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only this Mac's tabs can be saved and closed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se pueden guardar y cerrar las pestañas de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seuls les onglets de ce Mac peuvent être enregistrés et fermés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo le schede di questo Mac possono essere salvate e chiuse."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存して閉じられるのはこの Mac のタブだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែផ្ទាំងរបស់ Mac នេះទេ ដែលអាចរក្សាទុក ហើយបិទបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 탭만 저장 후 닫을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare denne Macens faner kan lagres og lukkes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisać i zamknąć można tylko karty tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só as abas deste Mac podem ser salvas e fechadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить и закрыть можно только вкладки этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกและปิดได้เฉพาะแท็บของ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca bu Mac’in sekmeleri kaydedilip kapatılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти й закрити можна лише вкладки цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ có thể lưu và đóng các tab của máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能保存并关闭这台 Mac 上的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能儲存並關閉這台 Mac 上的分頁。"
+          }
+        }
+      }
+    },
+    "stash.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الحفظ في علامات التبويب المخبأة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremljeno u spremljene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemt i Gemte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In „Zurückgelegte Tabs“ gespeichert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to Stashed Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado en Pestañas guardadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré dans Onglets mis de côté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvato in Schede messe da parte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留中のタブに保存しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានរក្សាទុកក្នុងផ្ទាំងដែលបានទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관한 탭에 저장됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagret i Lagrede faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisano w Odłożonych kartach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvo em Abas guardadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранено в отложенных вкладках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกไว้ในแท็บที่เก็บไว้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklanan Sekmelere kaydedildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збережено у відкладених вкладках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã lưu vào Tab đã cất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存到已收起的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存到已收起的分頁"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -62,15 +62,8 @@ When the user requested repair, or the workflow explicitly allows it:
 6. review the repair delta in a fresh context;
 7. cap autonomous repair loops at two attempts per finding.
 
-Useful cmux primitives:
-
-```bash
-cmux vault checkpoint --agent <agent> --session <session> --name "pre-review-repair"
-cmux vault checkpoints --agent <agent> --session <session>
-cmux vault fork --agent <agent> --session <session> --checkpoint <id> --open
-```
-
-If the exact Vault identifiers are unavailable, preserve the current Git state through a normal worktree/branch workflow instead of guessing.
+Before a repair, preserve the current Git state through a normal worktree or
+branch (cmux-next has no `cmux vault` checkpoint commands).
 
 
 Persist the evidence and report using [review receipts](review-receipts.md).

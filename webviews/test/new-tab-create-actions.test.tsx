@@ -84,7 +84,10 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
     { get: () => async () => undefined },
   );
   const actions = newTabScreenActions({
-    callNative: async (method, params) => void calls.push({ method, params }),
+    callNative: async (method, params) => {
+      calls.push({ method, params });
+      return method === "chat.new" ? "session-1" : undefined;
+    },
     cwd: "/Users/you/src/app",
     chatCwd: "/Users/you/src/app",
     leave: () => left++,
@@ -135,7 +138,10 @@ test("New chat sends what the field holds, and a second click opens nothing more
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   const actions = newTabScreenActions({
-    callNative: async (method, params) => void calls.push({ method, params }),
+    callNative: async (method, params) => {
+      calls.push({ method, params });
+      return method === "chat.new" ? "session-1" : undefined;
+    },
     cwd: "/Users/you/src/app",
     chatCwd: "/Users/you/src/app",
     leave: noop,
@@ -156,8 +162,8 @@ test("New chat sends what the field holds, and a second click opens nothing more
   try {
     await render(root);
     // A prompt typed before the click goes with the chat, as Return would send it.
-    const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     await act(async () => {
       setValue.call(field, "fix the flaky upload test");
       field.dispatchEvent(new window.Event("input", { bubbles: true }));

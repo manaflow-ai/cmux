@@ -8,6 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Most calls; the daemon gives acpmux 15 s.
@@ -56,6 +57,12 @@ impl Daemon {
         Ok(Self { reader: BufReader::new(stream), next_id: 1 })
     }
 
+    /// The pid of the process listening at the other end, when the system says.
+    pub(super) fn peer_pid(&self) -> Option<u32> {
+        use std::os::fd::AsRawFd as _;
+        cmux_link::caller::peer_pid(self.reader.get_ref().as_raw_fd()).ok().flatten()
+    }
+
     /// Sends `cmd` with `params` and returns the answer's `data`.
     pub(super) fn call(
         &mut self,
@@ -66,8 +73,8 @@ impl Daemon {
         let lost = |e: std::io::Error| CallError::Lost(format!("{cmd}: {e}"));
         let id = self.next_id;
         self.next_id += 1;
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        params.set("id", json!(id));
+        params.set("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
         let stream = self.reader.get_mut();

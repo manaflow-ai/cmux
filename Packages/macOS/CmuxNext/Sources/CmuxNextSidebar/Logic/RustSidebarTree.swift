@@ -26,11 +26,26 @@ nonisolated struct RustNode: Encodable {
             id = group.id.rawValue
             machine = group.workspaces.first?.machineID.rawValue
             workspaces = group.workspaces.map { RustWorkspace(id: $0.id.rawValue, machine: $0.machineID.rawValue) }
+        case let .item(item):
+            // Only the document drag places items; the older resolver sees an empty group.
+            kind = "group"
+            workspace = nil
+            id = "item:" + item.id
+            machine = nil
+            workspaces = []
         }
     }
 }
 
 nonisolated struct RustSection: Encodable {
+    /// The sections the older resolver knows: a document section (`.custom`) lists only on the document, whose drag resolves itself.
+    static func resolvable(_ sections: [SidebarSection]) -> [RustSection] {
+        sections.compactMap { section in
+            if case .custom = section.kind { return nil }
+            return RustSection(section)
+        }
+    }
+
     var id: RustSectionID
     var machine: String?
     var nodes: [RustNode]

@@ -34,21 +34,24 @@ extension BrowserProfileService {
         return book.workspaceDefaults[qualified.fileKey]
     }
 
-    /// The room a new tab of `workspaceID` takes its default from: the room
-    /// of the window that shows it, else the active window's.
-    func roomDefault(_ workspaceID: String?) -> String? {
+    /// The browser profile of the room a new tab of `workspaceID` takes its default from: `room`,
+    /// the room of the window a caller draws in (its `WindowState.profileID`, read observed, so a
+    /// tab badge or avatar follows that window's room), else the room of the window that shows
+    /// the workspace, else the active window's (a one-time choice: a new tab's profile).
+    func roomDefault(_ workspaceID: String?, room: ProfileID? = nil) -> String? {
         let windows = services.windows
-        let owner = workspaceID.flatMap { windows.registry.value.owner(of: $0) }
-        let room = owner.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
+        let room = room ?? workspaceID.flatMap { windows.registry.value.owner(of: $0) }.flatMap { windows.states[$0]?.profileID }
+            ?? windows.active?.state.profileID ?? .defaultProfile
         return services.machines.local.store.profile(room)?.browserProfileID?.rawValue
     }
 
     /// Whether a tab may be created in `id`: a record exists here.
     func isKnown(_ id: String) -> Bool { record(id) != nil }
 
-    /// The profile a new tab of `workspaceID` gets without an explicit choice.
-    func effectiveProfile(forWorkspace workspaceID: String?) -> String {
-        BrowserProfileCascade.resolve(explicit: nil, workspace: workspaceDefault(workspaceID), room: roomDefault(workspaceID), known: isKnown)
+    /// The profile a new tab of `workspaceID` gets without an explicit choice; `room` as in `roomDefault`.
+    func effectiveProfile(forWorkspace workspaceID: String?, room: ProfileID? = nil) -> String {
+        BrowserProfileCascade.resolve(explicit: nil, workspace: workspaceDefault(workspaceID), room: roomDefault(workspaceID, room: room),
+                                      known: isKnown)
     }
 
     /// The profile a new tab in `pane` gets: `explicit` when it names a

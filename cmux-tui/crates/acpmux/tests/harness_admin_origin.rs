@@ -6,6 +6,11 @@
 //! `remove`, `restore` and `registry` (recoverable or read only); Web and
 //! peer may call none of them.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -66,6 +71,16 @@ async fn add_and_doctor_are_unix_socket_only() {
         let doctor =
             call(&hub, origin, "_acpmux/harness/doctor", json!({"id": "fromremote"})).await;
         assert!(doctor.is_err(), "{origin:?} ran doctor: {doctor:?}");
+        // Storing a harness key runs the secret store: the unix socket only.
+        let secret = call(
+            &hub,
+            origin,
+            "_acpmux/harness/secret/set",
+            json!({"id": "fromremote", "key": "API_KEY", "value": "byo-endpoint-origin-secret"}),
+        )
+        .await;
+        let error = secret.expect_err("a remote origin stored a harness key");
+        assert!(!error.to_string().contains("byo-endpoint-origin-secret"), "{error}");
     }
     assert!(!user.join("fromremote.toml").exists(), "a refused add wrote a file");
 

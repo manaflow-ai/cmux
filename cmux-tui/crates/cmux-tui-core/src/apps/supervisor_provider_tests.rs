@@ -83,6 +83,85 @@ fn provider_calls_carry_the_stamped_actor_and_answer_the_app() {
 }
 
 #[test]
+fn cmux_next_agent_cli_list_routes_a_scoped_read_to_the_verified_provider() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"agent_cli:read":"cached inventory"}),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["agent_cli"]);
+    let selected = "machine_00000000000000000000000000000002";
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"agent_cli.list", "params":{"machine":selected,"check_latest":false}}),
+            false,
+        )
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "agent_cli.list");
+    assert_eq!(request["origin"], "script");
+    assert_eq!(request["app"], "cmux/demo");
+    assert_eq!(request["params"], json!({"machine":selected,"check_latest":false}));
+    assert!(request["idempotency_key"].is_null(), "a read must not get a mutation key");
+    let value = json!({"machine":selected,"cached":true,"complete":false,"clis":[]});
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            request["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":value}),
+        )
+        .unwrap();
+    let update =
+        f.wait("inventory result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
+    assert!(f.router.calls.lock().unwrap().is_empty());
+}
+
+/// The Agent Memory app's search reaches the Mac's agent memory index:
+/// `memory` is a provider family (registering it beside the others keeps
+/// them), and `memory.search` needs only `memory:read`.
+#[test]
+fn cmux_next_memory_search_routes_a_scoped_read_to_the_verified_provider() {
+    let root = temp_dir();
+    write_app(&root.0.join("bundled"), "demo", "cmux/demo", json!({"memory:read":"search memory"}));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["coderouter", "memory"]);
+    let params = json!({"roots":["root_home"],"query":"deploy key","limit":5});
+    f.supervisor
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"memory.search", "params":params}), false)
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "memory.search");
+    assert_eq!(request["params"], params);
+    assert!(request["idempotency_key"].is_null(), "a read must not get a mutation key");
+    let value =
+        json!({"hits":[{"root":"agent-memory","path":"notes","line":0,"text":"[deploy] key"}]});
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            request["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":value}),
+        )
+        .unwrap();
+    let update =
+        f.wait("search result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
+}
+
+#[test]
 fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
     let f = fixture();
     f.install("cmux/demo");
@@ -213,6 +292,8 @@ fn the_idle_stop_waits_for_a_provider_call_in_flight() {
 #[test]
 fn only_the_cmux_app_and_never_an_agent_may_provide() {
     let f = fixture();
+    f.supervisor.register_provider(PROVIDER, APP, vec!["agent_cli".into()]).unwrap();
+    f.supervisor.disconnect(PROVIDER);
     let agent = super::super::provider::ProviderClaim { agent: true, verified_app: true };
     let unverified = super::super::provider::ProviderClaim { agent: false, verified_app: false };
     for claim in [agent, unverified] {

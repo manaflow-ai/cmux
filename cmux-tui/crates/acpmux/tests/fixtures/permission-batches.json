@@ -1,4 +1,5 @@
 {
+  "watch-pair": {"items": [{"title":"First watch permission","kind":"execute"}, {"title":"Second watch permission","kind":"execute"}]},
   "parallel": {
     "items": [
       {"title":"Write a.txt","kind":"edit"},
@@ -21,6 +22,12 @@
   },
   "no-reject": {
     "items": [{"title":"No rejection option","kind":"execute","reject":false}]
+  },
+  "shell-reads": {
+    "items": [
+      {"title":"git status","kind":"execute","command":"git status"},
+      {"title":"git push","kind":"execute","command":"git push"}
+    ]
   },
   "single": {
     "items": [{"title":"Write a.txt","kind":"edit"}]

@@ -20,6 +20,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
     let suggestedRank: Int?
     let suggestedSectionIndex: Int?
     let entersScope: Bool
+    let handles: [String]
 
     init(_ entry: PaletteSearchEntry) {
         title = entry.title
@@ -41,6 +42,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
         suggestedRank = entry.suggestedRank
         suggestedSectionIndex = entry.suggestedSectionIndex
         entersScope = entry.entersScope
+        handles = entry.handles
     }
 }
 

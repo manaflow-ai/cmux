@@ -1,7 +1,7 @@
 /**
  * Edge-only ingress check for the session host port (bead cx-wx2, vm-image.md 6.3a).
  *
- * `cmux host run` with `"carrier": "freestyle-edge"` binds [::]:1337 and grants carrier auth to
+ * `cmux host run` binds [::]:1337 behind the Freestyle edge; grant-required images keep enrolled auth on
  * every link, so it assumes nothing reaches 1337 except the Freestyle edge. This check creates:
  * - target: the cmux-next create firewall (cloud-driver-body.ts: egress only, no inbound rule);
  * - control: the same plus an inbound public rule for 1337 (proves the probe sees an open port);

@@ -11,8 +11,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use optchat_core::{
-    block_cuts, compact_request, finish_line, size_check_for, CompactRequest, Memory, NodeId,
-    SizeCheck, Work,
+    block_cuts, compact_request, finish_line, refusal_stand_in, size_check_for, CompactRequest,
+    Memory, NodeId, SizeCheck, Work,
 };
 
 use crate::clock::Clock;
@@ -320,18 +320,11 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
             &request,
         )
     };
-    let result = match gated(&shared.model) {
-        // A refusal repeats on every try: ask the fallback model, in a fresh
-        // conversation (the declined model's blocks mean nothing to it).
-        Err(declined) if declined.refused => match &shared.fallback {
-            Some(fallback) => gated(fallback).map_err(|e| ModelError {
-                message: format!("{declined}; the fallback model failed too: {e}"),
-                ..e
-            }),
-            None => Err(declined),
-        },
-        other => other,
-    };
+    let fallback = shared
+        .fallback
+        .as_ref()
+        .map(|f| move |_: &CompactRequest| gated(f));
+    let result = build_with(|_| gated(&shared.model), fallback, &request).map(|built| built.text);
     let mut st = shared.lock();
     if !st.writable() {
         return;
@@ -452,6 +445,80 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     st.memory.fail(node);
     drive(&shared, &mut st);
     shared.unlock(st);
+}
+
+/// What `build_node` keeps for a node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Built {
+    /// The node's text.
+    pub text: String,
+    /// The fallback model wrote it (the main model declined).
+    pub by_fallback: bool,
+    /// No model wrote a line: the text stands in for one (the node's input,
+    /// kept so its facts are not lost).
+    pub stand_in: bool,
+}
+
+/// Builds one node as the host does: `run_node` on `model`, and when it
+/// declines, `run_node` on `fallback` in a fresh conversation.
+pub fn build_node(
+    model: &dyn CompactModel,
+    fallback: Option<&dyn CompactModel>,
+    request: &CompactRequest,
+) -> Result<Built, ModelError> {
+    build_with(
+        |r| run_node(model, r),
+        fallback.map(|f| move |r: &CompactRequest| run_node(f, r)),
+        request,
+    )
+}
+
+/// `build_node` over two node builders (the host's are gated by single-flight).
+fn build_with(
+    main: impl Fn(&CompactRequest) -> Result<String, ModelError>,
+    fallback: Option<impl Fn(&CompactRequest) -> Result<String, ModelError>>,
+    request: &CompactRequest,
+) -> Result<Built, ModelError> {
+    // What the size loop keeps when every try refused in text ("I can't
+    // write this line ..."): the input, cut to the room.
+    let stand_in = finish_line(
+        request,
+        &refusal_stand_in(step_input(&request.step), request.room()),
+    );
+    let built = |text: String, by_fallback: bool| Built {
+        stand_in: text == stand_in,
+        text,
+        by_fallback,
+    };
+    let Some(fallback) = fallback else {
+        return main(request).map(|t| built(t, false));
+    };
+    match main(request) {
+        // A refusal repeats on every try: ask the fallback model, in a fresh
+        // conversation (the declined model's blocks mean nothing to it).
+        Err(declined) if declined.refused => {
+            fallback(request)
+                .map(|t| built(t, true))
+                .map_err(|e| ModelError {
+                    message: format!("{declined}; the fallback model failed too: {e}"),
+                    ..e
+                })
+        }
+        // The main model refused in text on every try: the fallback model
+        // writes the line; the stand-in stays only when it cannot.
+        Ok(text) if text == stand_in => match fallback(request) {
+            Ok(line) if line != stand_in => Ok(built(line, true)),
+            _ => Ok(built(text, false)),
+        },
+        other => other.map(|t| built(t, false)),
+    }
+}
+
+/// The step's `<input>`: what a node compresses.
+fn step_input(step: &str) -> &str {
+    step.split_once("<input>\n").map_or("", |(_, rest)| {
+        rest.rsplit_once("\n</input>").map_or(rest, |(i, _)| i)
+    })
 }
 
 /// The model conversation for one node with the size loop (section 4.3): each

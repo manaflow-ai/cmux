@@ -29,7 +29,7 @@ extension NSView {
         let locations = occlusion > 0 ? [0, NSNumber(value: Double(start / bounds.width)), NSNumber(value: Double(clear / bounds.width))] : open
         if animated, mask.locations != locations {
             // A line that had no mask starts fully shown.
-            Motion.set(mask, "locations", to: locations, fade: .hover, from: current == nil ? open : nil)
+            Motion.sidebar.set(mask, "locations", to: locations, fade: .hover, from: current == nil ? open : nil)
         } else {
             mask.removeAnimation(forKey: "locations")
             mask.locations = locations

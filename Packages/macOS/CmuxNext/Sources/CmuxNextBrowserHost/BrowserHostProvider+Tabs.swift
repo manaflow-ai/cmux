@@ -97,9 +97,12 @@ extension BrowserHostProvider {
     }
 
     static func announcePayload(_ tab: ProviderTab) -> DriverJSON {
-        .object([
+        var fields: [String: DriverJSON] = [
             "targetId": .string(tab.targetID), "engine": .string(tab.engine.rawValue), "workspace": .string(tab.workspace),
             "profile": .string(tab.profile), "url": .string(tab.url), "title": .string(tab.title), "visible": .bool(tab.visible),
-        ])
+        ]
+        if tab.inputScale != 1 { fields["inputScale"] = .number(tab.inputScale) }
+        if tab.touch { fields["touch"] = .bool(true) }
+        return .object(fields)
     }
 }

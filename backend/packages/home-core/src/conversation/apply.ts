@@ -1,11 +1,15 @@
-import { checkAgentBudget, checkAgentStreak } from "./budget.ts"
-import { removeParticipant, setSettings } from "./cloud.ts"
-import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
+import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from "./budget.ts"
+import { checkChiefAnswer, checkChiefShare, removeParticipant, setRole, setSettings, transferOwnership, unban } from "./cloud.ts"
+import { checkGrant, checkWriter, grantableRole } from "./roles.ts"
+import { MAX_GROUP_MEMBERS, memberCount } from "./large.ts"
+import { createGrant, revokeGrant } from "./grants.ts"
+import { acceptInvite, acceptVerifiedInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
 import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, type Draft, type OpRequest } from "./request.ts"
 import {
+  DEFAULT_SETTINGS,
   MAX_PARTICIPANTS,
   SYSTEM_ACTOR,
   type ThreadResolution,
@@ -37,7 +41,7 @@ export const targetMessageId = (op: Op): string | undefined =>
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
-const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.approve_join", "invite.delivery.report", "conversation.settings.set"])
+const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "chief.rename", "conversation.settings.set", "participants.set_role", "ownership.transfer", "participants.unban", "grant.create", "grant.revoke"])
 
 /** Validates one op against the head. Every commit increases `rev` by exactly one. */
 export const apply = (head: ConversationHead, request: OpRequest): ApplyResult => {
@@ -57,9 +61,14 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   const next: Draft = { ...head, rev: head.rev + 1 }
   // Ops whose caller is not a participant.
   if (op.kind === "invite.accept") return acceptInvite(head, next, request, op)
+  if (op.kind === "invite.accept_verified") return acceptVerifiedInvite(head, next, request, op)
   if (op.kind === "invite.delivery.report") {
     if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
     return reportDelivery(head, next, request, op)
+  }
+  if (op.kind === "chief.rename") {
+    if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
+    return renameChief(head, next, request, op)
   }
   const actor = currentParticipant(head, request.actor)
   if (!actor) return fail("not_participant")
@@ -67,11 +76,13 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   if (head.state === "archived") fail("archived")
   // A promoted conversation opens for normal ops only after `conversation.import.commit`.
   if (head.state === "importing") fail("importing")
+  // Roles are cloud only: a local head has no read-only members.
+  if (cloud) checkWriter(actor, op.kind, op.kind === "participants.remove" ? op.participant : undefined)
   const now = request.now
   switch (op.kind) {
     case "message.send": {
       if (op.client_msg_id !== request.idempotency_key || !validToken(op.client_msg_id)) fail("invalid_client_msg_id")
-      const parts = validateParts(op.parts, cloud)
+      const parts = validateParts(op.parts, cloud, true)
       // Only an agent posts a question, and only a pending one (Rust `bad_question`).
       if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
       const replyTo = op.reply_to
@@ -97,19 +108,15 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
       // turns). A head written before the counters existed falls back to the row window once.
       const counted = head.agent_text_streak !== undefined
-      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs) : null
+      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs, threadRoot) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs, threadRoot) : null
       if (budget) fail(budget)
       next.last_seq = head.last_seq + 1
       next.updated_at = now
       if (hasText(parts)) {
-        if (actor.kind === "agent") {
-          // A legacy head (no counters yet) seeds the streak from the host window's trailing agent texts.
-          const seed = counted || cloud || !request.recent ? (head.agent_text_streak ?? 0) : trailingAgentTexts(head, request.recent)
-          next.agent_text_streak = seed + 1
-          next.last_agent_text_at = now
-        } else {
-          next.agent_text_streak = 0
-        }
+        // The streak of the thread this message joins: an agent's text adds 1, a person's resets it.
+        // A legacy head (no counters yet) seeds it from the host window's trailing agent texts.
+        const seed = actor.kind === "agent" && !(counted || cloud) && request.recent ? threadAgentStreak(head, request.recent, threadRoot) : undefined
+        applyTurn(next, withTurn(next, threadRoot, actor.kind === "agent", now, seed))
       }
       const message: Message = {
         id: request.new_message_id,
@@ -136,7 +143,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const message = target(head, request, op.message_id)
       if (message.author !== request.actor) fail("not_author")
       if (message.retracted_at !== undefined) fail("retracted")
-      const parts = validateParts(op.parts, cloud)
+      const parts = validateParts(op.parts, cloud, true)
       checkQuestionEdit(message.parts, parts)
       return updated(next, {
         ...message,
@@ -177,8 +184,10 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const part = Number.isInteger(index) && index >= 0 && index <= 0xffff_ffff ? message.parts[index] : undefined
       if (part?.type !== "question") return fail("invalid_part_index")
       const answered = answerQuestion(part, op.answer, actor, now)
-      // A person's answer is a human turn: the agent may go on (the loop guard counts from here).
-      next.agent_text_streak = 0
+      if (cloud) checkChiefAnswer(head, message, actor)
+      // A person's answer (question answers are human only) is a person's turn in the question's
+      // thread: agents may go on there (the loop guard counts from here).
+      applyTurn(next, withTurn(next, message.thread_root, false, now))
       return updated(next, { ...message, parts: message.parts.map((p, i) => (i === index ? answered : p)) })
     }
     case "read_cursor.set": {
@@ -189,19 +198,30 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       return { head: next, change: { kind: "read-cursor", participant: request.actor, seq: op.seq } }
     }
     case "participants.add": {
-      if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
+      if (head.kind === "dm") fail("kind_forbids")
       const participant = validateParticipant(op.participant, cloud)
       if (participant.kind === "address") fail("invalid_participant")
+      if (head.kind === "chief") checkChiefShare(actor, participant, op.role)
       if (currentParticipant(head, participant.id)) fail("duplicate_participant")
       // A departed participant (cloud only) rejoins; locally every id is current.
       if (!cloud && findParticipant(head, participant.id)) fail("duplicate_participant")
-      if (currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+      // A local head keeps the Rust cap; a cloud group grows into the large tier (large.ts). A shared
+      // Chief conversation stays small (a team around one Chief), under the local cap.
+      if (cloud && head.kind !== "chief" ? memberCount(head) >= MAX_GROUP_MEMBERS : currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
       let stamped: Participant = participant
       if (cloud) {
+        if (request.banned === true) fail("banned")
+        const role = op.role === undefined ? "member" : grantableRole(op.role)
+        checkGrant(actor, role)
         // A known (departed) record's owner is trusted; a caller-supplied one only with the host's approval.
         const owner = findParticipant(head, participant.id)?.owner_user ?? participant.owner_user
         if (participant.kind === "agent" && owner !== request.actor && request.trusted_participant !== true) fail("forbidden")
-        stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role: "member", joined_seq: head.last_seq, added_by: request.actor }
+        stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role, joined_seq: head.last_seq, added_by: request.actor }
+      }
+      // The first share of a Chief's conversation shows teammates what comes next, not the owner's earlier
+      // one-to-one history (the owner may open it with conversation.settings.set history_visible all).
+      if (head.kind === "chief" && !head.participants.some((p) => p.kind === "human" && p.id !== actor.id)) {
+        next.settings = { ...(head.settings ?? DEFAULT_SETTINGS), history_visible: "since_join" }
       }
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
@@ -256,6 +276,16 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       return approveJoin(head, next, request, actor, op)
     case "conversation.settings.set":
       return setSettings(head, next, request, actor, op)
+    case "participants.set_role":
+      return setRole(head, next, request, actor, op)
+    case "ownership.transfer":
+      return transferOwnership(head, next, request, actor, op)
+    case "participants.unban":
+      return unban(head, next, request, actor, op)
+    case "grant.create":
+      return createGrant(head, next, request, actor, op)
+    case "grant.revoke":
+      return revokeGrant(head, next, request, actor, op)
     default:
       return fail("unsupported_op")
   }
@@ -276,13 +306,28 @@ const updated = (next: Draft, message: Message): Commit => {
 const sortedRecord = (record: Readonly<Record<string, number>>): Record<string, number> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 
-/** Agent text messages at the newest end of `recent` (newest first), up to the first human text. */
-const trailingAgentTexts = (head: ConversationHead, recent: ReadonlyArray<Message>): number => {
-  let count = 0
-  for (const message of recent) {
-    if (!hasText(message.parts)) continue
-    if (findParticipant(head, message.author)?.kind !== "agent") break
-    count++
-  }
-  return count
+/** Copies the loop-guard fields of `turned` (`withTurn`) onto the draft head. */
+const applyTurn = (next: Draft, turned: ConversationHead): void => {
+  const draft = next as { agent_text_streak?: number; last_agent_text_at?: string; thread_agent_streaks?: Readonly<Record<string, number>> }
+  if (turned.agent_text_streak !== undefined) draft.agent_text_streak = turned.agent_text_streak
+  if (turned.last_agent_text_at !== undefined) draft.last_agent_text_at = turned.last_agent_text_at
+  if (turned.thread_agent_streaks === undefined) delete draft.thread_agent_streaks
+  else draft.thread_agent_streaks = turned.thread_agent_streaks
+}
+
+/**
+ * `chief.rename` (system, from the owner's UserDO): the Chief's conversation shows the Chief's new
+ * name, as its title and on the Chief's own participant record. Only a Chief's conversation, only
+ * its own Chief; `title.set` stays refused there, so the record in UserDO is the one source.
+ */
+const renameChief = (head: ConversationHead, next: Draft, request: OpRequest, op: Extract<Op, { kind: "chief.rename" }>): Commit => {
+  if (head.kind !== "chief") fail("kind_forbids")
+  const chief = currentParticipant(head, op.chief)
+  if (!chief || chief.kind !== "agent") fail("unknown_participant")
+  validateTitle(op.display_name)
+  const renamed = validateParticipant({ ...chief, display_name: op.display_name }, true)
+  next.title = op.display_name
+  next.participants = upsertParticipant(head.participants, { ...chief, ...renamed })
+  next.updated_at = request.now
+  return conversationChanged(next, request)
 }

@@ -51,8 +51,26 @@ fn lose_a_host_after_a_signal(harness: &RecoveryHarness) {
 #[test]
 fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
     let mut harness = RecoveryHarness::start_without_respawn("restored-end");
-    lose_a_host_after_a_signal(&harness);
-    let before = sender_tab(&harness);
+    lose_a_host_then_restart_the_owner(&mut harness);
+}
+
+/// The owner stops right after the exit is visible, before it would have
+/// logged the loss after the commit (the debug-only seam holds it there):
+/// the cause is in the loss log already, so the restored end names it. It
+/// used to be logged after the commit, and an owner SIGTERM in between lost
+/// it (two loaded nextest runs on the macOS fleet, 2026-10-21).
+#[test]
+fn a_lost_hosts_cause_survives_an_owner_stop_right_after_the_exit() {
+    let mut harness = RecoveryHarness::start_unstarted("restored-end-early-stop");
+    harness.respawn = false;
+    harness.extra_env.push(("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS".into(), "3000".into()));
+    harness.restart();
+    lose_a_host_then_restart_the_owner(&mut harness);
+}
+
+fn lose_a_host_then_restart_the_owner(harness: &mut RecoveryHarness) {
+    lose_a_host_after_a_signal(harness);
+    let before = sender_tab(harness);
     assert_eq!(before["end"]["kind"], "host_lost", "before the restart: {before}");
     let content = before["content_resource_id"].clone();
     let cause = before["end"]["cause"].clone();
@@ -70,7 +88,7 @@ fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
     let _ = fs::remove_file(&harness.socket);
     harness.restart();
 
-    let after = sender_tab(&harness);
+    let after = sender_tab(harness);
     assert_eq!(after["dead"], true, "{after}");
     assert_eq!(after["content_resource_id"], content, "the tab keeps its content id: {after}");
     assert_eq!(after["end"]["kind"], "host_lost", "the tab keeps its typed end: {after}");

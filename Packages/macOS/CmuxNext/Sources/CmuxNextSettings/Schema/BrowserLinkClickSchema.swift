@@ -10,10 +10,12 @@ nonisolated enum BrowserLinkClickSchema {
     }
 
     /// `browser.links.*`: what each modified link click does (Chrome's
-    /// defaults), one choice row each.
+    /// defaults, except Command-click: `layout.linkPlacement`), one choice row each.
     static var descriptors: [SettingDescriptor] {
         let links = SettingsText.keyed("settings.group.links", "Links")
         let choices = [
+            SettingChoice(BrowserLinkClickSetting.Action.linkPlacement.rawValue,
+                          SettingsText.keyed("settings.choice.link.linkPlacement", "Same as Open Links and Files")),
             SettingChoice(BrowserLinkClickSetting.Action.backgroundTab.rawValue,
                           SettingsText.keyed("settings.choice.link.backgroundTab", "New Background Tab")),
             SettingChoice(BrowserLinkClickSetting.Action.foregroundTab.rawValue,

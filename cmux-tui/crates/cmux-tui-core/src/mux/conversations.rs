@@ -59,9 +59,101 @@ impl Mux {
         let _order = self.conversations.publish.lock().unwrap();
         let value = self.with_conversations(write)?;
         for event in publish(&value) {
+            // A participant's posted message ends its typing (every client
+            // drops it on the message; the owner's state follows, so the Home
+            // rows never show a Chief working after it answered).
+            if let MuxEvent::Conversation(change) = &event
+                && let crate::conversation_store::ConversationEvent::Changed {
+                    conversation,
+                    change,
+                    ..
+                } = change.as_ref()
+                && change["kind"] == "message"
+                && let Some(author) = change["message"]["author"].as_str()
+            {
+                self.set_conversation_typing(conversation, author, false);
+            }
             self.emit(event);
         }
         Ok(value)
+    }
+
+    /// Publishes one live frame of `actor`'s running run (`chief-live-v1`):
+    /// checked against the run, kept in the live buffer and sent to the
+    /// connections that asked, with the run's agent. A step that starts again
+    /// (`seq` 0) sends the conversation's `run.live` instead. Under the publish
+    /// lock, so no frame of a run goes out after the run's end.
+    pub(crate) fn conversation_live_publish(
+        &self,
+        conversation: &str,
+        actor: &str,
+        frame: &crate::conversation_live::LiveFrame,
+    ) -> anyhow::Result<()> {
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
+        self.with_conversations(|store| store.live_run(conversation, actor, frame.run()))?;
+        let applied = self
+            .conversations
+            .live
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .apply(conversation, actor, frame, Instant::now())?;
+        let wire = match applied {
+            crate::conversation_live::Applied::Frame => frame.wire(actor),
+            crate::conversation_live::Applied::Reset => self.live_snapshot(conversation)?,
+        };
+        self.emit(MuxEvent::Conversation(Arc::new(
+            crate::conversation_store::ConversationEvent::Live {
+                conversation: conversation.to_owned(),
+                frame: wire,
+            },
+        )));
+        Ok(())
+    }
+
+    /// The `run.live` snapshot of `conversation`: the text so far of its
+    /// running runs. Under the publish lock, so a run that starts meanwhile
+    /// keeps its text.
+    pub(crate) fn conversation_live(&self, conversation: &str) -> anyhow::Result<Value> {
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
+        self.live_snapshot(conversation)
+    }
+
+    /// The snapshot; the caller holds the publish lock.
+    fn live_snapshot(&self, conversation: &str) -> anyhow::Result<Value> {
+        let runs = self
+            .conversations
+            .live
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .runs_of(conversation);
+        let running = self.with_conversations(|store| store.running_of(conversation, &runs))?;
+        Ok(self.conversations.live.lock().unwrap_or_else(PoisonError::into_inner).snapshot(
+            conversation,
+            &runs,
+            &running,
+        ))
+    }
+
+    /// A run's rows were written: an ended run's live text goes, and so does
+    /// each talk or thought step's whose stream ended (`steps`).
+    pub(crate) fn conversation_live_rows(
+        &self,
+        conversation: &str,
+        run: &str,
+        ended: bool,
+        steps: &[String],
+    ) {
+        let mut live = self.conversations.live.lock().unwrap_or_else(PoisonError::into_inner);
+        if ended {
+            live.end(conversation, run);
+        } else {
+            live.rows_written(conversation, run, steps);
+        }
+    }
+
+    /// The Chief registry (chief_registry.rs).
+    pub(crate) fn chiefs(&self) -> &crate::chief_registry::ChiefHost {
+        &self.chiefs
     }
 
     /// The remote-relay state (peers, pairing records, revocation limits).
@@ -69,7 +161,7 @@ impl Mux {
         &self.conversations.remote
     }
 
-    /// The agent participant `client` bound with a token, if any. The
+    /// The agent or person participant `client` bound with a token, if any. The
     /// principal itself (`conversation_principal`) lives with the relay
     /// policy (server/remote_relay), which fails closed for remote
     /// connections.
@@ -94,6 +186,38 @@ impl Mux {
         Ok(())
     }
 
+    /// Binds `client` to `participant` when `check` (the credential check)
+    /// passes, holding the bindings lock across both, so a credential revoked
+    /// by [`Mux::claim_unbound_participant`] never binds after it. Lock order:
+    /// bindings, then the conversation store.
+    pub(crate) fn bind_conversation_principal_if(
+        &self,
+        client: u64,
+        participant: String,
+        check: impl FnOnce() -> anyhow::Result<bool>,
+    ) -> anyhow::Result<bool> {
+        let mut bindings = lock_checked(&self.conversations.bindings, RelayLock::Bindings)?;
+        if !check()? {
+            return Ok(false);
+        }
+        bindings.insert(client, participant);
+        Ok(true)
+    }
+
+    /// For `chief.profile.adopt`: when no connection is bound to
+    /// `participant`, revokes every credential issued for it and answers
+    /// true; a bound participant answers false and nothing changes. Under the
+    /// bindings lock, so no bind lands between the check and the revoke.
+    pub(crate) fn claim_unbound_participant(&self, participant: &str) -> anyhow::Result<bool> {
+        let bindings = lock_checked(&self.conversations.bindings, RelayLock::Bindings)?;
+        if bindings.values().any(|bound| bound == participant) {
+            return Ok(false);
+        }
+        self.with_conversations(|store| store.revoke_agent_token(participant))?;
+        drop(bindings);
+        Ok(true)
+    }
+
     /// The bindings lock (tests poison it).
     #[cfg(test)]
     pub(crate) fn conversation_bindings(&self) -> &Mutex<std::collections::BTreeMap<u64, String>> {
@@ -113,13 +237,23 @@ impl Mux {
         }
     }
 
+    /// Everyone typing now, by conversation (one lock for the Home rows).
+    pub(crate) fn conversation_typing_all(&self) -> HashMap<String, Vec<String>> {
+        let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        typing
+            .iter()
+            .map(|(conversation, set)| (conversation.clone(), set.iter().cloned().collect()))
+            .collect()
+    }
+
     /// The participants typing in `conversation` now, sorted.
     pub(crate) fn conversation_typing(&self, conversation: &str) -> Vec<String> {
         let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
         typing.get(conversation).map(|set| set.iter().cloned().collect()).unwrap_or_default()
     }
 
-    /// An agent whose last bound connection ended types nowhere any more:
+    /// An agent or person whose last bound connection ended (or whose token
+    /// was replaced) types nowhere any more:
     /// clear its typing and tell subscribers, so no client waits on a
     /// typing indicator nobody will turn off.
     fn end_agent_typing(&self, participant: &str) {
@@ -166,7 +300,10 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&client);
-        if let Some(participant) = bound.filter(|p| p.starts_with("agent_")) {
+        // A bound agent or person: its typing ends with its last connection.
+        if let Some(participant) =
+            bound.filter(|p| p.starts_with("agent_") || p.starts_with("user_"))
+        {
             self.end_agent_typing(&participant);
         }
         // Safety: a removal never grants access, so a poisoned peers lock
@@ -190,15 +327,19 @@ impl Mux {
     /// unbound trusted connection is `user_local`, so removing the binding
     /// would make the old agent connection the person. The marker names no
     /// participant (`:` is not allowed in a participant id), so it fails
-    /// closed until the connection binds again with the new token.
+    /// closed until the connection binds again with the new token. Its
+    /// typing ends with the old binding.
     pub(crate) fn unbind_conversation_participant(&self, participant: &str) {
         let revoked = format!("{REVOKED_BINDING_PREFIX}{participant}");
-        let mut bindings =
-            self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner);
-        for bound in bindings.values_mut() {
-            if bound == participant {
-                bound.clone_from(&revoked);
+        {
+            let mut bindings =
+                self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner);
+            for bound in bindings.values_mut() {
+                if bound == participant {
+                    bound.clone_from(&revoked);
+                }
             }
         }
+        self.end_agent_typing(participant);
     }
 }

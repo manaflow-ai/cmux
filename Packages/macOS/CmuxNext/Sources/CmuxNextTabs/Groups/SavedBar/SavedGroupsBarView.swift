@@ -48,7 +48,7 @@ public final class SavedGroupsBarView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: Self.preferredHeight) }
 
     public override func accessibilityChildren() -> [Any]? {

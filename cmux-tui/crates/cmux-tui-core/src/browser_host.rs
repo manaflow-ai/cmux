@@ -442,7 +442,10 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
 
 /// In the forked child: `fds` become 3, 4, ... in order (moved above 9
 /// first, so no source is overwritten), with close-on-exec cleared; every
-/// other descriptor above them is closed.
+/// other descriptor above them is marked close-on-exec. Marking, not
+/// closing: `Command::spawn` reports a failed exec over a private pipe,
+/// and closing it made the child abort ("crashed on child side of fork
+/// pre-exec") instead of returning the error.
 #[cfg(unix)]
 fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Result<()> {
     let mut high = [0 as libc::c_int; 4];
@@ -450,7 +453,7 @@ fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Resu
     // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
     unsafe {
         for (slot, fd) in high.iter_mut().zip(fds) {
-            *slot = libc::fcntl(*fd, libc::F_DUPFD, 10);
+            *slot = libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 10);
             if *slot < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -462,7 +465,7 @@ fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Resu
             }
         }
         for other in (3 + count as libc::c_int)..max_fd {
-            libc::close(other);
+            libc::fcntl(other, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
     Ok(())

@@ -63,7 +63,7 @@ public struct ConversationThread: Decodable, Sendable, Equatable {
 public struct ConversationThreadRequest: DaemonRequest {
     public typealias Response = ConversationThread
     public static let command = "conversation-thread"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationThread
+    public static let requiredCapability: String? = DaemonCapability.conversationThread.rawValue
     public static let maxLimit = 500
     public var conversation: String
     public var root: String

@@ -1,0 +1,102 @@
+/* The chat minimap (ChatMinimap.tsx): VS Code's minimap at the transcript's right edge, over the
+   scroller like the thread rail (sticky, no height), so it shifts no layout. Its canvas reads the
+   chat's tokens through its own computed colors: `color` for replies, the top border for prompts
+   (the accent, as the prompt bubble), the bottom border for tool groups (muted). */
+.acpmux-chat-minimap {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky);
+  height: 0;
+}
+/* Sized inline, so it contains its own layout and style (not paint: that would clip the focus ring). */
+.acpmux-chat-minimap__track {
+  position: absolute;
+  contain: size layout style;
+  cursor: default;
+  border-radius: 4px;
+  outline: none;
+}
+.acpmux-chat-minimap__track:focus-visible {
+  box-shadow: 0 0 0 2px var(--agent-accent);
+}
+.acpmux-chat-minimap__canvas {
+  display: block;
+  color: var(--agent-text);
+  border-top-color: var(--agent-accent);
+  border-bottom-color: var(--agent-muted);
+  border-style: none;
+}
+/* What is on screen: a faint band, stronger under the pointer or while dragged (VS Code's slider). */
+.acpmux-chat-minimap__view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  will-change: transform;
+  pointer-events: none;
+}
+.acpmux-chat-minimap__track:hover .acpmux-chat-minimap__view {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-chat-minimap__track[data-dragging] .acpmux-chat-minimap__view {
+  background: color-mix(in srgb, var(--agent-text) 24%, transparent);
+}
+/* Session Info floating over the chat's right side (design/session-info.md): the minimap steps
+   aside while it is open, so neither lies over the other. Pushing, the chat narrows beside it and
+   the minimap stays at the chat's new edge. */
+.acpmux-shell[data-inspector-chat-placement="overlay"] .acpmux-chat-minimap {
+  visibility: hidden;
+}
+/* The streaming reply's place while the minimap is frozen (ChatMinimap.tsx): a grey block with a soft
+   light band sweeping down it (Leo, 2026-10-26: "You can even do, like, a cute shimmer effect"). It
+   exists only while a reply streams, so the shimmer stops when it unmounts at the stream's end. The
+   band moves by transform only (compositor). Reduce Motion (the OS or cmux's) keeps the plain block. */
+.acpmux-chat-minimap__placeholder {
+  position: absolute;
+  left: 0;
+  right: 8%;
+  overflow: hidden;
+  border-radius: 2px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-chat-minimap__placeholder[data-look="shimmer"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--agent-text) 24%, transparent), transparent);
+  transform: translateY(-100%);
+  animation: acpmux-chat-minimap-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes acpmux-chat-minimap-shimmer {
+  to {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-chat-minimap__placeholder::after {
+    display: none;
+  }
+}
+:root[data-cmux-motion="reduced"] .acpmux-chat-minimap__placeholder::after,
+:root[data-cmux-motion="off"] .acpmux-chat-minimap__placeholder::after {
+  display: none;
+}
+/* The other looks (placeholder.experiment.ts), compared in the gallery: none moves. */
+.acpmux-chat-minimap__placeholder[data-look="skeleton"] {
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-chat-minimap__placeholder[data-look="dotted"] {
+  background: none;
+  outline: 1px dashed color-mix(in srgb, var(--agent-text) 35%, transparent);
+  outline-offset: -1px;
+}
+.acpmux-chat-minimap__placeholder[data-look="lines"] {
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--agent-text) 22%, transparent) 0 1px,
+    transparent 1px 2px
+  );
+}

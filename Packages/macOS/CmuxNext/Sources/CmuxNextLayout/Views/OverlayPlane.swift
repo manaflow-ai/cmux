@@ -90,11 +90,14 @@ public final class OverlayPlane: NSView {
     }
 
     /// The nearest view at or above `view` whose layer clips with a corner
-    /// radius: its bounds in window coordinates and its radius.
+    /// radius, or above `view` clips square (the main pane while a sidebar
+    /// slide holds content wider than it, `MainPaneCardView.contentHold`): its
+    /// bounds in window coordinates and its radius. `view`'s own square clip
+    /// is its bounds, which the plane's frame already is.
     static func roundedClip(around view: NSView) -> (rect: CGRect, radius: CGFloat)? {
         var current: NSView? = view
         while let candidate = current {
-            if let layer = candidate.layer, layer.masksToBounds, layer.cornerRadius > 0 {
+            if let layer = candidate.layer, layer.masksToBounds, layer.cornerRadius > 0 || candidate !== view {
                 return (candidate.convert(candidate.bounds, to: nil), layer.cornerRadius)
             }
             current = candidate.superview

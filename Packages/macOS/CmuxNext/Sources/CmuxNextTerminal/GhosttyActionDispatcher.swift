@@ -19,6 +19,7 @@ enum GhosttyActionDispatcher {
         case .reloadConfig(let soft):
             guard let runtime else { return false }
             if soft, let app = runtime.app, let config = runtime.config {
+                runtime.applyColorTransitionToSurfaces()
                 ghostty_app_update_config(app, config)
                 // Surfaces with their own theme take it back.
                 runtime.onConfigChange?()

@@ -65,19 +65,83 @@ pub(super) fn paste_image(
     .handle(mux, client)
 }
 
-#[allow(clippy::too_many_arguments)] // the `send` command's fields, plus the connection
+/// `send-expect-foreground-v1`: `send` takes `expect_foreground`.
+pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foreground-v1";
+
+/// `send-expect-agent-v1`: `send` takes `expect_agent` and `submit`, so a reply typed from
+/// somewhere that cannot see the screen (the phone's Feed) reaches only the agent that waits at
+/// its prompt, and is submitted with no gap between the text and Return.
+pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
+
+/// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
+/// `blocked` on an approval or a question, or `done`), in this harness session.
+#[derive(serde::Deserialize)]
+pub(super) struct ExpectAgent {
+    /// The harness's own session id (`list-agents` `agent_session_id`, the `notification`
+    /// event's `session`): a restarted agent in the same terminal is another session. Required:
+    /// a send without it is refused.
+    #[serde(default)]
+    pub(super) session: Option<String>,
+}
+
+/// The params of `send`.
+#[derive(serde::Deserialize)]
+pub(super) struct SendParams {
+    /// The terminal surface; or `terminal_id` (exactly one).
+    #[serde(default)]
+    pub(super) surface: Option<SurfaceId>,
+    /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
+    /// being created (the input is queued for it, `mux::creating_input`).
+    #[serde(default)]
+    pub(super) terminal_id: Option<String>,
+    #[serde(default)]
+    pub(super) text: Option<String>,
+    /// Base64-encoded raw bytes, written verbatim to the pty.
+    #[serde(default)]
+    pub(super) bytes: Option<String>,
+    #[serde(default)]
+    pub(super) paste: bool,
+    /// `send-expect-foreground-v1`: write only while the terminal's foreground executable is
+    /// still this one (`process-info`'s `foreground_executable`), checked just before the write.
+    #[serde(default)]
+    pub(super) expect_foreground: Option<String>,
+    /// `send-expect-agent-v1`: write only while the terminal's agent waits at its prompt,
+    /// checked just before the write with `expect_foreground`.
+    #[serde(default)]
+    pub(super) expect_agent: Option<ExpectAgent>,
+    /// `send-expect-agent-v1`: Return as its own key right after the text, under the same checks.
+    #[serde(default)]
+    pub(super) submit: bool,
+    /// The app's id of the key press this input carries (`CMUX_TRACE_FLOWS`, trace.py key-press
+    /// flows); only recorded, never acted on. An older daemon ignores it.
+    #[serde(default)]
+    pub(super) flow: Option<u64>,
+}
+
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
-    surface: Option<SurfaceId>,
-    terminal_id: Option<String>,
-    text: Option<String>,
-    bytes: Option<String>,
-    paste: bool,
+    params: SendParams,
 ) -> anyhow::Result<Value> {
+    let SendParams {
+        surface,
+        terminal_id,
+        text,
+        bytes,
+        paste,
+        expect_foreground,
+        expect_agent,
+        submit,
+        flow,
+    } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
+        (None, Some(_)) if expect_foreground.is_some() || expect_agent.is_some() || submit => {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "bad request: expect_foreground, expect_agent and submit need surface, not terminal_id"
+            )));
+        }
         (None, Some(terminal_id)) => {
             return super::creating_input::send_to_terminal(
                 mux,
@@ -95,6 +159,39 @@ pub(super) fn send(
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
+    // A reply meant for the program that asked must not reach the shell that took the foreground
+    // back after it exited: checked here, right before the write, not a round trip earlier.
+    if let Some(expected) = expect_foreground {
+        let found = surface.process_id().and_then(platform::foreground_process_name);
+        if found.as_deref() != Some(expected.as_str()) {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "foreground changed: the expected program no longer runs in the foreground"
+            )));
+        }
+    }
+    if let Some(expected) = expect_agent {
+        // Only this surface's own terminal's record: a surface with no terminal id fails closed
+        // (an unfiltered roster would name another terminal's agent).
+        let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
+            mux.list_agents(Some(surface.id), None)
+                .into_iter()
+                .find(|record| record.terminal_id == terminal)
+        });
+        // Idle only: `done` is an agent that ended, whose terminal is back at its shell or exiting.
+        // A session is required: without one a restarted agent would pass.
+        let waiting = agent.as_ref().is_some_and(|agent| {
+            agent.state == crate::AgentState::Idle
+                && expected
+                    .session
+                    .as_deref()
+                    .is_some_and(|session| agent.agent_session_id.as_deref() == Some(session))
+        });
+        if !waiting {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent not waiting: the terminal's agent is working, asking, or another session"
+            )));
+        }
+    }
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -107,8 +204,26 @@ pub(super) fn send(
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+            cmux_flow_trace::hop(
+                "daemon.send.write",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
             surface.write_bytes(&raw)?;
+            cmux_flow_trace::hop(
+                "daemon.send.written",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
         }
+    }
+    if submit {
+        // Return as its own key: a full-screen agent editor reads a pasted newline as a line
+        // break, not a submit.
+        // The text is already in: a failed Return must not read as "nothing was written".
+        surface.write_bytes(b"\r").map_err(|error| {
+            anyhow::anyhow!("submit failed after the text was written: {error}")
+        })?;
     }
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))
@@ -367,7 +482,10 @@ pub(super) fn set_default_colors(
                 let index = index
                     .parse::<u8>()
                     .map_err(|_| anyhow::anyhow!("invalid palette index {index}"))?;
-                palette[index as usize] = Some(parse_hex_color(&value)?);
+                let color = parse_hex_color(&value)?;
+                if let Some(slot) = palette.get_mut(usize::from(index)) {
+                    *slot = Some(color);
+                }
             }
             palette
         }
@@ -428,10 +546,10 @@ pub(super) fn scroll_surface(
 }
 
 fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' {
-        anyhow::bail!("bad color {value:?} (want \"#rrggbb\")");
-    }
+    let bad = || anyhow::anyhow!("bad color {value:?} (want \"#rrggbb\")");
+    let Some(bytes) = value.as_bytes().strip_prefix(b"#").filter(|bytes| bytes.len() == 6) else {
+        return Err(bad());
+    };
     let nibble = |b: u8| -> anyhow::Result<u8> {
         match b {
             b'0'..=b'9' => Ok(b - b'0'),
@@ -441,7 +559,10 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
         }
     };
     let hex = |idx: usize| -> anyhow::Result<u8> {
-        Ok((nibble(bytes[idx])? << 4) | nibble(bytes[idx + 1])?)
+        let (Some(&high), Some(&low)) = (bytes.get(idx), bytes.get(idx + 1)) else {
+            return Err(bad());
+        };
+        Ok((nibble(high)? << 4) | nibble(low)?)
     };
-    Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
+    Ok(Rgb { r: hex(0)?, g: hex(2)?, b: hex(4)? })
 }

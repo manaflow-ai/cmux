@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -72,7 +73,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
                 targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace.id,
                 profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
                 url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id))
+                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
         }
     }
 
@@ -87,7 +88,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     // MARK: ProviderAccessSource
 
     /// The interim extension rule (plans/cmux-next/passwords.md, section 3.4),
-    /// the same formula as `AppBrowserPage.agentExtensionRefusal`.
+    /// reported to the host for display only: since #24413 it gates nothing.
     func access(forTab targetID: String) -> ProviderTabAccess {
         guard let services else { return ProviderTabAccess(extensionHostAccess: false, userOverride: false, extensions: []) }
         let cache: TabContentCache = services.cache
@@ -211,6 +212,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         return pane
     }
 
+    /// A hibernated tab a WebKit session calls is restored in the background
+    /// and awaited (``AppBrowserPage/awakePage(_:page:cache:within:)``).
+    func wakeIfHibernated(_ targetID: String) async {
+        guard let services, isDrivable(targetID), let page = services.cache.existingBrowser(targetID)?.tab,
+              page.engineKind == .webkit else { return }
+        services.cache.hibernation?.noteAgentUse(targetID)
+        _ = await AppBrowserPage.awakePage(targetID, page: page, cache: services.cache, within: AppBrowserPage.actionWait)
+    }
+
     /// A WebKit tab no pane shows moves its chrome into an off-screen render
     /// window before a driver call (``AgentRenderWindows``); a pane that
     /// shows it later takes it back.
@@ -246,7 +256,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func endSessionTab(_ id: String) async -> Bool {
         guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
         let daemon = services.daemon
-        guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return false }
+        guard daemon.supports(DaemonCapability.closeReason.rawValue) else { return false }
         let surface = tab.surface
         let cache: TabContentCache = services.cache
         // One store close; the page goes with it, as after a person's close.

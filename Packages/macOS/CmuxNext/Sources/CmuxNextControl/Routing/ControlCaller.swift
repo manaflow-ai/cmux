@@ -15,10 +15,14 @@ import Foundation
 struct ControlCaller: Sendable, Equatable {
     var agentSession: String?
     var terminalID: String?
+    /// `caller.home_chat`: a Chief turn (the Chief host sets it). The app does
+    /// not know a turn's agent session, so its chat is the Home chat.
+    var homeChat = false
 
-    init(agentSession: String? = nil, terminalID: String? = nil) {
+    init(agentSession: String? = nil, terminalID: String? = nil, homeChat: Bool = false) {
         self.agentSession = agentSession
         self.terminalID = terminalID
+        self.homeChat = homeChat
     }
 
     /// The request's `caller`, nil when it names none. A malformed one is
@@ -38,7 +42,13 @@ struct ControlCaller: Sendable, Equatable {
         }
         agentSession = try text("agent_session")
         terminalID = try text("terminal_id")
-        guard agentSession != nil || terminalID != nil else { return nil }
+        if let flag = members["home_chat"], !flag.isNull {
+            guard case .bool(let on) = flag else {
+                throw ControlError.invalidParams(ControlStrings.format("control.error.mustBeBoolean", "%@ must be true or false", "caller.home_chat"))
+            }
+            homeChat = on
+        }
+        guard agentSession != nil || terminalID != nil || homeChat else { return nil }
     }
 }
 
@@ -56,6 +66,25 @@ struct ControlCallerLocation: Sendable, Equatable {
     /// The caller's chat tab (agent session) or terminal tab, nil when the
     /// topology shows neither.
     static func resolve(_ caller: ControlCaller, in topology: ControlTopology) -> Self? {
+        own(caller, in: topology) ?? (caller.homeChat ? homeChat(caller, in: topology) : nil)
+    }
+
+    /// The Home workspace's docked chat tab (page `home-dock`, HomeDock.page),
+    /// for a Chief turn whose own session the topology does not show.
+    static func homeChat(_ caller: ControlCaller, in topology: ControlTopology) -> Self? {
+        for workspace in topology.workspaces where workspace.kind == "home" {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    guard let tab = pane.tabs.first(where: { $0.page == "home-dock" }) else { continue }
+                    return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
+                                beside: besidePane(of: pane, on: screen))
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func own(_ caller: ControlCaller, in topology: ControlTopology) -> Self? {
         for workspace in topology.workspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
@@ -129,8 +158,11 @@ extension ControlRouter {
     /// column right of its chat (beside_caller). An explicit target wins;
     /// a caller the topology does not show leaves the run as it is.
     static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) {
-        guard besideCallerActions.contains(action.id), request.target == nil, let session = request.callerAgentSession,
-              let location = ControlCallerLocation.resolve(ControlCaller(agentSession: session), in: topology) else { return }
+        guard besideCallerActions.contains(action.id), request.target == nil,
+              request.callerAgentSession != nil || request.callerHomeChat,
+              let location = ControlCallerLocation.resolve(ControlCaller(agentSession: request.callerAgentSession,
+                                                                        homeChat: request.callerHomeChat), in: topology)
+        else { return }
         let paneTarget = action.targets.contains("pane")
         if let beside = location.beside, paneTarget {
             request.target = ControlTargetRef(kind: "pane", id: beside.id)

@@ -199,7 +199,7 @@ final class PageRelayChannel {
         guard let relayID = identity.connectionID else { throw DaemonError.notConnected }
         let issued = try await ResourceRelayClient(connection: main).send(
             operation: "origin.confirmation.issue",
-            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params)),
+            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params, operation: operation)),
                      "relay_connection_id": .string(relayID)],
             idempotencyKey: nil)
         guard case .object(let members) = issued, case .string(let token)? = members["token"] else {

@@ -82,5 +82,16 @@ extension AppActions {
             window.focus.send(.focusPane(pane.paneKey, source: .intent))
             window.focus.send(.focusTarget(.addressBar, source: .intent))
         })
+        // Opt-Cmd-F (Chrome's Search the Web): the address bar as Cmd-L
+        // focuses it, then a search with the default engine ("Search Google").
+        registry.bind("browser.focusSearch", isEnabled: { chrome() != nil }, invoke: { invocation in
+            guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
+                  let window = services.windowController(showing: pane) else { return }
+            if !entry.chrome.addressBar.isEditing {
+                window.focus.send(.focusPane(pane.paneKey, source: .intent))
+                window.focus.send(.focusTarget(.addressBar, source: .intent))
+            }
+            entry.chrome.addressBar.beginSearch()
+        })
     }
 }

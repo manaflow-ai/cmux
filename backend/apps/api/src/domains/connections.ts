@@ -226,6 +226,14 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         return { ok: true, state: withLockChange(state, next, ctx.newId), value: next }
       }
 
+      case "integration.github.token_minted": {
+        // The mint's audit record (integrations/github-tokens.ts): state stays; TeamDO appends it to the team's audit chain.
+        const d = decodeParams<{ team: string; token_id: string }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        if (p.kind !== "system" || !state.owner || d.value.team !== state.owner) return reject("auth.forbidden", "internal op of this team's ConnectionDO")
+        return { ok: true, state, value: d.value, outbox: [{ kind: "team.github.token_minted", entity: `ghtok:${d.value.token_id}`, payload: d.value, target: { class: "TeamDO", name: state.owner } }] }
+      }
+
       case "integration.policy.release_managed": {
         const held = policyOf(state)
         if (!lockOf(held)) return { ok: true, state, value: held, changed: false }

@@ -8,6 +8,8 @@ export const TABLE_INV = "inv"
 export const TABLE_INVHASH = "invhash"
 /** Per-user unread and mention counts (key = user id), kept by the owner for inbox bumps; private. */
 export const TABLE_UNREAD = "unread"
+/** People removed with a ban (key = participant id, row = { by, at }); private, cleared by `participants.unban`. */
+export const TABLE_BAN = "ban"
 /** A recount (a cursor moved back, or a conversation older than the table) reads at most this many messages. */
 export const UNREAD_RECOUNT_LIMIT = 1000
 

@@ -153,11 +153,9 @@ pub fn is_session_host_argv(argv: &[String], bin: &Path) -> bool {
     let Some(bin) = bin.to_str() else { return false };
     (0..=1).any(|i| {
         argv.get(i).is_some_and(|a| a == bin)
-            && argv.len() >= i + 1 + IDENTITY_ARGS.len()
-            && argv[i + 1..i + 1 + IDENTITY_ARGS.len()]
-                .iter()
-                .zip(IDENTITY_ARGS)
-                .all(|(a, b)| a == b)
+            && argv
+                .get(i + 1..i + 1 + IDENTITY_ARGS.len())
+                .is_some_and(|args| args.iter().zip(IDENTITY_ARGS).all(|(a, b)| a == b))
     })
 }
 

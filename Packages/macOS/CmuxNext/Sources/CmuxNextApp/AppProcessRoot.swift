@@ -16,4 +16,12 @@ final class AppProcessRoot {
     func adopt(_ services: AppServices) {
         self.services = services
     }
+
+    /// This launch's opt-in hang reports (`WatchdogReporting`); nil in tests and before launch.
+    private(set) var hangReports: HangReportsController?
+
+    /// Holds `controller` for the rest of the process.
+    func adopt(hangReports controller: HangReportsController) {
+        hangReports = controller
+    }
 }

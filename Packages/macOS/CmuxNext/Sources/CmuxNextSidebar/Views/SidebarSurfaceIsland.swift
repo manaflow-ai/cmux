@@ -18,6 +18,8 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onHeightChange: (() -> Void)? { get set }
     /// The page ran one of its actions (the popover then closes).
     var onAction: (() -> Void)? { get set }
+    /// The page's x: the host sends its card's dismiss intent (one path for every card's x).
+    var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
 }
@@ -28,14 +30,27 @@ public protocol SidebarUpdateSurfaces: AnyObject {
     func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland
 }
 
-/// The popover's content: the ready surface, and the pointer leaving it
-/// (the popover then closes unless the pointer is back on the card).
+/// The popover's content: the ready surface, and the pointer coming into it
+/// (a pending close is called off) and leaving it (the popover then closes
+/// after a short delay unless the pointer is back on it or the card).
 final class SidebarPopoverIslandHost: NSView {
+    var onPointerEnter: (() -> Void)?
     var onPointerExit: (() -> Void)?
     private var tracking: NSTrackingArea?
 
+    /// The host's height in a hover card (the card fits its body); its width is fixed.
+    private var heightConstraint: NSLayoutConstraint?
+
     init(width: CGFloat) {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 1))
+        let height = heightAnchor.constraint(equalToConstant: 1)
+        NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: width), height])
+        heightConstraint = height
+    }
+
+    /// Sizes the host `height` tall (the page's height, capped to its window).
+    func fit(height: CGFloat) {
+        heightConstraint?.constant = max(1, height)
     }
 
     /// Moves the surface's page view in (it waits parked in the card while
@@ -58,6 +73,10 @@ final class SidebarPopoverIslandHost: NSView {
         let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onPointerEnter?()
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -87,62 +106,8 @@ final class SidebarIslandParking: NSView {
     override func accessibilityChildren() -> [Any]? { [] }
 }
 
-/// The "cmux Updated!" card's slot view: the updated surface, sized to the
-/// page's height. Hidden without a card or a surface.
-final class SidebarUpdatedCardHost: NSView {
-    private(set) var card: SidebarUpdatedCard?
-    /// The page's height changed: the sidebar lays the slot out again.
-    var onHeightChange: (() -> Void)?
-    /// Makes ``island`` once a card shows (a web page; none at launch without one).
-    var surfaces: (any SidebarUpdateSurfaces)? {
-        didSet {
-            island?.close()
-            island = card == nil ? nil : surfaces?.island(.updated)
-            isHidden = card == nil || island == nil
-        }
-    }
-    var island: (any SidebarSurfaceIsland)? {
-        didSet {
-            oldValue?.view.removeFromSuperview()
-            guard let island else { return }
-            island.view.frame = bounds
-            island.view.autoresizingMask = [.width, .height]
-            addSubview(island.view)
-            island.onHeightChange = { [weak self] in self?.onHeightChange?() }
-        }
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        isHidden = true
-        setAccessibilityElement(false)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    override var isFlipped: Bool { true }
-
-    /// Shows the card (the page draws its text), or hides the view and
-    /// closes its page.
-    func configure(_ card: SidebarUpdatedCard?) {
-        guard card != self.card else { return }
-        self.card = card
-        if card != nil, island == nil { island = surfaces?.island(.updated) }
-        if card == nil, let island {
-            // The card went away (dismissed): its page goes too (cx-asynu).
-            island.close()
-            self.island = nil
-        }
-        isHidden = card == nil || island == nil
-    }
-
-    /// The card's height: the page's content height (0 until it drew).
-    var height: CGFloat { card == nil ? 0 : island?.contentHeight ?? 0 }
-}
-
 #if DEBUG
-extension SidebarView {
+extension SidebarViewComponents {
     /// Proofs (`debug.update_surfaces`): opens the staged card's highlights
     /// popover as a hover would; whether it shows.
     public func debugShowUpdateHighlights() -> [String: String] {
@@ -163,7 +128,19 @@ extension SidebarView {
          "highlights": String(updateCardView.highlights != nil),
          "updatedCard": String(updatedCardView.card != nil),
          "updatedPage": String(updatedCardView.island != nil),
-         "updatedHeight": String(Double(updatedCardView.height))]
+         "updatedHeight": String(Double(updatedCardView.height)),
+         "updatedCloseShown": String(updatedCardView.closeShown)]
+    }
+
+    /// Proofs (`debug.update_surfaces`): the Updated card's x while the card shows.
+    public var debugUpdatedCloseButton: NSView? {
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.closeButton
+    }
+
+    /// Proofs (`debug.update_surfaces`): the Updated card's page view while it shows, for a
+    /// window hit test at its x.
+    public var debugUpdatedPageView: NSView? {
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.island?.view
     }
 }
 #endif

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CryptoKit
 import Foundation
@@ -32,14 +33,14 @@ extension FeedHandoffDriver {
         for (key, value) in [("workspace", item.context.workspace), ("tab", item.context.tab), ("terminal", item.context.terminal)] {
             if let value, !value.isEmpty { context[key] = cut(value, 128) }
         }
-        let title = cut(FeedSecretScrubber.scrubPrefix(content.title), 200)
+        let title = cut(content.title.secretsScrubbedPrefix, 200)
         let cloud: [String: Any] = [
             "id": cloudID(install: install, local: item.id),
             "home": "local:\(install)",
             "type": "notice",
             "kind": "notice",
             "title": title.isEmpty ? "cmux" : title,
-            "body": cut(FeedSecretScrubber.scrubPrefix(content.body), 4096),
+            "body": cut(content.body.secretsScrubbedPrefix, 4096),
             "priority": high ? "high" : "normal",
             "dedupe_key": cut(item.dedupeKey, 200),
             "thread": orNull(item.context.tab.map { cut("tab:\($0)", 200) }),

@@ -11,7 +11,7 @@ pub const BACKEND_INTERFACE: &str = "cmux.terminal.backend/1";
 /// Longest `exit.message` (far-end text, shown and never parsed).
 pub const MAX_EXIT_MESSAGE: usize = 4 * 1024;
 
-/// The terminal grid. The session host decides it (smallest viewer wins).
+/// The terminal grid. The session host decides it (its sizing policy; by default the last active viewer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Grid {
     pub cols: u16,

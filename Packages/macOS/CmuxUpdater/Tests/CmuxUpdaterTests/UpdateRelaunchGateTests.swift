@@ -7,8 +7,14 @@ import Testing
 @MainActor
 private final class BlockerHost: UpdateActionDelegate {
     var blockers = UpdateRelaunchBlockers.empty
+    var allowsAutomaticInstall = true
+    var automaticInstallsPrepared = 0
 
     func updaterRequestsRetryCheckForUpdates() {}
+    func updaterPrepareAutomaticInstall() -> Bool {
+        automaticInstallsPrepared += 1
+        return allowsAutomaticInstall
+    }
     func updaterWillRelaunchApplication() {}
     func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { blockers }
 }
@@ -29,8 +35,13 @@ private final class CallCounter: @unchecked Sendable {
     private let host = BlockerHost()
     private let model = UpdateStateModel()
 
-    private func makeDriver() -> UpdateDriver {
-        let driver = UpdateDriver(model: model, log: NoopUpdateLog(), clock: clock)
+    private func makeDriver(
+        agentTimeout: Duration = UpdateRelaunchGate.agentTimeout,
+        daemonUnavailableTimeout: Duration = UpdateRelaunchGate.daemonUnavailableTimeout
+    ) -> UpdateDriver {
+        let driver = UpdateDriver(model: model, log: NoopUpdateLog(), clock: clock,
+                                  relaunchAgentTimeout: agentTimeout,
+                                  relaunchDaemonUnavailableTimeout: daemonUnavailableTimeout)
         driver.actionDelegate = host
         return driver
     }
@@ -61,6 +72,231 @@ private final class CallCounter: @unchecked Sendable {
 
         #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
         #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    /// What the host reports right after a click: the click itself is input inside the quiet
+    /// window, and the daemon mirror may be reconnecting.
+    private static let clickTimeBlockers = UpdateRelaunchBlockers(
+        busyAgentCount: 0, runningCommandCount: 0, userInputActive: true, daemonStateUnavailable: true)
+
+    @Test func aClickInstallIsNotHeldByTheClickOrAnUnconfirmedDaemon() {
+        let driver = makeDriver()
+        host.blockers = Self.clickTimeBlockers
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    /// A host that preserves sessions can disable the gate for both click-driven and automatic
+    /// installs; generic hosts still exercise the gate below.
+    @Test func aHostThatDoesNotHoldUserInstallsRelaunchesAClickOverBusyWork() {
+        let driver = makeDriver()
+        driver.holdsUserInstalls = false
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 1)
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func aSessionPreservingHostRelaunchesAnAutomaticInstallOverLiveWork() {
+        let driver = makeDriver()
+        driver.holdsUserInstalls = false
+        driver.relaunchIsAutomatic = true
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 4)
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+        #expect(model.state == .idle)
+    }
+
+    @Test func restartNowAfterLaterIsNotHeldByTheClickOrAnUnconfirmedDaemon() {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        installing?.dismiss()
+        #expect(model.text == "Restart to Complete Update")
+
+        host.blockers = Self.clickTimeBlockers
+        installing?.retryTerminatingApplication()
+
+        #expect(installs.count == 1)
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func restartNowAfterLaterStopsWaitingForBusyAgentsAtTheTimeout() async {
+        let driver = makeDriver(agentTimeout: .seconds(2))
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        installing?.dismiss()
+
+        installing?.retryTerminatingApplication()
+        #expect(installs.count == 0)
+        #expect(waitingBlockers?.busyAgentCount == 1)
+
+        await recheck { installs.count == 1 }
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    /// Stages a background download the way Sparkle does; with the idle policy on, the driver
+    /// hands it to Sparkle without a click.
+    private func stageWithIdlePolicy(_ driver: UpdateDriver, clicked: Bool = false) {
+        driver.installsInBackground = true
+        driver.installsWhenIdle = true
+        driver.installsWhenStaged = clicked
+        driver.showReady(toInstallAndRelaunch: { _ in })
+    }
+
+    @Test func anAutomaticInstallWaitsForQuietInput() async {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        stageWithIdlePolicy(driver)
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0, userInputActive: true)
+
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        #expect(installs.count == 0)
+
+        host.blockers = .empty
+        await recheck { installs.count == 1 }
+    }
+
+    @Test func anAutomaticInstallWaitsForBusyAgentsWithoutATimeout() async {
+        let driver = makeDriver(agentTimeout: .seconds(2))
+        let installs = CallCounter()
+        stageWithIdlePolicy(driver)
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0)
+        await recheck { waitingBlockers?.busyAgentCount == 2 }
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        await recheck { waitingBlockers?.busyAgentCount == 1 }
+        #expect(installs.count == 0)
+        #expect(driver.relaunchGate.isWaiting)
+    }
+
+    /// The host runs a click's checks (preflight, What's New record, rollback copy) before an
+    /// automatic install; a failed preflight keeps the update staged and opens nothing.
+    @Test func anAutomaticInstallAsksTheHostFirstAndStaysStagedWhenItDeclines() {
+        let driver = makeDriver()
+        let replies = CallCounter()
+        driver.installsInBackground = true
+        driver.installsWhenIdle = true
+        host.allowsAutomaticInstall = false
+
+        driver.showReady(toInstallAndRelaunch: { _ in replies.count += 1 })
+
+        #expect(host.automaticInstallsPrepared == 1)
+        #expect(replies.count == 0)
+        #expect(model.text == "Restart to Complete Update")
+        #expect(driver.stagedInstall != nil)
+    }
+
+    @Test func anAutomaticInstallTheHostPreparedIsHandedToSparkle() {
+        let driver = makeDriver()
+        let replies = CallCounter()
+        driver.installsInBackground = true
+        driver.installsWhenIdle = true
+
+        driver.showReady(toInstallAndRelaunch: { _ in replies.count += 1 })
+
+        #expect(host.automaticInstallsPrepared == 1)
+        #expect(replies.count == 1)
+        #expect(driver.relaunchIsAutomatic)
+    }
+
+    /// The idle policy never waits past its cap: busy agents, a running command and recent
+    /// input all give way, and the relaunch keeps every session (Leo: updates just install).
+    @Test func anAutomaticInstallRelaunchesAtTheWaitCapWhateverIsRunning() async {
+        let driver = makeDriver()
+        driver.relaunchGate.automaticWaitCap = .seconds(4)
+        let installs = CallCounter()
+        stageWithIdlePolicy(driver)
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1, userInputActive: true)
+
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        await recheck { driver.relaunchGate.isWaiting }
+        #expect(installs.count == 0)
+
+        await recheck { installs.count == 1 }
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func theWaitCapBoundsOnlyAutomaticInstalls() {
+        let busy = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1, userInputActive: true)
+        func relaunches(automatic: Bool, waited: Duration) -> Bool {
+            UpdateRelaunchGate.shouldRelaunch(
+                automatic ? busy : busy.forUserInstall, automatic: automatic, waited: waited,
+                daemonUnavailableFor: .zero, agentTimeout: .seconds(30 * 60),
+                daemonUnavailableTimeout: .seconds(10 * 60), automaticWaitCap: .seconds(15 * 60))
+        }
+
+        #expect(!relaunches(automatic: true, waited: .seconds(15 * 60 - 2)))
+        #expect(relaunches(automatic: true, waited: .seconds(15 * 60)))
+        // A host that holds user installs keeps holding them for a running command.
+        #expect(!relaunches(automatic: false, waited: .seconds(60 * 60)))
+    }
+
+    @Test func theDefaultWaitCapIsFifteenMinutes() {
+        #expect(UpdateRelaunchGate.automaticWaitCap == .seconds(15 * 60))
+        #expect(makeDriver().relaunchGate.automaticWaitCap == .seconds(15 * 60))
+    }
+
+    @Test func anAutomaticInstallStopsWaitingForAnUnconfirmedDaemonAtTheBound() async {
+        let driver = makeDriver(daemonUnavailableTimeout: .seconds(4))
+        let installs = CallCounter()
+        stageWithIdlePolicy(driver)
+        host.blockers = .daemonUnavailable
+
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        // A confirmed read in between restarts the bound.
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        await recheck { waitingBlockers?.busyAgentCount == 1 }
+        host.blockers = .daemonUnavailable
+        await recheck { waitingBlockers == .daemonUnavailable }
+        #expect(installs.count == 0)
+
+        await recheck { installs.count == 1 }
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func aClickDuringTheDownloadIsAUserInstallEvenWithTheIdlePolicyOn() {
+        let driver = makeDriver()
+        stageWithIdlePolicy(driver, clicked: true)
+        host.blockers = Self.clickTimeBlockers
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func aMenuInstallWithTheIdlePolicyOnIsAUserInstall() {
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: clock,
+            isDevLikeBundle: false,
+            updaterFactory: { _, _ in FakeUpdater() }
+        )
+        controller.actionDelegate = host
+        controller.installsUpdatesInBackground = true
+        controller.installsUpdatesWhenIdle = true
+
+        controller.attemptUpdate()
+        controller.driver.showReady(toInstallAndRelaunch: { _ in })
+        host.blockers = Self.clickTimeBlockers
+
+        #expect(!controller.driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!controller.driver.relaunchGate.isWaiting)
+    }
+
+    @Test func aFinishedCycleSpendsAnUnusedAutomaticMark() {
+        let driver = makeDriver()
+        stageWithIdlePolicy(driver)
+        #expect(driver.relaunchIsAutomatic)
+
+        driver.handleDidFinishUpdateCycle(.updates, error: nil)
+
+        #expect(!driver.relaunchIsAutomatic)
     }
 
     @Test func waitsForBusyAgentsThenRelaunches() async {

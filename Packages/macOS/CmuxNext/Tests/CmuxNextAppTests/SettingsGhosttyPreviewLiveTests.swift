@@ -15,12 +15,12 @@ struct SettingsGhosttyPreviewLiveTests {
     @Test @MainActor func aConfigEditReSendsThePreview() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let original = ThemeStore.shared.input
-        defer { ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { ThemeScope.app.store.apply(original) }
 
         let changed = OSAllocatedUnfairLock(initialState: false)
         withObservationTracking { _ = services.settingsWindow.pageHostLists() } onChange: { changed.withLock { $0 = true } }
-        ThemeStore.shared.apply(ThemeInput(background: ThemeRGB(hex: 0x203040), foreground: ThemeRGB(hex: 0xF0E0D0)))
+        ThemeScope.app.store.apply(ThemeInput(background: ThemeRGB(hex: 0x203040), foreground: ThemeRGB(hex: 0xF0E0D0)))
         #expect(changed.withLock { $0 })
     }
 
@@ -29,12 +29,12 @@ struct SettingsGhosttyPreviewLiveTests {
     @Test @MainActor func anEditTokensIgnoreStillReachesThePreview() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let original = ThemeStore.shared.input
-        defer { ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { ThemeScope.app.store.apply(original) }
 
         var edited = original
         edited.selectionForeground = ThemeRGB(hex: 0xFF0000)
-        ThemeStore.shared.apply(edited)
+        ThemeScope.app.store.apply(edited)
         let config = services.settingsWindow.pageHostLists()["theme"]?["config"]
         #expect(config?["selectionForeground"] == .string("#ff0000"))
     }

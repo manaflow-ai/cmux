@@ -8,6 +8,7 @@ use super::resource_terminal_surface;
 use super::resource_wait_install_error;
 use super::send_resource_response;
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
@@ -62,14 +63,21 @@ fn resource_wait_runtime_error(error: impl Into<anyhow::Error>) -> ResourceError
 
 fn resource_wait_timeout(
     request: &crate::resource_router::ParsedResourceRequest,
-) -> Option<Duration> {
-    request.fields.get("timeout_ms").map(|value| {
-        Duration::from_millis(
+) -> Result<Option<Duration>, ResourceError> {
+    request
+        .fields
+        .get("timeout_ms")
+        .map(|value| {
             serde_json::from_value::<WireDecimal>(value.clone())
-                .expect("catalog validates terminal wait timeout")
-                .get(),
-        )
-    })
+                .map(|millis| Duration::from_millis(millis.get()))
+                .map_err(|_| {
+                    ResourceError::validation_invalid(
+                        Some("timeout_ms"),
+                        "terminal wait timeout must be a decimal millisecond count",
+                    )
+                })
+        })
+        .transpose()
 }
 
 fn resource_wait_stopped(canceled: &ResourceWaitCancellation, writer: &MessageWriter) -> bool {
@@ -83,14 +91,14 @@ fn run_terminal_resource_wait(
     canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let pattern = request.fields["pattern"].as_str().expect("catalog validates wait pattern");
+    let pattern = crate::resource_router::required_string(&request.fields, "pattern")?;
     let regex = Regex::new(pattern).map_err(|_| {
         ResourceError::validation_invalid(
             None,
             "terminal wait pattern is not a valid regular expression",
         )
     })?;
-    let timeout = resource_wait_timeout(request);
+    let timeout = resource_wait_timeout(request)?;
     let deadline = timeout
         .map(|timeout| {
             Instant::now().checked_add(timeout).ok_or_else(|| {
@@ -150,7 +158,7 @@ fn run_terminal_resource_wait_exit(
 ) -> Result<Option<Value>, ResourceError> {
     let terminal_id =
         crate::resource_router::resolve_terminal_wait_exit_id(mux, &request.selectors)?;
-    let timeout = resource_wait_timeout(request);
+    let timeout = resource_wait_timeout(request)?;
     let deadline = timeout
         .map(|timeout| {
             Instant::now().checked_add(timeout).ok_or_else(|| {
@@ -173,7 +181,7 @@ fn run_terminal_resource_wait_exit(
         return Ok(None);
     }
     let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
-    if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
+    if state.field("state") == "exited" || timeout == Some(Duration::ZERO) {
         return Ok(Some(state));
     }
 
@@ -200,7 +208,7 @@ fn run_resource_wait(
         ResourceOperation::TerminalWaitExit => {
             run_terminal_resource_wait_exit(mux, writer, &request, canceled)
         }
-        _ => unreachable!("only terminal waits use the detached request path"),
+        operation => Err(super::wire_values::unrouted_operation("terminal wait", operation)),
     };
     match result {
         Ok(result) => result.map(Ok),
@@ -219,7 +227,14 @@ pub(super) fn start_resource_wait(
     let name = match operation {
         ResourceOperation::TerminalWait => "terminal.wait",
         ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
-        _ => unreachable!("only terminal waits use the detached request path"),
+        operation => {
+            return send_resource_response(
+                &writer,
+                id,
+                operation,
+                Err(super::wire_values::unrouted_operation("terminal wait", operation)),
+            );
+        }
     };
     let (canceled, worker_permit) = match mux.control_clients.install_resource_wait(client, &id) {
         Ok(installed) => installed,

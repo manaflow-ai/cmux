@@ -51,10 +51,15 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     /// Lawrence's rule "MDM-managed device setting > team policy > user
     /// setting" is the first three; the rest keeps unmanaged keys customizable.
     public static func merge(file: JSONValue, managed: ManagedPreferences, team: TeamPolicyLayer) -> EffectiveSettings {
-        var root = file.objectValue == nil ? JSONValue.object([:]) : file
+        var root = aliasingLegacyKeys(file.objectValue == nil ? JSONValue.object([:]) : file)
         // The team layer may only set catalog settings (never a whole object,
         // shortcuts or custom actions); MDM keys are limited by the reader.
-        let team = team.limitedToCatalog()
+        var team = team.limitedToCatalog()
+        team.defaults = aliasingLegacyKeys(team.defaults)
+        team.enforced = aliasingLegacyKeys(team.enforced)
+        var managed = managed
+        managed.forced = aliasingLegacyKeys(managed.forced)
+        managed.recommended = aliasingLegacyKeys(managed.recommended)
         var managedKeys: [String: ManagedSource] = [:]
         var policy: [String: JSONValue] = [:]
         var diagnostics: [SettingsDiagnostic] = []
@@ -95,6 +100,26 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     }
 
     static func path(_ key: String) -> [String] { CmuxConfigFile.keyPath(from: key) }
+
+    /// Older names of settings keys, still read when the new key is absent in the same layer:
+    /// the layer's value moves to the new key, so a forced older key locks the new one too.
+    static let legacyKeys = [LinkRouting.legacyOpenPath.joined(separator: "."): LinkRouting.openPath.joined(separator: ".")]
+
+    static func aliasingLegacyKeys(_ values: [String: JSONValue]) -> [String: JSONValue] {
+        var values = values
+        for (old, new) in legacyKeys where values[new] == nil {
+            if let value = values[old] { values[new] = value }
+        }
+        return values
+    }
+
+    static func aliasingLegacyKeys(_ root: JSONValue) -> JSONValue {
+        var root = root
+        for (old, new) in legacyKeys where root.value(at: path(new)) == nil {
+            if let value = root.value(at: path(old)) { root = root.setting(value, at: path(new)) }
+        }
+        return root
+    }
 
     /// Deterministic order, settings keys only (a shorter key first, so a
     /// nested key set later wins over an object set at its parent).

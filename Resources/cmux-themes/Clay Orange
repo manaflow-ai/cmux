@@ -1,0 +1,24 @@
+# Clay Orange: warm near-black surfaces, warm off-white text and a clay orange accent. A cmux theme (light pair: Clay Orange Light).
+# cmux-accent = #d87657
+palette = 0=#2a2926
+palette = 1=#e0716b
+palette = 2=#8fc06b
+palette = 3=#e9a15b
+palette = 4=#6aadee
+palette = 5=#af6cd1
+palette = 6=#79b0a6
+palette = 7=#b1b4ba
+palette = 8=#87857f
+palette = 9=#ec8b85
+palette = 10=#91db5f
+palette = 11=#f0b878
+palette = 12=#7aa6e8
+palette = 13=#c48fe0
+palette = 14=#93c4bb
+palette = 15=#f0efec
+background = #1a1a19
+foreground = #f0efec
+cursor-color = #d87657
+cursor-text = #1a1a19
+selection-background = #44352b
+selection-foreground = #f0efec

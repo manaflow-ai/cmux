@@ -57,7 +57,9 @@ impl Brain {
         // starts at once does not take it anyway. Not before the conversation
         // is read (the daemon is up), and not while a waking message waits:
         // that message starts a turn first.
+        // A kept session takes the next turn: no new process.
         if !matches!(self.settings.engine, Engine::Acpmux)
+            || self.kept.is_some()
             || !self.agents_up
             || self.phase != super::Phase::Idle
             || self.daemon.is_none()
@@ -70,16 +72,10 @@ impl Brain {
         if cached.is_some() {
             // The pooled Claude Code reads its cache settings when it
             // starts: the next turn's TTL, and whether that turn carries our
-            // mark (the view has a whole block now, so the next one will).
+            // marks (every turn input has them, spec 5a, unless Claude Code
+            // refused them lately).
             let ttl = self.turn_cache_ttl();
-            let view = self.chat.render_view();
-            let prev = self
-                .state
-                .last_mark
-                .as_ref()
-                .and_then(|m| m.prefix_of(&view.text));
-            let ours = !self.marker_refused.is_off()
-                && optchat_core::mark_piece(&view.text, prev).is_some();
+            let ours = !self.marker_refused.is_off() && !self.settings.keep_turn_session;
             match crate::session_dir::set_session_cache(&self.settings.session_dir, ttl, ours) {
                 Ok(()) => {
                     self.prewarm_ttl = Some(ttl);

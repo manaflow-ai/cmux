@@ -1,8 +1,9 @@
 // The chat header keeps the most-used tools visible (Leo 2026-10-12: about four buttons, not
-// everything in menus): Changes (while the chat has changes), Preview (while there is a page), Terminal
-// and Browser, then Sources and "...". [+] New tab, Files and Split Down fold into the top of "...", and
+// everything in menus): Changes (while the chat has changes), Terminal and Browser (which opens the
+// chat's page, Leo 2026-10-20), then Sources and "...". [+] New tab, Files and Split Down fold into the top of "...", and
 // run with the toggle mode as their buttons did. A quick action the person shows in the header
-// (layout.json) leaves "..." again.
+// (layout.json) leaves "..." again, except Changes: while the chat has changes, "..." lists it too, as
+// the Codex and Claude apps' chat menus do (hq#2569 item 4).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -57,7 +58,7 @@ const shown = () =>
     button.getAttribute("data-quick-action"),
   );
 
-test("the header shows Changes, Preview, Terminal and Browser; New tab, Files and Split Down fold into the chat menu", async () => {
+test("the header shows Changes, Terminal and Browser; New tab, Files and Split Down fold into the chat menu", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
@@ -87,19 +88,22 @@ test("the header shows Changes, Preview, Terminal and Browser; New tab, Files an
 
   configureQuickActions({});
   render();
-  expect(shown()).toEqual(["changes", "preview", "terminal", "browser"]);
+  expect(shown()).toEqual(["changes", "terminal", "browser"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["New tab", "Files", "Split Down", "Rename"]);
+  expect(labels()).toEqual(["Changes", "New tab", "Files", "Split Down", "Rename"]);
   const rows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-chat-menu-popover .acpmux-chat-menu-item")];
-  await act(async () => rows()[2].click());
+  await act(async () => rows()[3].click());
   expect(runs).toEqual(["splitDown:toggle"]);
+  await act(async () => void openPicker("Chat actions"));
+  await act(async () => rows()[0].click());
+  expect(runs).toEqual(["splitDown:toggle", "changes:toggle"]);
 
   // Shown in the header again: its button is back and "..." no longer lists it.
-  act(() => configureQuickActions({ quickActions: ["changes", "preview", "terminal", "browser", "splitDown"] }));
+  act(() => configureQuickActions({ quickActions: ["changes", "terminal", "browser", "splitDown"] }));
   render();
-  expect(shown()).toEqual(["changes", "preview", "terminal", "browser", "splitDown"]);
+  expect(shown()).toEqual(["changes", "terminal", "browser", "splitDown"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["New tab", "Files", "Rename"]);
+  expect(labels()).toEqual(["Changes", "New tab", "Files", "Rename"]);
   act(() => root?.unmount());
   root = undefined;
   configureQuickActions({});
@@ -148,9 +152,15 @@ test("a hidden Changes or Preview folds into the chat menu while it applies; the
   expect(await open()).toEqual(["Changes", "Hide tabs", "Rename"]);
   await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
   expect(runs).toEqual(["changes:toggle"]);
-  // The diff and the preview opened since this render: the refresh as "..." opens lists them.
+  // The diff and the preview opened since this render: the refresh as "..." opens lists the diff;
+  // the preview is Browser's, lit on its button.
+  render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
+  expect(await open()).toEqual(["Changes", "New tab", "Rename"]);
+  // Without a Browser button, the open preview folds into "..." as before.
+  act(() => configureQuickActions({ quickActions: ["terminal"] }));
   render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
   expect(await open()).toEqual(["Changes", "Preview", "New tab", "Rename"]);
+  act(() => configureQuickActions({ quickActions: ["terminal", "browser"] }));
   // Quick Chat has no tab tools: nothing folds.
   act(() => setHeaderState({ lit: [] }));
   render({ hasChanges: true, tabTools: false });

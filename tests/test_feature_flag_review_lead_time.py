@@ -41,6 +41,7 @@ class FeatureFlagReviewLeadTimeTests(unittest.TestCase):
             [{
                 "key": "soon-release",
                 "source": "Example.swift",
+                "owner": "",
                 "reviewBy": "2026-10-05",
                 "daysRemaining": 5,
             }],

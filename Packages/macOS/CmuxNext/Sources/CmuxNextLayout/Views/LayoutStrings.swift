@@ -11,6 +11,25 @@ enum LayoutStrings {
     static var rowEdgeAccessibility: String {
         String(localized: "layout.rowEdge.accessibility", defaultValue: "Row Height", bundle: .module)
     }
+    // Divider drag modes (plans/cmux-next/resize-modifiers.md), shown in a toast while a key is held.
+    static var resizeModePush: String {
+        String(localized: "layout.resizeMode.push", defaultValue: "⌥ Push: the column grows and moves the columns after it", bundle: .module)
+    }
+    static var resizeModeTrade: String {
+        String(localized: "layout.resizeMode.trade", defaultValue: "⌥ Trade: the width comes from the next column", bundle: .module)
+    }
+    static var resizeModeAllColumns: String {
+        String(localized: "layout.resizeMode.allColumns", defaultValue: "⌘ All columns: every column takes this width", bundle: .module)
+    }
+    static var resizeModeEven: String {
+        String(localized: "layout.resizeMode.even", defaultValue: "⌘ Even: the panes on each side stay equal", bundle: .module)
+    }
+    static var resizeModeSnap: String {
+        String(localized: "layout.resizeMode.snap", defaultValue: "⇧ Snap: halves and thirds only", bundle: .module)
+    }
+    static var resizeModeFine: String {
+        String(localized: "layout.resizeMode.fine", defaultValue: "⌃ Fine: a quarter of the pointer’s speed", bundle: .module)
+    }
     static var stripScrollbarAccessibility: String {
         String(localized: "layout.stripScrollbar.accessibility", defaultValue: "Column Strip Scroll Bar", bundle: .module)
     }

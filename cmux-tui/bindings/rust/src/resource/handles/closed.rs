@@ -25,15 +25,26 @@ const WINDOW_ID_MAX_LEN: usize = 257;
 /// One tab a closed screen recreates.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ClosedTabRecord {
-    /// Known values: `terminal`, `browser`. Other values are future kinds.
+    /// Known values: `terminal`, `browser`, `conversation`. Other values are future kinds.
+    /// Canonical closed chat kinds require `closed-conversation-tabs-v1`.
     pub kind: String,
     pub name: Option<String>,
     pub cwd: Option<String>,
     pub url: Option<String>,
     pub browser_profile_id: Option<String>,
     pub pinned: bool,
+    /// The safe public identity of a closed agent chat. Host/install metadata
+    /// is intentionally omitted by the daemon's closed-history projection.
+    pub agent_session: Option<ClosedAgentSessionRecord>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
+}
+
+/// The session id and harness type of a closed agent chat.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ClosedAgentSessionRecord {
+    pub session: Option<String>,
+    pub harness: Option<String>,
 }
 
 /// One screen a closed item recreates.
@@ -87,6 +98,18 @@ pub struct ClosedItemSnapshot {
     pub member_count: u32,
     /// Every closed object of the group in restore order.
     pub members: Vec<ClosedMemberRecord>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, Value>,
+}
+
+/// What `workspace.close` with `report_closed_ids` closed.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct WorkspaceCloseResult {
+    /// The closed groups the close stored, oldest first (empty for an
+    /// ephemeral workspace); `reopen_closed` of each restores exactly that
+    /// close, also when other closed workspaces share its name.
+    #[serde(default)]
+    pub closed_ids: Vec<String>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
 }
@@ -267,5 +290,24 @@ fn validate_window(window: Option<&str>) -> Result<()> {
             )))
         }
         _ => Ok(()),
+    }
+}
+
+impl Workspace {
+    /// `workspace.close` that also names the closed groups it stored
+    /// (`report_closed_ids`), so an Undo reopens exactly this close.
+    pub fn close_reporting(&self) -> Result<MutationResult<WorkspaceCloseResult>> {
+        self.close_reporting_with(MutationOptions::unique()?)
+    }
+
+    pub fn close_reporting_with(
+        &self,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<WorkspaceCloseResult>> {
+        let params = self.params().value("report_closed_ids", Value::Bool(true));
+        mutation_snapshot(
+            self.session.client.mutate(ops::WORKSPACE_CLOSE, params, mutation)?,
+            "workspace close result",
+        )
     }
 }

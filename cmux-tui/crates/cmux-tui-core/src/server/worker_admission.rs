@@ -4,6 +4,7 @@
 
 use super::SERVER_SURFACE_RETAINED_BYTE_CAPACITY;
 use super::SERVER_SURFACE_WORKER_CAPACITY;
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -42,7 +43,7 @@ struct ResourceWorkerPermitLease {
 
 impl Drop for ResourceWorkerPermitLease {
     fn drop(&mut self) {
-        let mut state = self.admission.state.lock().unwrap();
+        let mut state = self.admission.state.lock().recover_poison();
         state.active = state.active.saturating_sub(1);
         let remove_client = state.active_by_client.get_mut(&self.client).is_some_and(|active| {
             *active = active.saturating_sub(1);
@@ -69,7 +70,7 @@ impl ResourceWorkerAdmission {
         self: &Arc<Self>,
         client: u64,
     ) -> Result<ResourceWorkerPermit, ResourceWorkerAdmissionError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.active_by_client.get(&client).copied().unwrap_or_default()
             >= self.per_client_capacity
         {
@@ -87,17 +88,17 @@ impl ResourceWorkerAdmission {
 
     #[cfg(test)]
     pub(super) fn active(&self) -> usize {
-        self.state.lock().unwrap().active
+        self.state.lock().recover_poison().active
     }
 
     #[cfg(test)]
     pub(super) fn wait_until_idle(&self, deadline: Instant) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         while state.active != 0 {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return false;
             };
-            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if timeout.timed_out() && state.active != 0 {
                 return false;
@@ -129,7 +130,7 @@ pub(super) struct ServerSurfaceWorkerPermit {
 
 impl Drop for ServerSurfaceWorkerPermit {
     fn drop(&mut self) {
-        let mut state = self.admission.state.lock().unwrap();
+        let mut state = self.admission.state.lock().recover_poison();
         state.workers = state.workers.saturating_sub(1);
     }
 }
@@ -141,14 +142,14 @@ pub(super) struct ServerSurfaceBytesPermit {
 
 impl Drop for ServerSurfaceBytesPermit {
     fn drop(&mut self) {
-        let mut state = self.admission.state.lock().unwrap();
+        let mut state = self.admission.state.lock().recover_poison();
         state.retained_bytes = state.retained_bytes.saturating_sub(self.retained_bytes);
     }
 }
 
 impl ServerSurfaceOperationAdmission {
     pub(super) fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.workers >= SERVER_SURFACE_WORKER_CAPACITY {
             return None;
         }
@@ -160,7 +161,7 @@ impl ServerSurfaceOperationAdmission {
         self: &Arc<Self>,
         retained_bytes: usize,
     ) -> Result<ServerSurfaceBytesPermit, ServerSurfaceAdmissionError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if retained_bytes
             > SERVER_SURFACE_RETAINED_BYTE_CAPACITY.saturating_sub(state.retained_bytes)
         {

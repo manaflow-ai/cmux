@@ -26,6 +26,15 @@ extension UpdaterService {
         lastUpdates.write(record)
     }
 
+    /// An automatic install starts: record the update now, synchronously, since the relaunch
+    /// may follow at once and this install never staged as ready.
+    func recordForAutomaticInstall() {
+        guard let lastUpdates, let build = stagedBuild(), let record = updateRecord(toBuild: build) else { return }
+        recordedUpdate = record
+        // concurrency-allow: one ~1 KB atomic write per update, when a nightly installs by itself.
+        lastUpdates.write(record)
+    }
+
     private func updateRecord(toBuild: String) -> WhatsNewLastUpdate? {
         // No changelog lines still records the update: the card then says
         // only which version it updated to.

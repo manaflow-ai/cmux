@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import Darwin
@@ -74,7 +75,7 @@ struct AgentChatDoneDotTests {
 /// A stand-in acpmux on a unix socket: answers the app's `initialize` and
 /// `_acpmux/watch` with `sessions`, then sends `_acpmux/session_changed` on
 /// `push`. One client.
-nonisolated private final class StandInAcpmux {
+nonisolated final class StandInAcpmux {
     let path: String
     private let listener: Int32
     /// The accepted connection, -1 until the app connects.
@@ -122,11 +123,15 @@ nonisolated private final class StandInAcpmux {
 
     /// One `_acpmux/session_changed` with the session's new summary.
     func push(_ summary: [String: Any]) {
+        push(params: ["sessionId": summary["sessionId"] ?? "", "session": summary])
+    }
+
+    /// One `_acpmux/session_changed` with these params.
+    func push(params: [String: Any]) {
         if connected.wait(timeout: .now() + 5) == .success { connected.signal() }
         let fd = client.withLock { $0 }
         guard fd >= 0 else { return }
-        Self.write(fd, Self.line(["jsonrpc": "2.0", "method": "_acpmux/session_changed",
-                                  "params": ["sessionId": summary["sessionId"] ?? "", "session": summary]]))
+        Self.write(fd, Self.line(["jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": params]))
     }
 
     private static func line(_ object: [String: Any]) -> Data {

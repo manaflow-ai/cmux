@@ -1,4 +1,5 @@
 title: cmux opens straight to work
 category: improved
+action: importFromBrowser | Import from Browser
 
-The first launch no longer opens a setup window: cmux goes straight to a New Tab page. The first time you open a browser tab, a small card offers to import bookmarks, history and passwords from your other browser. Not Now hides it for good, and File > Import from Browser still works any time.
+The first launch skips the setup window and goes straight to a New Tab page. Your first browser tab offers to import bookmarks, history and passwords, and File > Import from Browser works any time.

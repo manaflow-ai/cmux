@@ -57,6 +57,7 @@ export function installMockHost(
       }, 0);
     },
   };
+  // fixed-wait: the host's reply delay is the stand-in for the IPC round trip the harness measures pages against
   const wait = () => new Promise((resolve) => setTimeout(resolve, host.delayMs));
   const postMessage = async (message: Envelope): Promise<unknown> => {
     await wait();

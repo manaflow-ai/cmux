@@ -28,7 +28,7 @@ struct ServerPanelView: View {
         .padding(ServerMetrics.padding - 6)
         .padding(.vertical, 6)
         .frame(width: style == .dashboard ? ServerMetrics.dashboardWidth : ServerMetrics.panelWidth)
-        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.snapshot == nil)
+        .animation(reduceMotion ? nil : Motion.overlays.animation(.crossfade), value: model.snapshot == nil)
     }
 }
 

@@ -36,10 +36,11 @@ public final class ServerModel {
     public private(set) var candidate: PairingCandidate?
     /// Intents sent and not yet settled, in send order.
     public private(set) var pending: [ServerIntent] = []
-    /// The last refusal, cleared on the next send.
-    public private(set) var lastReject: String?
-    /// The display name of the last server this device approved.
-    public private(set) var lastApproved: String?
+    /// The last refusal, cleared on the next send and when the approver's code changes.
+    public internal(set) var lastReject: String?
+    /// The display name of the last server this device approved, until the Add Server card
+    /// closes or opens again.
+    public internal(set) var lastApproved: String?
     /// Where the user's Chief runs, when a chief is placed on a server.
     public private(set) var chief: ChiefPlacementStatus?
 
@@ -134,6 +135,8 @@ public final class ServerModel {
         let shown = PairingCode.editing(text)
         guard shown != approval.code else { return }
         approval.code = shown
+        // A refusal belongs to the code it answered.
+        lastReject = nil
         if candidate?.code != PairingCode.normalize(shown) { candidate = nil }
         if PairingCode.isComplete(shown) { send(.lookupCode(PairingCode.normalize(shown))) }
     }

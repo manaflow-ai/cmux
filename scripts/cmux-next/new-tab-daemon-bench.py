@@ -7,7 +7,11 @@ caller-chosen terminal_id (as the app does) and reports reply time and whether
 the tab's host pid was the spare. Env: GAP (seconds between tabs, default 0.6),
 SAMPLE=SECONDS with SAMPLE_OUT=PATH runs `sample` on the daemon meanwhile,
 SPANS=1 turns on the daemon's debug timing marks (CMUX_TUI_DEBUG_SPANS) and
-prints the mean and p95 gap before each mark.
+prints the mean and p95 gap before each mark, then the p50 and p95 time from
+request arrival to each first-output mark of the tab (`new-tab.follow` lines:
+host.first_output, first_printable_output, first_prompt_mark,
+attach.first_output_sent; the last needs
+an attached client, which this bench does not have).
 Run it on a fleet Mac, never on the laptop.
 """
 import json, os, socket, subprocess, sys, time, tempfile, shutil, statistics
@@ -85,8 +89,13 @@ try:
         gaps = {}
         order = []
         totals = []
+        follow = {}
         for line in open(spans_path):
             trace = json.loads(line)
+            if trace.get("label") == "new-tab.follow":
+                for name, at in trace["marks"]:
+                    follow.setdefault(name, []).append(at / 1000)
+                continue
             if trace.get("label") not in ("new-tab", "host"):
                 continue
             if trace["label"] == "host":
@@ -112,6 +121,13 @@ try:
         for key in order:
             values = sorted(gaps[key])
             print(f"{key[:58]:58s} {len(values):5d} {sum(values) / n:8.2f} {sum(values) / len(values):7.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
+        print(f"{'request arrival to first-output mark':58s} {'count':>5s} {'p50':>8s} {'p95':>7s}")
+        for name in ("host.first_output", "first_printable_output", "first_prompt_mark", "attach.first_output_sent"):
+            values = sorted(follow.get(name, []))
+            if not values:
+                print(f"{name:58s} {0:5d} {'-':>8s} {'-':>7s}")
+                continue
+            print(f"{name:58s} {len(values):5d} {values[len(values) // 2]:8.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
 finally:
     daemon.terminate()
     try: daemon.wait(5)

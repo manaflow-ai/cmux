@@ -11,8 +11,8 @@ const PLACEHOLDER: IconLayer[] = [{ d: "M5 5L19 5L19 19L5 19Z", op: "stroke", w:
 const warned = new Set<string>();
 
 /// One cmux icon from the active pack, in the text color. Selected draws the Solid form; `row`
-/// crops the grid margin so the icon sits on a label line (size it with rowIconSize). Decorative
-/// unless it has a title.
+/// crops the grid margin so the icon sits on a label line (size it with rowIconSize); `color`
+/// replaces the text color (a machine's own color). Decorative unless it has a title.
 export function Icon({
   name,
   selected = false,
@@ -20,6 +20,7 @@ export function Icon({
   row = false,
   title,
   className,
+  color,
 }: {
   name: string;
   selected?: boolean;
@@ -27,6 +28,7 @@ export function Icon({
   row?: boolean;
   title?: string;
   className?: string;
+  color?: string;
 }) {
   const { pack, accent } = useIcons();
   const id = useId().replace(/[^\w-]/g, "");
@@ -47,6 +49,7 @@ export function Icon({
       height={px}
       overflow={row ? "visible" : undefined}
       className={className}
+      style={color ? { color } : undefined}
       data-icon={name}
       role={title ? "img" : undefined}
       aria-hidden={title ? undefined : true}

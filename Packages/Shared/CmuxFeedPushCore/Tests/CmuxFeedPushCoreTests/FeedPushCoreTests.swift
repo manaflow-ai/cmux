@@ -119,4 +119,16 @@ import Testing
         let long = String(repeating: "📱", count: 60) // 120 UTF-16 units
         #expect(CloudOp.limited(long, utf16: 80).utf16.count == 80)
     }
+
+    @Test func shownTextIsTruncatedOnlyByTheJSONBooleanTrue() throws {
+        func truncated(_ json: String) throws -> Bool {
+            let action = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+            return FeedApproveShownText(action: action).truncated
+        }
+        #expect(try truncated(#"{"truncated": true}"#))
+        #expect(try !truncated(#"{"truncated": false}"#))
+        #expect(try !truncated(#"{"truncated": 1}"#))
+        #expect(try !truncated(#"{"truncated": "true"}"#))
+        #expect(try !truncated(#"{}"#))
+    }
 }

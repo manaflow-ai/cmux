@@ -27,12 +27,18 @@ public struct ResourceRelayClient: Sendable {
     /// native-sheet confirmation token).
     public static let originClaimCapability = "origin-claim-v1"
 
-    /// SHA-256 (hex) of `params` as sent (defaults filled in), canonical JSON: sorted keys, no
-    /// whitespace, UTF-8. A confirmation token is bound to it.
+    /// Compatibility for session-scoped requests. Callers that know the operation should
+    /// use `paramsDigest(_:operation:)` so machine catalog reads omit session defaults.
     public static func paramsDigest(_ params: [String: JSONValue]) throws -> String {
+        try paramsDigest(params, operation: "")
+    }
+
+    /// SHA-256 (hex) of this operation's `params` exactly as sent, canonical JSON: sorted
+    /// keys, no whitespace, UTF-8. A confirmation token is bound to it.
+    public static func paramsDigest(_ params: [String: JSONValue], operation: String) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(ResourceRequestEnvelope.wireParams(params))
+        let data = try encoder.encode(ResourceRequestEnvelope.wireParams(params, operation: operation))
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }

@@ -4,11 +4,17 @@
 //! live in the outer runtime, so the public router crosses this injected
 //! boundary instead of importing provider implementation details into core.
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
+
+mod machines;
+
+pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
 
 use anyhow::Context;
 use serde_json::{Map, Value, json};
@@ -120,14 +126,22 @@ impl LocalResourceMachineService {
 impl ResourceMachineService for LocalResourceMachineService {
     fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError> {
         let context = self.context()?;
+        let catalog = request.fields.get("catalog") == Some(&Value::Bool(true));
         match request.operation {
             ResourceOperation::MachineList => {
                 require_no_selectors(&request.selectors)?;
-                Ok(json!([machine_snapshot(&context)]))
+                let mut machines = vec![machine_snapshot(&context, catalog)];
+                if catalog {
+                    machines.extend(self.remote_machine_snapshots());
+                }
+                Ok(json!(machines))
             }
             ResourceOperation::MachineGet => {
+                if catalog && resolve_local_machine(&request.selectors, &context).is_err() {
+                    return self.remote_machine_snapshot(&request.selectors);
+                }
                 resolve_local_machine(&request.selectors, &context)?;
-                Ok(machine_snapshot(&context))
+                Ok(machine_snapshot(&context, catalog))
             }
             ResourceOperation::SessionList => {
                 resolve_local_machine(&request.selectors, &context)?;
@@ -277,8 +291,8 @@ fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     )
 }
 
-fn machine_snapshot(context: &LocalResourceContext) -> Value {
-    json!({
+fn machine_snapshot(context: &LocalResourceContext, catalog: bool) -> Value {
+    let mut machine = json!({
         "id": context.machine_id,
         "name": "local",
         "origin": "local",
@@ -286,7 +300,25 @@ fn machine_snapshot(context: &LocalResourceContext) -> Value {
         "connectable": true,
         "deleted": false,
         "recoverable": false,
+    });
+    if catalog {
+        // Strict older SDKs reject these fields, even on a local record.
+        // The reader opts in; this metadata grants no execution authority.
+        machine.set("platform", machine_platform());
+        machine.set("capabilities", machine_capabilities());
+    }
+    machine
+}
+
+pub(crate) fn machine_platform() -> Value {
+    json!({
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
     })
+}
+
+pub(crate) fn machine_capabilities() -> Value {
+    json!(["terminal", "workspace", "agent_session"])
 }
 
 fn session_snapshot(context: &LocalResourceContext) -> Value {
@@ -446,10 +478,10 @@ pub(crate) fn public_terminal_snapshot(
         // This is a coalesced output revision, not the resource revision. It
         // lets external observers skip a full screen read when the PTY did
         // not change.
-        terminal["stream_revision"] = json!(revision.to_string());
+        terminal.set("stream_revision", json!(revision.to_string()));
     }
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
-        terminal["cwd"] = json!(cwd);
+        terminal.set("cwd", json!(cwd));
     }
     let running = durable.lifecycle == TerminalLifecycle::Running;
     let mut extra = Map::new();
@@ -470,12 +502,20 @@ pub(crate) fn public_terminal_snapshot(
             extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
         }
     }
+    if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
+        extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
+    }
+    if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
+        extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
+    }
     if !extra.is_empty() {
-        terminal["extra"] = Value::Object(extra);
+        terminal.set("extra", Value::Object(extra));
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
-        terminal["exit"] =
-            durable.exit.clone().context("exited terminal omitted its durable outcome")?;
+        terminal.set(
+            "exit",
+            durable.exit.clone().context("exited terminal omitted its durable outcome")?,
+        );
     } else {
         debug_assert!(
             durable.exit.is_none(),
@@ -571,6 +611,10 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     "name": workspace.name,
                     "index": checked_index(index)?,
                     "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                    "extra": crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 }))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -728,12 +772,12 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
-                    snapshot["terminal_id"] = json!(terminal_id);
+                    snapshot.set("terminal_id", json!(terminal_id));
                 }
                 if let Some(subtitle) = notification.subtitle {
-                    snapshot["subtitle"] = json!(subtitle);
+                    snapshot.set("subtitle", json!(subtitle));
                 }
-                snapshot["extra"] = json!({"source": notification.source.as_str()});
+                snapshot.set("extra", json!({"source": notification.source.as_str()}));
                 snapshot
             })
             .collect::<Vec<_>>();
@@ -772,7 +816,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let _terminal_defaults = public_projections.terminal_defaults;
 
         let mut snapshot = json!({
-            "machine": machine_snapshot(&context),
+            "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
             "screens": screens,
@@ -792,9 +836,9 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         });
         registry.read_state(|connection| {
             crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot["extra"] = json!({
+            snapshot.set("extra", json!({
                 "state": crate::state::store::state_snapshot(connection)?,
-            });
+            }));
             Ok(())
         })?;
         Ok((snapshot, journal_head))
@@ -852,4 +896,21 @@ fn public_browser_snapshot(
             "rows": rows.max(1),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{machine_capabilities, machine_platform};
+
+    #[test]
+    fn machine_platform_is_non_secret_and_capabilities_are_stable() {
+        let platform = machine_platform();
+        assert!(platform["os"].as_str().is_some_and(|value| !value.is_empty()));
+        assert!(platform["arch"].as_str().is_some_and(|value| !value.is_empty()));
+
+        assert_eq!(
+            machine_capabilities(),
+            serde_json::json!(["terminal", "workspace", "agent_session"])
+        );
+    }
 }

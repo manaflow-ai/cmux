@@ -2495,6 +2495,7 @@ describe("recordCheckoutCompletion", () => {
 
   test("clears Team metadata when a Team subscription lapses", async () => {
     const updateTeam = mock(async () => undefined);
+    const markTeamSeatsDirty = mock(async () => undefined);
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
@@ -2530,6 +2531,7 @@ describe("recordCheckoutCompletion", () => {
           }),
           getTeam: async () => team,
         } as never,
+        markTeamSeatsDirty,
       },
     );
 
@@ -2545,6 +2547,7 @@ describe("recordCheckoutCompletion", () => {
     expect(updateTeam).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
     });
+    expect(markTeamSeatsDirty).toHaveBeenCalledWith("team_123");
   });
 
   test("syncs legacy Team subscription webhooks whose customer owner is the team id", async () => {

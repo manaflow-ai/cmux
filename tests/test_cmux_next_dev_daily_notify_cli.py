@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
 KEY = "b" * 40
 BRANCH = "feat-cmux-next"
+BRANCH_HEAD = "c" * 40
 marker = {"version": 1, "key": KEY, "sha": SHA, "status_sha": SHA,
           "origin": "push", "branch": BRANCH, "tiers": ["scheme"],
           "dev_daily": True, "dev_daily_sha": SHA}
@@ -34,7 +35,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/marker.zip":
             body = archive.getvalue()
         elif self.path == "/repos/o/r/git/ref/heads/" + BRANCH:
-            body = json.dumps({"object": {"sha": SHA}}).encode()
+            # The branch moved while the immutable DEV tree was building. The
+            # deferred callback must still resume the exact requested SHA.
+            body = json.dumps({"object": {"sha": BRANCH_HEAD}}).encode()
         else:
             self.send_error(404)
             return

@@ -11,6 +11,7 @@ import { viewerEmptyStrings } from "../../src/viewer-empty/strings";
 import { hostDelay } from "./mock-host";
 
 const delay = hostDelay();
+// fixed-wait: the host's reply delay is the stand-in for the IPC round trip the harness measures pages against
 const wait = () => new Promise((resolve) => setTimeout(resolve, delay));
 const HOME = "/Users/dev";
 

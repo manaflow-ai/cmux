@@ -26,8 +26,17 @@ import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import { validateTunables, type Tunable } from "../experiments/tunable";
+import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
+import type {
+  AccountsState,
+  AgentsState,
+  CloudEnvironmentsState,
+  DevicesState,
+  HarnessesState,
+  HostLists,
+  IntegrationsState,
+} from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -44,16 +53,20 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Accounts > Cloud Environments fixture state. */
+  environments?: CloudEnvironmentsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
+  /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
+  devices?: DevicesState;
+  /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
+  integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
-  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
-  look?: "quiet" | "dense";
   /** Publish every bundled theme and its colors (the app does); default the mock's six. */
   allThemes?: boolean;
 };
@@ -71,11 +84,29 @@ export type PasswordsPageVariant = VariantBase & {
 export type ChipHostFixture = {
   paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
   sites?: Record<string, { icon?: string; title?: string }>;
-  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  policy?: {
+    outsideRoots?: "confirm" | "text" | "open";
+    remoteImages?: "click" | "never" | "always";
+    clickFreeImageHosts?: string[];
+  };
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
+  /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
+  projectIcons?: Record<string, string>;
+  /** `project.icon` answers' `glyph`: a project folder's language or framework (projectIcon.ts). */
+  projectGlyphs?: Record<string, string>;
+  /** `pr.inspect` answers, by pull request address: the pull request card's own fixture. */
+  pullRequests?: Record<string, PullRequestFixture>;
+};
+
+/** One `pr.inspect` answer: what the host has for a pull request, and how old it is. */
+export type PullRequestFixture = {
+  pullRequest: Record<string, unknown> | null;
+  /** Seconds since 1970; left out when the host has never had an answer. */
+  fetchedAt?: number;
+  reading?: boolean;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */
@@ -137,10 +168,29 @@ type VariantBase = {
 export type AgentPaneVariant = VariantBase & {
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
+  /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
+   *  Settings value it carries (`chatWidth`). */
+  theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
+  /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
+  mockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
+  mockCapabilities?: string[];
+  /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
+  mockSessionAuth?: {
+    state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+    source: "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+    evidenceAt: number | null;
+    detail?: string;
+    harness: string;
+    host: string | null;
+    routeId: string | null;
+    fromSessionId: string | null;
+    login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+  };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;
@@ -152,6 +202,18 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
+  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
+   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
+  sessionStatus?: boolean;
+  /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
+   *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
+  display?: Record<string, unknown>;
+  /** Labs workflows (Settings `workflowLabs`, off by default) on, as the app's `workflowLabs` push
+   *  sends it: a Claude workflow's transcript card and its Session Info panel. */
+  workflowLabs?: boolean;
+  /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
+   *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
+  documentAttributes?: Record<string, string>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -190,6 +252,8 @@ export type AppsPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
   action?: "install";
   error?: { code: string; message: string };
+  /** One transient detail failure after the catalog has loaded, for recovery-state coverage. */
+  detailError?: { code: string; message: string };
   data: {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
@@ -200,10 +264,18 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create";
+  action?: "select-machine" | "create" | "get" | "ports-pending";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
+  /** The page's URL fragment, e.g. `#/get` for the storefront. */
+  hash?: string;
+  /** The plan's active machine limit, when the variant needs another than the sample plan's. */
+  maxActive?: number;
+  /** Sample forwards shown by Ports variants (gallery-only). */
+  ports?: import("../pages/cloud/ops").PortForward[];
+  /** Hold one port action after its control is activated to show the busy boundary. */
+  pendingAction?: "forward" | "close" | "browser";
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
@@ -319,6 +391,13 @@ type EntryBase<V> = {
   experiment?: GalleryExperiment;
   /** Values the stage edits live (a curve editor each; experiments/tunable.ts). */
   tunables?: readonly Tunable[];
+  /**
+   * Switches the header shows (options.ts): each sets one prop of a component entry's variant
+   * (a layout, a platform frame, a count). The URL keeps only the values the viewer changed.
+   */
+  options?: readonly GalleryOption[];
+  /** Extra words the gallery's filter matches (synonyms a person may type). */
+  keywords?: readonly string[];
   variants: Record<string, V>;
 };
 
@@ -422,6 +501,18 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
         if (!armIds(definition).includes(arm)) problems.push(`${entry.id}: a measurement names no arm ${arm}`);
     }
     for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
+    for (const problem of validateOptions(entry.options ?? [])) problems.push(`${entry.id}: ${problem}`);
+    for (const option of entry.options ?? [])
+      for (const [name, variant] of Object.entries(entry.variants)) {
+        const value = (variant as { props?: Record<string, unknown> }).props?.[option.id];
+        if (value === undefined) continue;
+        const encoded =
+          option.kind === "toggle" ? (value === true ? "on" : value === false ? "off" : undefined) : String(value);
+        if (encoded === undefined || !optionAccepts(option, encoded))
+          problems.push(`${entry.id}#${name}: prop ${option.id} is not one of the option's values`);
+      }
+    if (entry.options?.length && entry.host !== "component")
+      problems.push(`${entry.id}: options set props, so only component entries take them`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
     for (const [name, variant] of Object.entries(entry.variants))
       for (const problem of checkReasons(variant.checks)) problems.push(`${entry.id}#${name}: ${problem}`);

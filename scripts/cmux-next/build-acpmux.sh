@@ -114,6 +114,30 @@ if [[ -n "${NX_APP:-}" && ! -x "$cache_bin" ]]; then
   fi
 fi
 
+# A tree fetch (pin-cmux-tui.sh fetch) puts the published acpmux of this
+# cmux-tui tree next to cmux-tui, checksum-verified. Any commit of that tree,
+# including a local merge commit no workflow publishes, seeds its cache from
+# it when it has every requested architecture, so a developer Mac does not
+# stop on "no cached acpmux" for a binary it already has.
+if [[ ! -x "$cache_bin" && -x "$repo_root/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
+  tree_bin="$("$repo_root/scripts/cmux-next/pin-cmux-tui.sh" acpmux-path 2>/dev/null || true)"
+  if [[ -n "$tree_bin" && -f "$tree_bin" && ! -L "$tree_bin" && -x "$tree_bin" ]]; then
+    tree_archs="$(lipo -archs "$tree_bin" 2>/dev/null || true)"
+    missing=""
+    for arch in $archs; do
+      [[ " $tree_archs " == *" $arch "* ]] || missing+=" $arch"
+    done
+    if [[ -z "$missing" ]]; then
+      mkdir -p "$cache_dir"
+      cp -f "$tree_bin" "$cache_bin.tmp.$$"
+      chmod 755 "$cache_bin.tmp.$$"
+      mv -f "$cache_bin.tmp.$$" "$cache_bin"
+      printf '%s\n' "commit=$source_commit" "source=same-tree $tree_bin" "archs=$tree_archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+      echo "acpmux from the same-tree fetch $tree_bin (no Cargo build)" >&2
+    fi
+  fi
+fi
+
 if [[ -x "$cache_bin" ]]; then
   if [[ "$print_path" -eq 1 ]]; then
     printf '%s\n' "$cache_bin"
@@ -157,13 +181,16 @@ fi
 # Install the targets into the toolchain cargo actually uses: cmux-tui pins its
 # own channel in rust-toolchain.toml, so rustup must run from that directory
 # (from the repo root it would provision the default toolchain instead, and the
-# x86_64 slice would fail with "can't find crate for core"). Idempotent.
+# x86_64 slice would fail with "can't find crate for core"). Only missing
+# targets are added, so a warm toolchain needs no network here.
 rust_targets=()
 for arch in $archs; do
   rust_targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin")
 done
 echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-tui toolchain"
-(cd "$source_root/cmux-tui" && rustup target add "${rust_targets[@]}")
+# shellcheck source=scripts/lib/rust-targets.sh
+source "$repo_root/scripts/lib/rust-targets.sh"
+(cd "$source_root/cmux-tui" && ensure_rust_targets "${rust_targets[@]}")
 
 # A persistent target dir in the tree's own (ignored) cmux-tui/target: the
 # next commit of a warm tree or fleet slot compiles incrementally instead of

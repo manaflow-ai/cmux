@@ -85,13 +85,20 @@ await requireBrowserLane("agent-pane-locale.test.ts", async () => {
         .catch(() => {});
       const first = await page.evaluate(() => (window as { __firstText?: string }).__firstText ?? "");
       const violations = await page.evaluate(() => (window as { __violations?: string[] }).__violations ?? []);
-      // Markup an agent could get rendered as HTML: its handler must not run.
-      await page.evaluate(() => {
-        const holder = document.createElement("div");
-        holder.innerHTML = `<img src="data:," onerror="window.__injected = true">`;
-        document.body.append(holder);
-      });
-      await page.waitForTimeout(200);
+      // Markup an agent could get rendered as HTML: its handler must not run. A listener added after
+      // the markup's own runs after it, so once that listener hears the image fail (or load), the
+      // inline handler has run, or been refused.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const holder = document.createElement("div");
+            holder.innerHTML = `<img src="data:," onerror="window.__injected = true">`;
+            const image = holder.querySelector("img")!;
+            image.addEventListener("error", () => resolve(), { once: true });
+            image.addEventListener("load", () => resolve(), { once: true });
+            document.body.append(holder);
+          }),
+      );
       const injectedRan = await page.evaluate(() => (window as { __injected?: boolean }).__injected === true);
       return {
         first,

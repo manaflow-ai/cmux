@@ -1,5 +1,6 @@
 public import AppKit
 import QuartzCore
+import CmuxNextCompat
 
 /// The custom color dot after a group editor's palette dots (cx-25az, tab groups cx-wqn5):
 /// icon-only, it opens the system color panel (wheel, sliders and a hex field). Once a group has
@@ -96,7 +97,7 @@ public final class GroupColorPanel: NSObject {
     private var onColor: ((GroupTint) -> Void)?
     /// The shared panel's settings before it was borrowed, put back when it closes.
     private var borrowed: (showsAlpha: Bool, isContinuous: Bool)?
-    private var closeObserver: NSObjectProtocol?
+    private var closeObserver: MainActorObservation?
 
     override public init() {
         super.init()
@@ -110,8 +111,8 @@ public final class GroupColorPanel: NSObject {
         }
         // The panel is shared: once it closes, its colors no longer go to this group.
         if closeObserver == nil {
-            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.release() } // main-proof: queue: .main delivers on the main thread
+            closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: panel) { [weak self] in
+                self?.release()
             }
         }
         panel.showsAlpha = false
@@ -134,7 +135,6 @@ public final class GroupColorPanel: NSObject {
         }
         borrowed = nil
         onColor = nil
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
         closeObserver = nil
     }
 

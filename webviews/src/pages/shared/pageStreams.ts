@@ -11,11 +11,17 @@ export const LINK_CLOSED = "cmux.protocol.closed";
 export type PageCommandName =
   | "find"
   | "focusSearch"
+  // The page's web view got the keyboard: focus its primary input if nothing has focus (pageFocus.ts).
+  | "focusContent"
   | "back"
   | "forward"
   | "reset"
   | "save"
   | "link"
+  // The markdown page: `markdownGoToTop` (a user's `g g` in a read-only page).
+  | "goToTop"
+  // The Channels page: the app's menu on selected message text (home-channels/quoteSelection.ts).
+  | "quoteSelection"
   // The code editor page (pages/editor/keys.ts).
   | "findNext"
   | "findPrevious"
@@ -26,7 +32,17 @@ export type PageCommandName =
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
-  | "editorAction";
+  | "editorAction"
+  // A Find result opened in an editor tab that already shows its file (`text` "line:column").
+  | "reveal"
+  // The markdown page's table column widths (pages/markdown/tables.ts).
+  | "resetTableWidths"
+  | "resetContextTableWidths"
+  // The markdown page's Reload (Cmd-R, the omnibar) and a path typed in its omnibar (`text`).
+  | "reload"
+  | "open"
+  // The markdown page's viewer comments changed: `text` is the new list (pages/markdown/comments.ts).
+  | "comments";
 
 export interface PageCommand {
   command: PageCommandName;

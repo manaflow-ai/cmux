@@ -4,7 +4,7 @@ cmux-next build.
 
 Move Tab to New Workspace and Move Tab to New Window, run on Home's tab through the control
 socket as the palette and CLI run them, are refused, and no workspace or window appears. A tab
-of another workspace still moves to a new workspace. Merge Workspace into… (cx-zjtn.4) refuses
+of another workspace still moves to a new workspace. Merge Workspace Into… (cx-zjtn.4) refuses
 Home as either side, and the App Store (a page item, not a workspace) as either side: Home keeps
 its tabs and every workspace stays. The script attaches to an app already
 running (a capture slot's `capture-host launch`, or a tagged build) on Home, through its debug
@@ -182,7 +182,7 @@ def main():
 
 
 def merge(source, into):
-    """Merge Workspace into… with `source` as the target and `into` as the argument."""
+    """Merge Workspace Into… with `source` as the target and `into` as the argument."""
     reply = rpc("action.run", {"action": "workspace.mergeInto", "target": f"workspace:{source}",
                                "args": {"into": f"workspace:{into}"}})
     time.sleep(4)  # test harness: a merge that ran has landed by now
@@ -190,7 +190,7 @@ def merge(source, into):
 
 
 def merges(other):
-    """Merge Workspace into… never takes Home's tabs away or gives Home a workspace's, and the App
+    """Merge Workspace Into… never takes Home's tabs away or gives Home a workspace's, and the App
     Store, a page item, is no workspace to merge from or into."""
     home = home_workspace()
     print("merge workspaces: Home", home, "other", other, flush=True)

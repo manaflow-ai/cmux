@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
+import { Route as BillingRouteImport } from './routes/billing'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as PolicyRouteImport } from './routes/policy'
 import { Route as TeamRouteImport } from './routes/team'
@@ -18,7 +19,9 @@ import { Route as ICodeRouteImport } from './routes/i.$code'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
 import { Route as PreviewAiUsageRouteImport } from './routes/preview.ai-usage'
+import { Route as PreviewBillingRouteImport } from './routes/preview.billing'
 import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
+import { Route as ApiAiGatewayChatCompletionsRouteImport } from './routes/api.ai-gateway.chat.completions'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,6 +31,11 @@ const IndexRoute = IndexRouteImport.update({
 const AutomationsRoute = AutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillingRoute = BillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DevicesRoute = DevicesRouteImport.update({
@@ -65,99 +73,131 @@ const PreviewAiUsageRoute = PreviewAiUsageRouteImport.update({
   path: '/preview/ai-usage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewBillingRoute = PreviewBillingRouteImport.update({
+  id: '/preview/billing',
+  path: '/preview/billing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
   id: '/og/invite/$code',
   path: '/og/invite/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAiGatewayChatCompletionsRoute =
+  ApiAiGatewayChatCompletionsRouteImport.update({
+    id: '/api/ai-gateway/chat/completions',
+    path: '/api/ai-gateway/chat/completions',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
+  '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
+  '/preview/billing': typeof PreviewBillingRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
+  '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
+  '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
+  '/preview/billing': typeof PreviewBillingRoute
   '/integrations': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
+  '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
+  '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
+  '/preview/billing': typeof PreviewBillingRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
+  '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/automations'
+    | '/billing'
     | '/devices'
     | '/policy'
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
+    | '/preview/billing'
     | '/integrations/'
     | '/og/invite/$code'
+    | '/api/ai-gateway/chat/completions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/automations'
+    | '/billing'
     | '/devices'
     | '/policy'
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
+    | '/preview/billing'
     | '/integrations'
     | '/og/invite/$code'
+    | '/api/ai-gateway/chat/completions'
   id:
     | '__root__'
     | '/'
     | '/automations'
+    | '/billing'
     | '/devices'
     | '/policy'
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
+    | '/preview/billing'
     | '/integrations/'
     | '/og/invite/$code'
+    | '/api/ai-gateway/chat/completions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AutomationsRoute: typeof AutomationsRoute
+  BillingRoute: typeof BillingRoute
   DevicesRoute: typeof DevicesRoute
   PolicyRoute: typeof PolicyRoute
   TeamRoute: typeof TeamRoute
   ICodeRoute: typeof ICodeRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
   PreviewAiUsageRoute: typeof PreviewAiUsageRoute
+  PreviewBillingRoute: typeof PreviewBillingRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
   OgInviteCodeRoute: typeof OgInviteCodeRoute
+  ApiAiGatewayChatCompletionsRoute: typeof ApiAiGatewayChatCompletionsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -174,6 +214,13 @@ declare module '@tanstack/react-router' {
       path: '/automations'
       fullPath: '/automations'
       preLoaderRoute: typeof AutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing': {
+      id: '/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof BillingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/devices': {
@@ -225,11 +272,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewAiUsageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/billing': {
+      id: '/preview/billing'
+      path: '/preview/billing'
+      fullPath: '/preview/billing'
+      preLoaderRoute: typeof PreviewBillingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/og/invite/$code': {
       id: '/og/invite/$code'
       path: '/og/invite/$code'
       fullPath: '/og/invite/$code'
       preLoaderRoute: typeof OgInviteCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ai-gateway/chat/completions': {
+      id: '/api/ai-gateway/chat/completions'
+      path: '/api/ai-gateway/chat/completions'
+      fullPath: '/api/ai-gateway/chat/completions'
+      preLoaderRoute: typeof ApiAiGatewayChatCompletionsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -238,14 +299,17 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AutomationsRoute: AutomationsRoute,
+  BillingRoute: BillingRoute,
   DevicesRoute: DevicesRoute,
   PolicyRoute: PolicyRoute,
   TeamRoute: TeamRoute,
   ICodeRoute: ICodeRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
   PreviewAiUsageRoute: PreviewAiUsageRoute,
+  PreviewBillingRoute: PreviewBillingRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
   OgInviteCodeRoute: OgInviteCodeRoute,
+  ApiAiGatewayChatCompletionsRoute: ApiAiGatewayChatCompletionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

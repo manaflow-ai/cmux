@@ -1,5 +1,9 @@
 use super::*;
 
+// Prompt bookmarks live in session meta beside the draft, and share these helpers.
+#[path = "bookmarks.rs"]
+mod bookmarks;
+
 #[tokio::test]
 async fn composer_draft_rpc_round_trip_and_clear() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

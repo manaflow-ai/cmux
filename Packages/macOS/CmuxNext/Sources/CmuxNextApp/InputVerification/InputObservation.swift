@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 /// A snapshot of the combined input state: each window's focus model next
 /// to what AppKit, Ghostty, WebKit and Chromium actually show
 /// (plans/cmux-next/input-spec.md section 2). Built from the live app by
@@ -39,6 +41,9 @@ nonisolated struct InputObservation: Hashable, Sendable, Codable {
         var childWindowTabs: [String] = []
         /// A sheet is attached to the window.
         var hasSheet = false
+        /// A top page (History, Settings, the App Store) covers the workspace: the model still
+        /// names the parked workspace's pane, which nothing presents. Optional for old journals.
+        var topPage: Bool?
     }
 
     var windows: [Window]

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// An agent's presence color (cx-gg84): one of the theme's ANSI accents,
 /// picked by a stable hash of the agent's key (its session id), so the same
@@ -17,8 +18,12 @@ public nonisolated struct AgentPresenceColor: Sendable {
 
     /// The color in `tokens`' palette.
     public func rgb(tokens: ThemeTokens) -> ThemeRGB {
-        let color = Self.order[Self.index(forKey: key, count: Self.order.count)]
-        return color.themeRGB(tokens) ?? color.swatchRGB(tokens)
+        Self.rgb(of: Self.order[Self.index(forKey: key, count: Self.order.count)], tokens: tokens)
+    }
+
+    /// One of the accents in `tokens`' palette, kept readable over the sidebar.
+    static func rgb(of color: GroupColor, tokens: ThemeTokens) -> ThemeRGB {
+        color.themeRGB(tokens) ?? color.swatchRGB(tokens)
     }
 
     /// The color in the active theme scope.

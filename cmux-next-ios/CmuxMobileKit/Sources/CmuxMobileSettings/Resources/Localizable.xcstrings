@@ -1,0 +1,160 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "mobile.devices.loadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices. Pull to retry."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden. Zum Wiederholen nach unten ziehen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils. Tirez pour réessayer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة. اسحب لإعادة المحاولة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos. Desliza para volver a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。下拉以重試。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。下拉以重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다. 아래로 당겨 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。下に引いて再試行してください。"}}
+      }
+    },
+    "mobile.devices.networkUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Connections outside this network may be unavailable."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbindungen außerhalb dieses Netzwerks sind möglicherweise nicht verfügbar."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les connexions en dehors de ce réseau peuvent être indisponibles."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قد لا تتوفر الاتصالات خارج هذه الشبكة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Es posible que las conexiones fuera de esta red no estén disponibles."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此網路以外的連線可能無法使用。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此网络之外的连接可能无法使用。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 네트워크 외부의 연결을 사용하지 못할 수 있습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このネットワーク外では接続できない場合があります。"}}
+      }
+    },
+    "mobile.devices.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sign in to cmux on your Mac to connect it."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Melde dich auf deinem Mac bei cmux an, um ihn zu verbinden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connectez-vous à cmux sur votre Mac pour le connecter."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سجّل الدخول إلى cmux على جهاز Mac لتوصيله."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Inicia sesión en cmux en tu Mac para conectarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在 Mac 上登入 cmux 以連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在 Mac 上登录 cmux 以连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결하려면 Mac에서 cmux에 로그인하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続するには Mac で cmux にサインインしてください。"}}
+      }
+    },
+    "mobile.devices.macsFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Removed Macs can return when you sign in again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Entfernte Macs können zurückkehren, wenn du dich erneut anmeldest."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les Mac supprimés peuvent revenir lorsque vous vous reconnectez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يمكن أن تعود أجهزة Mac المُزالة عند تسجيل الدخول مجددًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los Mac eliminados pueden volver cuando inicies sesión de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "移除的 Mac 會在你再次登入時重新出現。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "移除的 Mac 会在你再次登录时重新出现。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "제거한 Mac은 다시 로그인하면 돌아올 수 있습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "削除した Mac は再度サインインすると戻ることがあります。"}}
+      }
+    },
+    "mobile.devices.phonesFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Remove this iPhone with the button below."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Entferne dieses iPhone mit der Schaltfläche unten."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Supprimez cet iPhone avec le bouton ci-dessous."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أزل هذا الـ iPhone باستخدام الزر أدناه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elimina este iPhone con el botón de abajo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用下方按鈕移除此 iPhone。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "使用下方按钮移除此 iPhone。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "아래 버튼으로 이 iPhone을 제거하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "下のボタンでこの iPhone を削除してください。"}}
+      }
+    },
+    "mobile.devices.approvalFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Removal resets Mac approval; signing out keeps it."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Durch das Entfernen wird die Mac-Genehmigung zurückgesetzt; beim Abmelden bleibt sie erhalten."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La suppression réinitialise l’autorisation du Mac ; la déconnexion la conserve."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تؤدي الإزالة إلى إعادة ضبط موافقة Mac؛ تسجيل الخروج يُبقيها."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Al eliminarlo se restablece la aprobación del Mac; cerrar sesión la conserva."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "移除會重設 Mac 核准；登出則會保留。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "移除会重置 Mac 批准；退出登录则会保留。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "제거하면 Mac 승인이 재설정되지만 로그아웃하면 유지됩니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "削除すると Mac の承認がリセットされます。サインアウトでは維持されます。"}}
+      }
+    },
+    "mobile.devices.phoneRemoval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your Macs must approve this iPhone again; you stay signed in."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Deine Macs müssen dieses iPhone erneut genehmigen; du bleibst angemeldet."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Vos Mac doivent à nouveau autoriser cet iPhone ; vous restez connecté."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يجب أن توافق أجهزة Mac على هذا الـ iPhone مرة أخرى؛ ستبقى مسجّلًا للدخول."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tus Mac deben volver a aprobar este iPhone; seguirás conectado."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你的 Mac 必須再次核准此 iPhone；你會保持登入。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你的 Mac 必须再次批准此 iPhone；你会保持登录。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서 이 iPhone을 다시 승인해야 하며 로그인 상태는 유지됩니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac でこの iPhone を再承認する必要がありますが、サインイン状態は維持されます。"}}
+      }
+    },
+    "mobile.devices.otherPhoneRemoval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Stops notifications until it signs in again. To revoke access, remove it in each Mac’s Settings → Mobile."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Stoppt Benachrichtigungen, bis es sich wieder anmeldet. Um den Zugriff zu widerrufen, entferne es in den Einstellungen jedes Mac unter „Mobile“."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Interrompt les notifications jusqu’à sa reconnexion. Pour révoquer l’accès, supprimez-le dans Réglages → Mobile de chaque Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يوقف الإشعارات حتى تسجيل الدخول مجددًا. لإلغاء الوصول، أزله من إعدادات كل جهاز Mac ← Mobile."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Detiene las notificaciones hasta que vuelva a iniciar sesión. Para revocar el acceso, elimínalo en Ajustes → Mobile de cada Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "會停止通知，直到再次登入。若要撤銷存取權，請在每部 Mac 的「設定」→「Mobile」中將其移除。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "会停止通知，直到再次登录。要撤销访问权限，请在每台 Mac 的“设置”→“Mobile”中将其移除。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 로그인할 때까지 알림이 중지됩니다. 액세스 권한을 취소하려면 각 Mac의 설정 → Mobile에서 제거하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再度サインインするまで通知を停止します。アクセスを取り消すには、各 Mac の「設定」→「Mobile」で削除してください。"}}
+      }
+    },
+    "mobile.devices.macRemoval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Removes this Mac from your devices and clears this iPhone’s saved workspaces."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Entfernt diesen Mac aus deinen Geräten und löscht die gespeicherten Arbeitsbereiche dieses iPhone."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Supprime ce Mac de vos appareils et efface les espaces de travail enregistrés sur cet iPhone."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يزيل جهاز Mac هذا من أجهزتك ويمسح مساحات العمل المحفوظة على هذا الـ iPhone."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elimina este Mac de tus dispositivos y borra los espacios de trabajo guardados en este iPhone."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從你的裝置中移除此 Mac，並清除此 iPhone 儲存的工作區。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从你的设备中移除此 Mac，并清除此 iPhone 保存的工作区。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac을 기기에서 제거하고 이 iPhone에 저장된 작업 공간을 삭제합니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac をデバイスから削除し、この iPhone に保存されているワークスペースを消去します。"}}
+      }
+    },
+    "mobile.devices.disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Disconnects this iPhone."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Trennt dieses iPhone."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Déconnecte cet iPhone."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يفصل هذا الـ iPhone."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Desconecta este iPhone."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "中斷此 iPhone 的連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "断开此 iPhone 的连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone의 연결을 해제합니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この iPhone を接続解除します。"}}
+      }
+    },
+    "mobile.devices.reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Re-enable Mobile or sign in again on that Mac."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktiviere Mobile erneut oder melde dich auf diesem Mac wieder an."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réactivez Mobile ou reconnectez-vous sur ce Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أعد تفعيل Mobile أو سجّل الدخول مجددًا على جهاز Mac هذا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Vuelve a activar Mobile o inicia sesión de nuevo en ese Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重新啟用 Mobile，或在該 Mac 上再次登入。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重新启用 Mobile，或在该 Mac 上再次登录。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mobile을 다시 활성화하거나 해당 Mac에서 다시 로그인하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mobile を再び有効にするか、その Mac で再度サインインしてください。"}}
+      }
+    }
+  },
+  "version": "1.0"
+}

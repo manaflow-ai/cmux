@@ -1,11 +1,14 @@
 //! The text an agent receives for its pending messages, whichever path
-//! delivers them (an acpmux prompt or an agent hook's context). Each message
+//! delivers them (an acpmux prompt or an agent hook's context), and the
+//! provenance an acpmux prompt carries. The daemon's delivery pump and the
+//! CLI's own delivery build a prompt from the same two. Each message
 //! says who sent it, that it is not an instruction from the agent's
 //! operator, and how to answer. Its closing line repeats the message id,
 //! which the sender only learns after sending, so a body cannot fake the end
 //! of its message.
 
-use serde_json::Value;
+use cmux_json::JsonSet as _;
+use serde_json::{Value, json};
 
 /// Rendered text one delivery hands an agent at once; later messages wait
 /// for the next one. Codex keeps 2,500 tokens of hook output by default.
@@ -60,4 +63,40 @@ pub fn render(messages: &[Value]) -> String {
         blocks.push(lines.join("\n"));
     }
     blocks.join("\n\n")
+}
+
+/// Who sent `message`, for its acpmux prompt's `_meta.acpmux.provenance`
+/// (acpmux `prompt_provenance.rs`): the receiving chat shows it as that
+/// agent's message, and the sender may withdraw it by `msgId`. `None` when a
+/// required field would not pass acpmux's check, so the message still goes
+/// out, as plain text; a name that would not pass is left out.
+pub fn provenance(message: &Value, recipient: &str) -> Option<Value> {
+    let fits =
+        |value: &&str| !value.trim().is_empty() && value.len() <= 256 && !value.contains(unshown);
+    let field = |key: &str| message[key].as_str().filter(fits);
+    let mut provenance = json!({
+        "kind": "agent_message",
+        "from": field("sender")?,
+        "to": Some(recipient).filter(fits)?,
+        "msgId": field("id")?,
+        "threadId": field("thread_id")?,
+    });
+    if let Some(name) = field("sender_name").filter(|name| name.chars().count() <= 64) {
+        provenance.set("fromName", json!(name));
+    }
+    if let Some(parent) = field("in_reply_to") {
+        provenance.set("replyTo", json!(parent));
+    }
+    Some(provenance)
+}
+
+/// What acpmux refuses in a provenance field: a control, a line or paragraph
+/// separator, or a bidi or zero-width format mark.
+fn unshown(c: char) -> bool {
+    c.is_control()
+        || (c.is_whitespace() && c != ' ')
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+        )
 }

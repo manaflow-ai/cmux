@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Theme sweep 3: a dialog's text field drew AppKit's bezel, text and gray placeholder whatever the
 /// room's theme, and the editors' placeholders were macOS's `placeholderTextColor`. In a themed

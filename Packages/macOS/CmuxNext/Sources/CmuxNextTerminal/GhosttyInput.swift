@@ -140,6 +140,12 @@ nonisolated enum GhosttyInput {
         return GHOSTTY_ACTION_PRESS
     }
 
+    /// Whether a key-down with `flags` can be an input source shortcut (Ctrl-Space,
+    /// Ctrl-Option-Space, a Globe/Fn chord): it has Control, Option, Command or Fn.
+    static func mayChangeInputSource(_ flags: NSEvent.ModifierFlags) -> Bool {
+        !flags.isDisjoint(with: [.control, .option, .command, .function])
+    }
+
     static func currentInputSourceID() -> String? {
         guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
               let property = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return nil }

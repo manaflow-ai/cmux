@@ -44,7 +44,7 @@ final class DropHighlightView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
@@ -68,6 +68,8 @@ final class DropHighlightView: NSView {
     }
     /// The target rect as drawn now (this view's coordinates).
     var targetRect: CGRect { targetSpring.rect }
+    /// The rect the target settles on (this view's coordinates), before any motion reaches it.
+    var destinationRect: CGRect { targetSpring.targetRect }
     /// The shown target takes the classic fill (`DropOverlayFrame.fills`).
     private var fills = true
     /// The final frames of the panes the drop resizes (`DropOverlayFrame.companions`).
@@ -154,8 +156,8 @@ final class DropHighlightView: NSView {
 
     func step(_ dt: Double) -> Bool {
         let token: MotionSpring = renderer.style == .morph ? .settle : DropOverlayTunables.spring.value
-        let parameters = Motion.spring(token)
-        let alphaParameters = Motion.spring(.track)
+        let parameters = Motion.panes.spring(token)
+        let alphaParameters = Motion.panes.spring(.track)
         let a = targetSpring.advance(dt, parameters: parameters, alphaParameters: alphaParameters)
         let b = regionSpring.advance(dt, parameters: parameters)
         apply()

@@ -31,7 +31,7 @@ export function PastChat({ turns, githubRepository }: { turns: PastTurn[]; githu
       {turns.map((turn, index) => (
         <div className="acpmux-past-chat-turn" key={index}>
           <div className="cv-user">
-            <div className="cv-user__bubble selectable">{turn.prompt}</div>
+            <div className="ui-glass cv-user__bubble selectable">{turn.prompt}</div>
           </div>
           {turn.answer && (
             <Markdown className="selectable" {...(githubRepository ? { githubRepository } : {})}>

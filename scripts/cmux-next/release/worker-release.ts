@@ -15,8 +15,10 @@
  *       the config's env.ENV.vars with the plain-text and JSON vars of the version serving 100%
  *       (`wrangler versions view --json`; secrets and other bindings are not compared) and
  *       refuses (exit 1) on any added, removed or changed var, naming the vars, never their values.
- *   bun worker-release.ts vars ... --base-config <wrangler.jsonc at the push's BEFORE commit>
- *       The deployed vars must equal the BASE config's (else drift: refuse as above). Then the repo
+ *   bun worker-release.ts vars ... --base-config <wrangler.jsonc at the push's BEFORE commit> [--base-config <older commit's>]...
+ *       The deployed vars must equal one BASE config's (else drift: refuse as above). More than one:
+ *       the configs of BEFORE and older commits, so a cancelled deploy (an older commit's vars still
+ *       serve) is not drift, while a var set out of band matches none. Then the repo
  *       is the source: a var the pushed commits change deploys, and each change is logged by name
  *       with its plain string value (json vars by name only). Vars are plain text by contract
  *       (secrets live in secrets, never in vars).
@@ -342,16 +344,21 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
       io.error(`version ${id} of ${worker} answered no bindings (wrangler versions view exit ${view.status}: ${(view.stderr || "").trim().slice(0, 300)}); deploy refused`)
       return 1
     }
-    let base: Record<string, unknown> | undefined
-    const baseFile = value("--base-config")
-    if (baseFile) {
+    // Each --base-config is a committed config: BEFORE's first, then older commits of the branch, so
+    // a deploy that was cancelled (the Worker still serves an older commit's vars) is not drift.
+    const baseFiles = rest.flatMap((arg, i) => (arg === "--base-config" && rest[i + 1] !== undefined ? [rest[i + 1]!] : []))
+    const bases: Array<{ file: string; vars: Record<string, unknown> }> = []
+    for (const file of baseFiles) {
       try {
-        base = envVars(readFileSync(baseFile, "utf8"), env)
+        bases.push({ file, vars: envVars(readFileSync(file, "utf8"), env) })
       } catch (e) {
-        io.error(`cannot read env.${env}.vars from the base config ${baseFile}: ${(e as Error).message}; deploy refused`)
+        io.error(`cannot read env.${env}.vars from the base config ${file}: ${(e as Error).message}; deploy refused`)
         return 1
       }
     }
+    const served = bases.find((b) => ((x) => x.added.length + x.removed.length + x.changed.length === 0)(diffVars(b.vars, bindings as Array<Binding>)))
+    const base = served?.vars ?? bases[0]?.vars
+    const baseFile = served?.file ?? bases[0]?.file
     const d = diffVars(want, bindings as Array<Binding>)
     if (base) {
       const drift = diffVars(base, bindings as Array<Binding>)

@@ -1,0 +1,36 @@
+[package]
+name = "cmux-holder-v3"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Test fixture: the terminal holder as it shipped with wire version 3, for the adoption tests of newer daemons. Never shipped."
+
+# A frozen fixture is never edited, so no lint may ask it to change: not the
+# workspace table, and no group a toolchain bump adds a lint to. A command-line
+# `-D warnings` (CI clippy) denies only what still warns, and the panic ratchet
+# skips this package (FROZEN_FIXTURES in scripts/cmux-next/rust_panic_ratchet.py).
+[lints.rust]
+unused = "allow"
+nonstandard_style = "allow"
+future_incompatible = "allow"
+rust_2018_idioms = "allow"
+rust_2024_compatibility = "allow"
+deprecated = "allow"
+
+[lints.clippy]
+all = "allow"
+pedantic = "allow"
+nursery = "allow"
+cargo = "allow"
+
+[[bin]]
+name = "cmux-holder-v3"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+cmux-holder.workspace = true

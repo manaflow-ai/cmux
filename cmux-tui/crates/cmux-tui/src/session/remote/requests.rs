@@ -1,6 +1,7 @@
 //! Requests to the server, their deadlines, and transport shutdown.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl RemoteSession {
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
@@ -22,19 +23,23 @@ impl RemoteSession {
             return Err(error.into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let command = cmd.get("cmd").and_then(Value::as_str).unwrap_or("").to_owned();
         let progress = Arc::new(AtomicU64::new(0));
         let attach_progress = matches!(deadline, RequestDeadline::Attach)
             .then(|| self.attach_progress.load(Ordering::Acquire));
         let attach_surface = matches!(deadline, RequestDeadline::Attach)
             .then(|| cmd.get("surface").and_then(Value::as_u64))
             .flatten();
-        cmd["id"] = json!(id);
-        let message = serde_json::to_string(&cmd)
+        cmd.set("id", json!(id));
+        let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
+        let translated = self.translate_outgoing_line(id, &command, &message);
+        zeroize_string(&mut message);
         if let Some(Value::String(authority)) = cmd.get_mut("authority") {
             zeroize_string(authority);
         }
+        let message = translated?;
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(
@@ -45,16 +50,19 @@ impl RemoteSession {
             Ok(sequence) => sequence,
             Err(error) => {
                 self.pending.lock().unwrap().remove(&id);
+                self.forget_api_request(id);
                 return Err(self.classify_transport_error(error).into());
             }
         };
         if let Err(error) = self.wait_for_ordered_write(sequence) {
             self.pending.lock().unwrap().remove(&id);
+            self.forget_api_request(id);
             return Err(self.classify_transport_error(error).into());
         }
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
+            self.forget_api_request(id);
             return Err(self.shutdown_error().into());
         }
 
@@ -65,6 +73,7 @@ impl RemoteSession {
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
                 self.pending.lock().unwrap().remove(&id);
+                self.forget_api_request(id);
                 return Err(error.into());
             }
         };
@@ -155,14 +164,21 @@ impl RemoteSession {
             return Err(error.into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        cmd["id"] = json!(id);
+        let command = cmd.get("cmd").and_then(Value::as_str).unwrap_or("").to_owned();
+        cmd.set("id", json!(id));
         // The local remote bridge replaces eligible sends with compact binary
         // MuxInput packets. Direct/older mux servers ignore this hint and keep
         // the existing JSON response behavior.
-        cmd["no_reply"] = json!(true);
-        let message = serde_json::to_string(&cmd)
+        cmd.set("no_reply", json!(true));
+        let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
+        let translated = self.translate_outgoing_no_reply(&command, &message);
+        zeroize_string(&mut message);
+        if let Some(Value::String(authority)) = cmd.get_mut("authority") {
+            zeroize_string(authority);
+        }
+        let message = translated?;
         let sequence = self
             .interactive_writer
             .enqueue(message, true)
@@ -289,7 +305,7 @@ impl RemoteSession {
         matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::ExpectedRemoteShutdown)
     }
 
-    fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
+    pub(super) fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
         match &*self.disconnect_state.lock().unwrap() {
             DisconnectState::LocalShutdown => Some(RemoteRequestError::Shutdown),
             DisconnectState::ExpectedRemoteShutdown => Some(RemoteRequestError::DaemonShutdown),
@@ -301,7 +317,7 @@ impl RemoteSession {
         self.request_shutdown_error().unwrap_or(RemoteRequestError::Shutdown)
     }
 
-    fn classify_transport_error(&self, error: io::Error) -> RemoteRequestError {
+    pub(super) fn classify_transport_error(&self, error: io::Error) -> RemoteRequestError {
         self.request_shutdown_error().unwrap_or(RemoteRequestError::Transport(error))
     }
 
@@ -312,6 +328,7 @@ impl RemoteSession {
         for (_, request) in pending {
             let _ = request.response.send(json!({"shutdown": true}));
         }
+        self.sidebar_doc.fail_pending();
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
             let _ = self.wait_for_ordered_write(sequence);
         }

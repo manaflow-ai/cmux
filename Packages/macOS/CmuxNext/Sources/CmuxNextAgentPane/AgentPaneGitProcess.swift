@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// One `git` run for the Changes view's writes (cx-tcwj): `/usr/bin/git` with a plain environment,
@@ -56,88 +57,25 @@ nonisolated enum AgentPaneGitProcess {
     static func output(_ arguments: [String], executable: String = "/usr/bin/git", directory: String? = nil,
                        input: Data? = nil, timeout: Duration, network: Bool = false) async -> Outcome {
         let environment = network ? networkEnvironment() : environment()
-        return await Task.detached(priority: .userInitiated) {
-            runSync(Command(executable: executable, arguments: arguments, directory: directory, environment: environment),
-                    input: input, timeout: timeout)
-        }.value
-    }
-
-    private struct Command {
-        var executable: String, arguments: [String], directory: String?, environment: [String: String]
-    }
-
-    /// State the pipe's reader and the input's writer share with the run: the output behind a
-    /// Mutex, and the input handle (FileHandle is Sendable), which only the writer touches.
-    private final class Shared: Sendable {
-        private let data = Mutex(Data())
-        let input: FileHandle
-
-        init(input: FileHandle) {
-            self.input = input
-        }
-
-        func append(_ chunk: Data) {
-            data.withLock { $0.append(chunk) }
-        }
-
-        var text: String {
-            data.withLock { String(decoding: $0, as: UTF8.self) }
-        }
-    }
-
-    private static func runSync(_ command: Command, input: Data?, timeout: Duration) -> Outcome {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: command.executable)
-        process.arguments = command.arguments
-        process.environment = command.environment
-        if let directory = command.directory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
-        let output = Pipe(), stdin = Pipe()
-        process.standardError = output
-        process.standardOutput = output
-        process.standardInput = input == nil ? FileHandle.nullDevice : stdin
-        let shared = Shared(input: stdin.fileHandleForWriting)
-        // concurrency-allow: runSync runs only inside output's detached task; each wait below has a deadline.
-        let ended = DispatchSemaphore(value: 0), exited = DispatchSemaphore(value: 0)
-        output.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: FileHandle calls a readability handler on its own background queue, when data is ready.
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                ended.signal()
-            } else {
-                shared.append(chunk)
-            }
-        }
-        process.terminationHandler = { _ in exited.signal() }
+        // Awaited without a thread (AsyncProcess): output and errors together, SIGTERM at the deadline
+        // (SIGKILL after the grace), and the run ends at git's exit even when a child git it started keeps
+        // the output open. `.finish`: a page reload or close cancels its request, but a write (and each
+        // step of a write sequence: restore --staged then --worktree, diff then apply) runs to its end,
+        // and a timeout returns only once git has exited and removed index.lock.
+        let request = ProcessRequest(URL(fileURLWithPath: executable), arguments, environment: environment,
+                                     directory: directory.map { URL(fileURLWithPath: $0) }, input: input,
+                                     errorOutput: .merge, timeout: timeout, onCancel: .finish)
         do {
-            try process.run()
-        } catch {
-            output.fileHandleForReading.readabilityHandler = nil
-            return Outcome(status: nil, text: error.localizedDescription)
-        }
-        if let input {
-            // Off this thread, so a git that never reads still meets the deadline; a git that exits
-            // first (a hook refused) makes this a failed write, not SIGPIPE.
-            DispatchQueue.global(qos: .userInitiated).async {
-                _ = fcntl(shared.input.fileDescriptor, F_SETNOSIGPIPE, 1)
-                try? shared.input.write(contentsOf: input)
-                try? shared.input.close()
-            }
-        }
-        let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
-        // concurrency-allow: runSync runs only inside output's detached task, bounded by the deadline.
-        guard exited.wait(timeout: .now() + seconds) == .success else {
-            process.terminate()
-            // concurrency-allow: runSync runs only inside output's detached task; a short grace for SIGTERM.
-            _ = exited.wait(timeout: .now() + 2)
-            output.fileHandleForReading.readabilityHandler = nil
+            let outcome = try await AsyncProcess().run(request)
+            return Outcome(status: outcome.status, text: outcome.text)
+        } catch ProcessFailure.launch(let message) {
+            return Outcome(status: nil, text: message)
+        } catch ProcessFailure.timedOut {
             return Outcome(status: nil, text: timedOutMessage)
+        } catch {
+            // A `.finish` run never throws CancellationError; whatever else stopped it is not a timeout.
+            return Outcome(status: nil, text: stoppedMessage)
         }
-        // A child git started may still hold the pipe: wait a moment for the end of the output, no longer.
-        // concurrency-allow: runSync runs only inside output's detached task; bounded to one second.
-        _ = ended.wait(timeout: .now() + 1)
-        output.fileHandleForReading.readabilityHandler = nil
-        return Outcome(status: process.terminationStatus, text: shared.text)
     }
 
     /// The user's own git settings (HOME) and none of the App's environment; never a terminal
@@ -172,6 +110,11 @@ nonisolated enum AgentPaneGitProcess {
     /// git did not finish before the deadline.
     static var timedOutMessage: String {
         String(localized: "agentPane.error.gitTimedOut", defaultValue: "Git didn't finish in time.", bundle: .module)
+    }
+
+    /// git was stopped before it finished, for a reason other than its deadline.
+    static var stoppedMessage: String {
+        String(localized: "agentPane.error.gitStopped", defaultValue: "Git was stopped before it finished.", bundle: .module)
     }
 
     /// The chat's repository holds the home folder.

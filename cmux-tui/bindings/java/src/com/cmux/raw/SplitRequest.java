@@ -22,6 +22,7 @@ public final class SplitRequest implements WireValue {
     private final Field<String> paneId;
     private final Field<Integer> rows;
     private final Field<List<String>> shellArgs;
+    private final Field<String> splitId;
     private final Field<String> tabId;
     private final Field<String> terminalId;
     private final Field<String> url;
@@ -39,6 +40,7 @@ public final class SplitRequest implements WireValue {
         this.paneId = builder.paneId;
         this.rows = builder.rows;
         this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
+        this.splitId = builder.splitId;
         this.tabId = builder.tabId;
         this.terminalId = builder.terminalId;
         this.url = builder.url;
@@ -56,6 +58,7 @@ public final class SplitRequest implements WireValue {
     public Field<String> paneId() { return paneId; }
     public Field<Integer> rows() { return rows; }
     public Field<List<String>> shellArgs() { return shellArgs; }
+    public Field<String> splitId() { return splitId; }
     public Field<String> tabId() { return tabId; }
     public Field<String> terminalId() { return terminalId; }
     public Field<String> url() { return url; }
@@ -99,6 +102,10 @@ public final class SplitRequest implements WireValue {
         if (!Wire.isMissing(rawShellArgs)) {
             builder.shellArgs(rawShellArgs == null ? null : Wire.array(rawShellArgs, "SplitRequest.shell_args", item -> Wire.string(item, "SplitRequest.shell_args item")));
         }
+        Object rawSplitId = Wire.optional(object, "split_id");
+        if (!Wire.isMissing(rawSplitId)) {
+            builder.splitId(rawSplitId == null ? null : Wire.string(rawSplitId, "SplitRequest.split_id"));
+        }
         Object rawTabId = Wire.optional(object, "tab_id");
         if (!Wire.isMissing(rawTabId)) {
             builder.tabId(rawTabId == null ? null : Wire.string(rawTabId, "SplitRequest.tab_id"));
@@ -127,6 +134,7 @@ public final class SplitRequest implements WireValue {
         Wire.put(object, "pane_id", paneId);
         Wire.put(object, "rows", rows);
         Wire.put(object, "shell_args", shellArgs);
+        Wire.put(object, "split_id", splitId);
         Wire.put(object, "tab_id", tabId);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "url", url);
@@ -136,11 +144,11 @@ public final class SplitRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SplitRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(kind, that.kind) && Objects.equals(pane, that.pane) && Objects.equals(paneId, that.paneId) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(url, that.url);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(kind, that.kind) && Objects.equals(pane, that.pane) && Objects.equals(paneId, that.paneId) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(splitId, that.splitId) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, dir, env, keep, kind, pane, paneId, rows, shellArgs, tabId, terminalId, url); }
+    public int hashCode() { return Objects.hash(cols, cwd, dir, env, keep, kind, pane, paneId, rows, shellArgs, splitId, tabId, terminalId, url); }
 
     @Override
     public String toString() { return "SplitRequest" + toWire(); }
@@ -158,6 +166,7 @@ public final class SplitRequest implements WireValue {
         private Field<String> paneId = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<List<String>> shellArgs = Field.omitted();
+        private Field<String> splitId = Field.omitted();
         private Field<String> tabId = Field.omitted();
         private Field<String> terminalId = Field.omitted();
         private Field<String> url = Field.omitted();
@@ -202,6 +211,10 @@ public final class SplitRequest implements WireValue {
         }
         public Builder shellArgs(List<String> value) {
             this.shellArgs = Field.ofNullable(value);
+            return this;
+        }
+        public Builder splitId(String value) {
+            this.splitId = Field.ofNullable(value);
             return this;
         }
         public Builder tabId(String value) {

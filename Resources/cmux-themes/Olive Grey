@@ -1,0 +1,23 @@
+# Olive Grey: olive-tinted grey surfaces, warm off-white text and a neutral accent. A cmux theme (dark only).
+palette = 0=#3f403c
+palette = 1=#f06c63
+palette = 2=#8fc06b
+palette = 3=#f0b54a
+palette = 4=#7aa6e8
+palette = 5=#b58cf0
+palette = 6=#79b0a6
+palette = 7=#dadad4
+palette = 8=#9d9d98
+palette = 9=#ff8a80
+palette = 10=#a6d189
+palette = 11=#f6c770
+palette = 12=#99b9ec
+palette = 13=#c9a6f5
+palette = 14=#93c4bb
+palette = 15=#f8f8f3
+background = #272823
+foreground = #f8f8f3
+cursor-color = #f8f8f3
+cursor-text = #272823
+selection-background = #4a4b45
+selection-foreground = #f8f8f3

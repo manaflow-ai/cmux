@@ -1,0 +1,661 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hangReports.ask.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هل تساعد في جعل cmux أسرع؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pomoći da cmux bude brži?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vil du hjælpe med at gøre cmux hurtigere?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux schneller machen helfen?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Help Make cmux Faster?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Nos ayudas a hacer cmux más rápido?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aider à rendre cmux plus rapide ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vuoi aiutarci a rendere cmux più veloce?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxの高速化に協力しますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជួយ​ធ្វើ​ឱ្យ cmux លឿន​ជាង​មុន?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux를 더 빠르게 만드는 데 도움을 주시겠어요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vil du hjelpe med å gjøre cmux raskere?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pomożesz przyspieszyć cmux?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quer ajudar a deixar o cmux mais rápido?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помочь сделать cmux быстрее?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ช่วยให้ cmux เร็วขึ้นไหม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux’u hızlandırmaya yardım eder misiniz?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Допомогти зробити cmux швидшим?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giúp cmux nhanh hơn?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帮助 cmux 变得更快？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "協助 cmux 變得更快？"
+          }
+        }
+      }
+    },
+    "hangReports.privacySummary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تقرير يومي عن حالات التجمّد والإطارات البطيئة من إصدار Nightly هذا: مكدسات الاستدعاء، والتوقيتات، وأعداد تقريبية للنوافذ وعلامات التبويب، وإصدارا cmux وmacOS، ونوع جهاز Mac، ومعرّف تثبيت عشوائي يتغيّر كل 30 يومًا. لا يحتوي أبدًا على أسماء ملفات أو مسارات أو نصوص الطرفية أو الدردشة أو عناوين ويب أو عناوين النوافذ أو أسماء المضيفين. يعرض «عرض تقرير التجمّد» ما يُرسل بالضبط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dnevni izvještaj o zastojima i sporim kadrovima iz ove Nightly verzije: stekovi poziva, vremena, približan broj prozora i kartica, verzije cmuxa i macOS-a, vrsta Maca i nasumični ID instalacije koji se mijenja svakih 30 dana. Nikada ne sadrži imena datoteka, putanje, tekst terminala ili chata, web adrese, naslove prozora ni imena hostova. „Prikaži izvještaj o zastoju“ pokazuje tačno šta se šalje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En daglig rapport om hængninger og langsomme billeder fra denne Nightly-build: kaldestakke, tider, omtrentligt antal vinduer og faner, cmux- og macOS-versionerne, typen af Mac og et tilfældigt installations-id, der skifter hver 30. dag. Den indeholder aldrig filnavne, stier, terminal- eller chattekst, webadresser, vinduestitler eller værtsnavne. „Vis hængningsrapport“ viser præcis, hvad der sendes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein täglicher Bericht über Hänger und langsame Frames aus diesem Nightly-Build: Aufrufstapel, Zeiten, ungefähre Anzahl von Fenstern und Tabs, die cmux- und macOS-Version, die Art des Mac und eine zufällige Installations-ID, die sich alle 30 Tage ändert. Er enthält nie Dateinamen, Pfade, Terminal- oder Chattext, Webadressen, Fenstertitel oder Hostnamen. „Hänger-Bericht anzeigen“ zeigt genau, was gesendet wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A daily report of hangs and slow frames from this Nightly build: call stacks, timings, coarse counts of windows and tabs, the cmux and macOS versions, the kind of Mac, and a random install ID that changes every 30 days. It never holds file names, paths, terminal or chat text, web addresses, window titles or host names. View Hang Report shows exactly what is sent."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un informe diario de bloqueos y fotogramas lentos de esta versión Nightly: pilas de llamadas, tiempos, el número aproximado de ventanas y pestañas, las versiones de cmux y macOS, el tipo de Mac y un ID de instalación aleatorio que cambia cada 30 días. Nunca contiene nombres de archivo, rutas, texto del terminal o del chat, direcciones web, títulos de ventana ni nombres de host. «Ver informe de bloqueos» muestra exactamente lo que se envía."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un rapport quotidien sur les blocages et les images lentes de cette version Nightly : piles d’appels, durées, nombre approximatif de fenêtres et d’onglets, versions de cmux et de macOS, type de Mac et un identifiant d’installation aléatoire qui change tous les 30 jours. Il ne contient jamais de noms de fichiers, de chemins, de texte du terminal ou du chat, d’adresses web, de titres de fenêtres ni de noms d’hôte. « Afficher le rapport de blocages » montre exactement ce qui est envoyé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un rapporto giornaliero su blocchi e fotogrammi lenti da questa build Nightly: stack di chiamate, tempi, numero approssimativo di finestre e schede, le versioni di cmux e macOS, il tipo di Mac e un ID di installazione casuale che cambia ogni 30 giorni. Non contiene mai nomi di file, percorsi, testo del terminale o della chat, indirizzi web, titoli di finestre o nomi host. «Mostra rapporto sui blocchi» mostra esattamente cosa viene inviato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このNightlyビルドのハングと遅いフレームを1日1回レポートします。含まれるのは、コールスタック、所要時間、ウインドウとタブのおおよその数、cmuxとmacOSのバージョン、Macの種類、30日ごとに変わるランダムなインストールIDです。ファイル名、パス、ターミナルやチャットのテキスト、Webアドレス、ウインドウタイトル、ホスト名は一切含みません。送信内容は「ハングレポートを表示」で正確に確認できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របាយការណ៍​ប្រចាំថ្ងៃ​អំពី​ការ​គាំង និង​ស៊ុម​យឺត​ពី​កំណែ Nightly នេះ៖ ជង់​ការ​ហៅ ពេលវេលា ចំនួន​ប្រហាក់ប្រហែល​នៃ​បង្អួច និង​ផ្ទាំង កំណែ cmux និង macOS ប្រភេទ Mac និង​លេខ​សម្គាល់​ការ​ដំឡើង​ចៃដន្យ​ដែល​ប្ដូរ​រៀងរាល់ 30 ថ្ងៃ។ វា​មិន​ដែល​មាន​ឈ្មោះ​ឯកសារ ផ្លូវ អត្ថបទ​ទែមីណាល់ ឬ​ជជែក អាសយដ្ឋាន​បណ្ដាញ ចំណងជើង​បង្អួច ឬ​ឈ្មោះ​ម៉ាស៊ីន​ឡើយ។ «មើល​របាយការណ៍​គាំង» បង្ហាញ​អ្វី​ដែល​ត្រូវ​ផ្ញើ​យ៉ាង​ពិតប្រាកដ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Nightly 빌드의 멈춤과 느린 프레임에 대한 일일 보고서입니다. 호출 스택, 소요 시간, 창과 탭의 대략적인 수, cmux와 macOS 버전, Mac 종류, 30일마다 바뀌는 무작위 설치 ID가 포함됩니다. 파일 이름, 경로, 터미널이나 채팅 텍스트, 웹 주소, 창 제목, 호스트 이름은 절대 포함하지 않습니다. '멈춤 보고서 보기'에서 보내는 내용을 정확히 볼 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En daglig rapport om henginger og trege bilder fra denne Nightly-versjonen: kallstakker, tider, omtrentlig antall vinduer og faner, cmux- og macOS-versjonene, typen Mac og en tilfeldig installasjons-ID som endres hver 30. dag. Den inneholder aldri filnavn, stier, terminal- eller chattetekst, nettadresser, vindustitler eller vertsnavn. «Vis hengerapport» viser nøyaktig hva som sendes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codzienny raport o zawieszeniach i wolnych klatkach z tej wersji Nightly: stosy wywołań, czasy, przybliżona liczba okien i kart, wersje cmux i macOS, rodzaj Maca oraz losowy identyfikator instalacji, który zmienia się co 30 dni. Nigdy nie zawiera nazw plików, ścieżek, tekstu terminala ani czatu, adresów internetowych, tytułów okien ani nazw hostów. „Pokaż raport o zawieszeniu” pokazuje dokładnie, co jest wysyłane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um relatório diário de travamentos e quadros lentos desta versão Nightly: pilhas de chamadas, tempos, número aproximado de janelas e abas, as versões do cmux e do macOS, o tipo de Mac e um ID de instalação aleatório que muda a cada 30 dias. Nunca contém nomes de arquivos, caminhos, texto do terminal ou do chat, endereços web, títulos de janelas nem nomes de host. “Ver relatório de travamentos” mostra exatamente o que é enviado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ежедневный отчёт о зависаниях и медленных кадрах из этой сборки Nightly: стеки вызовов, время, примерное число окон и вкладок, версии cmux и macOS, тип Mac и случайный идентификатор установки, который меняется каждые 30 дней. Он никогда не содержит имён файлов, путей, текста терминала или чата, веб-адресов, заголовков окон и имён хостов. «Показать отчёт о зависаниях» показывает, что именно отправляется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รายงานประจำวันเกี่ยวกับการค้างและเฟรมที่ช้าจากรุ่น Nightly นี้: สแตกการเรียก เวลา จำนวนหน้าต่างและแท็บโดยประมาณ เวอร์ชันของ cmux และ macOS ประเภทของ Mac และ ID การติดตั้งแบบสุ่มที่เปลี่ยนทุก 30 วัน ไม่มีชื่อไฟล์ พาธ ข้อความในเทอร์มินัลหรือแชท ที่อยู่เว็บ ชื่อหน้าต่าง หรือชื่อโฮสต์เลย \"ดูรายงานการค้าง\" แสดงสิ่งที่ส่งอย่างละเอียด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Nightly sürümündeki donmalar ve yavaş kareler hakkında günlük bir rapor: çağrı yığınları, süreler, pencere ve sekmelerin yaklaşık sayısı, cmux ve macOS sürümleri, Mac türü ve her 30 günde bir değişen rastgele bir kurulum kimliği. Asla dosya adı, yol, terminal veya sohbet metni, web adresi, pencere başlığı ya da ana bilgisayar adı içermez. \"Donma raporunu görüntüle\" tam olarak neyin gönderildiğini gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Щоденний звіт про зависання та повільні кадри з цієї збірки Nightly: стеки викликів, час, приблизна кількість вікон і вкладок, версії cmux і macOS, тип Mac і випадковий ідентифікатор встановлення, що змінюється кожні 30 днів. Він ніколи не містить імен файлів, шляхів, тексту термінала чи чату, вебадрес, заголовків вікон або імен хостів. «Показати звіт про зависання» показує, що саме надсилається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Báo cáo hằng ngày về các lần treo và khung hình chậm từ bản Nightly này: ngăn xếp lệnh gọi, thời gian, số cửa sổ và thẻ ước chừng, phiên bản cmux và macOS, loại máy Mac và một ID cài đặt ngẫu nhiên thay đổi sau mỗi 30 ngày. Báo cáo không bao giờ chứa tên tệp, đường dẫn, văn bản terminal hoặc trò chuyện, địa chỉ web, tiêu đề cửa sổ hay tên máy chủ. \"Xem báo cáo treo\" cho thấy chính xác những gì được gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Nightly 版本的卡顿和慢帧每日报告：调用栈、耗时、窗口和标签页的大致数量、cmux 和 macOS 版本、Mac 类型，以及每 30 天更换一次的随机安装 ID。报告绝不包含文件名、路径、终端或聊天文本、网址、窗口标题或主机名。“查看卡顿报告”会准确显示发送的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Nightly 版本的卡頓與慢影格每日報告：呼叫堆疊、耗時、視窗與分頁的大約數量、cmux 與 macOS 版本、Mac 類型，以及每 30 天更換一次的隨機安裝 ID。報告絕不包含檔案名稱、路徑、終端機或聊天文字、網址、視窗標題或主機名稱。「檢視卡頓報告」會準確顯示傳送的內容。"
+          }
+        }
+      }
+    },
+    "hangReports.ask.yes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إرسال تقارير التجمّد"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šalji izvještaje o zastojima"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send hængningsrapporter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hänger-Berichte senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Hang Reports"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar informes de bloqueos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer les rapports de blocages"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invia rapporti sui blocchi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ハングレポートを送信"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្ញើ​របាយការណ៍​គាំង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "멈춤 보고서 보내기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send hengerapporter"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wysyłaj raporty o zawieszeniach"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar relatórios de travamentos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять отчёты о зависаниях"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่งรายงานการค้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donma raporlarını gönder"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Надсилати звіти про зависання"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gửi báo cáo treo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送卡顿报告"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送卡頓報告"
+          }
+        }
+      }
+    },
+    "hangReports.ask.no" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ليس الآن"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne sada"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke nu"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht jetzt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Now"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ahora no"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas maintenant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non ora"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今はしない"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនមែន​ឥឡូវ​ទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "나중에"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke nå"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie teraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agora não"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не сейчас"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไว้ทีหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi değil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не зараз"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Để sau"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以后再说"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以後再說"
+          }
+        }
+      }
+    },
+    "hangReports.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تقارير التجمّد غير متاحة في هذا الإصدار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izvještaji o zastojima nisu dostupni u ovoj verziji."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hængningsrapporter er ikke tilgængelige i denne build."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hänger-Berichte sind in diesem Build nicht verfügbar."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hang reports are not available in this build."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los informes de bloqueos no están disponibles en esta versión."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les rapports de blocages ne sont pas disponibles dans cette version."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I rapporti sui blocchi non sono disponibili in questa build."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このビルドではハングレポートを利用できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របាយការណ៍​គាំង​មិន​មាន​ក្នុង​កំណែ​នេះ​ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 빌드에서는 멈춤 보고서를 사용할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hengerapporter er ikke tilgjengelige i dette bygget."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raporty o zawieszeniach nie są dostępne w tej wersji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os relatórios de travamentos não estão disponíveis nesta versão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отчёты о зависаниях недоступны в этой сборке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รายงานการค้างใช้ไม่ได้ในรุ่นนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donma raporları bu sürümde kullanılamaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звіти про зависання недоступні в цій збірці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Báo cáo treo không có trong bản dựng này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本不提供卡顿报告。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本不提供卡頓報告。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

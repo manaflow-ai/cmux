@@ -1,0 +1,428 @@
+/* Needs you (needsYou/NeedsYou.tsx, JumpPill.tsx): the header badge, its pinned list, and the
+   chat's Needs your input pill. One mark says "this needs you" everywhere: the dot the
+   window sidebar draws for a workspace that waits on you (the badge, the pill, the Chief dock).
+   Its colour, --acpmux-needs-you-mark, is the theme's attention colour, defined once in
+   ../styles.css with every other surface's needs-input mark. */
+
+.acpmux-needs-you-dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acpmux-needs-you-mark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-needs-you-mark) 18%, transparent);
+}
+
+/* The badge: the header's tool button, widened by the count while asks are open. The count keeps the
+   text's ink over the tools' muted rest: open asks are not a quiet tool. */
+.acpmux-header-tool.acpmux-needs-you-button[data-count] {
+  width: auto;
+  gap: 5px;
+  padding: 0 7px 0 6px;
+  color: var(--agent-text);
+}
+.acpmux-needs-you-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis, 600);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-count .acpmux-needs-you-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+/* The pinned list (restyled Leo 2026-10-21): one layer of the shared
+   popup glass (Popover's .ui-popup.ui-glass; ui/popupSurface.css), never a fill of its own, with
+   native list metrics: 13px rows, a 16px mark, the ask in two lines at most, plain muted meta and
+   tools that show on hover or keyboard focus. The title stays put and the rows scroll under it
+   inside the list, so no second glass band frosts over them. */
+.acpmux-needs-you {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: min(520px, 75vh);
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-popup-radius);
+  transform-origin: var(--transform-origin);
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  outline: none;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-needs-you-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  outline: none;
+}
+/* The title as a list's section heading (the agents list's, subagents.css): small, muted, with the
+   count as plain text at the end. */
+.acpmux-needs-you-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 2px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-title {
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-needs-you-total {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-needs-you-note {
+  flex: none;
+  margin: 4px 12px 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 16px 22px;
+  color: var(--agent-muted);
+}
+.acpmux-needs-you-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 4px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.acpmux-needs-you-item {
+  padding: 6px 8px 7px;
+  border-radius: 6px;
+}
+.acpmux-needs-you-item + .acpmux-needs-you-item {
+  margin-top: 1px;
+}
+/* The ask a link opened the list on: a wash of the needs-you mark, no ring. */
+.acpmux-needs-you-item[data-focused] {
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 12%, transparent);
+}
+.acpmux-needs-you-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 20px;
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+.acpmux-needs-you-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.acpmux-needs-you-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-text);
+  font-weight: 500;
+}
+.acpmux-needs-you-via {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The kind is a word in the meta line, not a chip. */
+.acpmux-needs-you-kind {
+  flex: none;
+}
+/* The row's end: the age at rest, the tools in the same slot on hover or focus, so the age sits
+   flush right and the tools never move the line. */
+.acpmux-needs-you-end {
+  flex: none;
+  display: grid;
+  justify-items: end;
+  align-items: center;
+  margin-left: auto;
+}
+.acpmux-needs-you-end > * {
+  grid-area: 1 / 1;
+}
+.acpmux-needs-you-age {
+  font-variant-numeric: tabular-nums;
+  /* This label shares the tools' grid slot, including while it is transparent. */
+  pointer-events: none;
+}
+.acpmux-needs-you-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+}
+.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools,
+.acpmux-needs-you-item:has(.acpmux-needs-you-ask-about[aria-expanded="true"]) .acpmux-needs-you-tools {
+  opacity: 1;
+}
+.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-age,
+.acpmux-needs-you-item:has(.acpmux-needs-you-ask-about[aria-expanded="true"]) .acpmux-needs-you-age {
+  opacity: 0;
+}
+/* No hover to reveal them (a touch screen): the tools stay shown and the age gives way. */
+@media (hover: none) {
+  .acpmux-needs-you-tools {
+    opacity: 1;
+  }
+  .acpmux-needs-you-age {
+    opacity: 0;
+  }
+}
+.acpmux-needs-you-go,
+.acpmux-needs-you-ask-about {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+}
+.acpmux-needs-you-go:hover,
+.acpmux-needs-you-go:active,
+.acpmux-needs-you-ask-about:hover,
+.acpmux-needs-you-ask-about:active,
+.acpmux-needs-you-ask-about[aria-expanded="true"] {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  color: var(--agent-text);
+}
+.acpmux-needs-you-go:focus-visible,
+.acpmux-needs-you-ask-about:focus-visible,
+.acpmux-needs-you-answer:focus-visible,
+.acpmux-needs-you-side-send:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 0;
+}
+/* The ask, under the name (past the 16px mark and its 6px gap): two lines at most. */
+.acpmux-needs-you-ask {
+  margin: 1px 0 0 22px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--agent-text);
+}
+.acpmux-needs-you-panel[data-mode="compact"] .acpmux-needs-you-ask {
+  -webkit-line-clamp: 1;
+}
+.acpmux-needs-you-detail {
+  margin: 2px 0 0 22px;
+  overflow: hidden;
+  color: var(--agent-soft, var(--agent-muted));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A command: as the ask's card shows one. */
+.acpmux-needs-you-detail[data-code] {
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.acpmux-needs-you-actions {
+  margin: 6px 0 0 22px;
+}
+/* The answers as Claude's permission card draws its options (styles.css .acpmux-permission-ask):
+   numbered rows in one column, the first one ready, hover fills the row. */
+.acpmux-needs-you-options {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+  counter-reset: acpmux-needs-you-option;
+}
+.acpmux-needs-you-answer {
+  counter-increment: acpmux-needs-you-option;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-needs-you-answer::before {
+  content: counter(acpmux-needs-you-option);
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-needs-you-answer-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-needs-you-answer:first-child,
+.acpmux-needs-you-answer:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.acpmux-needs-you-answer[data-tone="deny"] .acpmux-needs-you-answer-label {
+  color: var(--agent-soft, var(--agent-muted));
+}
+.acpmux-needs-you-answer:disabled {
+  opacity: 0.55;
+}
+.acpmux-needs-you-answer[aria-busy="true"] {
+  opacity: 0.8;
+}
+.acpmux-needs-you-side-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  max-width: 100%;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 0;
+  /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
+  border-radius: 6px;
+  background: var(--acpmux-pill-fill, color-mix(in srgb, var(--agent-text) 6%, transparent));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent));
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-side-send:hover:not(:disabled) {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-needs-you-side-send:disabled {
+  opacity: 0.55;
+}
+.acpmux-needs-you-error {
+  margin: 4px 0 0 22px;
+  color: var(--agent-danger, var(--agent-text));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-side {
+  margin: 6px 0 0 22px;
+}
+.acpmux-needs-you-side > p + .acpmux-needs-you-side-form {
+  margin-top: 6px;
+}
+.acpmux-needs-you-side .acpmux-needs-you-error {
+  margin: 0;
+}
+.acpmux-needs-you-side-status {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-side-form {
+  display: flex;
+  gap: 6px;
+}
+.acpmux-needs-you-side-field {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  background: var(--acpmux-composer-bg, color-mix(in srgb, var(--agent-text) 8%, transparent));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, var(--agent-border));
+  color: var(--agent-text);
+  caret-color: var(--cmux-caret, var(--agent-text));
+  font: inherit;
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-needs-you-side-field:focus {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
+}
+
+/* The Needs your input pill: Jump to latest's glass (tint, rim, hover wash), widened to a small-radius rect,
+   a little larger than Claude's (Leo 2026-10-20). */
+.acpmux-jump-latest.acpmux-needs-you-pill {
+  display: inline-flex;
+  gap: 8px;
+  width: auto;
+  height: 34px;
+  padding: 0 12px 0 13px;
+  border-radius: 9px;
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  font-weight: var(--weight-emphasis, 600);
+  white-space: nowrap;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-needs-you-pill__chevron {
+  flex: none;
+  color: var(--agent-muted);
+}
+
+/* A reply's `cmux://needs-you/<id>` link (conversation/Markdown.tsx): the dot, then its text. */
+.cv-link.is-needs-you {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+}
+.cv-link.is-needs-you .acpmux-needs-you-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}

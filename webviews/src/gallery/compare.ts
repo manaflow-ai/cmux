@@ -88,7 +88,7 @@ export function compareSummary(
   variant: string,
   experiment: GalleryExperiment,
   state: CompareState,
-  extra: { theme?: string; locale?: string; reducedMotion?: boolean } = {},
+  extra: { theme?: string; locale?: string; reducedMotion?: boolean; sha?: string } = {},
 ): string {
   const { definition } = experiment;
   const arms = visibleArms(definition, state);
@@ -105,6 +105,7 @@ export function compareSummary(
   if (extra.theme) parts.push(`theme ${extra.theme}`);
   if (extra.locale && extra.locale !== "en") parts.push(`locale ${extra.locale}`);
   if (extra.reducedMotion) parts.push("reduced motion");
+  if (extra.sha) parts.push(`head ${extra.sha}`);
   parts.push(state.pick ? `picked ${state.pick}` : "no pick");
   return parts.join(", ");
 }

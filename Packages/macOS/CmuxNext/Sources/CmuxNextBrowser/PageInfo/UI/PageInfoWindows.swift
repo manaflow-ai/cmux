@@ -12,7 +12,7 @@ final class PageInfoWindows {
 
     func showCertificate(_ chain: [PageInfoCertificate], site: PageInfoSite, failure: String?) {
         certificate?.close()
-        let window = CertificateViewerWindow(chain: chain, site: site, failure: failure)
+        let window = CertificateViewerWindow(chain: chain, site: site, failure: failure, activeLook: parentWindow()?.backdropActiveLook)
         certificate = window
         present(window)
     }
@@ -23,14 +23,15 @@ final class PageInfoWindows {
             return present(siteSettings)
         }
         siteSettings?.close()
-        let window = SiteSettingsWindow(origin: origin, site: site, store: store, provider: provider, send: send)
+        let window = SiteSettingsWindow(origin: origin, site: site, store: store, provider: provider, send: send,
+                                        activeLook: parentWindow()?.backdropActiveLook)
         siteSettings = window
         present(window)
     }
 
     func showSiteData(site: PageInfoSite, provider: any PageInfoProviding, send: @escaping (PageInfoCommand) -> Void) {
         siteData?.close()
-        let window = SiteDataWindow(site: site, send: send)
+        let window = SiteDataWindow(site: site, send: send, activeLook: parentWindow()?.backdropActiveLook)
         siteData = window
         present(window)
         Task { [weak window] in
@@ -59,28 +60,32 @@ final class PageInfoWindows {
 /// Shared window chrome for the page info windows: titled, closable,
 /// kind `.pageInfo` (the one surface background), not released on close.
 class PageInfoWindow: NSWindow {
-    init(title: String, size: CGSize) {
+    /// The shell window's ``ActiveLookScope`` (its `backdropActiveLook`), for this window's backdrop.
+    private let activeLook: ActiveLookScope?
+
+    init(title: String, size: CGSize, activeLook: ActiveLookScope?) {
+        self.activeLook = activeLook
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true)
         self.title = title
         isReleasedWhenClosed = false
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
     }
 
     /// Sets the window's content through the window kit (kind
     /// `.pageInfo`); `PageInfoWindows` adopts the shell window's scope.
     func installContent(_ content: NSView) {
-        install(kind: .pageInfo, content: content, scope: themeScope)
+        install(kind: .pageInfo, content: content, scope: themeScope, activeLook: activeLook)
     }
 
     /// Escape closes.
     override func cancelOperation(_ sender: Any?) { close() }
 
-    static func sectionTitle(_ text: String) -> NSTextField {
+    static func sectionTitle(_ text: String) -> ThemedLabel {
         PageInfoStyle.label(text, font: PageInfoStyle.headerFont, color: PageInfoStyle.text)
     }
 
-    static func valueLabel(_ text: String, selectable: Bool = true) -> NSTextField {
+    static func valueLabel(_ text: String, selectable: Bool = true) -> ThemedLabel {
         let label = PageInfoStyle.label(text, font: PageInfoStyle.bodyFont, color: PageInfoStyle.text, wraps: true)
         label.isSelectable = selectable
         return label

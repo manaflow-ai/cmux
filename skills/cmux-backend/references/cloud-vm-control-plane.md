@@ -10,7 +10,7 @@ Cloud VM backend logic lives in Vercel route handlers and Effect services. Reque
 
 ## Migrations
 
-Production and staging: `bun run cloud-vm:migrate -- staging` followed by `-- production`. Never run Drizzle migrations from Vercel build or route startup; that makes deploy behavior non-deterministic and couples app availability to schema mutation. Local development keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
+Production and staging: `bun run cloud-vm:migrate -- staging` followed by `-- production`. Never run Drizzle migrations from Vercel build or route startup; that makes deploy behavior non-deterministic and couples app availability to schema mutation. Local `bun dev` uses a `CMUX_PORT`-derived Docker Postgres on Linux; on a Mac, `web/scripts/dev-local.sh` starts no Docker and hands off to the HQ shared-backend helper (`scripts/dev-backend.sh`, not in this repository).
 
 ## PlanetScale PostgreSQL runtime
 

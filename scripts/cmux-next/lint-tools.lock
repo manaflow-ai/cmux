@@ -1,0 +1,13 @@
+# Pinned static-analysis tools for scripts/cmux-next/prepush-gate.py (the pre-push hook and the
+# "Pushed commits add no violations" CI step). Same versions on every Mac and runner, so a finding
+# on one machine is a finding on all of them. Bump a row with its new URL and sha256 together.
+# tool	version	platform	url	sha256	binary-in-zip
+ast-grep	0.51.0	darwin-arm64	https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-aarch64-apple-darwin.zip	e18e13c27ed6c4b3ec4de00745b0755dee9dc26c035e226f4dd5d147dca99cc8	ast-grep
+ast-grep	0.51.0	darwin-x86_64	https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-x86_64-apple-darwin.zip	8438fe549da59da28518c45bdaab5b851aabafe8fb4f8dc05c261a7649b4eca6	ast-grep
+ast-grep	0.51.0	linux-x86_64	https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-x86_64-unknown-linux-gnu.zip	a7eead5552d3a8daad70f5d50d935da44bd0c138e946b5b0a96b1d38169fa639	ast-grep
+swiftformat	0.64.0	darwin-arm64	https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.0/swiftformat.zip	95ea62625d0b898a7af870293311ae6f09e4a3147ecd900593687e4b9ab2fd98	swiftformat
+swiftformat	0.64.0	darwin-x86_64	https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.0/swiftformat.zip	95ea62625d0b898a7af870293311ae6f09e4a3147ecd900593687e4b9ab2fd98	swiftformat
+swiftformat	0.64.0	linux-x86_64	https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.0/swiftformat_linux.zip	599eb5d2d8cf43e1128e79cd72f3bc2fec1b3189c3ac7593fbe732f2568fed36	swiftformat_linux
+swiftlint	0.65.1	darwin-arm64	https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip	c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0	swiftlint
+swiftlint	0.65.1	darwin-x86_64	https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip	c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0	swiftlint
+swiftlint	0.65.1	linux-x86_64	https://github.com/realm/SwiftLint/releases/download/0.65.1/swiftlint_linux_amd64.zip	caeed6f4a679c35539ffaf124f6c4ab4a8416917f7d8796279dc52b74026059d	swiftlint-static

@@ -9,7 +9,7 @@ import { homes } from "./categories";
 const row = (key: string) => `[data-row-key="${key}"]`;
 // A popup button sizes to its label, so these rows' controls change width with the value.
 const customized: Record<string, unknown> = {
-  "tabs.newTabPosition": "afterCurrent",
+  "tabs.newTabPosition": "end",
   "terminal.fontFamily": "Menlo",
   // A custom number shows its field; the default hides it.
   "browser.hibernation": 45,

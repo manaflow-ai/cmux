@@ -9,6 +9,7 @@ use super::{Gate, now_ms, push_cors_log, push_log};
 use crate::policy::egress::ip_range;
 use crate::protocol::{DriverError, ErrorCode};
 use crate::vm::VmHost;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::PoisonError;
 use std::time::Instant;
@@ -289,7 +290,10 @@ impl Gate {
         if let Some(body) = value.get("bodyBase64").and_then(Value::as_str)
             && let Some(bytes) = crate::fs_sandbox::base64_decode(body)
         {
-            value["bodyBase64"] = json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes)));
+            value.set(
+                "bodyBase64",
+                json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes))),
+            );
         }
         Ok(value)
     }
@@ -338,18 +342,21 @@ impl Gate {
                     object.remove("targetId");
                 }
             }
-            call["url"] = json!(hop.url);
-            call["method"] = json!(hop.method);
-            call["headers"] = json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>());
-            call["bodyBase64"] = json!(hop.body);
-            call["credentials"] = json!(hop_credentials(credentials, page_origin, &hop.url));
-            call["redirect"] = json!("manual");
-            call["maxBytes"] = json!(MAX_BODY_BYTES);
-            call["idleTimeoutMs"] = json!(IDLE_TIMEOUT_MS);
-            call["fetchId"] = json!(fetch_id);
-            call["timeoutMs"] = json!(deadline.map_or(0, |deadline| {
-                deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
-            }));
+            call.set("url", json!(hop.url));
+            call.set("method", json!(hop.method));
+            call.set("headers", json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>()));
+            call.set("bodyBase64", json!(hop.body));
+            call.set("credentials", json!(hop_credentials(credentials, page_origin, &hop.url)));
+            call.set("redirect", json!("manual"));
+            call.set("maxBytes", json!(MAX_BODY_BYTES));
+            call.set("idleTimeoutMs", json!(IDLE_TIMEOUT_MS));
+            call.set("fetchId", json!(fetch_id));
+            call.set(
+                "timeoutMs",
+                json!(deadline.map_or(0, |deadline| {
+                    deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
+                })),
+            );
             let mut value = match self.driver.call("net.fetch", &call) {
                 Ok(value) => value,
                 Err(error) => return Err(self.hop_error(error, start, url)),
@@ -385,8 +392,8 @@ impl Gate {
             }
             let Some(redirect) = redirect else {
                 // The final URL and `redirected` come from the host's chain.
-                value["url"] = json!(hop.url);
-                value["redirected"] = json!(redirects > 0);
+                value.set("url", json!(hop.url));
+                value.set("redirected", json!(redirects > 0));
                 return Ok(value);
             };
             redirects += 1;

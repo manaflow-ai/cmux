@@ -1,0 +1,24 @@
+{
+  "title": "Settings: General",
+  "settings": null,
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Settings (an in-window page, not a window)",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--focus",
+        "--section",
+        "general"
+      ],
+      "wait": 3,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/WindowActionCatalog.swift:7-12 (SettingsWindowService.swift:12-18)"
+    }
+  ]
+}

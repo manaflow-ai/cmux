@@ -360,7 +360,8 @@ fn initialization_failures_after_reader_spawn_close_the_transport() {
     for (failure, expected_error) in [
         (InitializationFailure::IdentifyRejected, "identify rejected"),
         (InitializationFailure::WrongApp, "socket endpoint is not a cmux-tui session"),
-        (InitializationFailure::WrongProtocol, "unsupported cmux-tui protocol"),
+        // The skew refusal names the older side (ca6f580d52c): here the server.
+        (InitializationFailure::WrongProtocol, "is older than this cmux"),
         (InitializationFailure::ClientInfoRejected, "client info rejected"),
         (InitializationFailure::SubscribeRejected, "subscribe rejected"),
     ] {

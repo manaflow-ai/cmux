@@ -47,7 +47,14 @@ class ComposeTest(unittest.TestCase):
             self.assertIn(needle, text)
 
     def test_source_tag_is_the_release_tag(self):
-        self.assertEqual(notices.source_tag(), f"cmux-browser-host-v{notices.crate_version()}")
+        # The release version: the crate version plus its cmux-release revision, if any.
+        self.assertEqual(notices.source_tag(), f"cmux-browser-host-v{notices.release_version()}")
+        self.assertTrue(notices.release_version().startswith(notices.crate_version()))
+
+    def test_crate_version_resolves_the_workspace_version(self):
+        # The crate takes `version.workspace = true`; the notices name the release
+        # version (cmux-browser-host-vX.Y.Z), never the TOML table.
+        self.assertRegex(notices.crate_version(), r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
 class CheckTest(unittest.TestCase):

@@ -45,6 +45,10 @@ struct ActionScope {
 
     var workspace: WorkspaceModel? {
         if let target = invocation.target ?? invocation["workspace"]?.targetValue, target.kind == .workspace {
+            if let machine = invocation.targetMachineID {
+                return services.machines.daemon(machine: machine)?.store.workspaces.first { $0.id == target.id }
+                    ?? notFound(RefusalStrings.noWorkspace(target.id))
+            }
             return services.workspace(id: target.id) ?? notFound(RefusalStrings.noWorkspace(target.id))
         }
         return window?.state.workspaceID.flatMap(services.workspace(id:))

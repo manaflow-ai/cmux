@@ -31,6 +31,9 @@ public nonisolated enum RemoteViewUnavailableReason: Sendable, Hashable {
     case noTransport(host: String)
     /// Phase 1 connects only to this machine (plan 11.0).
     case notLoopback(host: String)
+    /// A VNC host outside this Mac, the tailnet and the local network
+    /// (VNC sessions are not encrypted; section 12).
+    case notPrivateNetwork(host: String)
     /// The record came from another machine's tree.
     case remoteRecord
     /// The tab's address is not a valid remote view record.

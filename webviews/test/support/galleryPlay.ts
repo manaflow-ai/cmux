@@ -1,12 +1,18 @@
 /** A gallery play's report as its stage publishes it (`window.cmuxGalleryPlayReport`, src/gallery/play.ts). */
 type PlayReport = {
   status?: string;
-  steps?: { step: string; status: string; problems: string[] }[];
+  steps?: { step: string; status: string; problems: string[]; shifts?: { value: number; sources: string[] }[] }[];
   error?: string;
 };
 
 /** judgeStep's frame-timing and settle-latency problems (src/gallery/play.ts). */
 const RUNNER_TIMING = [/^\d+ frame\(s\) over /, /^settle latency /];
+
+/** What a layout shift moved, so a red names it: ` (moved: div.foo 0.00002, #text 0.00001)`. */
+function shifted(shifts: { value: number; sources: string[] }[] | undefined): string {
+  if (!shifts?.length) return "";
+  return ` (moved: ${shifts.map((shift) => `${shift.sources.join(" + ") || "?"} ${shift.value.toPrecision(2)}`).join(", ")})`;
+}
 
 /**
  * What went wrong in a gallery play a behavior test drove, from its JSON report; empty when it did
@@ -24,6 +30,6 @@ export function playFailures(report: string | undefined): string[] {
     .flatMap((step) =>
       step.problems
         .filter((problem) => !RUNNER_TIMING.some((timing) => timing.test(problem)))
-        .map((problem) => `${step.step}: ${problem}`),
+        .map((problem) => `${step.step}: ${problem}${problem.startsWith("layout shift ") ? shifted(step.shifts) : ""}`),
     );
 }

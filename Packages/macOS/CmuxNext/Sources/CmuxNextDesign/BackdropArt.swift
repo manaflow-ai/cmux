@@ -7,66 +7,40 @@ public import Foundation
 /// and the work was published before 1931). Sources and licenses: art/manifest.json.
 public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case davidDeathOfMarat = "david-death-of-marat"
-    case goyaSaturn = "goya-saturn"
     case veldeSmallShipStorm = "velde-small-ship-storm"
-    case boschGardenRight = "bosch-garden-right"
     case boschAscentBlessed = "bosch-ascent-blessed"
     case goyaWitchesFlight = "goya-witches-flight"
-    case bocklinSelfPortraitDeath = "bocklin-self-portrait-death"
-    case caravaggioMedusa = "caravaggio-medusa"
     case martinPandemonium = "martin-pandemonium"
     case moranBurningPhiladelphia = "moran-burning-philadelphia"
     case goyaBurialSardine = "goya-burial-sardine"
     case arboWildHunt = "arbo-wild-hunt"
-    case caravaggioDavidGoliath = "caravaggio-david-goliath"
-    case vanGoghSkeletonCigarette = "van-gogh-skeleton-cigarette"
     case altdorferBattleOfIssus = "altdorfer-battle-of-issus"
-    case gentileschiJudith = "gentileschi-judith"
     case munchMadonna = "munch-madonna"
-    case bocklinIsleOfTheDead = "bocklin-isle-of-the-dead"
     case kleeFishMagic = "klee-fish-magic"
     case friedrichForestMoonlight = "friedrich-forest-moonlight"
-    case goyaWitchesSabbath = "goya-witches-sabbath"
     case boschGardenLeft = "bosch-garden-left"
     case rembrandtStormGalilee = "rembrandt-storm-galilee"
     case coleVoyageManhood = "cole-voyage-manhood"
-    case fuseliNightmare2 = "fuseli-nightmare-2"
-    case hiremyHirschlSoulsOfAcheron = "hiremy-hirschl-souls-of-acheron"
     case munchScream = "munch-scream"
-    case klimtJudith = "klimt-judith"
-    case repinIvan = "repin-ivan"
-    case millaisOphelia = "millais-ophelia"
     case bruegelFallRebelAngels = "bruegel-fall-rebel-angels"
-    case fuseliNightmare = "fuseli-nightmare"
-    case bundyDeathGeneral = "bundy-death-general"
     case wrightVesuvius = "wright-vesuvius"
     case geromeBotsaris = "gerome-botsaris"
-    case durerKnightDeathDevil = "durer-knight-death-devil"
     case martinJoshua = "martin-joshua"
     case veldeGale = "velde-gale"
     case hogaiNio = "hogai-nio"
-    case klimtDeathAndLife = "klimt-death-and-life"
-    case klimtMedicine = "klimt-medicine"
     case boschGardenCentral = "bosch-garden-central"
     case martinGreatDayWrath = "martin-great-day-wrath"
     case bonheurWoundedEagle = "bonheur-wounded-eagle"
-    case geromePolliceVerso = "gerome-pollice-verso"
     case coleVoyageOldAge = "cole-voyage-old-age"
     case friedrichAbbeyOakwood = "friedrich-abbey-oakwood"
     case goyaSleepOfReason = "goya-sleep-of-reason"
     case boschGardenFragment = "bosch-garden-fragment"
-    case bruegelTriumphDeath = "bruegel-triumph-death"
     case spilliaertVertigo = "spilliaert-vertigo"
     case rothaugMelpomene = "rothaug-melpomene"
-    case schieleDeathAndTheMaiden = "schiele-death-and-the-maiden"
     case aivazovskyShipStormySeas = "aivazovsky-ship-stormy-seas"
-    case vereshchaginApotheosisWar = "vereshchagin-apotheosis-war"
-    case ensorSkeletonPainter = "ensor-skeleton-painter"
     case cabanelFallenAngel = "cabanel-fallen-angel"
     case spilliaertWomanShoreline = "spilliaert-woman-shoreline"
     case elGrecoViewOfToledo = "el-greco-view-of-toledo"
-    case gericaultRaftOfTheMedusa = "gericault-raft-of-the-medusa"
-    case moreauApparition = "moreau-apparition"
     case rembrandtProdigalSon = "rembrandt-prodigal-son"
     case velazquezLasMeninas = "velazquez-las-meninas"
     case matejkoStanczyk = "matejko-stanczyk"
@@ -76,7 +50,6 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case rembrandtNightWatch = "rembrandt-night-watch"
     case vigeeLebrunMadameGrand = "vigee-lebrun-madame-grand"
     case waterhouseLadyShalott = "waterhouse-lady-shalott"
-    case draperLamentIcarus = "draper-lament-icarus"
     case fragonardSwing = "fragonard-swing"
     case rubensStFrancisXavier = "rubens-st-francis-xavier"
     case vermeerPearlEarring = "vermeer-pearl-earring"
@@ -173,7 +146,6 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case hokusaiUmezawa = "hokusai-umezawa"
     case whistlerFallingRocket = "whistler-falling-rocket"
     case doreFallOfSatan = "dore-fall-of-satan"
-    case doreFlood = "dore-flood"
     case doreWolvesSheep = "dore-wolves-sheep"
     case doreLeviathan = "dore-leviathan"
     case doreParadiseLostBookVi = "dore-paradise-lost-book-vi"
@@ -185,66 +157,40 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     public var title: String {
         switch self {
         case .davidDeathOfMarat: String(localized: "backdrop.david-death-of-marat.title", defaultValue: "The Death of Marat", bundle: .module)
-        case .goyaSaturn: String(localized: "backdrop.goya-saturn.title", defaultValue: "Saturn Devouring His Son", bundle: .module)
         case .veldeSmallShipStorm: String(localized: "backdrop.velde-small-ship-storm.title", defaultValue: "A Small Dutch Ship Riding Out a Storm", bundle: .module)
-        case .boschGardenRight: String(localized: "backdrop.bosch-garden-right.title", defaultValue: "The Garden of Earthly Delights: Hell", bundle: .module)
         case .boschAscentBlessed: String(localized: "backdrop.bosch-ascent-blessed.title", defaultValue: "Ascent of the Blessed", bundle: .module)
         case .goyaWitchesFlight: String(localized: "backdrop.goya-witches-flight.title", defaultValue: "Witches' Flight", bundle: .module)
-        case .bocklinSelfPortraitDeath: String(localized: "backdrop.bocklin-self-portrait-death.title", defaultValue: "Self-Portrait with Death Playing the Fiddle", bundle: .module)
-        case .caravaggioMedusa: String(localized: "backdrop.caravaggio-medusa.title", defaultValue: "Medusa", bundle: .module)
         case .martinPandemonium: String(localized: "backdrop.martin-pandemonium.title", defaultValue: "Pandemonium", bundle: .module)
         case .moranBurningPhiladelphia: String(localized: "backdrop.moran-burning-philadelphia.title", defaultValue: "Burning of the Frigate Philadelphia", bundle: .module)
         case .goyaBurialSardine: String(localized: "backdrop.goya-burial-sardine.title", defaultValue: "The Burial of the Sardine", bundle: .module)
         case .arboWildHunt: String(localized: "backdrop.arbo-wild-hunt.title", defaultValue: "The Wild Hunt of Odin", bundle: .module)
-        case .caravaggioDavidGoliath: String(localized: "backdrop.caravaggio-david-goliath.title", defaultValue: "David with the Head of Goliath", bundle: .module)
-        case .vanGoghSkeletonCigarette: String(localized: "backdrop.van-gogh-skeleton-cigarette.title", defaultValue: "Skeleton with a Burning Cigarette", bundle: .module)
         case .altdorferBattleOfIssus: String(localized: "backdrop.altdorfer-battle-of-issus.title", defaultValue: "The Battle of Alexander at Issus", bundle: .module)
-        case .gentileschiJudith: String(localized: "backdrop.gentileschi-judith.title", defaultValue: "Judith Slaying Holofernes", bundle: .module)
         case .munchMadonna: String(localized: "backdrop.munch-madonna.title", defaultValue: "Madonna", bundle: .module)
-        case .bocklinIsleOfTheDead: String(localized: "backdrop.bocklin-isle-of-the-dead.title", defaultValue: "Isle of the Dead", bundle: .module)
         case .kleeFishMagic: String(localized: "backdrop.klee-fish-magic.title", defaultValue: "Fish Magic", bundle: .module)
         case .friedrichForestMoonlight: String(localized: "backdrop.friedrich-forest-moonlight.title", defaultValue: "Forest Interior by Moonlight", bundle: .module)
-        case .goyaWitchesSabbath: String(localized: "backdrop.goya-witches-sabbath.title", defaultValue: "Witches' Sabbath", bundle: .module)
         case .boschGardenLeft: String(localized: "backdrop.bosch-garden-left.title", defaultValue: "The Garden of Earthly Delights: Paradise", bundle: .module)
         case .rembrandtStormGalilee: String(localized: "backdrop.rembrandt-storm-galilee.title", defaultValue: "The Storm on the Sea of Galilee", bundle: .module)
         case .coleVoyageManhood: String(localized: "backdrop.cole-voyage-manhood.title", defaultValue: "The Voyage of Life: Manhood", bundle: .module)
-        case .fuseliNightmare2: String(localized: "backdrop.fuseli-nightmare-2.title", defaultValue: "The Nightmare (1791)", bundle: .module)
-        case .hiremyHirschlSoulsOfAcheron: String(localized: "backdrop.hiremy-hirschl-souls-of-acheron.title", defaultValue: "The Souls of Acheron", bundle: .module)
         case .munchScream: String(localized: "backdrop.munch-scream.title", defaultValue: "The Scream", bundle: .module)
-        case .klimtJudith: String(localized: "backdrop.klimt-judith.title", defaultValue: "Judith I", bundle: .module)
-        case .repinIvan: String(localized: "backdrop.repin-ivan.title", defaultValue: "Ivan the Terrible and His Son Ivan", bundle: .module)
-        case .millaisOphelia: String(localized: "backdrop.millais-ophelia.title", defaultValue: "Ophelia", bundle: .module)
         case .bruegelFallRebelAngels: String(localized: "backdrop.bruegel-fall-rebel-angels.title", defaultValue: "The Fall of the Rebel Angels", bundle: .module)
-        case .fuseliNightmare: String(localized: "backdrop.fuseli-nightmare.title", defaultValue: "The Nightmare", bundle: .module)
-        case .bundyDeathGeneral: String(localized: "backdrop.bundy-death-general.title", defaultValue: "Death as General", bundle: .module)
         case .wrightVesuvius: String(localized: "backdrop.wright-vesuvius.title", defaultValue: "Vesuvius in Eruption", bundle: .module)
         case .geromeBotsaris: String(localized: "backdrop.gerome-botsaris.title", defaultValue: "Markos Botsaris", bundle: .module)
-        case .durerKnightDeathDevil: String(localized: "backdrop.durer-knight-death-devil.title", defaultValue: "Knight, Death and the Devil", bundle: .module)
         case .martinJoshua: String(localized: "backdrop.martin-joshua.title", defaultValue: "Joshua Commanding the Sun to Stand Still", bundle: .module)
         case .veldeGale: String(localized: "backdrop.velde-gale.title", defaultValue: "The Gust", bundle: .module)
         case .hogaiNio: String(localized: "backdrop.hogai-nio.title", defaultValue: "Niō Seizing an Evil Spirit", bundle: .module)
-        case .klimtDeathAndLife: String(localized: "backdrop.klimt-death-and-life.title", defaultValue: "Death and Life", bundle: .module)
-        case .klimtMedicine: String(localized: "backdrop.klimt-medicine.title", defaultValue: "Medicine", bundle: .module)
         case .boschGardenCentral: String(localized: "backdrop.bosch-garden-central.title", defaultValue: "The Garden of Earthly Delights", bundle: .module)
         case .martinGreatDayWrath: String(localized: "backdrop.martin-great-day-wrath.title", defaultValue: "The Great Day of His Wrath", bundle: .module)
         case .bonheurWoundedEagle: String(localized: "backdrop.bonheur-wounded-eagle.title", defaultValue: "The Wounded Eagle", bundle: .module)
-        case .geromePolliceVerso: String(localized: "backdrop.gerome-pollice-verso.title", defaultValue: "Pollice Verso", bundle: .module)
         case .coleVoyageOldAge: String(localized: "backdrop.cole-voyage-old-age.title", defaultValue: "The Voyage of Life: Old Age", bundle: .module)
         case .friedrichAbbeyOakwood: String(localized: "backdrop.friedrich-abbey-oakwood.title", defaultValue: "The Abbey in the Oakwood", bundle: .module)
         case .goyaSleepOfReason: String(localized: "backdrop.goya-sleep-of-reason.title", defaultValue: "The Sleep of Reason Produces Monsters", bundle: .module)
         case .boschGardenFragment: String(localized: "backdrop.bosch-garden-fragment.title", defaultValue: "The Garden of Earthly Delights (Detail)", bundle: .module)
-        case .bruegelTriumphDeath: String(localized: "backdrop.bruegel-triumph-death.title", defaultValue: "The Triumph of Death", bundle: .module)
         case .spilliaertVertigo: String(localized: "backdrop.spilliaert-vertigo.title", defaultValue: "Vertigo", bundle: .module)
         case .rothaugMelpomene: String(localized: "backdrop.rothaug-melpomene.title", defaultValue: "Melpomene", bundle: .module)
-        case .schieleDeathAndTheMaiden: String(localized: "backdrop.schiele-death-and-the-maiden.title", defaultValue: "Death and the Maiden", bundle: .module)
         case .aivazovskyShipStormySeas: String(localized: "backdrop.aivazovsky-ship-stormy-seas.title", defaultValue: "Ship on Stormy Seas", bundle: .module)
-        case .vereshchaginApotheosisWar: String(localized: "backdrop.vereshchagin-apotheosis-war.title", defaultValue: "The Apotheosis of War", bundle: .module)
-        case .ensorSkeletonPainter: String(localized: "backdrop.ensor-skeleton-painter.title", defaultValue: "The Skeleton Painter", bundle: .module)
         case .cabanelFallenAngel: String(localized: "backdrop.cabanel-fallen-angel.title", defaultValue: "The Fallen Angel", bundle: .module)
         case .spilliaertWomanShoreline: String(localized: "backdrop.spilliaert-woman-shoreline.title", defaultValue: "Woman at the Shoreline", bundle: .module)
         case .elGrecoViewOfToledo: String(localized: "backdrop.el-greco-view-of-toledo.title", defaultValue: "View of Toledo", bundle: .module)
-        case .gericaultRaftOfTheMedusa: String(localized: "backdrop.gericault-raft-of-the-medusa.title", defaultValue: "The Raft of the Medusa", bundle: .module)
-        case .moreauApparition: String(localized: "backdrop.moreau-apparition.title", defaultValue: "The Apparition", bundle: .module)
         case .rembrandtProdigalSon: String(localized: "backdrop.rembrandt-prodigal-son.title", defaultValue: "The Return of the Prodigal Son", bundle: .module)
         case .velazquezLasMeninas: String(localized: "backdrop.velazquez-las-meninas.title", defaultValue: "Las Meninas", bundle: .module)
         case .matejkoStanczyk: String(localized: "backdrop.matejko-stanczyk.title", defaultValue: "Stańczyk", bundle: .module)
@@ -254,7 +200,6 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .rembrandtNightWatch: String(localized: "backdrop.rembrandt-night-watch.title", defaultValue: "The Night Watch", bundle: .module)
         case .vigeeLebrunMadameGrand: String(localized: "backdrop.vigee-lebrun-madame-grand.title", defaultValue: "Madame Grand", bundle: .module)
         case .waterhouseLadyShalott: String(localized: "backdrop.waterhouse-lady-shalott.title", defaultValue: "The Lady of Shalott", bundle: .module)
-        case .draperLamentIcarus: String(localized: "backdrop.draper-lament-icarus.title", defaultValue: "The Lament for Icarus", bundle: .module)
         case .fragonardSwing: String(localized: "backdrop.fragonard-swing.title", defaultValue: "The Swing", bundle: .module)
         case .rubensStFrancisXavier: String(localized: "backdrop.rubens-st-francis-xavier.title", defaultValue: "The Miracles of St Francis Xavier", bundle: .module)
         case .vermeerPearlEarring: String(localized: "backdrop.vermeer-pearl-earring.title", defaultValue: "Girl with a Pearl Earring", bundle: .module)
@@ -351,7 +296,6 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .hokusaiUmezawa: String(localized: "backdrop.hokusai-umezawa.title", defaultValue: "Umezawa Manor in Sagami", bundle: .module)
         case .whistlerFallingRocket: String(localized: "backdrop.whistler-falling-rocket.title", defaultValue: "Nocturne in Black and Gold", bundle: .module)
         case .doreFallOfSatan: String(localized: "backdrop.dore-fall-of-satan.title", defaultValue: "The Fall of Satan", bundle: .module)
-        case .doreFlood: String(localized: "backdrop.dore-flood.title", defaultValue: "The Deluge", bundle: .module)
         case .doreWolvesSheep: String(localized: "backdrop.dore-wolves-sheep.title", defaultValue: "The Wolves and the Sheep", bundle: .module)
         case .doreLeviathan: String(localized: "backdrop.dore-leviathan.title", defaultValue: "The Destruction of Leviathan", bundle: .module)
         case .doreParadiseLostBookVi: String(localized: "backdrop.dore-paradise-lost-book-vi.title", defaultValue: "Paradise Lost, Book VI", bundle: .module)

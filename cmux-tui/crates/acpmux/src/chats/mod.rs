@@ -9,12 +9,14 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+use cmux_json::JsonSet as _;
+
 mod activity;
-mod brand;
+pub(crate) mod brand;
 mod open;
 mod query;
 mod settings;
-mod sources;
+pub(crate) mod sources;
 mod watch;
 
 use std::collections::{HashMap, HashSet};
@@ -32,7 +34,7 @@ pub use activity::{ChatActivity, activity_change, changes_activity};
 pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
-pub use query::ChatQuery;
+pub use query::{ChatCursor, ChatQuery};
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
@@ -79,7 +81,7 @@ impl ChatService {
     /// Discovers the roots, starts the watcher, then scans every root
     /// (incremental from the cache). Blocking: call it off the executor.
     pub fn start(sources: ChatSources) -> Arc<Self> {
-        let recorded = RecordedRoots::load(sources.acpmux_home.join("chat-roots.json"));
+        let recorded = RecordedRoots::load(recorded_roots_path(&sources));
         let settings = ChatSettings::load(&settings_path(&sources));
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
@@ -104,6 +106,7 @@ impl ChatService {
         let mut state = lock(&service.state);
         state.index.rescan_all();
         service.save(&state.index);
+        state.index.take_structural_change();
         drop(state);
         service
     }
@@ -128,10 +131,13 @@ impl ChatService {
         }
         let matching: Vec<&IndexedChat> =
             state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
-        let page: Vec<Value> =
-            matching.iter().skip(query.cursor).take(query.limit).map(|c| chat_value(c)).collect();
-        let next = query.cursor + page.len();
-        (page, (next < matching.len()).then(|| next.to_string()), seq)
+        let start = query.cursor.start(&matching);
+        let held = matching.get(start..).unwrap_or_default();
+        let held = &held[..held.len().min(query.limit)];
+        let page: Vec<Value> = held.iter().map(|c| chat_value(c)).collect();
+        let more = start + held.len() < matching.len();
+        let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
+        (page, next, seq)
     }
 
     pub fn get(&self, key: &ChatKey) -> Option<IndexedChat> {
@@ -146,7 +152,7 @@ impl ChatService {
             .roots()
             .map(|root| {
                 let mut value = serde_json::to_value(root).unwrap_or(Value::Null);
-                value["id"] = Value::String(root.id());
+                value.set("id", Value::String(root.id()));
                 value
             })
             .collect();
@@ -222,6 +228,10 @@ impl ChatService {
         Ok(new)
     }
 
+    fn recorded_roots_path(&self) -> PathBuf {
+        recorded_roots_path(&self.sources)
+    }
+
     /// Records the store roots a spawn's env named (launch roots, C3); new
     /// ones are scanned and watched. Blocking.
     pub fn record_launch_roots(self: &Arc<Self>, specs: &[RootSpec]) {
@@ -229,7 +239,11 @@ impl ChatService {
         {
             let mut state = lock(&self.state);
             for spec in specs.iter().filter(|s| self.sources.refusal(&s.path).is_none()) {
-                match state.recorded.record(spec.clone()) {
+                // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's.
+                let recorded = crate::config::refuse_lost_home(&self.recorded_roots_path())
+                    .map_err(std::io::Error::other)
+                    .and_then(|()| state.recorded.record(spec.clone()));
+                match recorded {
                     Ok(fresh) => new |= fresh,
                     Err(e) => tracing::warn!("record a launch root: {e}"),
                 }
@@ -263,6 +277,7 @@ impl ChatService {
         state.watch_errors = errors;
         let old = std::mem::replace(&mut state.watcher, watcher);
         self.save(&state.index);
+        state.index.take_structural_change();
         self.publish(&mut state, changes);
         drop(state);
         // Stopping a watcher may wait for its event thread: never under the lock.
@@ -274,8 +289,6 @@ impl ChatService {
     /// roots that hold `paths` (all roots when there are none) scan again.
     pub(crate) fn paths_changed(&self, paths: &[PathBuf], rescan: bool) {
         let mut state = lock(&self.state);
-        let before: HashSet<ChatKey> =
-            state.index.chats().into_iter().map(|chat| chat.entry.key()).collect();
         let mut changes = Vec::new();
         if rescan {
             let ids: Vec<String> = state
@@ -296,11 +309,7 @@ impl ChatService {
         changes.extend(state.index.paths_changed(paths));
         // The cache keeps read offsets with their counts, so a restart is
         // correct from any saved state; save only when the chat set changed.
-        let structural = changes.iter().any(|change| match change {
-            ChatChange::Removed { .. } => true,
-            ChatChange::Upsert { chat } => !before.contains(&chat.entry.key()),
-        });
-        if structural {
+        if state.index.take_structural_change() {
             self.save(&state.index);
         }
         self.publish(&mut state, changes);
@@ -351,7 +360,11 @@ impl ChatService {
     }
 
     fn save(&self, index: &ChatIndex) {
-        if let Err(e) = index.save(&cache_path(&self.sources)) {
+        let path = cache_path(&self.sources);
+        // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
+        let saved = crate::config::refuse_lost_home(&path)
+            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }
     }
@@ -366,6 +379,10 @@ impl ChatService {
         drop(state);
         drop(old);
     }
+}
+
+fn recorded_roots_path(sources: &ChatSources) -> PathBuf {
+    sources.acpmux_home.join("chat-roots.json")
 }
 
 fn cache_path(sources: &ChatSources) -> PathBuf {
@@ -431,8 +448,8 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
     let key = chat.entry.key();
-    value["brand"] = json!(brand::harness_brand(key.harness));
-    value["key"] = Value::String(key_text(&key));
+    value.set("brand", json!(brand::harness_brand(key.harness)));
+    value.set("key", Value::String(key_text(&key)));
     value
 }
 

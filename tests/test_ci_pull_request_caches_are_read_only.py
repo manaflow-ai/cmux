@@ -171,6 +171,7 @@ def main() -> int:
     # copies held by the release environment (main and v* tags) and still
     # enters it only on main.
     signing_writer = "${{ github.ref == 'refs/heads/main' && 'release' || '' }}"
+    next_writer = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
     signing_secret = ("secrets.IOS_", "secrets.ASC_API_", "secrets.APPLE_")
     writers = 0
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -182,6 +183,15 @@ def main() -> int:
             if job.get("environment") == writer:
                 continue
             if job.get("environment") == signing_writer and any(name in json.dumps(job) for name in signing_secret):
+                continue
+            # cmux NEXT writes its own bucket through its own environment, whose
+            # deployment branches are feat-cmux-next only; it never names main's
+            # bucket (cmux-next-fast-tier-seed.yml).
+            if job.get("environment") == next_writer:
+                bucket = (job.get("env") or {}).get("CI_CACHE_R2_BUCKET") or (document.get("env") or {}).get("CI_CACHE_R2_BUCKET")
+                if bucket == "cmux-ci-cache-next" and "vars.CI_CACHE_R2_BUCKET" not in path.read_text(encoding="utf-8"):
+                    continue
+                failures.append(f"{path.name} {job_name}: a next-cache-writer job must write only the cmux-ci-cache-next bucket")
                 continue
             failures.append(f"{path.name} {job_name}: a job holding the R2 write credentials must declare environment: {writer}")
     if not writers:

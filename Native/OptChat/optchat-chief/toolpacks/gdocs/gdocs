@@ -1,0 +1,1060 @@
+#!/usr/bin/env python3
+# cmux-managed: true
+"""gdocs: read, edit and verify Google Docs (Chief tool pack `gdocs`).
+
+Two routes, picked per call:
+
+* api      GDOCS_TOKEN holds an OAuth access token with a Drive scope: Drive v3
+           export (read), HTML upload with conversion (replace-outline) and
+           comments.create (comment). No browser.
+* browser  The person's own Google session in a cmux browser tab, no token:
+           read = same-origin fetch of /document/d/ID/mobilebasic (the export
+           URL redirects to another origin, so a page fetch cannot read it);
+           write = a synthetic ClipboardEvent('paste') of HTML on the editor's
+           event target (iframe.docs-texteventtarget-iframe), plus synthetic
+           keydown events on that same element for select-all, caret moves,
+           find (Cmd+F), comments (Cmd+Option+M) and suggesting mode. Docs
+           ignores real keys sent to a background tab and accepts these.
+
+Every write reads the doc back and compares outlines (verify); exit 1 on a
+mismatch. Offline helpers (`md2html`, `parse-html`, `verify --html`) need no
+network and back the tests in tests/toolpack_gdocs.rs.
+
+plans/cmux-next/chief-gdocs-DESIGN.md has the design and the measurements.
+"""
+
+import argparse
+import html
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import unicodedata
+import urllib.parse
+import urllib.request
+import uuid
+from html.parser import HTMLParser
+
+DOC_ID_RE = re.compile(r"/document/(?:u/\d+/)?d/([A-Za-z0-9_-]{20,})")
+
+
+class GdocsError(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def doc_id(text):
+    m = DOC_ID_RE.search(text or "")
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"[A-Za-z0-9_-]{20,}", text or ""):
+        return text
+    raise GdocsError("bad_doc", f"not a Google Docs URL or id: {text!r}")
+
+
+# ---------------------------------------------------------------- Markdown in
+
+LIST_RE = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
+HEAD_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+
+
+def md_blocks(text):
+    """Markdown as blocks: (kind, level, ordered, inline-markdown text).
+
+    kind: h1..h6, p, li, row (a table row; text is cells joined by " | "),
+    hr, code. A list item's level counts its indent steps (a tab, or the
+    smallest indent seen, usually 2 or 4 spaces)."""
+    lines = text.replace("\r\n", "\n").expandtabs(4).split("\n")
+    blocks = []
+    para = []
+    indents = []  # open list indents, outermost first
+    in_code = False
+
+    def flush():
+        if para:
+            blocks.append(("p", 0, False, " ".join(s.strip() for s in para)))
+            para.clear()
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip().startswith("```"):
+            flush()
+            indents.clear()
+            in_code = not in_code
+            i += 1
+            continue
+        if in_code:
+            blocks.append(("code", 0, False, line))
+            i += 1
+            continue
+        if not line.strip():
+            flush()
+            i += 1
+            continue
+        h = HEAD_RE.match(line)
+        if h:
+            flush()
+            indents.clear()
+            blocks.append((f"h{len(h.group(1))}", 0, False, h.group(2)))
+            i += 1
+            continue
+        if re.fullmatch(r"\s*(-{3,}|\*{3,}|_{3,})\s*", line):
+            flush()
+            indents.clear()
+            blocks.append(("hr", 0, False, ""))
+            i += 1
+            continue
+        li = LIST_RE.match(line)
+        if li:
+            flush()
+            ind = len(li.group(1))
+            while indents and indents[-1] > ind:
+                indents.pop()
+            if not indents or indents[-1] < ind:
+                indents.append(ind)
+            ordered = li.group(2)[0].isdigit()
+            blocks.append(("li", len(indents) - 1, ordered, li.group(3).strip()))
+            i += 1
+            continue
+        if line.lstrip().startswith("|") and i + 1 < len(lines) and TABLE_SEP_RE.match(lines[i + 1]):
+            flush()
+            indents.clear()
+            rows = [line]
+            i += 2
+            while i < len(lines) and lines[i].lstrip().startswith("|"):
+                rows.append(lines[i])
+                i += 1
+            for n, r in enumerate(rows):
+                cells = [c.strip() for c in r.strip().strip("|").split("|")]
+                blocks.append(("row", 0 if n else 1, False, " | ".join(cells)))
+            blocks.append(("endtable", 0, False, ""))
+            continue
+        if indents and line.startswith(" ") and blocks and blocks[-1][0] == "li":
+            k, lv, o, t = blocks[-1]
+            blocks[-1] = (k, lv, o, t + " " + line.strip())
+            i += 1
+            continue
+        indents.clear()
+        para.append(line)
+        i += 1
+    flush()
+    return blocks
+
+
+INLINE_RE = re.compile(
+    r"(\*\*(?P<b>.+?)\*\*)|(__(?P<b2>.+?)__)|(\*(?P<i>[^*\s][^*]*?)\*)|"
+    r"(?<![A-Za-z0-9])_(?P<i2>[^_\s][^_]*?)_(?![A-Za-z0-9])|(`(?P<c>[^`]+)`)|"
+    r"(\[(?P<lt>[^\]]+)\]\((?P<lu>[^)\s]+)\))"
+)
+
+
+def inline_html(text):
+    out = []
+    pos = 0
+    for m in INLINE_RE.finditer(text):
+        out.append(html.escape(text[pos:m.start()], quote=False))
+        g = m.groupdict()
+        if g["b"] or g["b2"]:
+            out.append(f"<b>{inline_html(g['b'] or g['b2'])}</b>")
+        elif g["i"] or g["i2"]:
+            out.append(f"<i>{inline_html(g['i'] or g['i2'])}</i>")
+        elif g["c"]:
+            out.append(f'<span style="font-family:\'Courier New\'">{html.escape(g["c"], quote=False)}</span>')
+        else:
+            url = g["lu"]
+            if not re.match(r"^(https?:|mailto:)", url):
+                url = "#"
+            out.append(f'<a href="{html.escape(url)}">{inline_html(g["lt"])}</a>')
+        pos = m.end()
+    out.append(html.escape(text[pos:], quote=False))
+    return "".join(out)
+
+
+def plain(text):
+    """Inline Markdown without its marks (what the doc shows)."""
+    text = re.sub(r"\[([^\]]+)\]\([^)\s]+\)", r"\1", text)
+    text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), text)
+    text = re.sub(r"\*([^*\s][^*]*?)\*", r"\1", text)
+    text = re.sub(r"(?<![A-Za-z0-9])_([^_\s][^_]*?)_(?![A-Za-z0-9])", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    return text
+
+
+def md_to_html(text):
+    """Markdown as the HTML a Docs paste (or a Drive HTML upload) turns into
+    headings, nested bullet and number lists, tables and inline styles."""
+    out = []
+    stack = []  # open list tags, one per level
+
+    def close_lists(to):
+        while len(stack) > to:
+            out.append(f"</li></{stack.pop()}>")
+
+    table = []
+    for kind, level, ordered, t in md_blocks(text):
+        if kind != "li":
+            close_lists(0)
+        if kind not in ("row", "endtable") and table:
+            table = []
+        if kind.startswith("h"):
+            if kind == "hr":
+                out.append("<hr>")
+            else:
+                out.append(f"<{kind}>{inline_html(t)}</{kind}>")
+        elif kind == "p":
+            out.append(f"<p>{inline_html(t)}</p>")
+        elif kind == "code":
+            out.append(f'<p><span style="font-family:\'Courier New\'">{html.escape(t, quote=False) or "&nbsp;"}</span></p>')
+        elif kind == "li":
+            tag = "ol" if ordered else "ul"
+            if len(stack) > level + 1:
+                close_lists(level + 1)
+            if len(stack) == level + 1:
+                if stack[-1] != tag:
+                    close_lists(level)
+                else:
+                    out.append("</li>")
+            while len(stack) < level + 1:
+                out.append(f"<{tag}>")
+                stack.append(tag)
+            out.append(f"<li>{inline_html(t)}")
+        elif kind == "row":
+            if not table:
+                out.append("<table><tbody>")
+                table = [1]
+            cell = "th" if level else "td"
+            cells = "".join(f"<{cell}>{inline_html(c)}</{cell}>" for c in t.split(" | "))
+            out.append(f"<tr>{cells}</tr>")
+        elif kind == "endtable":
+            out.append("</tbody></table>")
+            table = []
+    close_lists(0)
+    return "".join(out)
+
+
+def keep_edge_spaces(h):
+    """An HTML paste drops leading and trailing spaces (white-space:pre runs
+    too); no-break spaces stay. verify reads them as spaces."""
+    lead = len(h) - len(h.lstrip(" "))
+    trail = len(h) - len(h.rstrip(" "))
+    core = h.strip(" ")
+    return "\u00a0" * lead + core + "\u00a0" * trail
+
+
+def md_outline(text):
+    """The outline verify compares: (kind, level, plain text) per block."""
+    out = []
+    for kind, level, _ordered, t in md_blocks(text):
+        if kind in ("endtable", "hr"):
+            continue
+        if kind == "row":
+            out.append(("row", 0, plain(t)))
+        elif kind == "code":
+            if t.strip():
+                out.append(("p", 0, t))
+        else:
+            out.append((kind, level if kind == "li" else 0, plain(t)))
+    return [(k, lv, norm(t)) for k, lv, t in out if norm(t) or k == "row"]
+
+
+# ------------------------------------------------------------ Docs HTML out
+
+LIST_LEVEL_RE = re.compile(r"lst-kix_[A-Za-z0-9_]+-(\d+)")
+CSS_RULE_RE = re.compile(r"\.(c\d+)\{([^}]*)\}")
+
+
+class DocParser(HTMLParser):
+    """Docs HTML (mobilebasic, or Drive's HTML export) as blocks.
+
+    Blocks: {"kind": "title"|"subtitle"|"h1".."h6"|"p"|"li"|"row",
+    "level": n, "ordered": bool, "md": inline Markdown, "text": plain}, and
+    comments [{"ref": "a", "text": ...}] from the trailing comment notes."""
+
+    def __init__(self, classes):
+        super().__init__(convert_charrefs=True)
+        self.classes = classes
+        self.blocks = []
+        self.comments = []
+        self.depth_content = None  # tag depth of .doc-content (mobilebasic)
+        self.depth = 0
+        self.list_level = 0
+        self.list_ordered = False
+        self.lists = []  # open (tag, level): nested lists without Docs' level classes
+        self.cur = None  # current block being filled
+        self.spans = []  # (bold, italic) stack per span
+        self.link = None
+        self.in_ref = False
+        self.in_comment = False
+        self.comment_ref = None
+        self.skip = 0  # inside <style>/<script>/<head>
+        self.row = None
+        self.cell = None
+
+    def _style(self, attrs):
+        a = dict(attrs)
+        style = a.get("style") or ""
+        for c in (a.get("class") or "").split():
+            style += ";" + self.classes.get(c, "")
+        return a, style
+
+    def handle_starttag(self, tag, attrs):
+        self.depth += 1
+        a, style = self._style(attrs)
+        if tag in ("style", "script", "head", "title"):
+            self.skip += 1
+            return
+        if self.skip:
+            return
+        cls = a.get("class") or ""
+        if tag == "div" and "doc-content" in cls.split():
+            self.depth_content = self.depth
+        if tag in ("ul", "ol"):
+            self._finish()
+            m = LIST_LEVEL_RE.search(cls)
+            level = int(m.group(1)) if m else len(self.lists)
+            self.lists.append((tag, level))
+            self.list_level = level
+            self.list_ordered = tag == "ol"
+        elif tag == "sup":
+            pass
+        elif tag == "a":
+            href = a.get("href") or ""
+            if re.match(r"#cmnt\d+$", href) and a.get("id", "").startswith("cmnt_ref"):
+                self.in_ref = True
+            elif re.match(r"#cmnt_ref\d+$", href):
+                self.in_comment = True
+                self.in_ref = True
+                self.cur = None
+                self.comments.append({"ref": "", "text": ""})
+            else:
+                self.link = self._link_target(href)
+                if self.cur is not None:
+                    self.cur["md"] += "["
+        elif tag in ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li"):
+            if self.in_comment:
+                return
+            kind = tag
+            if tag == "p" and "title" in cls.split():
+                kind = "title"
+            elif tag == "p" and "subtitle" in cls.split():
+                kind = "subtitle"
+            if self.cell is not None:
+                if self.cell["text"]:
+                    self.cell["text"] += " "
+                return
+            self._finish()
+            self.cur = {"kind": kind, "level": self.list_level if tag == "li" else 0,
+                        "ordered": self.list_ordered if tag == "li" else False, "md": "", "text": ""}
+        elif tag in ("span", "b", "strong", "i", "em"):
+            bold = tag in ("b", "strong") or bool(re.search(r"font-weight:\s*(700|bold)", style))
+            italic = tag in ("i", "em") or "font-style:italic" in style.replace(" ", "")
+            self.spans.append((bold, italic))
+            if self.cur is not None and not self.in_ref:
+                self.cur["md"] += ("**" if bold else "") + ("*" if italic else "")
+        elif tag == "tr":
+            self.row = []
+        elif tag in ("td", "th"):
+            self.cell = {"text": ""}
+
+    @staticmethod
+    def _link_target(href):
+        if href.startswith("https://www.google.com/url?"):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("q")
+            if q:
+                return q[0]
+        return href
+
+    def _finish(self):
+        b = self.cur
+        if b is None:
+            return
+        b["md"] = merge_links(b["md"].replace("****", "").replace("\u00a0", " ")).strip()
+        if b["kind"] not in ("p", "li"):
+            b["md"] = norm(b["text"])
+        b["text"] = norm(b["text"])
+        self.blocks.append(b)
+        self.cur = None
+
+    def handle_endtag(self, tag):
+        self.depth -= 1
+        if tag in ("style", "script", "head", "title"):
+            self.skip = max(0, self.skip - 1)
+            return
+        if self.skip:
+            return
+        if tag == "a":
+            if self.in_ref:
+                self.in_ref = False
+            elif self.link is not None:
+                if self.cur is not None:
+                    self.cur["md"] += f"]({self.link})"
+                self.link = None
+        elif tag in ("span", "b", "strong", "i", "em"):
+            bold, italic = self.spans.pop() if self.spans else (False, False)
+            if self.cur is not None and not self.in_ref:
+                self.cur["md"] += ("*" if italic else "") + ("**" if bold else "")
+        elif tag in ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li"):
+            if self.in_comment and tag == "p":
+                self.in_comment = False
+                return
+            if self.cell is None:
+                self._finish()
+        elif tag in ("ul", "ol"):
+            self._finish()
+            if self.lists:
+                self.lists.pop()
+            if self.lists:
+                self.list_ordered = self.lists[-1][0] == "ol"
+                self.list_level = self.lists[-1][1]
+        elif tag in ("td", "th"):
+            if self.row is not None and self.cell is not None:
+                self.row.append(norm(self.cell["text"]))
+            self.cell = None
+        elif tag == "tr":
+            if self.row is not None:
+                t = " | ".join(self.row)
+                self.blocks.append({"kind": "row", "level": 0, "ordered": False, "md": t, "text": norm(t)})
+            self.row = None
+
+    def handle_data(self, data):
+        if self.skip:
+            return
+        if self.in_comment:
+            if self.in_ref:
+                self.comments[-1]["ref"] += data.strip("[]")
+            else:
+                self.comments[-1]["text"] += data
+            return
+        if self.in_ref:
+            return
+        if self.cell is not None:
+            self.cell["text"] += data
+            return
+        if self.cur is not None:
+            self.cur["md"] += data
+            self.cur["text"] += data
+
+
+def merge_links(md):
+    """Docs splits one link into runs (`[ ](u)[the tracker](u)`): one link,
+    with edge spaces moved outside."""
+    prev = None
+    while prev != md:
+        prev = md
+        md = re.sub(r"\[([^\]]*)\]\(([^)\s]+)\)\[([^\]]*)\]\(\2\)", r"[\1\3](\2)", md)
+    return re.sub(r"\[(\s*)([^\]]*?)(\s*)\]\(([^)\s]+)\)",
+                  lambda m: f"{m.group(1)}[{m.group(2)}]({m.group(4)}){m.group(3)}" if m.group(2) else m.group(1) + m.group(3), md)
+
+
+def parse_doc_html(text):
+    classes = {m.group(1): m.group(2) for m in CSS_RULE_RE.finditer(text)}
+    # mobilebasic: the doc is the .doc-content div; Drive export: the body.
+    start = text.find('class="doc-content"')
+    if start >= 0:
+        text = text[text.rfind("<", 0, start):]
+    p = DocParser(classes)
+    p.feed(text)
+    p.close()
+    blocks = [b for b in p.blocks if b["text"] or b["kind"] == "row"]
+    for c in p.comments:
+        c["text"] = norm(c["text"])
+    return {"blocks": blocks, "comments": p.comments}
+
+
+def blocks_md(blocks):
+    out = []
+    prev = None
+    for b in blocks:
+        k = b["kind"]
+        if k == "li":
+            if prev not in (None, "li"):
+                out.append("")
+            out.append("  " * b["level"] + ("1. " if b["ordered"] else "- ") + b["md"])
+        elif k == "row":
+            if prev != "row":
+                out.append("")
+                cells = b["md"].split(" | ")
+                out.append("| " + b["md"] + " |")
+                out.append("|" + "---|" * len(cells))
+            else:
+                out.append("| " + b["md"] + " |")
+        else:
+            if prev is not None:
+                out.append("")
+            prefix = {"title": "# ", "subtitle": "", "p": ""}.get(k)
+            if prefix is None:
+                prefix = "#" * int(k[1]) + " "
+            out.append(prefix + b["md"])
+        prev = k
+    return "\n".join(out).strip() + "\n"
+
+
+def doc_outline(blocks):
+    out = []
+    for b in blocks:
+        k = b["kind"]
+        if k == "title":
+            k = "h1"
+        elif k == "subtitle":
+            k = "p"
+        out.append((k, b["level"] if k == "li" else 0, norm(b["text"])))
+    return out
+
+
+# --------------------------------------------------------------- compare
+
+QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', " ": " ",
+                        "–": "-", "—": "-", "​": ""})
+
+
+def norm(text):
+    text = unicodedata.normalize("NFKC", text or "").translate(QUOTES)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def line(o):
+    k, lv, t = o
+    return f"{k}{'.' + str(lv) if k == 'li' else ''}: {t}"
+
+
+def compare(expected, actual, mode="exact"):
+    """mode exact: the doc is the expected outline. mode contains: the
+    expected outline is a contiguous run in the doc."""
+    if mode == "exact":
+        ok = expected == actual
+        at = 0 if ok else None
+    else:
+        at = next((i for i in range(len(actual) - len(expected) + 1)
+                   if actual[i:i + len(expected)] == expected), None)
+        ok = at is not None
+    first = None
+    if not ok and mode == "exact":
+        for i in range(max(len(expected), len(actual))):
+            e = expected[i] if i < len(expected) else None
+            a = actual[i] if i < len(actual) else None
+            if e != a:
+                first = {"index": i, "expected": e and line(e), "actual": a and line(a)}
+                break
+    return {"ok": ok, "mode": mode, "expected_blocks": len(expected), "actual_blocks": len(actual),
+            "at": at, "first_difference": first}
+
+
+# --------------------------------------------------------------- browser
+
+EDITOR_JS = r"""
+(()=>{const G=window.__cmuxGdocs={v:'@V@',r:window.__cmuxGdocs&&window.__cmuxGdocs.r||{}};
+const mac=/Mac|iP/.test(navigator.platform);
+G.target=()=>{const f=document.querySelector('iframe.docs-texteventtarget-iframe');
+ const e=f&&f.contentDocument&&f.contentDocument.querySelector('[contenteditable=true]');
+ if(!e)throw new Error('no_editor: the tab does not show the doc in edit view');return e};
+G.send=(el,key,code,kc,m)=>{const o=Object.assign({key,code,keyCode:kc,which:kc,bubbles:true,cancelable:true},m||{});
+ el.dispatchEvent(new KeyboardEvent('keydown',o));el.dispatchEvent(new KeyboardEvent('keyup',o))};
+G.key=(key,code,kc,m)=>{const e=G.target();e.focus();G.send(e,key,code,kc,m)};
+G.mod=(m)=>Object.assign(mac?{metaKey:true}:{ctrlKey:true},m||{});
+G.paste=(h,t)=>{const e=G.target();e.focus();const d=new DataTransfer();d.setData('text/html',h);d.setData('text/plain',t);
+ e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:d,bubbles:true,cancelable:true}))};
+G.selectAll=()=>G.key('a','KeyA',65,G.mod());
+G.toStart=()=>mac?G.key('ArrowUp','ArrowUp',38,{metaKey:true}):G.key('Home','Home',36,{ctrlKey:true});
+G.toEnd=()=>mac?G.key('ArrowDown','ArrowDown',40,{metaKey:true}):G.key('End','End',35,{ctrlKey:true});
+G.right=()=>G.key('ArrowRight','ArrowRight',39);
+G.mode=()=>{const m=[...document.querySelectorAll('[aria-label$=" mode"]')].map(x=>x.textContent.trim().toLowerCase())
+ .find(t=>['editing','suggesting','viewing'].includes(t));return m||'unknown'};
+G.setMode=(w)=>{if(G.mode()===w)return w;G.key(w==='suggesting'?'x':'z',w==='suggesting'?'KeyX':'KeyZ',w==='suggesting'?88:90,G.mod({altKey:true,shiftKey:true}));return G.mode()};
+G.findBox=()=>[...document.querySelectorAll('input[aria-label="Find in document"]')].find(x=>x.offsetParent)||null;
+G.openFind=()=>{G.key('f','KeyF',70,G.mod());return !!G.findBox()};
+G.findCount=()=>{const c=[...document.querySelectorAll('*')].find(x=>x.children.length===0&&x.offsetParent&&/^\s*\d+ of \d+\s*$/.test(x.textContent));return c?c.textContent.trim():''};
+G.findSet=(text)=>{const i=G.findBox();if(!i)throw new Error('no_find_bar');i.focus();
+ Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'');i.dispatchEvent(new Event('input',{bubbles:true}));
+ Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,text);i.dispatchEvent(new Event('input',{bubbles:true}));G.findQ=text;return 1};
+G.findGo=()=>{const i=G.findBox();if(!i)throw new Error('no_find_bar');const count=G.findCount();G.send(i,'Enter','Enter',13);G.send(i,'Escape','Escape',27);return count};
+G.comment=(text)=>{G.key('m','KeyM',77,G.mod({altKey:true}));
+ const box=[...document.querySelectorAll('.docos-input-contenteditable[contenteditable=true]')].find(x=>x.offsetParent);
+ if(!box)throw new Error('no_comment_box');box.focus();document.execCommand('insertText',false,text);
+ box.dispatchEvent(new Event('input',{bubbles:true}));
+ let root=box;let b=null;while(root&&!b){root=root.parentElement;b=root&&[...root.querySelectorAll('.jfk-button-action')].find(x=>x.offsetParent)}
+ if(!b)throw new Error('no_comment_button');
+ for(const t of ['mousedown','mouseup','click'])b.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,view:window}));return 'posted'};
+G.suggestions=()=>[...document.querySelectorAll('.docos-anchoredreplyview-body')].map(x=>x.textContent.trim()).filter(t=>/^(Add|Delete|Replace|Format)\b/.test(t));
+G.base=()=>{const m=location.pathname.match(/^\/document\/u\/\d+\//);return m?m[0].slice(0,-1):'/document'};
+G.fetchBasic=(id,rid)=>{G.r[rid]=null;fetch(G.base()+'/d/'+id+'/mobilebasic',{credentials:'include',cache:'no-store'})
+ .then(r=>r.text().then(t=>{G.r[rid]={ok:r.ok,status:r.status,url:r.url,html:t}}))
+ .catch(e=>{G.r[rid]={ok:false,error:String(e)}})};
+return 'ok'})()
+"""
+
+
+import hashlib  # noqa: E402
+
+# The page library's version: its own hash, so a tab holding an older copy loads this one.
+EDITOR_V = hashlib.sha256(EDITOR_JS.encode()).hexdigest()[:12]
+EDITOR_JS = EDITOR_JS.replace("@V@", EDITOR_V)
+
+
+class Browser:
+    """One cmux browser tab, driven with `cmux browser TAB eval|wait|...`."""
+
+    def __init__(self, tab, agent, cmux="cmux"):
+        self.tab = tab
+        self.agent = agent
+        self.cmux = cmux
+
+    def run(self, *args, check=True):
+        cmd = [self.cmux, "--json", "browser", self.tab, *args]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if check and p.returncode != 0:
+            raise GdocsError("browser", f"{' '.join(cmd[:5])}: {(p.stderr or p.stdout).strip()[:400]}")
+        try:
+            return json.loads(p.stdout) if p.stdout.strip() else {}
+        except json.JSONDecodeError:
+            return {"raw": p.stdout}
+
+    def eval(self, js):
+        out = self.run("eval", js)
+        if "code" in out and "message" in out:
+            raise GdocsError("js_error", out["message"])
+        return out.get("value")
+
+    def wait_fn(self, js, timeout_ms=20000):
+        self.run("wait", "--function", js, "--timeout-ms", str(timeout_ms))
+
+    def url(self):
+        return self.eval("location.href")
+
+    def ensure_lib(self):
+        if self.eval(f"!!(window.__cmuxGdocs&&window.__cmuxGdocs.v==='{EDITOR_V}')") is not True:
+            self.eval(EDITOR_JS)
+
+    def call(self, expr):
+        self.ensure_lib()
+        return self.eval(f"(()=>{{const G=window.__cmuxGdocs;return {expr}}})()")
+
+    def open_doc(self, did, edit):
+        """Puts the tab on the doc (edit view when `edit`)."""
+        href = self.url() or ""
+        if did not in href or "/mobilebasic" in href:
+            self.run("navigate", f"https://docs.google.com/document/d/{did}/edit")
+            href = ""
+        if edit:
+            self.wait_fn("!!document.querySelector('iframe.docs-texteventtarget-iframe')", 30000)
+        elif "docs.google.com" not in (href or self.url() or ""):
+            self.run("navigate", f"https://docs.google.com/document/d/{did}/edit")
+            self.run("wait", "--load-state", "interactive", "--timeout-ms", "30000")
+
+    def mobilebasic(self, did):
+        rid = uuid.uuid4().hex[:12]
+        self.call(f"(G.fetchBasic({json.dumps(did)},{json.dumps(rid)}),1)")
+        self.wait_fn(f"!!(window.__cmuxGdocs&&window.__cmuxGdocs.r[{json.dumps(rid)}])", 30000)
+        r = self.eval(f"(()=>{{const R=window.__cmuxGdocs.r;const v=R[{json.dumps(rid)}];delete R[{json.dumps(rid)}];return v}})()")
+        if not r or not r.get("ok"):
+            raise GdocsError("read_failed", f"mobilebasic: {r and (r.get('error') or r.get('status'))}")
+        if "accounts.google.com" in (r.get("url") or "") or 'class="doc-content"' not in r["html"]:
+            raise GdocsError("signed_out", "the tab's Google session cannot open this doc (sign in, or pick the account)")
+        return r["html"]
+
+
+def open_tab(url, cmux="cmux"):
+    p = subprocess.run([cmux, "--json", "open", url], capture_output=True, text=True)
+    if p.returncode != 0:
+        raise GdocsError("browser", f"cmux open: {p.stderr.strip()[:300]}")
+    tab = json.loads(p.stdout).get("tab_id")
+    if not tab:
+        raise GdocsError("browser", f"cmux open gave no tab: {p.stdout[:300]}")
+    print(f"gdocs: opened {tab} (pass --tab {tab} next time)", file=sys.stderr)
+    return tab
+
+
+# ------------------------------------------------------------------- API
+
+class Api:
+    """Drive v3 with an OAuth access token (GDOCS_TOKEN). GDOCS_API_BASE
+    points it at a test server."""
+
+    def __init__(self, token, base=None):
+        self.token = token
+        self.base = (base or "https://www.googleapis.com").rstrip("/")
+
+    def req(self, method, path, body=None, ctype=None):
+        r = urllib.request.Request(self.base + path, data=body, method=method)
+        r.add_header("Authorization", f"Bearer {self.token}")
+        if ctype:
+            r.add_header("Content-Type", ctype)
+        try:
+            with urllib.request.urlopen(r, timeout=60) as resp:
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            raise GdocsError(f"api_{e.code}", f"{method} {path}: {e.read().decode('utf-8', 'replace')[:300]}")
+
+    def export_html(self, did):
+        return self.req("GET", f"/drive/v3/files/{did}/export?mimeType=text%2Fhtml")
+
+    def replace_html(self, did, body):
+        doc = f"<html><head><meta charset=\"utf-8\"></head><body>{body}</body></html>"
+        return self.req("PATCH", f"/upload/drive/v3/files/{did}?uploadType=media",
+                        doc.encode("utf-8"), "text/html; charset=utf-8")
+
+    def comment(self, did, text, quoted):
+        body = {"content": text}
+        if quoted:
+            body["quotedFileContent"] = {"mimeType": "text/plain", "value": quoted}
+        return self.req("POST", f"/drive/v3/files/{did}/comments?fields=id",
+                        json.dumps(body).encode(), "application/json")
+
+
+# ------------------------------------------------------------- commands
+
+def read_md_arg(a):
+    if a.md == "-":
+        return sys.stdin.read()
+    if a.md is not None:
+        with open(a.md, encoding="utf-8") as f:
+            return f.read()
+    if getattr(a, "text", None) is not None:
+        return a.text
+    raise GdocsError("usage", "give --md FILE|- or --text TEXT")
+
+
+class Ctx:
+    def __init__(self, a):
+        self.a = a
+        self.did = doc_id(a.doc) if getattr(a, "doc", None) else None
+        token = os.environ.get("GDOCS_TOKEN", "").strip()
+        route = getattr(a, "via", "auto")
+        if route == "api" and not token:
+            raise GdocsError("no_token", "--via api needs GDOCS_TOKEN (an OAuth token with a Drive scope)")
+        self.api = Api(token, os.environ.get("GDOCS_API_BASE")) if token and route != "browser" else None
+        self._browser = None
+
+    def browser(self):
+        if self._browser is None:
+            tab = self.a.tab or os.environ.get("GDOCS_TAB") or open_tab(
+                f"https://docs.google.com/document/d/{self.did}/edit", self.a.cmux)
+            agent = os.environ.get("CMUX_AGENT_NAME") or "gdocs"
+            self._browser = Browser(tab, agent, self.a.cmux)
+        return self._browser
+
+    def doc_html(self):
+        if self.api:
+            return self.api.export_html(self.did)
+        b = self.browser()
+        b.open_doc(self.did, edit=False)
+        return b.mobilebasic(self.did)
+
+    def read(self):
+        return parse_doc_html(self.doc_html())
+
+    def verify(self, expected_md, mode, deadline_s):
+        """Reads the doc until it matches or the deadline passes (Docs saves
+        a paste a moment after it lands; there is no save event to wait on
+        from outside the page)."""
+        expected = md_outline(expected_md)
+        end = time.monotonic() + deadline_s
+        delay = 0.5
+        while True:
+            doc = self.read()
+            r = compare(expected, doc_outline(doc["blocks"]), mode)
+            if r["ok"] or time.monotonic() >= end:
+                return r
+            time.sleep(delay)  # bounded retry against a remote save, not a local signal
+            delay = min(delay * 1.6, 3.0)
+
+
+def emit(obj, as_json):
+    if as_json:
+        print(json.dumps(obj, ensure_ascii=False, indent=1))
+    elif isinstance(obj, str):
+        sys.stdout.write(obj)
+    else:
+        print(json.dumps(obj, ensure_ascii=False, indent=1))
+
+
+def cmd_read(a):
+    c = Ctx(a)
+    doc = c.read()
+    if a.format == "json":
+        emit(doc, True)
+    elif a.format == "html":
+        sys.stdout.write(c.doc_html())
+    else:
+        out = blocks_md(doc["blocks"])
+        if doc["comments"] and not a.no_comments:
+            out += "\n<!-- comments -->\n" + "".join(f"- [{x['ref']}] {x['text']}\n" for x in doc["comments"])
+        sys.stdout.write(out)
+    return 0
+
+
+NO_MATCH = "\u2063cmux-gdocs-none\u2063"
+
+
+def find(b, text):
+    """Docs find (Cmd+F): puts the selection on the first match; answers
+    Docs' count ("1 of 3"), or "" for no match."""
+    b.call("G.openFind()")
+    b.wait_fn("!!(window.__cmuxGdocs&&window.__cmuxGdocs.findBox())", 10000)
+    # Docs searches a moment after the query changes, and its count line
+    # ("1 of 3") is the only signal; a query that cannot match first resets
+    # it, so the old query's count is never read as this one's.
+    b.call(f"G.findSet({json.dumps(NO_MATCH)})")
+    b.wait_fn("!!(window.__cmuxGdocs&&/^0 of 0$/.test(window.__cmuxGdocs.findCount()))", 5000)
+    b.call(f"G.findSet({json.dumps(text)})")
+    try:
+        b.wait_fn("!!(window.__cmuxGdocs&&/^[1-9]\\d* of \\d+$/.test(window.__cmuxGdocs.findCount()))", 4000)
+    except GdocsError:
+        b.call("G.findGo()")  # closes the bar
+        return ""
+    return b.call("G.findGo()")
+
+
+def browser_write(c, html_body, plain_text, at, suggest):
+    b = c.browser()
+    b.open_doc(c.did, edit=True)
+    b.ensure_lib()
+    mode = b.call("G.mode()")
+    if mode == "viewing":
+        raise GdocsError("read_only", "the doc opens in Viewing mode for this account: no edit access")
+    if suggest:
+        if b.call("G.setMode('suggesting')") != "suggesting":
+            raise GdocsError("mode", "could not switch to Suggesting mode")
+        try:
+            place_and_paste(b, html_body, plain_text, at)
+        finally:
+            b.call("G.setMode('editing')")
+        return
+    if mode == "suggesting":
+        if b.call("G.setMode('editing')") != "editing":
+            raise GdocsError("mode", "could not switch to Editing mode")
+    place_and_paste(b, html_body, plain_text, at)
+
+
+def place_and_paste(b, html_body, plain_text, at):
+    if at == "all":
+        b.call("(G.selectAll(),1)")
+    elif at == "start":
+        b.call("(G.toStart(),1)")
+    elif at == "end":
+        b.call("(G.toEnd(),1)")
+    elif at.startswith("after:"):
+        count = find(b, at[6:])
+        if not re.match(r"^1 of \d+", count or ""):
+            raise GdocsError("not_found", f"find {at[6:]!r}: {count or 'no match'}")
+        b.call("(G.right(),1)")
+    b.call(f"(G.paste({json.dumps(html_body)},{json.dumps(plain_text)}),1)")
+
+
+def cmd_replace(a):
+    c = Ctx(a)
+    md = read_md_arg(a)
+    body = md_to_html(md)
+    t0 = time.monotonic()
+    if c.api:
+        c.api.replace_html(c.did, body)
+        route = "api"
+    else:
+        browser_write(c, body, "\n".join(t for _, _, t in md_outline(md)), "all", a.suggest)
+        route = "browser"
+    r = {"route": route, "write_s": round(time.monotonic() - t0, 2)}
+    if not a.no_verify and not a.suggest:
+        r["verify"] = c.verify(md, "exact", a.verify_timeout)
+    r["total_s"] = round(time.monotonic() - t0, 2)
+    emit(r, True)
+    return 0 if r.get("verify", {"ok": True})["ok"] else 1
+
+
+def cmd_insert(a):
+    c = Ctx(a)
+    md = read_md_arg(a)
+    inline = a.inline
+    if inline:
+        md = md.rstrip("\n")
+    body = keep_edge_spaces(inline_html(md)) if inline else md_to_html(md)
+    if c.api:
+        raise GdocsError("unsupported", "insert runs in the browser route; unset GDOCS_TOKEN or pass --via browser")
+    at = f"after:{a.after}" if a.after else a.at
+    t0 = time.monotonic()
+    browser_write(c, body, plain(md) if inline else plain(md.strip()), at, a.suggest)
+    r = {"route": "browser", "at": at, "write_s": round(time.monotonic() - t0, 2)}
+    if a.suggest and not a.no_verify:
+        r["verify"] = verify_suggestion(c.browser(), plain(md).strip(), a.verify_timeout)
+    elif not a.no_verify:
+        if inline:
+            needle = norm(plain((a.after or "") + md))
+            r["verify"] = verify_text(c, needle, a.verify_timeout)
+        else:
+            r["verify"] = c.verify(md, "contains", a.verify_timeout)
+    emit(r, True)
+    return 0 if r.get("verify", {"ok": True})["ok"] else 1
+
+
+def verify_suggestion(b, text, deadline_s):
+    """A suggestion shows as a card ("Add: “TEXT”") in the page, not in the
+    saved doc's text."""
+    want = norm(text)
+    end = time.monotonic() + deadline_s
+    while True:
+        cards = [norm(t) for t in (b.call("G.suggestions()") or [])]
+        ok = any(want in t for t in cards)
+        if ok or time.monotonic() >= end:
+            return {"ok": ok, "mode": "suggestion", "cards": len(cards)}
+        time.sleep(1.0)  # bounded retry: the card appears after Docs saves
+
+
+def verify_text(c, needle, deadline_s):
+    end = time.monotonic() + deadline_s
+    while True:
+        doc = c.read()
+        hay = " \n".join(b["text"] for b in doc["blocks"])
+        if needle in hay or time.monotonic() >= end:
+            return {"ok": needle in hay, "mode": "text", "needle": needle}
+        time.sleep(1.0)  # bounded retry against a remote save
+
+
+def cmd_comment(a):
+    c = Ctx(a)
+    if c.api:
+        cid = json.loads(c.api.comment(c.did, a.text, a.on))
+        emit({"route": "api", "comment": cid, "note": "Drive API comments are not anchored to text in the Docs UI"}, True)
+        return 0
+    b = c.browser()
+    b.open_doc(c.did, edit=True)
+    count = find(b, a.on)
+    if not re.match(r"^1 of \d+", count or ""):
+        raise GdocsError("not_found", f"find {a.on!r}: {count or 'no match'}")
+    b.call(f"G.comment({json.dumps(a.text)})")
+    r = {"route": "browser", "on": a.on, "matches": count}
+    if not a.no_verify:
+        end = time.monotonic() + a.verify_timeout
+        while True:
+            texts = [x["text"] for x in c.read()["comments"]]
+            ok = norm(a.text) in texts
+            if ok or time.monotonic() >= end:
+                break
+            time.sleep(1.0)  # bounded retry against a remote save
+        r["verify"] = {"ok": ok, "comments": len(texts)}
+    emit(r, True)
+    return 0 if r.get("verify", {"ok": True})["ok"] else 1
+
+
+def cmd_verify(a):
+    md = read_md_arg(a)
+    expected = md_outline(md)
+    if a.html:
+        with open(a.html, encoding="utf-8") as f:
+            actual = doc_outline(parse_doc_html(f.read())["blocks"])
+        r = compare(expected, actual, a.mode)
+    else:
+        c = Ctx(a)
+        r = c.verify(md, a.mode, a.verify_timeout)
+    emit(r, True)
+    return 0 if r["ok"] else 1
+
+
+def cmd_md2html(a):
+    sys.stdout.write(md_to_html(read_md_arg(a)) + "\n")
+    return 0
+
+
+def cmd_parse_html(a):
+    with open(a.html, encoding="utf-8") as f:
+        doc = parse_doc_html(f.read())
+    if a.format == "json":
+        emit(doc, True)
+    else:
+        sys.stdout.write(blocks_md(doc["blocks"]))
+    return 0
+
+
+def cmd_open(a):
+    did = doc_id(a.doc)
+    tab = a.tab or open_tab(f"https://docs.google.com/document/d/{did}/edit", a.cmux)
+    Browser(tab, "gdocs", a.cmux).open_doc(did, edit=True)
+    emit({"tab": tab, "doc": did}, True)
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="gdocs", description="Read, edit and verify Google Docs (tool pack gdocs).")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def common(s, doc=True):
+        if doc:
+            s.add_argument("doc", help="a Docs URL or document id")
+        s.add_argument("--tab", help="your own cmux browser tab (tab_…); default $GDOCS_TAB, else a new tab")
+        s.add_argument("--via", choices=["auto", "api", "browser"], default="auto",
+                       help="auto: the API when GDOCS_TOKEN is set, else the browser")
+        s.add_argument("--cmux", default=os.environ.get("GDOCS_CMUX", "cmux"), help=argparse.SUPPRESS)
+        s.add_argument("--verify-timeout", type=float, default=20.0, help="seconds to wait for the saved doc to match")
+
+    s = sub.add_parser("read", help="the doc as Markdown (headings, nested lists, tables, bold, links, comments)")
+    common(s)
+    s.add_argument("--format", choices=["md", "json", "html"], default="md")
+    s.add_argument("--no-comments", action="store_true")
+    s.set_defaults(fn=cmd_read)
+
+    s = sub.add_parser("replace-outline", help="replace the whole body with Markdown, then verify")
+    common(s)
+    s.add_argument("--md", help="Markdown file, or - for stdin")
+    s.add_argument("--text", help=argparse.SUPPRESS)
+    s.add_argument("--suggest", action="store_true", help="as suggestions (no verify)")
+    s.add_argument("--no-verify", action="store_true")
+    s.set_defaults(fn=cmd_replace)
+
+    s = sub.add_parser("insert", help="insert Markdown at the start, the end, or after a text")
+    common(s)
+    s.add_argument("--md", help="Markdown file, or - for stdin")
+    s.add_argument("--text", help="Markdown text instead of --md")
+    s.add_argument("--at", choices=["start", "end"], default="end")
+    s.add_argument("--after", help="insert right after the first match of this text")
+    s.add_argument("--inline", action="store_true", help="inline text in the paragraph, not new blocks")
+    s.add_argument("--suggest", action="store_true", help="as a suggestion")
+    s.add_argument("--no-verify", action="store_true")
+    s.set_defaults(fn=cmd_insert)
+
+    s = sub.add_parser("comment", help="comment on the first match of a text")
+    common(s)
+    s.add_argument("--on", required=True, help="the text the comment anchors to")
+    s.add_argument("--text", required=True, help="the comment")
+    s.add_argument("--no-verify", action="store_true")
+    s.set_defaults(fn=cmd_comment)
+
+    s = sub.add_parser("verify", help="compare the doc's outline with Markdown")
+    s.add_argument("doc", nargs="?", help="a Docs URL or id (omit with --html)")
+    s.add_argument("--tab")
+    s.add_argument("--via", choices=["auto", "api", "browser"], default="auto")
+    s.add_argument("--cmux", default=os.environ.get("GDOCS_CMUX", "cmux"), help=argparse.SUPPRESS)
+    s.add_argument("--verify-timeout", type=float, default=0.0)
+    s.add_argument("--md", required=True)
+    s.add_argument("--text", help=argparse.SUPPRESS)
+    s.add_argument("--html", help="offline: a saved Docs HTML file instead of the live doc")
+    s.add_argument("--mode", choices=["exact", "contains"], default="exact")
+    s.set_defaults(fn=cmd_verify)
+
+    s = sub.add_parser("open", help="open the doc in edit view in your own tab; prints the tab")
+    s.add_argument("doc")
+    s.add_argument("--tab")
+    s.add_argument("--cmux", default=os.environ.get("GDOCS_CMUX", "cmux"), help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_open)
+
+    s = sub.add_parser("md2html", help="offline: Markdown as the HTML the paste uses")
+    s.add_argument("--md", default="-")
+    s.add_argument("--text", help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_md2html)
+
+    s = sub.add_parser("parse-html", help="offline: a saved Docs HTML file as Markdown or JSON")
+    s.add_argument("html")
+    s.add_argument("--format", choices=["md", "json"], default="md")
+    s.set_defaults(fn=cmd_parse_html)
+
+    a = p.parse_args(argv)
+    try:
+        return a.fn(a)
+    except GdocsError as e:
+        print(json.dumps({"ok": False, "error": e.code, "message": str(e)}), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

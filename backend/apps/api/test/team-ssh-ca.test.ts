@@ -214,12 +214,31 @@ describe("team SSH CA (TeamDO, workerd)", () => {
       )
     )
     expect(noKek.error?.code).toBe("team_vm.ssh_ca_not_configured")
-    for (let i = 0; i < 30; i++) expect((await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).ok).toBe(true)
-    const limited = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })
+    // The limit counts the ssh_certs rows that issuance logs in the window. Real issuance costs about 40 ms per
+    // certificate on a loaded host, and 92 of them pushed this case past 5 s in the full parallel suite, so all but
+    // the certificates at each limit are seeded as issue() logs them; the ones that decide each limit are real.
+    let seeded = 0
+    const seed = (identity: string, install: string | null, n: number) =>
+      inDO(t.stub, async (_i, state) => {
+        const now = Date.now()
+        for (let i = 0; i < n; i++, seeded++)
+          state.storage.sql.exec(
+            `INSERT INTO ssh_certs (serial, identity, user, install, key_id, class, generation, issued_at, valid_before) VALUES (?, ?, ?, ?, ?, 'agent', 1, ?, ?)`,
+            1_000_000 + seeded, identity, t.member, install, `seed/${seeded}`, now, now + 31 * 60_000
+          )
+      })
+    const memberCert = () => t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })
+    expect((await memberCert()).ok).toBe(true)
+    await seed(t.memberP.identity, null, 28)
+    // The 30th certificate of this caller is the last one.
+    expect((await memberCert()).ok).toBe(true)
+    const limited = await memberCert()
     expect(limited.error).toMatchObject({ code: "team_vm.ssh_rate_limited", retryable: true })
     expect((await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).ok).toBe(true)
     // Per person across installs: a second install gets 30 more, a third gets none.
-    for (let i = 0; i < 30; i++) expect((await t.op(t.install(t.member, ["read", "mutate-own", "mutate-shared", "cloud-link"], "mac", "inst_00000000000000000082"), "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
-    expect((await t.op(t.install(t.member, ["read", "mutate-own", "mutate-shared", "cloud-link"], "mac", "inst_00000000000000000083"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_rate_limited")
+    const viaInstall = (install: string) => t.op(t.install(t.member, ["read", "mutate-own", "mutate-shared", "cloud-link"], "mac", install), "team_vm.ssh_cert", { public_key: key })
+    await seed("inst_00000000000000000082", "inst_00000000000000000082", 29)
+    expect((await viaInstall("inst_00000000000000000082")).ok).toBe(true)
+    expect((await viaInstall("inst_00000000000000000083")).error!.code).toBe("team_vm.ssh_rate_limited")
   })
 })

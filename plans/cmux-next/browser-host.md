@@ -73,7 +73,7 @@ Framing: length-prefixed JSON (u32 big-endian length, then UTF-8 JSON), one fram
 
 | Frame | Direction | Meaning |
 | --- | --- | --- |
-| `hello {version, provider_id, install_id, engines: ["webkit","cef"], tabs: [TabAnnounce]}` | app → host | first frame; `TabAnnounce = {targetId, engine, workspace, profile, url, title, visible}` |
+| `hello {version, provider_id, install_id, engines: ["webkit","cef"], tabs: [TabAnnounce]}` | app → host | first frame; `TabAnnounce = {targetId, engine, workspace, profile, url, title, visible, inputScale?}`; `inputScale` (absent = 1) is the view points per CSS px of the app's emulation on a CEF tab (a fit, or a device bigger than the pane: `setDeviceMetricsOverride`'s scale). Chromium reads CDP mouse coordinates in view points under that scale (page zoom it converts itself), so the tab's driver multiplies agent mouse and drag coordinates by it; a re-announce carries changes (cx-mogig) |
 | `hello.ack {agent_bundle, agent_bundle_sha}` | host → app | the page agent bundle (manifest `agent` list, embedded in the host); the app installs it as document-start user scripts in the agent world of every driven tab, so there is one copy |
 | `call {id, method, params}` / `result {id, result? , error?}` | host → app / app → host | driver protocol method on a WebKit tab (methods, params and errors exactly as driver-protocol.md) |
 | `event {name, payload}` | app → host | driver protocol event (`tab.created`, `dialog.opened`, …) and provider events (`tab.announced`, `tab.gone`) |

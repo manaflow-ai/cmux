@@ -8,8 +8,19 @@
 use super::super::*;
 use std::sync::mpsc;
 
+/// A caller-minted terminal id unique to this test process. A host binds
+/// its socket at `/tmp/cmux-th-<uid>/<terminal id>.sock`, one folder for
+/// every daemon of the user: a fixed id met the socket a host of another run
+/// (a concurrent step, or a host a reaper killed) left there, and the split
+/// failed with "terminal host identity already exists".
 fn creating_terminal(n: u64) -> String {
-    format!("52000000000040008000{n:012x}")
+    use std::sync::OnceLock;
+    static RUN: OnceLock<u32> = OnceLock::new();
+    let run = RUN.get_or_init(|| {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+        nanos ^ std::process::id().rotate_left(16)
+    });
+    format!("{run:08x}000040008000{n:012x}")
 }
 
 fn pane_id(n: u64) -> String {
@@ -144,7 +155,10 @@ fn input_for_a_creating_terminal_is_queued_then_written_in_order() {
     let created = split.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
     assert_eq!(created["ok"], true, "{created}");
     let surface = created["data"]["surface"].as_u64().unwrap();
-    // After the creation, input to the id is written at once, after the queue.
+    // The queue is written to the live terminal after the commit, on its own
+    // thread: until it is, input to the id still joins the queue (in order).
+    // Once it is written, input to the id is written at once.
+    wait_for_screen(&harness.socket, surface, "ABCDEF");
     let live = first.call(serde_json::json!({
         "id": 23, "cmd": "send", "terminal_id": terminal_id, "text": "GH",
     }));

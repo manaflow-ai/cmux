@@ -86,7 +86,8 @@ pub fn header(message: &Message) -> Result<[u8; 4], FrameError> {
         }
     };
     // MAX_MESSAGE is below 2^31, so the length fits in the low 31 bits.
-    Ok((length as u32 | flag).to_be_bytes())
+    let length = u32::try_from(length).map_err(|_| FrameError::TooLarge(length))?;
+    Ok((length | flag).to_be_bytes())
 }
 
 /// The header and body of `message` as one buffer.
@@ -105,7 +106,7 @@ pub fn encode(message: &Message) -> Result<Vec<u8>, FrameError> {
 pub fn parse_header(header: [u8; 4]) -> Result<(bool, usize), FrameError> {
     let raw = u32::from_be_bytes(header);
     let binary = raw & BINARY_FLAG != 0;
-    let length = (raw & !BINARY_FLAG) as usize;
+    let length = usize::try_from(raw & !BINARY_FLAG).unwrap_or(usize::MAX);
     if length > MAX_MESSAGE {
         return Err(FrameError::TooLarge(length));
     }
@@ -115,10 +116,12 @@ pub fn parse_header(header: [u8; 4]) -> Result<(bool, usize), FrameError> {
 /// Decode one complete frame from `bytes`, returning the message and the
 /// number of bytes consumed, or `None` when more bytes are needed.
 pub fn decode(bytes: &[u8]) -> Result<Option<(Message, usize)>, FrameError> {
-    let Some(header) = bytes.get(..4) else { return Ok(None) };
-    let (binary, length) = parse_header([header[0], header[1], header[2], header[3]])?;
-    let Some(body) = bytes.get(4..4 + length) else { return Ok(None) };
-    Ok(Some((to_message(binary, body.to_vec())?, 4 + length)))
+    let Some((header, rest)) = bytes.split_first_chunk::<4>() else { return Ok(None) };
+    let (binary, length) = parse_header(*header)?;
+    let Some(body) = rest.get(..length) else { return Ok(None) };
+    // `length` is at most MAX_MESSAGE (16 MiB), so the sum cannot overflow.
+    let consumed = length.saturating_add(4);
+    Ok(Some((to_message(binary, body.to_vec())?, consumed)))
 }
 
 fn to_message(binary: bool, body: Vec<u8>) -> Result<Message, FrameError> {
@@ -181,11 +184,10 @@ impl DataFrame {
     }
 
     pub fn decode(bytes: &Bytes) -> Option<Self> {
-        if bytes.len() < Self::HEADER {
-            return None;
-        }
-        let stream = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let credit = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let ([s0, s1, s2, s3, c0, c1, c2, c3], _) =
+            bytes.split_first_chunk::<{ Self::HEADER }>()?;
+        let stream = u32::from_be_bytes([*s0, *s1, *s2, *s3]);
+        let credit = u32::from_be_bytes([*c0, *c1, *c2, *c3]);
         Some(Self { stream, credit, payload: bytes.slice(Self::HEADER..) })
     }
 }

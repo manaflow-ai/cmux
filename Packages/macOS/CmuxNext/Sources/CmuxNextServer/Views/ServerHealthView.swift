@@ -29,7 +29,7 @@ struct ServerHealthView: View {
         .padding(ServerMetrics.padding - 4)
         .padding(.vertical, 4)
         .frame(width: ServerMetrics.dashboardWidth)
-        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.snapshot?.alerts)
+        .animation(reduceMotion ? nil : Motion.overlays.animation(.crossfade), value: model.snapshot?.alerts)
     }
 }
 

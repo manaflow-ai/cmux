@@ -4,9 +4,9 @@ import Foundation
 /// quit hook). One participant per document: two tabs on one file share
 /// `quitParticipantID`, `file:<host id>:<canonical path>` (host id "local"
 /// for this Mac; build it with `QuitParticipantID.file(host:path:)`).
-/// Register it with `QuitUnsavedRegistry.shared.register(_:)`, which refuses
+/// Register it with the app's `QuitUnsavedRegistry` (`AppServices.quitUnsaved`) `register(_:)`, which refuses
 /// any other id; write its recovery draft on every edit through
-/// `RecoveryDraftStore.shared` with the same id.
+/// the app's `RecoveryDraftStore` (`AppServices.recoveryDrafts`) with the same id.
 @MainActor
 public protocol QuitUnsavedParticipant: AnyObject {
     /// `file:<host id>:<canonical path>`; also the recovery draft's id.

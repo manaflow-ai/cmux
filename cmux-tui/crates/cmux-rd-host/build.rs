@@ -1,6 +1,10 @@
-// Compiles the x264 shim only when the `x264` feature is on.
+// Compiles the x264 shim only when the `x264` feature is on; on macOS, finds the OS's Swift
+// runtime, which the ScreenCaptureKit bindings load.
 fn main() {
     println!("cargo:rerun-if-changed=csrc/x264_shim.c");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg-bins=-Wl,-rpath,/usr/lib/swift");
+    }
     if std::env::var_os("CARGO_FEATURE_X264").is_none() {
         return;
     }

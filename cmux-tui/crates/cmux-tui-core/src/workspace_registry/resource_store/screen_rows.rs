@@ -20,6 +20,14 @@
 //! without `rows-v1` may have rewritten the screen); otherwise they are
 //! dropped and the column loads as one row.
 //!
+//! A lone pinned column (`pinned-dock-alone-v1`: Home's dock with nothing
+//! beside it) follows the same rule in `resource_lone_docks`: one record per
+//! screen holding the stored column. `viewport_json` is written as no
+//! viewport ([`RegistryViewport::durable`]), so a build without the
+//! capability (which refuses a one-column viewport at open) reads the screen
+//! as a plain tree. Load overlays the column only while the screen's layout
+//! is still the column's own layout and the screen is not in columns mode.
+//!
 //! Split identities of ids that only these tables name are in [`identities`].
 
 use super::*;
@@ -50,6 +58,11 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            row_id TEXT NOT NULL,
            height_permille INTEGER NOT NULL,
            PRIMARY KEY (screen_id, column_id, position)
+         );
+         CREATE TABLE IF NOT EXISTS resource_lone_docks (
+           screen_id TEXT PRIMARY KEY NOT NULL,
+           column_id TEXT NOT NULL,
+           column_json TEXT NOT NULL
          );
          CREATE TABLE IF NOT EXISTS resource_parked_splits (
            public_id TEXT PRIMARY KEY NOT NULL,
@@ -91,7 +104,7 @@ pub(super) fn delete_side_tables(
     revision: i64,
 ) -> anyhow::Result<()> {
     identities::retire_side_splits(transaction, screen_id, revision)?;
-    for table in ["resource_column_docks", "resource_screen_rows"] {
+    for table in ["resource_column_docks", "resource_screen_rows", "resource_lone_docks"] {
         transaction
             .execute(&format!("DELETE FROM {table} WHERE screen_id = ?1"), params![screen_id])?;
     }
@@ -144,7 +157,89 @@ pub(super) fn side_tables_match(
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, record))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(stored == desired_rows(screen) && column_docks_match(transaction, screen)?)
+    Ok(stored == desired_rows(screen)
+        && column_docks_match(transaction, screen)?
+        && stored_lone_dock(transaction, screen.public_id.as_str())? == desired_lone_dock(screen)?)
+}
+
+/// `(column id, column json)` of the screen's lone pinned column, if it has one.
+fn desired_lone_dock(screen: &RegistryScreen) -> anyhow::Result<Option<(String, String)>> {
+    if !screen.viewport.has_lone_pinned_column() {
+        return Ok(None);
+    }
+    let column = &screen.viewport.columns[0];
+    Ok(Some((column.id.to_string(), canonical_json(&serde_json::to_value(column)?)?)))
+}
+
+fn stored_lone_dock(
+    connection: &Connection,
+    screen_id: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    Ok(connection
+        .query_row(
+            "SELECT column_id, column_json FROM resource_lone_docks WHERE screen_id = ?1",
+            params![screen_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?)
+}
+
+fn write_lone_dock(transaction: &Transaction<'_>, screen: &RegistryScreen) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM resource_lone_docks WHERE screen_id = ?1",
+        params![screen.public_id.as_str()],
+    )?;
+    if let Some((column_id, column_json)) = desired_lone_dock(screen)? {
+        transaction.execute(
+            "INSERT INTO resource_lone_docks(screen_id, column_id, column_json)
+             VALUES(?1, ?2, ?3)",
+            params![screen.public_id.as_str(), column_id, column_json],
+        )?;
+    }
+    Ok(())
+}
+
+/// Overlays each screen's stored lone pinned column. A record is used only
+/// while the screen is a plain tree (or the lone column of rows with the
+/// same id) whose layout is still the column's, and while the column id is
+/// still parked for the screen: a build without `pinned-dock-alone-v1` may
+/// have rewritten the screen meanwhile (a write that keeps the layout still
+/// tombstones the id for good and unparks it), and its record is then dropped
+/// (and deleted on the screen's next write).
+fn overlay_lone_docks(
+    connection: &Connection,
+    screens: &mut [RegistryScreen],
+) -> anyhow::Result<()> {
+    let mut statement = connection.prepare(
+        "SELECT lone.screen_id, lone.column_json FROM resource_lone_docks AS lone
+             JOIN resource_parked_splits AS parked
+               ON parked.public_id = lone.column_id AND parked.screen_id = lone.screen_id",
+    )?;
+    let records = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (screen_id, column_json) in records {
+        let Some(screen) = screens.iter_mut().find(|screen| screen.public_id.as_str() == screen_id)
+        else {
+            continue;
+        };
+        let Ok(mut column) = serde_json::from_str::<RegistryViewportColumn>(&column_json) else {
+            continue;
+        };
+        if !column.dock.is_some_and(|dock| dock.pinned) || column.layout != screen.layout {
+            continue;
+        }
+        match screen.viewport.columns.as_mut_slice() {
+            [] => {}
+            [rows] if rows.id == column.id && rows.dock.is_none() => {
+                column.rows = std::mem::take(&mut rows.rows);
+            }
+            _ => continue,
+        }
+        screen.viewport =
+            RegistryViewport { base_width: Some(column.width), columns: vec![column] };
+    }
+    Ok(())
 }
 
 /// `((screen id, column id), [(row id, height)])` as read from the table.
@@ -184,6 +279,7 @@ pub(super) fn with_side_tables(
         };
         overlay_column_rows(screen, &column_id, &rows);
     }
+    overlay_lone_docks(connection, &mut screens)?;
     Ok(screens)
 }
 
@@ -407,5 +503,6 @@ pub(super) fn upsert_resource_screen(
         ],
     )?;
     write_column_docks(transaction, screen)?;
+    write_lone_dock(transaction, screen)?;
     write_screen_rows(transaction, screen)
 }

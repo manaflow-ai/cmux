@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBrowserHistory
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -33,6 +34,40 @@ enum DaemonClosedHistory {
     /// The daemon item id of a history list id, nil for the app's trackers.
     static func daemonID(fromHistoryID id: String) -> String? {
         id.hasPrefix("daemon:") ? String(id.dropFirst("daemon:".count)) : nil
+    }
+
+    /// The page a closed item on `machine` is only, by machine and address: a closed tab of one
+    /// browser on a real address, as the daemon keys it (`closed_page`, Leo 2026-10-14). nil for a
+    /// terminal, chat, page tab, screen, workspace, window, group or close of several tabs:
+    /// nothing tells one close of those from another (two shells in one folder).
+    nonisolated static func pageKey(_ item: ClosedItem, machine: String) -> [String]? {
+        let tabs = item.tabs
+        guard item.kind == .tab, item.group == nil, tabs.count == 1, let tab = tabs.first, tab.kind == "browser",
+              !tab.empty, tab.page == nil, let url = tab.url, !url.isEmpty, url != "about:blank" else { return nil }
+        return [machine, url]
+    }
+
+    /// `closed` (newest first, each as its item and machine) with a page closed again
+    /// (``pageKey(_:machine:)``) once, at its newest close: Recently Closed and Search Tabs list a
+    /// page once.
+    nonisolated static func newestOnce<T>(_ closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
+        var seen = Set<[String]>()
+        return closed.filter { value in
+            let (closedItem, machine) = item(value)
+            return pageKey(closedItem, machine: machine).map { seen.insert($0).inserted } ?? true
+        }
+    }
+
+    /// Every close the row of `target` stands for, among `closed`: for a page
+    /// (``pageKey(_:machine:)``) every close of it, so removing the row leaves none to take its
+    /// place; else `target` alone.
+    nonisolated static func closes<T>(of target: T, among closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
+        let own = item(target)
+        guard let page = pageKey(own.item, machine: own.machine) else { return [target] }
+        return closed.filter { value in
+            let other = item(value)
+            return pageKey(other.item, machine: other.machine) == page
+        }
     }
 
     /// True when some connected daemon records closed history.
@@ -135,7 +170,7 @@ enum DaemonClosedHistory {
                 // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); event-driven
                 undo?.reopenWatch?.cancel()
                 undo?.reopenWatch = Task { @MainActor [weak undo] in
-                    await daemon.store.applied(through: await connection.eventSequence())
+                    await daemon.appliedThroughReply(on: connection, after: "reopen closed")
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
                     undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
@@ -168,7 +203,7 @@ enum DaemonClosedHistory {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
-            await daemon.store.applied(through: await connection.eventSequence())
+            await daemon.appliedThroughReply(on: connection, after: "reopen closed")
             if item.kind == .workspace {
                 if let id = reopened.workspaceID,
                    let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {
@@ -245,8 +280,8 @@ enum DaemonClosedHistory {
     }
 
     /// Shows a reopened item once the store has it.
-    private static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
-                             services: AppServices) {
+    static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
+                     services: AppServices) {
         guard let workspaceID = reopened.workspaceID, let workspace = daemon.store.workspace(resourceID: workspaceID),
               let window = services.windows.active else { return }
         services.windows.show(workspaceID: workspace.id, in: window.state)

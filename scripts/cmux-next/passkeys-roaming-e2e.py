@@ -38,6 +38,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--transports", default="usb,usb-u2f,nfc,ble,cable")
 parser.add_argument("--site", default="https://webauthn.io")
 parser.add_argument("--no-dialogs", action="store_true")
+parser.add_argument("--typing", action="store_true", help="also type into the page with trusted key events (engine smoke)")
 parser.add_argument("--real", action="store_true", help="a real key or phone and a person; no virtual authenticator")
 parser.add_argument("--real-seconds", type=int, default=120, help="--real: how long each step waits for the person")
 parser.add_argument("--hybrid-only", action="store_true", help="--real: only the phone step")
@@ -316,6 +317,21 @@ def real_key(tab, username, discoverable, prompts, label):
     return "PASS", f"{username}: " + "; ".join(steps)
 
 
+def typing(tab):
+    """Trusted key events (Input.dispatchKeyEvent) into webauthn.io's username field."""
+    if not load_site(tab):
+        return "FAIL", "page did not load"
+    js(tab, "(() => { const u = document.getElementById('input-email'); u.value = ''; u.focus(); return document.activeElement === u; })()")
+    text = "cmux typing 123"
+    for ch in text:
+        devtools("Input.dispatchKeyEvent", {"type": "keyDown", "text": ch, "key": ch, "unmodifiedText": ch})
+        devtools("Input.dispatchKeyEvent", {"type": "keyUp", "key": ch})
+    devtools("Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": "Backspace", "code": "Backspace", "windowsVirtualKeyCode": 8})
+    devtools("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Backspace", "code": "Backspace", "windowsVirtualKeyCode": 8})
+    value = js(tab, "document.getElementById('input-email').value")
+    return ("PASS" if value == text[:-1] else "FAIL"), f"field value {value!r} (expected {text[:-1]!r})"
+
+
 def main():
     os.makedirs(opts.out, exist_ok=True)
     if not wait(lambda: "error" not in (rpc("system.identify") or {"error": 1}), 90):
@@ -328,6 +344,9 @@ def main():
         row("(setup)", "FAIL", f"{opts.site} did not load in a CEF tab: {opened}")
     else:
         row("probe", "NOTE", js(tab, "JSON.stringify({ua: navigator.userAgent, secure: isSecureContext, focused: document.hasFocus()})"))
+        if opts.typing:
+            status, detail = typing(tab)
+            row("typing (trusted key events)", status, detail)
         if opts.real and not opts.hybrid_only:
             status, detail = real_key(tab, f"cmux-key-{uuid.uuid4().hex[:8]}", opts.discoverable, (
                 "Passkey test. Touch the security key now. If a PIN box appears, press Cancel.",

@@ -192,6 +192,7 @@ impl Mux {
     /// workspaces. `mutate` edits a clone of the live state and the screen
     /// rows; both commit together, then the clone replaces the live state.
     /// Returns `mutate`'s output (`None` on a replay, which runs nothing).
+    #[track_caller]
     pub(crate) fn commit_screen_request<R>(
         self: &Arc<Self>,
         request: StripRequest,

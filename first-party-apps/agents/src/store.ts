@@ -1,12 +1,13 @@
 // App-wide state shared by the section and every pane in this VM: machines,
-// the CLIs on each, and host-run jobs. No polling: the agent_cli.watch stream
-// pushes changes; Refresh asks the owner to check latest versions again.
+// the CLIs on each, and proposed host-run jobs. Cache invalidations re-read
+// admitted owners; they carry no observations or job completion authority.
 
-import { applyWatch, type CliEntry, type Machine, type WatchEvent, withMissing } from "./model/entries.ts"
-import { type Job, type JobEvent, jobKey, reduceJob } from "./model/jobs.ts"
+import { sanitizeMachine, type CliEntry, type Machine, withMissing } from "./model/entries.ts"
+import { busy, type Job, type JobEvent, type JobKind, jobKey, reduceJob } from "./model/jobs.ts"
 import { call, type OpError } from "./ops.ts"
+import { t } from "./l10n.ts"
 
-export type MachineState = { entries: CliEntry[]; error: OpError | null; loading: boolean }
+export type MachineState = { entries: CliEntry[]; complete: boolean; error: OpError | null; loading: boolean }
 
 const [machines, setMachines] = signal<Machine[]>([])
 const [byMachine, setByMachine] = signal<Record<string, MachineState>>({})
@@ -20,47 +21,86 @@ export { machines, byMachine, machinesError, jobs, loaded, selected, setSelected
 /** When the host has no machine.list, the app still works on the current machine. */
 export const LOCAL: Machine = { id: "", name: "", origin: "local", status: "running" }
 
-export const stateOf = (machine: string): MachineState => byMachine()[machine] ?? { entries: [], error: null, loading: true }
+export const stateOf = (machine: string): MachineState => byMachine()[machine] ?? { entries: [], complete: false, error: null, loading: true }
+/** An unreported CLI on a partial or unavailable owner is unknown, never an install suggestion. */
+export function entryFor(machine: string, cli: string): CliEntry {
+  const state = stateOf(machine)
+  return state.entries.find((e) => e.cli === cli) ?? {
+    cli, installed: state.complete ? false : null, version: null, latest: null,
+    install_method: null, updatable: false, accounts: []
+  }
+}
+export const inventoryComplete = () => machines().length > 0 && machines().every((m) => {
+  const state = stateOf(m.id)
+  return state.complete && !state.loading && !state.error
+})
 export const jobOf = (machine: string, cli: string): Job | null => jobs()[jobKey(machine, cli)] ?? null
 export const machineById = (id: string) => machines().find((m) => m.id === id) ?? null
-export const localMachine = () => machines().find((m) => m.origin === "local") ?? machines()[0] ?? LOCAL
+export const localMachine = () => machines().find((m) => m.origin === "local") ?? LOCAL
 
 let started = false
+let discovery = 0
+const reads = new Map<string, object>()
+let invalidated = false
+let invalidationTask: Promise<void> | null = null
 
 export function start(): void {
   if (started) return
   started = true
+  cmux.events.on("agent_cli.changed", () => invalidate())
   void load(false)
-  cmux.events.on("agent_cli.watch", (p) => onWatch(p as WatchEvent & { job?: { job: string; ok: boolean; exit_code?: number | null; error?: string | null } }))
 }
 
 export async function load(checkLatest: boolean): Promise<void> {
-  const m = await call<Machine[]>("machine.list")
+  const generation = ++discovery
+  reads.clear()
+  const m = await call<Machine[]>("machine.list", { catalog: true })
+  if (generation !== discovery) return
   if (m.ok) {
     // Only machines that can run CLIs: running or connectable ones.
-    setMachines(m.value.filter((x) => x.status !== "stopped"))
+    setMachines(m.value.filter((x) => x.status !== "stopped").map(sanitizeMachine))
     setMachinesError(null)
   } else {
-    setMachines([LOCAL])
-    setMachinesError(m.error.missing ? null : m.error)
+    // Only a host without this operation has the legacy anonymous local route.
+    // Permission and transport failures cannot establish any machine admission.
+    const legacy = m.error.code === "operation.unsupported"
+    setMachines(legacy ? [LOCAL] : [])
+    setMachinesError(legacy ? null : m.error)
   }
+  const admitted = new Set(machines().map((x) => x.id))
+  setByMachine((all) => Object.fromEntries(Object.entries(all).filter(([id]) => admitted.has(id))))
+  setJobs((all) => Object.fromEntries(Object.entries(all).filter(([key]) => admitted.has(key.split("/")[0]!))))
+  if (selected() && !admitted.has(selected()!.machine)) setSelected(null)
   await Promise.all(machines().map((x) => loadMachine(x.id, checkLatest)))
-  setLoaded(true)
+  if (generation === discovery) setLoaded(true)
 }
 
 export async function loadMachine(machine: string, checkLatest: boolean): Promise<void> {
-  setByMachine((all) => ({ ...all, [machine]: { ...(all[machine] ?? { entries: [], error: null }), loading: true } }))
+  const owner = machineById(machine)
+  if (!owner) return
+  const generation = discovery
+  const token = {}
+  reads.set(machine, token)
+  setByMachine((all) => ({ ...all, [machine]: { ...(all[machine] ?? { entries: [], error: null }), complete: false, loading: true } }))
   const params: Record<string, unknown> = machine ? { machine } : {}
   if (checkLatest) params.check_latest = true
-  const r = await call<{ machine?: string; clis: CliEntry[] }>("agent_cli.list", params)
-  // The owner echoes the machine it answered for; file the answer under it
-  // (answers can arrive in any order). The no-machine.list fallback keeps "".
-  const key = machine && r.ok && typeof r.value.machine === "string" && machines().some((m) => m.id === r.value.machine) ? r.value.machine : machine
+  const r = await call<{ machine?: string; clis: CliEntry[]; complete?: boolean }>("agent_cli.list", params)
+  // A refresh, route removal or invalidation re-read retires this particular read.
+  if (generation !== discovery || owner !== machineById(machine) || reads.get(machine) !== token) return
+  reads.delete(machine)
+  // Never redirect an answer to another known machine. Legacy anonymous reads
+  // have no selected public ID; an explicit selection requires an exact echo.
+  const mismatch = r.ok && !!machine && r.value?.machine !== machine
+  const error: OpError | null = mismatch ? {
+    code: "machine.owner_mismatch", op: "agent_cli.list", missing: false,
+    message: t("error.owner", "The inventory reply did not match the selected machine.")
+  } : r.ok ? null : r.error
   setByMachine((all) => ({
     ...all,
-    [key]: r.ok ? { entries: withMissing(r.value.clis ?? []), error: null, loading: false } : { entries: all[key]?.entries ?? [], error: r.error, loading: false }
+    [machine]: r.ok && !error ? { entries: withMissing(r.value.clis ?? [], r.value.complete === true), complete: r.value.complete === true, error: null, loading: false }
+      : { entries: [], complete: false, error, loading: false }
   }))
-  if (r.ok) for (const e of r.value.clis ?? []) dispatchJob(key, e.cli, { type: "clear" })
+  if (r.ok && !error) for (const e of r.value.clis ?? []) dispatchJob(machine, e.cli, { type: "clear" })
 }
 
 export function dispatchJob(machine: string, cli: string, ev: JobEvent): void {
@@ -75,14 +115,36 @@ export function dispatchJob(machine: string, cli: string, ev: JobEvent): void {
   })
 }
 
-function onWatch(ev: (WatchEvent & { job?: { job: string; ok: boolean; exit_code?: number | null; error?: string | null } }) | null): void {
-  if (!ev || typeof ev.cli !== "string") return
-  const machine = typeof ev.machine === "string" ? ev.machine : ""
-  if (ev.job) dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error })
-  if (ev.entry || ev.removed) {
-    setByMachine((all) => {
-      const cur = all[machine] ?? { entries: [], error: null, loading: false }
-      return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev) } }
-    })
+/** Capture one request before sending an operation, shared by every action surface. */
+export function requestJob(machine: string, cli: string, kind: JobKind): Job | null {
+  if (!machineById(machine) || busy(jobOf(machine, cli))) return null
+  dispatchJob(machine, cli, { type: "request", kind })
+  return jobOf(machine, cli)
+}
+
+/** Removal or a newer request retires the original request, even after re-admission. */
+export function isCurrentJob(machine: string, cli: string, request: Job): boolean {
+  return machineById(machine) !== null && jobOf(machine, cli) === request
+}
+
+/** Invalidations never supply rows, selectors or job results. */
+function invalidate(): void {
+  invalidated = true
+  if (invalidationTask) return
+  invalidationTask = drainInvalidations()
+}
+
+/** At most one invalidation batch runs; changes during it retain one follow-up. */
+async function drainInvalidations(): Promise<void> {
+  try {
+    while (invalidated) {
+      invalidated = false
+      await load(false)
+    }
+  } finally {
+    invalidationTask = null
+    // A notification between the loop's last check and promise settlement
+    // must not be lost. This is event-driven, with no timers or idle work.
+    if (invalidated) invalidate()
   }
 }

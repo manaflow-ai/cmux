@@ -40,7 +40,7 @@ pub(super) fn parse(args: &[String], global: GlobalArgs) -> Result<Plan, UsageEr
 }
 
 pub(super) fn help() -> &'static str {
-    "USAGE\n  cmux run <script.ts> [-- <script args>]\n\nRun a TypeScript cmux script in the locked-down code-mode sandbox.\n"
+    "USAGE\n  cmux run <script.ts> [-- <script args>]\n  cmux run --sandboxed <task...>\n\nRun a TypeScript cmux script in the locked-down code-mode sandbox, or (--sandboxed)\none task on a throwaway Cloud VM that prints its receipt and is destroyed\n(cmux run --sandboxed --help).\n"
 }
 
 pub(super) fn scope_help(scope: &str) -> Option<Cow<'static, str>> {

@@ -37,15 +37,30 @@ enum BrowsingDataClear {
 
     static func bind(_ bind: BrowserProfileOpenHandlers.Bind, context: AppActionContext) {
         bind("browserProfile.clearBrowsingData") { invocation in
-            // An incognito window's tab names no profile (its data goes with the window): never the default's.
-            let named = invocation.target?.kind == .browserProfile || invocation["browserProfile"] != nil
-            if !named, let (tab, _) = context.focusedBrowserTab(), context.services.cache.browserTabs.isIncognitoTab(tab.id) {
-                throw ActionFailure.invalidTarget(BrowserProfileAppStrings.incognitoTab)
-            }
-            let profile = try context.browserProfile(invocation).engineProfile
-            let range = invocation["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) ?? .hour
-            clear(Kinds(invocation), of: profile, in: range, context.services)
+            try run(Kinds(invocation), invocation, context, defaultRange: .hour)
         }
+    }
+
+    /// Clear Browser History (`palette.browserClearHistory`, `cmux browser
+    /// clear-history`): the history part of Clear Browsing Data for the
+    /// named or focused tab's profile, over all time unless `range` says.
+    static func bindClearHistory(_ registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("palette.browserClearHistory", run: { invocation in
+            try run(.history, invocation, context, defaultRange: .all)
+        })
+    }
+
+    /// Resolves the invocation's profile and range, then clears `kinds`.
+    private static func run(_ kinds: Kinds, _ invocation: ActionInvocation, _ context: AppActionContext,
+                            defaultRange: HistoryRange) throws {
+        // An incognito window's tab names no profile (its data goes with the window): never the default's.
+        let named = invocation.target?.kind == .browserProfile || invocation["browserProfile"] != nil
+        if !named, let (tab, _) = context.focusedBrowserTab(), context.services.cache.browserTabs.isIncognitoTab(tab.id) {
+            throw ActionFailure.invalidTarget(BrowserProfileAppStrings.incognitoTab)
+        }
+        let profile = try context.browserProfile(invocation).engineProfile
+        let range = invocation["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) ?? defaultRange
+        clear(kinds, of: profile, in: range, context.services)
     }
 
     /// Clears `kinds` of `profile` changed in `range`: page visits on the

@@ -36,7 +36,7 @@ import Testing
     static let other = BrowserPageCookie(name: "sid", value: "3", domain: "other.test", path: "/", expires: 1)
 
     func install() -> (ControlRouter, CookieEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = CookieEngine([Self.session, Self.shared, Self.admin, Self.other])
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()

@@ -11,7 +11,7 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
     public init(entries: [IconCatalogEntry]) {
         self.entries = entries
         index = Dictionary(entries.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
-        bySymbol = Dictionary(entries.map { ($0.sf, $0.name) }, uniquingKeysWith: { first, _ in first })
+        bySymbol = Dictionary(entries.filter(\.aliasesSymbol).map { ($0.sf, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
 
     public init(data: Data) throws {
@@ -45,10 +45,13 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
         index[name]
     }
 
-    /// The icon whose SF Symbol fallback is `symbol` (the first in catalog order), for symbol
-    /// names apps and users supply; nil when no icon stands for it.
+    /// The icon for a symbol name apps, users and models supply: the icon whose SF Symbol
+    /// fallback is `symbol` (the first in catalog order), else `symbol` itself when it is a
+    /// catalog name no SF Symbol maps to (`browser.omnibox.pageinfo`); nil when no icon stands for it.
     public func name(forSymbol symbol: String) -> IconName? {
-        bySymbol[symbol]
+        if let aliased = bySymbol[symbol] { return aliased }
+        let own = IconName(symbol)
+        return index[own] != nil ? own : nil
     }
 
     /// The style `name` draws in at `size`: its dense style below

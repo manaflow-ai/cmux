@@ -11,6 +11,9 @@ import type {
   WhatsNewCategory,
   WhatsNewEntry,
 } from "./types";
+import { subjectArea, type AreaKey } from "./areas";
+import type { UpdateHighlightItem, UpdateHighlights } from "./updateHighlights";
+import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -30,14 +33,25 @@ export interface ReleaseItem {
   media?: MediaRef;
   /** An allow-listed action id the page may ask the host to run, and its label (none: "Try it"). */
   action?: { id: string; title?: string };
+  /** Optional GitHub pull request URL for the shared PR chip. */
+  pr?: string;
   docs?: string;
+}
+
+/** A change with the app area its subject names (areas.ts), none when it names no area. */
+export interface AreaChange extends ChangeItem {
+  area?: AreaKey;
 }
 
 export interface ReleaseView {
   hero?: ReleaseItem;
   groups: { category: WhatsNewCategory; items: ReleaseItem[] }[];
-  /** Every change (titles with their pull requests), shown folded. */
-  changes: ChangeItem[];
+  /** Every change a person would notice (readable titles, each pull request once), listed by area. */
+  changes: AreaChange[];
+  /** How many changes were left out of `changes` as internal work (CI, tests, perf measurement). */
+  internalChanges: number;
+  /** Those changes, readable, each pull request once: "Under the hood". */
+  underTheHood: ChangeItem[];
   /** Every change the release lists (hero and groups), for counts. */
   count: number;
 }
@@ -61,14 +75,26 @@ export function admissibleSource(src: string | undefined): string | undefined {
   return src;
 }
 
+/** The summary, or "" when it only repeats the title: a digest built from summary lines
+    carries each line as both (scripts/cmux-next/release-notes.py). */
+export function distinctSummary(title: string, summary: string): string {
+  const key = (text: string) =>
+    text
+      .trim()
+      .replace(/[.!…\s]+$/u, "")
+      .toLowerCase();
+  return key(summary) === key(title) ? "" : summary;
+}
+
 function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
   const light = admissibleSource(entry.media?.light);
   const dark = admissibleSource(entry.media?.dark);
+  const title = localized(entry.title, language);
   return {
     id: entry.id,
     category: entry.category,
-    title: localized(entry.title, language),
-    summary: localized(entry.summary, language),
+    title,
+    summary: distinctSummary(title, localized(entry.summary, language)),
     media:
       entry.media && (light || dark)
         ? {
@@ -79,8 +105,19 @@ function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
           }
         : undefined,
     action: entry.tryIt?.action ? { id: entry.tryIt.action } : undefined,
+    pr: entry.pr,
     docs: entry.docs,
   };
+}
+
+/** A highlight file's id as scripts/whats-new/digest.py writes it: lower case, other runs as "-".
+    An id with no letter or digit to keep stays as it is, so two such ids never collide. */
+function entryId(id: string): string {
+  const normalized = id
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || id;
 }
 
 function fromHighlight(highlight: Highlight): ReleaseItem {
@@ -109,21 +146,153 @@ function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
   return items.find((i) => i.category === "new" && i.media) ?? items.find((i) => i.media);
 }
 
+/** The item as a person reads it, or undefined for internal work. A machine-made line (a summary
+    line, or a digest entry made from one) gets the commit rules; a human-written title only loses
+    bead ids and the product's own label. A title an older pipeline cut with "…" is made whole from
+    the line it came from; a summary that repeats the title keeps only what it adds; a long title
+    with no summary ends at its first clause and the rest becomes the summary. */
+function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean): ReleaseItem | undefined {
+  const clean = (text: string) => (machine ? readableChange(text).title : tidyTitle(text));
+  if (machine && readableChange(item.title).internal) return undefined;
+  let full = clean(item.title);
+  const stem = stemOf(full);
+  const line = item.summary && !item.summary.includes("\n") ? clean(item.summary) : "";
+  // The summary repeats the title, maybe cut with "…" itself: the line the entry was made from.
+  const echoes = !!line && (stemOf(line).startsWith(stem) || stem.startsWith(stemOf(line)));
+  const lineWhole = echoes && !line.endsWith("…");
+  if (full.endsWith("…")) {
+    const whole = lineWhole
+      ? line
+      : changes
+          .map((c) => readableChange(c.title).title)
+          .find((text) => !text.endsWith("…") && stemOf(text).startsWith(stem) && text.length > stem.length);
+    full = whole ?? full.slice(0, -1).trim();
+    // The cut title may have dropped the words that mark the line internal ("… the Chief Dock squash").
+    if (machine && readableChange(full).internal) return undefined;
+  }
+  let summary = !echoes ? item.summary : lineWhole ? capitalized(titleTail(line, full)) : "";
+  let title = full;
+  const short = shortTitle(full);
+  if (short && short !== full && !distinctSummary(full, summary)) {
+    title = short;
+    summary = capitalized(titleTail(full, short));
+  }
+  return { ...item, title, summary: distinctSummary(title, summary) };
+}
+
+/** The update card's and popup's items (`UpdateHighlights`, at most three) as the page reads them:
+    notes published before the readable rules (#21873) carry digest titles cut with "…",
+    work-stream lines and titles repeated as their description. A summary or appcast line is
+    machine-made; a What's New entry or highlight with its own id is a person's. */
+export function readableUpdateItems(items: UpdateHighlightItem[]): UpdateHighlightItem[] {
+  const seen = new Set<string>();
+  return items.flatMap((item) => {
+    const machine = /^(?:summary|appcast)-\d+$/.test(item.id);
+    const readable = readableItem(
+      { id: item.id, category: item.category, title: item.title, summary: item.summary ?? "" },
+      [],
+      machine,
+    );
+    const key = readable?.title.toLowerCase();
+    if (!readable || !key || seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...item, title: readable.title, summary: readable.summary || null }];
+  });
+}
+
+/** The whole update as the card and popover read it: `items` and every change after them (`rest`)
+    through the same rules, so no internal or cut line reaches the popover's list or the card's
+    summary (review of #22099). A change in `rest` that repeats one shown above drops; `moreCount`
+    keeps counting the changes the host did not send. */
+export function readableUpdate(data: UpdateHighlights): UpdateHighlights {
+  const items = readableUpdateItems(data.items);
+  if (!data.rest) return { ...data, items };
+  const rest = readableUpdateItems([...data.items, ...data.rest]).slice(items.length);
+  return { ...data, items, rest, moreCount: Math.max(0, data.moreCount - (data.rest.length - rest.length)) };
+}
+
+function stemOf(text: string): string {
+  return text.replace(/[.!…\s]+$/u, "").toLowerCase();
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A subject without its "(#123)": how a revert names the change it undoes. */
+function bareSubject(text: string): string {
+  return text.replace(/\s*\(#\d+\)\s*$/u, "").trim();
+}
+
+/** The changes a person would notice, readable and each pull request (or title) once, and the
+    internal ones left out (`hidden`, `internal` of them). A pull request reads as its human commit
+    when it has one; a change reverted in the same span, and its revert, are left out. */
+export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[]; internal: number; hidden: T[] } {
+  const reverted = new Set(
+    items.map((item) => revertedSubject(item.title)).flatMap((subject) => (subject ? [bareSubject(subject)] : [])),
+  );
+  const rows: { key: string; item: T; internal: boolean }[] = [];
+  const byKey = new Map<string, number>();
+  for (const item of items) {
+    if (revertedSubject(item.title) || reverted.has(bareSubject(item.title))) continue;
+    const readable = readableChange(item.title);
+    const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
+    // The notes mark a commit that touches only CI or tooling files internal, whatever its subject.
+    const internal = readable.internal || item.internal === true;
+    const row = { key, item: { ...item, title: readable.title }, internal };
+    const at = byKey.get(key);
+    if (at === undefined) {
+      byKey.set(key, rows.length);
+      rows.push(row);
+    } else if (rows[at]!.internal && !row.internal) rows[at] = row;
+  }
+  const hidden = rows.filter((r) => r.internal).map((r) => r.item);
+  return { changes: rows.filter((r) => !r.internal).map((r) => r.item), internal: hidden.length, hidden };
+}
+
+/** The changes of `items` for the page: by area, internal work apart. */
+function pageChanges(items: ChangeItem[]): Pick<ReleaseView, "changes" | "internalChanges" | "underTheHood"> {
+  const { changes, internal, hidden } = readableChanges(
+    items.map((item) => ({ ...item, area: subjectArea(item.title) })),
+  );
+  return { changes, internalChanges: internal, underTheHood: hidden };
+}
+
 export function releaseView(notes: ReleaseNotes, language: string): ReleaseView {
   // The reviewed document first, then the highlights it does not carry (a nightly digest drops
-  // an entry the validator refuses), then the summary lines no highlight already says.
-  const items: ReleaseItem[] = (notes.whatsNew?.entries ?? []).map((e) => fromEntry(e, language));
-  const ids = new Set(items.map((i) => i.id));
-  const seen = new Set(items.map((i) => i.title.toLowerCase()));
-  for (const highlight of notes.highlights) {
-    if (ids.has(highlight.id) || seen.has(highlight.title.toLowerCase())) continue;
-    seen.add(highlight.title.toLowerCase());
-    items.push(fromHighlight(highlight));
+  // an entry the validator refuses), then the summary lines no highlight already says. Each as a
+  // person reads it; internal work is left out.
+  const raw = changeItems(notes);
+  const items: ReleaseItem[] = [];
+  const ids = new Set<string>();
+  const seen = new Set<string>();
+  // Ids compare as digest.py writes them, so a highlight file and its digest entry are one change
+  // even when the entry's title is in another language.
+  const add = (item: ReleaseItem, byId: boolean, machine: boolean) => {
+    if (byId && ids.has(entryId(item.id))) return;
+    const readable = readableItem(item, raw, machine);
+    if (!readable) return;
+    const key = readable.title.toLowerCase();
+    if (seen.has(key)) return;
+    ids.add(entryId(item.id));
+    seen.add(key);
+    items.push(readable);
+  };
+  // A digest entry has no picture of its own in a nightly; its highlight file's picture (taken
+  // from the change's pull request, release-notes.py) stands in. Ids match as digest.py makes them.
+  const pictures = new Map(notes.highlights.map((h) => [entryId(h.id), fromHighlight(h).media]));
+  // A digest the pipeline made from summary lines names its entries "summary-N".
+  for (const entry of notes.whatsNew?.entries ?? []) {
+    const item = fromEntry(entry, language);
+    add(
+      item.media ? item : { ...item, media: pictures.get(entryId(entry.id)) },
+      false,
+      entry.id.startsWith("summary-"),
+    );
   }
+  for (const highlight of notes.highlights) add(fromHighlight(highlight), true, false);
   for (const [index, line] of (notes.summary ?? []).entries()) {
-    if (seen.has(line.title.toLowerCase())) continue;
-    seen.add(line.title.toLowerCase());
-    items.push({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" });
+    add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false, true);
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
@@ -131,7 +300,7 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  return { hero, groups, changes: changeItems(notes), count: items.length };
+  return { hero, groups, ...pageChanges(raw), count: items.length };
 }
 
 /** The notes' structured changes, else one item per commit subject (no PR without the provider). */
@@ -161,16 +330,20 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  const changeSeen = new Set<string>();
-  const changes = views
-    .flatMap((v) => v.changes)
-    .filter((c) => {
-      const key = c.pr ? `#${c.pr}` : c.title;
-      if (changeSeen.has(key)) return false;
-      changeSeen.add(key);
-      return true;
-    });
-  return { hero, groups, changes, count: items.length };
+  return { hero, groups, ...pageChanges(notes.flatMap(changeItems)), count: items.length };
+}
+
+/** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build
+    that has curated entries. A digest made from summary lines ("summary-N") is not curated: the
+    pipeline heads it with its first line, a commit subject. Undefined when none has one: such a
+    day lists its readable changes, or says "Maintenance and fixes" when it has none. */
+export function releaseTitle(notes: ReleaseNotes[], language: string): string | undefined {
+  for (const n of notes) {
+    if (!n.whatsNew?.entries.some((e) => !e.id.startsWith("summary-"))) continue;
+    const title = localized(n.whatsNew.headline, language).trim();
+    if (title) return title;
+  }
+  return undefined;
 }
 
 /** Builds (newest first) in runs of one release day. */

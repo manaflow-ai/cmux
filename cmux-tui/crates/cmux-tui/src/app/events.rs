@@ -152,7 +152,7 @@ impl SessionEventSender {
         let Some(filter) = self.surface_filter else { return true };
         match event {
             MuxEvent::SurfaceOutput(surface)
-            | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::SurfaceExited(surface, _)
             | MuxEvent::Bell(surface) => *surface == filter,
             MuxEvent::ProgramStatusChanged { surface, .. } => *surface == filter,
             MuxEvent::SurfaceResized { surface, .. }

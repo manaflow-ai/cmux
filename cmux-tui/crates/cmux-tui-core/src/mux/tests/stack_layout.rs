@@ -73,10 +73,10 @@ fn zellij_new_pane_emits_pane_added_delta_and_layout_change() {
             {
                 saw_added = true;
             }
-            MuxEvent::LayoutChanged(event_screen) if saw_added && event_screen == screen => {
+            MuxEvent::LayoutChanged(event_screen, _) if saw_added && event_screen == screen => {
                 break;
             }
-            MuxEvent::LayoutChanged(_) if !saw_added => {
+            MuxEvent::LayoutChanged(..) if !saw_added => {
                 panic!("layout invalidation arrived before the pane-added delta")
             }
             _ => {}
@@ -211,7 +211,7 @@ fn moving_zellij_stack_pane_keeps_target_pane_expanded() {
         assert!(!layout.stacked_headers.contains(&target));
         assert!(layout.rect_of(target).unwrap().height > 1);
     });
-    assert!(events.try_iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
+    assert!(events.try_iter().any(|event| matches!(event, MuxEvent::LayoutChanged(..))));
 }
 
 #[test]
@@ -330,10 +330,10 @@ fn focusing_outside_a_stack_emits_layout_changed() {
     });
     let invalidations = events
         .try_iter()
-        .filter(|event| matches!(event, MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_)))
+        .filter(|event| matches!(event, MuxEvent::TreeChanged | MuxEvent::LayoutChanged(..)))
         .collect::<Vec<_>>();
     assert_eq!(invalidations.len(), 1);
-    assert!(matches!(invalidations[0], MuxEvent::LayoutChanged(_)));
+    assert!(matches!(invalidations[0], MuxEvent::LayoutChanged(..)));
 }
 
 #[test]

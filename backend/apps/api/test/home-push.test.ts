@@ -125,7 +125,7 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
 
   it("a delivered inbox.bump decides the push and closes none of the install's sockets", async () => {
     const { user, stub, sent, token } = await pushUser("home-push-no-close")
-    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     expect(res.status).toBe(101)
     const ws = res.webSocket!
     let closed: number | undefined
@@ -168,7 +168,7 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
 
   it("waits while the user's Mac is active (FeedDO presence, push_skip_when_mac_active) and notifies once the Mac goes idle", async () => {
     const { user, stub, sent, token } = await pushUser("home-push-foreground")
-    const res = await worker.fetch("https://api.test/v1/wire/feed", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/feed", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const ws = res.webSocket!
     ws.accept()
     const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(user))

@@ -29,6 +29,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,6 +125,36 @@ class ReportedContexts(unittest.TestCase):
     def test_an_error_body_is_an_error(self) -> None:
         with self.assertRaises(checks.DriftCheckError):
             checks.reported_contexts({"message": "Not Found"}, statuses("ci-status"))
+
+    def test_required_contexts_after_the_first_api_page_are_not_phantoms(self) -> None:
+        client = checks.GitHub("example/repo", None)
+        first_checks = check_runs(*(f"guard-{i}" for i in range(100)))
+        first_statuses = statuses(*(f"status-{i}" for i in range(100)))
+
+        def page(route):
+            later = route.endswith("&page=2")
+            if "/check-runs?" in route:
+                return check_runs("required-check") if later else first_checks
+            if "/status?" in route:
+                return statuses("required-status") if later else first_statuses
+            raise AssertionError(route)
+
+        with mock.patch.object(client, "get", side_effect=page):
+            reported = client.reported_on("head")
+        found = checks.findings(
+            live={"required-check", "required-status"},
+            committed={"required-check", "required-status"},
+            reported_by_commit={"head": reported},
+        )
+        self.assertTrue(found.ok(), found.report())
+
+    def test_merged_sample_can_follow_a_page_of_unmerged_closures(self) -> None:
+        client = checks.GitHub("example/repo", None)
+        with mock.patch.object(client, "get", side_effect=[
+            [{"merged_at": None}] * 100,
+            [{"merged_at": "2026-10-12T00:00:00Z", "head": {"sha": "merged-head"}}],
+        ]):
+            self.assertEqual(client.merged_heads("main", 1), ["merged-head"])
 
 
 class Findings(unittest.TestCase):

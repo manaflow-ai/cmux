@@ -22,6 +22,13 @@ final class OnboardingTextButton: NSButton {
         applyTitle()
     }
 
+    /// A new title for a reused button (a row's Allow Access… or Open System Settings…).
+    func setPlainTitle(_ title: String) {
+        guard title != plainTitle else { return }
+        plainTitle = title
+        applyTitle()
+    }
+
     override var alignmentRectInsets: NSEdgeInsets {
         NSEdgeInsets(top: Self.padding.height, left: Self.padding.width, bottom: Self.padding.height, right: Self.padding.width)
     }

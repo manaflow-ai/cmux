@@ -1,7 +1,7 @@
 // Boots the Cloud page (cmux-page://cmux.cloud/). In the app the host installs the `cmuxPage`
 // bridge (pageClient.ts); in the browser dev loop (`/cloud/?mock`) the in-memory mock provider
 // stands in for the Cloud app server. The machine list layout comes from the page's init
-// (README.md: Debug setting `cloud.machines.layout`).
+// (README.md: Debug setting `cloud.machines.layout`); the fragment `#/get` opens the storefront.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
@@ -12,7 +12,7 @@ import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { parseLayout } from "./model";
 import { PAGE_COMMAND } from "./ops";
-import { CloudStore } from "./store";
+import { CloudStore, parseView } from "./store";
 import "./styles.css";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { appPopupHost } from "../shared/pagePopupHost";
@@ -20,7 +20,15 @@ import { appPopupHost } from "../shared/pagePopupHost";
 export function mountCloudPage(root: HTMLElement, client: PageClient | null = defaultClient()): CloudStore {
   const params = new URLSearchParams(location.search);
   const layout = parseLayout(document.documentElement.dataset.cloudMachinesLayout ?? params.get("layout"));
-  const store = new CloudStore(client, { layout });
+  const store = new CloudStore(client, { layout, view: parseView(location.hash) });
+  // `#/get` opens the storefront; the host or a link may set it on an open page.
+  window.addEventListener("hashchange", () => store.setView(parseView(location.hash)));
+  // The fragment follows the view, so a later `#/get` link changes the hash and opens the storefront.
+  store.subscribe(() => {
+    const view = store.getSnapshot().view;
+    if (parseView(location.hash) !== view)
+      history.replaceState(null, "", `${location.pathname}${location.search}${view === "get" ? "#/get" : ""}`);
+  });
   // The page has no find or search field yet; it answers page commands as not handled so the
   // dispatcher can fall back. It never reads Cmd or Ctrl chords itself.
   client?.handle(PAGE_COMMAND, () => ({ handled: false }));

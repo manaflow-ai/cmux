@@ -33,7 +33,7 @@ export interface SignOptions {
 }
 
 /** Every purpose a device signs: enroll and rotate-key (M2), its own peer map and tunnel config (M3), and its public IPv6 address. */
-export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel" | "address";
+export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel" | "address" | "overlay-policy";
 
 export function signedMessage(fields: {
   readonly purpose: SignedPurpose;
@@ -89,7 +89,7 @@ export async function rotateBody(install: InstallKey, deviceId: string, newPubli
  * install public key is the device's own (the server fills it from the device
  * record), so it is not in the body.
  */
-export async function deviceRequestBody(install: InstallKey, deviceId: string, purpose: "peers" | "tunnel", options: SignOptions = {}) {
+export async function deviceRequestBody(install: InstallKey, deviceId: string, purpose: "peers" | "tunnel" | "overlay-policy", options: SignOptions = {}) {
   const signedAt = options.signedAt ?? Date.now();
   const nonce = options.nonce ?? freshNonce();
   const message = signedMessage({ purpose, target: deviceId, wgPublicKey: "", installPublicKey: install.publicKey, name: "", signedAt, nonce });

@@ -1,0 +1,55 @@
+{
+  "$comment": "The one row grid of every cmux NEXT menu (Leo 2026-10-21, on Lawrence's screenshots of the sidebar group menu and the pane [+] menu: \"idk if we generalized the left alignment across all stuff yet\"). Native macOS menu metrics (Leo 2026-10-21, on the chat's right-click menu: \"so much ... padding ... all over the place\"): content at AppKit's own leading, where its separators start, and a state column only in a menu with a checkmark. Points from the menu's leading edge, or from its trailing edge for `trailing`. Right-click and ⋮ menus, the group editors, the palette's menus, page popups and the webviews' menus all read these. scripts/cmux-next/gen-menu-metrics.py writes the CSS copy (--cmux-menu-<name> in webviews/src/pages/shared/desktop.css) and checks the hand-written Swift copy (CmuxNextDesign/MenuMetrics.swift); scripts/cmux-next/check-menu-metrics.py fails a menu that sets its own.",
+  "metrics": [
+    {
+      "name": "highlightInset",
+      "pt": 5,
+      "for": "the hover highlight's distance from the menu's edges"
+    },
+    {
+      "name": "highlightRadius",
+      "pt": 5,
+      "for": "the hover highlight's corner radius"
+    },
+    {
+      "name": "separatorInset",
+      "pt": 15,
+      "for": "a separator's distance from the menu's edges, on both sides: AppKit's own, where a row's content starts"
+    },
+    {
+      "name": "stateX",
+      "pt": 10,
+      "for": "a checkmark or dash, in a menu that has one"
+    },
+    {
+      "name": "stateIconX",
+      "pt": 22,
+      "for": "where a row's icon starts in a menu with a checkmark or dash"
+    },
+    {
+      "name": "iconX",
+      "pt": 15,
+      "for": "where a row's icon starts (its title without an icon column): AppKit's own leading"
+    },
+    {
+      "name": "iconSize",
+      "pt": 14,
+      "for": "the box an icon fits in, its shape kept"
+    },
+    {
+      "name": "iconGap",
+      "pt": 6,
+      "for": "between the icon column and the text"
+    },
+    {
+      "name": "trailing",
+      "pt": 12,
+      "for": "a shortcut's or submenu chevron's distance from the trailing edge"
+    },
+    {
+      "name": "shortcutGap",
+      "pt": 28,
+      "for": "the least room between a title and its shortcut or chevron"
+    }
+  ]
+}

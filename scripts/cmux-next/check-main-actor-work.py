@@ -30,9 +30,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
+from typing import NamedTuple
 
 PACKAGE = "Packages/macOS/CmuxNext"
 BASELINE = "scripts/cmux-next/main-actor-work-baseline.json"
@@ -74,10 +76,167 @@ MAIN = re.compile(r"@MainActor\b")
 STRING_LITERAL = re.compile(r'"(?:\\.|[^"\\])*"')
 
 
-def ui_targets(package_swift: str) -> set[str]:
-    text = open(package_swift, encoding="utf-8").read()
-    found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)', text, re.S)
-    return {name for name, settings in found if settings == "uiSwiftSettings"}
+# ---------------------------------------------------------------- Package.swift targets
+# The one reader of which targets are main actor by default. check-concurrency.sh and guardrails.py read it
+# through scripts/cmux-next/swift_scope.py, so every checker maps a file to the same target and isolation.
+
+class Target(NamedTuple):
+    """One target call of a Package.swift: its name, its folder and its default isolation."""
+    name: str
+    path: str  # the folder relative to the package root: `path:`, else Sources/<name> (Tests/<name> for a test)
+    main: bool  # main actor by default: its swiftSettings name uiSwiftSettings or `.defaultIsolation(MainActor.self)`
+
+
+# A target call: `.target(`, `.executableTarget(`, `.testTarget(`, `.macro(` (also `Target.target(`).
+TARGET_CALL = re.compile(r"(?<![\w.])(?:Target)?\.(target|executableTarget|testTarget|macro)\s*\(")
+MAIN_SETTINGS = re.compile(r"\buiSwiftSettings\b|\.defaultIsolation\(\s*MainActor\.self\s*\)")
+_STRING_OPEN = re.compile(r'(#*)("""|")')
+_ARGUMENT_LABEL = re.compile(r"\s*([A-Za-z_]\w*)\s*:")
+_PLAIN_LITERAL = re.compile(r'"([^"\\]*)"')
+
+
+def mask_code(text: str) -> str:
+    """TEXT with comments and string-literal contents blanked (same length; line breaks and quote delimiters
+    kept), so the parentheses, brackets and commas left are code.
+
+    Handles nested block comments, multi-line and raw (`#"..."#`) strings, and strings inside `\\( ... )`
+    interpolations.
+    """
+    n, out = len(text), list(text)
+
+    def blank(start: int, end: int) -> None:
+        for k in range(start, min(end, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    def comment_end(i: int) -> int:
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            return n if j < 0 else j
+        depth, j = 1, i + 2
+        while j < n and depth:
+            if text.startswith("/*", j):
+                depth, j = depth + 1, j + 2
+            elif text.startswith("*/", j):
+                depth, j = depth - 1, j + 2
+            else:
+                j += 1
+        return j
+
+    def string_end(literal: re.Match) -> tuple[int, int]:
+        """(end of the contents, end of the closing delimiter) of the literal LITERAL opens."""
+        hashes, quotes = literal.groups()
+        close, escape, j = quotes + hashes, "\\" + hashes, literal.end()
+        while j < n:
+            if text.startswith(escape + "(", j):
+                j = interpolation_end(j + len(escape) + 1)
+            elif text.startswith(escape, j):
+                j += len(escape) + 1
+            elif text.startswith(close, j):
+                return j, j + len(close)
+            elif quotes == '"' and text[j] == "\n":
+                return j, j  # an unterminated one-line literal ends at its line break
+            else:
+                j += 1
+        return n, n
+
+    def interpolation_end(j: int) -> int:
+        depth = 1
+        while j < n and depth:
+            if text.startswith(("//", "/*"), j):
+                j = comment_end(j)
+            elif (literal := _STRING_OPEN.match(text, j)) is not None:
+                j = string_end(literal)[1]
+            else:
+                depth += (text[j] == "(") - (text[j] == ")")
+                j += 1
+        return j
+
+    i = 0
+    while i < n:
+        if text.startswith(("//", "/*"), i):
+            j = comment_end(i)
+            blank(i, j)
+            i = j
+        elif (literal := _STRING_OPEN.match(text, i)) is not None:
+            contents, i = string_end(literal)
+            blank(literal.end(), contents)
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _closing(masked: str, opening: int) -> int:
+    """The index of the `)` that closes the `(` at OPENING in MASKED, or len(MASKED) when none does."""
+    depth = 0
+    for k in range(opening, len(masked)):
+        if masked[k] in "([{":
+            depth += 1
+        elif masked[k] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return k
+    return len(masked)
+
+
+def _arguments(masked: str, start: int, end: int) -> dict[str, tuple[int, int]]:
+    """{label: (start, end) of its value} for the top-level labeled arguments in MASKED[START:END]."""
+    args: dict[str, tuple[int, int]] = {}
+    depth, segment = 0, start
+    for k in range(start, end + 1):
+        c = masked[k] if k < end else ","
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            label = _ARGUMENT_LABEL.match(masked, segment, k)
+            if label is not None:
+                args.setdefault(label.group(1), (label.end(), k))
+            segment = k + 1
+    return args
+
+
+def package_targets(manifest: str) -> list[Target]:
+    """Every target of a Package.swift text, each read from its own call only.
+
+    A target call is read by balanced parentheses in the manifest with comments and string contents
+    masked, so a target with no swiftSettings is nonisolated by default (it never takes the next target's
+    settings), and a `.target(name:)` dependency inside a target's call is not a target. A call whose name is
+    not a plain string literal is skipped.
+    """
+    masked = mask_code(manifest)
+    targets: list[Target] = []
+    position = 0
+    while (call := TARGET_CALL.search(masked, position)) is not None:
+        end = _closing(masked, call.end() - 1)
+        args = _arguments(masked, call.end(), end)
+        position = end + 1
+
+        def literal(label: str) -> str | None:
+            if label not in args:
+                return None
+            start, stop = args[label]
+            value = _PLAIN_LITERAL.fullmatch(manifest[start:stop].strip())
+            return None if value is None else value.group(1)
+
+        name = literal("name")
+        if name is None:
+            continue
+        folder = literal("path") or f"{'Tests' if call.group(1) == 'testTarget' else 'Sources'}/{name}"
+        settings = masked[slice(*args["swiftSettings"])] if "swiftSettings" in args else ""
+        targets.append(Target(name, posixpath.normpath(folder), MAIN_SETTINGS.search(settings) is not None))
+    return targets
+
+
+def default_isolation(relative: str, targets: list[Target]) -> bool | None:
+    """Whether the file at RELATIVE (relative to the package root, `/`-separated) is in a target that is main
+    actor by default; None when no target's folder holds it. The deepest folder wins."""
+    best: Target | None = None
+    for target in targets:
+        if relative.startswith(target.path + "/") and (best is None or len(target.path) > len(best.path)):
+            best = target
+    return None if best is None else best.main
 
 
 def allowed(lines: list[str], index: int) -> bool:
@@ -169,8 +328,10 @@ def scan_file(path: str, default_main: bool) -> list[tuple[int, str, str]]:
 
 
 def collect(root: str) -> dict[str, dict[str, list[tuple[int, str]]]]:
-    sources = os.path.join(root, PACKAGE, "Sources")
-    ui = ui_targets(os.path.join(root, PACKAGE, "Package.swift"))
+    package_root = os.path.join(root, PACKAGE)
+    sources = os.path.join(package_root, "Sources")
+    with open(os.path.join(package_root, "Package.swift"), encoding="utf-8") as handle:
+        targets = package_targets(handle.read())
     result: dict[str, dict[str, list[tuple[int, str]]]] = {}
     for dirpath, _, files in os.walk(sources):
         for filename in sorted(files):
@@ -178,8 +339,8 @@ def collect(root: str) -> dict[str, dict[str, list[tuple[int, str]]]]:
                 continue
             path = os.path.join(dirpath, filename)
             relative = os.path.relpath(path, root).replace(os.sep, "/")
-            module = os.path.relpath(path, sources).split(os.sep)[0]
-            for line, rule, text in scan_file(path, module in ui):
+            in_package = os.path.relpath(path, package_root).replace(os.sep, "/")
+            for line, rule, text in scan_file(path, default_isolation(in_package, targets) is True):
                 result.setdefault(relative, {}).setdefault(rule, []).append((line, text))
     return result
 

@@ -1,0 +1,46 @@
+{
+ "title": "New Tab (web page): \"split\" in the dropdown",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tour"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show the Tour workspace",
+   "cmux": [
+    "workspace",
+    "name:Tour",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "New Tab, typing \"split\" as it opens",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "open_and_type",
+     "text": "split"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Web New Tab: \"split\" in the dropdown",
+   "wait": 0.5
+  }
+ ]
+}

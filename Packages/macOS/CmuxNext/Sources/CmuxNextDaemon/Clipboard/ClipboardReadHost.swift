@@ -2,7 +2,7 @@ import Foundation
 
 /// Where a terminal that asks for the clipboard runs.
 public enum ClipboardReadHostKind: String, Sendable, Hashable {
-    case local, remote, cloud
+    case local, remote, cloud, unknown
 }
 
 /// The host a clipboard read names: its kind and, off this Mac, its name.
@@ -19,8 +19,8 @@ public struct ClipboardReadHost: Decodable, Sendable, Hashable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // Fail closed: a kind this build does not know is never local.
-        kind = (try c.decodeIfPresent(String.self, forKey: .kind)).flatMap(ClipboardReadHostKind.init(rawValue:)) ?? .remote
+        // Fail closed without claiming an unknown origin is remote.
+        kind = (try c.decodeIfPresent(String.self, forKey: .kind)).flatMap(ClipboardReadHostKind.init(rawValue:)) ?? .unknown
         name = try c.decodeIfPresent(String.self, forKey: .name)
     }
 }

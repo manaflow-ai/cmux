@@ -12,6 +12,8 @@ import { RECEIVE_NAME } from "../shared/pageClient";
 import { MARKDOWN_CHANGES, MARKDOWN_LOOK } from "./host";
 import { devOp, showDevPicker } from "../../viewer-empty/dev";
 import { MARKDOWN_CHOOSE_FILE_OP, MARKDOWN_OPEN_OP, MARKDOWN_RECENTS_OP } from "../../viewer-empty/ops";
+// Bun's types also declare import.meta.hot (with argument-less listeners); these listeners are Vite's.
+import type { ViteHotContext } from "vite/types/hot.d.ts";
 
 type Envelope = { t: string; id?: number; op?: string; params?: unknown; stream?: string; sub?: number };
 
@@ -99,8 +101,8 @@ addEventListener(
 // The file watcher: the server reports a change of a watched file; the page gets its new text.
 if (import.meta.hot) {
   // The settings watcher: cmux.json's `markdown` section or markdown/theme.css changed.
-  import.meta.hot.on("cmux-markdown:look", (look: unknown) => emit(MARKDOWN_LOOK, look));
-  import.meta.hot.on("cmux-markdown:content", async (changed: { file: string }) => {
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-markdown:look", (look: unknown) => emit(MARKDOWN_LOOK, look));
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-markdown:content", async (changed: { file: string }) => {
     const { body } = await op("cmux.markdown.read", {});
     if (!file || !changed.file.endsWith(file.replace(/^.*\//, ""))) return;
     emit(

@@ -19,11 +19,13 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    Tuple,
     Type,
     TypeVar,
     Union,
 )
 
+from ._machine_catalog import catalog_params
 from ._operations import Operation, Operations
 from ._protocol import ProtocolConnection, ResourceStream
 from .client_defaults import (
@@ -78,12 +80,14 @@ from .models import (
     JsonObject,
     LayoutColumn,
     LayoutColumnDock,
+    LayoutRow,
     LayoutDocument,
     LayoutLeaf,
     LayoutNode,
     LayoutSplit,
     LayoutStack,
     LayoutViewport,
+    MachinePlatform,
     MachineSnapshot,
     MutationReceipt,
     MutationResult,
@@ -236,11 +240,75 @@ def _selector(value: SelectorInput[IdT], expected: Type[IdT]) -> Selector[IdT]:
     raise TypeError(f"selector requires {expected.__name__} or Selector")
 
 
+def _layout_node_fields(node: LayoutNode) -> Dict[str, Any]:
+    """A layout node on the wire: optional fields that are None are omitted
+    (an omitted dock or rows keeps the stored one in workspace.layout.apply)."""
+    if isinstance(node, LayoutLeaf):
+        leaf: Dict[str, Any] = {
+            "kind": "leaf",
+            "pane_id": str(node.pane_id),
+            "tab_ids": [str(tab) for tab in node.tab_ids],
+        }
+        if node.active_tab_id is not None:
+            leaf["active_tab_id"] = str(node.active_tab_id)
+        return leaf
+    if isinstance(node, LayoutSplit):
+        return {
+            "kind": "split",
+            "split_id": str(node.split_id),
+            "direction": node.direction,
+            "ratio": node.ratio,
+            "first": _layout_node_fields(node.first),
+            "second": _layout_node_fields(node.second),
+        }
+    if isinstance(node, LayoutStack):
+        return {
+            "kind": "stack",
+            "pane_ids": [str(pane) for pane in node.pane_ids],
+            "expanded_pane_id": str(node.expanded_pane_id),
+        }
+    columns: List[Dict[str, Any]] = []
+    for column in node.columns:
+        encoded: Dict[str, Any] = {
+            "column_id": str(column.column_id),
+            "width": column.width,
+            "root": _layout_node_fields(column.root),
+        }
+        if column.dock is not None:
+            encoded["dock"] = {"edge": column.dock.edge, "mode": column.dock.mode}
+        if column.rows is not None:
+            encoded["rows"] = [
+                {"height": row.height}
+                if row.row_id is None
+                else {"row_id": str(row.row_id), "height": row.height}
+                for row in column.rows
+            ]
+        columns.append(encoded)
+    return {"kind": "viewport", "base_width": node.base_width, "columns": columns}
+
+
+def _layout_document_fields(document: LayoutDocument) -> Dict[str, Any]:
+    """A layout document on the wire (``workspace.layout.apply``)."""
+    result: Dict[str, Any] = {
+        "version": document.version,
+        "screen_id": str(document.screen_id),
+        "active_pane_id": str(document.active_pane_id),
+        "zoomed_pane_id": None if document.zoomed_pane_id is None else str(document.zoomed_pane_id),
+        "root": _layout_node_fields(document.root),
+    }
+    if document.extra:
+        result["extra"] = dict(document.extra)
+    return result
+
+
 def _options(value: object) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for item in fields(value):
         field_value = getattr(value, item.name)
         if field_value is None:
+            continue
+        if isinstance(field_value, LayoutDocument):
+            result[item.name] = _layout_document_fields(field_value)
             continue
         name = {
             "columns": "cols",
@@ -575,6 +643,23 @@ def _layout_column_dock(value: Any) -> Optional[LayoutColumnDock]:
     return LayoutColumnDock(edge, mode)
 
 
+def _layout_rows(value: Any) -> Optional[Tuple[LayoutRow, ...]]:
+    """A column's rows (rows-v1); an omitted field reads as None."""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ProtocolError("layout column rows must be an array")
+    rows: List[LayoutRow] = []
+    for item in value:
+        row = _mapping(item, "layout row")
+        _strict_object(row, ("row_id", "height"), "layout row")
+        height = row.get("height")
+        if isinstance(height, bool) or not isinstance(height, int) or not 100 <= height <= 1000:
+            raise ProtocolError("layout row height must be an integer from 100 to 1000")
+        rows.append(LayoutRow(_optional_resource_id(row, "row_id", SplitId), height))
+    return tuple(rows)
+
+
 def _layout_node(value: Any) -> LayoutNode:
     payload = _mapping(value, "layout node")
     kind = _required_string(payload, "kind")
@@ -657,7 +742,7 @@ def _layout_node(value: Any) -> LayoutNode:
             column = _mapping(value, "layout column")
             _strict_object(
                 column,
-                ("column_id", "width", "root", "dock", "sticky"),
+                ("column_id", "width", "root", "dock", "sticky", "rows"),
                 "layout column",
             )
             # `sticky` is the pre-R87 name of `dock`: a replayed or older
@@ -674,6 +759,7 @@ def _layout_node(value: Any) -> LayoutNode:
                     width,
                     _layout_node(column.get("root")),
                     _layout_column_dock(dock),
+                    _layout_rows(column.get("rows")),
                 )
             )
         base_width = _required_number(payload, "base_width")
@@ -730,13 +816,24 @@ def _machine_snapshot(value: Any) -> MachineSnapshot:
         "connectable",
         "deleted",
         "recoverable",
+        "platform",
+        "capabilities",
     )
-    origin = _required_enum(payload, "origin", ("local",))
+    origin = _required_enum(payload, "origin", ("local", "cloud", "ssh", "server"))
     status = _required_enum(
         payload,
         "status",
         ("running", "connecting", "sleeping", "stopped", "unavailable"),
     )
+    platform = payload.get("platform")
+    if platform is not None:
+        if not isinstance(platform, Mapping):
+            raise ProtocolError("machine platform must be an object or null")
+        _strict_object(platform, ("os", "arch"), "machine platform")
+        platform = MachinePlatform(_optional_string(platform, "os"), _optional_string(platform, "arch"))
+    capabilities = payload.get("capabilities", [])
+    if not isinstance(capabilities, list) or any(not isinstance(item, str) for item in capabilities):
+        raise ProtocolError("machine capabilities must be a string array")
     return MachineSnapshot(
         **_snapshot_fields(payload, MachineId, fields),
         name=_required_string(payload, "name"),
@@ -745,6 +842,8 @@ def _machine_snapshot(value: Any) -> MachineSnapshot:
         connectable=_required_bool(payload, "connectable"),
         deleted=_required_bool(payload, "deleted"),
         recoverable=_required_bool(payload, "recoverable"),
+        platform=platform,
+        capabilities=tuple(capabilities),
     )
 
 
@@ -2663,8 +2762,11 @@ class _Handle(Generic[IdT, SnapshotT]):
         return {**self._scope, self._selector_key: self.selector.encode()}
 
     def refresh(self) -> SnapshotT:
+        return self._refresh_params(self._params())
+
+    def _refresh_params(self, params: Mapping[str, Any]) -> SnapshotT:
         snapshot = self._decode_snapshot(
-            self._client._read(self._get_operation, self._params())
+            self._client._read(self._get_operation, params)
         )
         self._snapshot = snapshot
         return snapshot
@@ -2760,9 +2862,9 @@ class Client:
         }
         return Session(self, _selector(selector, SessionId), scope)
 
-    def list_machines(self) -> List["Machine"]:
+    def list_machines(self, *, catalog: bool = False) -> List["Machine"]:
         values = _list_payload(
-            self._read(Operations.MACHINE_LIST, {}),
+            self._read(Operations.MACHINE_LIST, catalog_params(catalog)),
             "machines",
         )
         return [
@@ -2774,10 +2876,10 @@ class Client:
             for snapshot in map(_machine_snapshot, values)
         ]
 
-    def find_machines_by_name(self, name: str) -> List["Machine"]:
+    def find_machines_by_name(self, name: str, *, catalog: bool = False) -> List["Machine"]:
         return [
             item
-            for item in self.list_machines()
+            for item in self.list_machines(catalog=catalog)
             if item.snapshot is not None and item.snapshot.name == name
         ]
 
@@ -3192,6 +3294,9 @@ class Machine(_Handle[MachineId, MachineSnapshot]):
     _selector_key = "machine"
     _get_operation = Operations.MACHINE_GET
     _decode_snapshot = staticmethod(_machine_snapshot)
+
+    def refresh(self, *, catalog: bool = False) -> MachineSnapshot:
+        return self._refresh_params({**self._params(), **catalog_params(catalog)})
 
     def session(self, selector: SelectorInput[SessionId]) -> "Session":
         return Session(

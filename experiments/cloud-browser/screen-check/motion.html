@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="utf-8"><title>motion</title>
+<style>body{margin:0;font:16px/1.5 sans-serif}p{margin:0 32px}</style></head><body>
+<script>
+for (let i = 0; i < 3000; i++) { const p = document.createElement('p'); p.textContent = i + '. The quick brown fox jumps over the lazy dog. Sphinx of black quartz, judge my vow.'; document.body.appendChild(p); }
+let y = 0; const step = () => { y = (y + 4) % 60000; scrollTo(0, y); requestAnimationFrame(step); }; requestAnimationFrame(step);
+</script></body></html>

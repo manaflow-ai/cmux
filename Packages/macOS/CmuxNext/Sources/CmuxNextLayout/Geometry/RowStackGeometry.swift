@@ -78,13 +78,15 @@ public nonisolated struct RowStackGeometry: Hashable, Sendable {
         return RowStackGeometry(column: column, frame: frame, rows: placed, contentHeight: fits ? min(content, frame.height) : content, gap: gap)
     }
 
-    /// The handles between neighboring rows, `thickness` tall, centered on
-    /// each gap.
-    public func edges(thickness: CGFloat) -> [RowEdgeGeometry] {
+    /// The handles between neighboring rows, centered on each gap
+    /// (`DividerBand`): a `lineThickness` line in a hit area at least
+    /// `hitThickness` tall, on device pixels at `scale`.
+    public func edges(lineThickness: CGFloat, hitThickness: CGFloat, scale: CGFloat) -> [RowEdgeGeometry] {
         zip(rows, rows.dropFirst()).map { upper, lower in
             let mid = (upper.frame.maxY + lower.frame.minY) / 2
-            return RowEdgeGeometry(column: column, upper: upper.id, lower: lower.id,
-                                   hitFrame: CGRect(x: frame.minX, y: mid - thickness / 2, width: frame.width, height: thickness))
+            let band = DividerBand(axis: .vertical, center: mid, lineThickness: lineThickness, hitThickness: hitThickness,
+                                   crossStart: frame.minX, crossLength: frame.width, scale: scale)
+            return RowEdgeGeometry(column: column, upper: upper.id, lower: lower.id, hitFrame: band.hit)
         }
     }
 

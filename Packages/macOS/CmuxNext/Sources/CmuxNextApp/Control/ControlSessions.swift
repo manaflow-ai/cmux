@@ -1,6 +1,8 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextRemote
+import Foundation
 
 /// The sessions the control socket names (plans/cmux-next/data-model.md
 /// 1.1 and 1.3): the home session (the local daemon) and every remote one,
@@ -17,7 +19,7 @@ enum ControlSessions {
         let daemons = machines.daemons
         let names = daemons.map { machineName($0, machines: machines) }
         let qualifiers = ControlSessionNaming.shared.qualifiers(zip(daemons, names).map { daemon, name in
-            ControlSessionNaming.Candidate(id: key(daemon), name: qualifierName(machine: name, session: daemon.identity?.session))
+            ControlSessionNaming.Candidate(id: key(daemon), name: qualifierName(machine: name, session: sessionLabel(daemon)))
         })
         return zip(daemons, names).map { daemon, name in
             let id = key(daemon)
@@ -27,6 +29,28 @@ enum ControlSessions {
                 transport: transport(daemon, machines: machines))
         }
     }
+
+    /// The session name a qualifier shows: the daemon's own, except for this
+    /// app's home session when the session is named by the build key
+    /// (`cmux-app--<key hash>`, per-build isolation S3), which shows the
+    /// build's bundle name (`cmux DEV`, `cmux STAGING x1`) or tag instead. The
+    /// hash stays in the session id and `session_name`.
+    static func sessionLabel(_ daemon: DaemonService) -> String? {
+        let session = daemon.identity?.session
+        guard daemon.isLocal, let home = homeSessionLabel, session == home.session else { return session }
+        return home.label
+    }
+
+    /// This build's key-named app session and the label it shows; nil when
+    /// the build keeps a tag or channel session name.
+    static let homeSessionLabel: (session: String, label: String)? = {
+        let build = LaunchIdentity.current().build
+        guard !build.keepsAppNames, let session = build.appSession else { return nil }
+        let bundleName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)?
+            .trimmingCharacters(in: .whitespaces)
+        guard let label = bundleName.flatMap({ $0.isEmpty ? nil : $0 }) ?? build.tag else { return nil }
+        return (session, label)
+    }()
 
     static func transport(_ daemon: DaemonService, machines: MachineRegistry) -> String {
         if daemon.isLocal { return "local" }
@@ -48,8 +72,9 @@ enum ControlSessions {
     /// A host name's first DNS label (`cmux-dev-backend-1` for
     /// `cmux-dev-backend-1.us-central1-b.c.example.internal`); an IP address
     /// or an SSH label (`host/session`) stays whole.
+    /// Standard-library scans only: it runs in every control snapshot publish (per tab switch).
     static func shortHost(_ name: String) -> String {
-        if name.contains("/") || name.allSatisfy({ $0.isNumber || $0 == "." || $0 == ":" }) { return name }
+        if name.utf8.contains(UInt8(ascii: "/")) || name.utf8.allSatisfy({ (48...57).contains($0) || $0 == 46 || $0 == 58 }) { return name }
         return name.split(separator: ".").first.map(String.init) ?? name
     }
 

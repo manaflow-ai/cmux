@@ -16,7 +16,32 @@ extension NSWindow {
         let color = backdrop.isOpaque ? surface.withAlphaComponent(1) : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if isOpaque != backdrop.isOpaque { isOpaque = backdrop.isOpaque }
         if backgroundColor != color { backgroundColor = color }
-        applyBlur(self, backdrop.windowBlurRadius)
+        // A window-server call: only when the radius (or the window number it was set on) moved.
+        let blur = AppliedBlur(windowNumber: windowNumber, radius: backdrop.windowBlurRadius)
+        guard appliedBlur != blur else { return }
+        applyBlur(self, blur.radius)
+        // Before the window has a number the call sets nothing: try again next time.
+        appliedBlur = windowNumber > 0 ? blur : nil
+    }
+
+    private struct AppliedBlur: Equatable {
+        var windowNumber: Int
+        var radius: Int
+    }
+
+    private static var appliedBlurKey: UInt8 = 0
+
+    /// The blur radius last set on this window and the window number it was set on.
+    private var appliedBlur: AppliedBlur? {
+        get {
+            (objc_getAssociatedObject(self, &Self.appliedBlurKey) as? [Int]).flatMap {
+                $0.count == 2 ? AppliedBlur(windowNumber: $0[0], radius: $0[1]) : nil
+            }
+        }
+        set {
+            objc_setAssociatedObject(self, &Self.appliedBlurKey, newValue.map { [$0.windowNumber, $0.radius] },
+                                     .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
     }
 }
 
@@ -27,7 +52,16 @@ extension NSView {
     /// Every surface above stays clear.
     public func paintBackdropSheet(_ backdrop: WindowBackdrop, surface: NSColor, backdropView: WindowMaterialView) {
         let fill = backdrop.isOpaque ? surface.withAlphaComponent(1).cgColor : nil
-        if layer?.backgroundColor != fill { layer?.backgroundColor = fill }
+        // A workspace switch or theme change blends the sheet from the color on screen
+        // (appearance.colorTransition); a change to or from a material applies at once.
+        if let layer, layer.backgroundColor != fill {
+            if fill != nil, layer.backgroundColor != nil, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: fill)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = fill
+            }
+        }
         backdropView.apply(backdrop, tint: surface)
     }
 }

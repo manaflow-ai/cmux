@@ -1,0 +1,36 @@
+{
+ "t0": 1792478254.7871659,
+ "t_kill": 1792478257.803366,
+ "pill_changes": [
+  [
+   0.51,
+   "e2e-t1, ~"
+  ],
+  [
+   1.14,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   1.73,
+   "e2e-t1, Mac offline"
+  ],
+  [
+   2.35,
+   "e2e-t1, ~"
+  ]
+ ],
+ "pill_live_after_kill_s": 2.35,
+ "hostd_log": [
+  "2026-10-20T06:34:47.814452Z  INFO cnx_hostd::host: link up session_id=\"96944c6f-bed6-428d-a37b-becdf7a5d860\" kind=WebRtc path=Direct phone=\"de3cf29f-2c56-469a-b4cd-76fd12e7f98e\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms pc_created=0.9ms answer_sent=1.6ms remote_host=1.6ms remote_srflx=1.7ms ice_checking=1.7ms local_host=7.4ms remote_relay=26.5ms ice_connected=31.5ms dtls_connected=35.1ms video_lane=38.5ms channel_open=38.5ms pair_host-prflx=38.5ms link_ready=39.7ms",
+  "2026-10-20T06:35:22.818173Z  INFO cnx_hostd::host: link down session_id=\"96944c6f-bed6-428d-a37b-becdf7a5d860\" reason=\"keepalive timed out\"",
+  "2026-10-20T06:35:24.325364Z  WARN cnx_hostd::host: signaling ended; reconnecting reason=\"signaling read failed: WebSocket protocol error: Connection reset without closing handshake\"",
+  "2026-10-20T06:35:25.297563Z  INFO cnx_hostd::host: signaling connected device_id=\"0db6eaea-0902-4e54-a20b-c34ae6143ca3\"",
+  "2026-10-20T06:35:27.658217Z  INFO cnx_hostd::host: link up session_id=\"0a3d6d15-26a2-4d56-b38c-33a343196c25\" kind=WebRtc path=Direct phone=\"8f5a4013-831f-4a35-a19f-30fd5f5fa236\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms pc_created=0.2ms answer_sent=0.6ms remote_host=0.6ms ice_checking=0.6ms remote_srflx=0.6ms remote_relay=0.7ms local_host=1.1ms local_srflx=36.1ms ice_connected=45.4ms dtls_connected=48.4ms video_lane=49.7ms channel_open=49.7ms pair_host-prflx=49.7ms link_ready=49.7ms",
+  "2026-10-20T06:35:55.928074Z  INFO cnx_hostd::host: link down session_id=\"782d99d3-deb8-4092-8b94-58e4ff2f89fc\" reason=\"keepalive timed out\"",
+  "2026-10-20T06:37:39.753383Z  INFO cnx_hostd::host: signaling connected device_id=\"0db6eaea-0902-4e54-a20b-c34ae6143ca3\"",
+  "2026-10-20T06:37:40.152836Z  INFO cnx_hostd::host: link up session_id=\"12f37d7a-337e-4863-89bf-44a2f57ba96d\" kind=WebRtc path=Direct phone=\"a18ea56a-56b4-4c64-bc02-f3b252dc20a5\" video=true timings=offer_received=0.0ms ice_servers_fetched=309.1ms pc_created=309.6ms ice_checking=310.1ms answer_sent=310.4ms remote_host=310.4ms remote_srflx=310.5ms remote_relay=310.8ms local_host=311.3ms local_srflx=321.6ms local_relay=338.3ms ice_connected=343.2ms dtls_connected=349.5ms video_lane=350.5ms channel_open=350.5ms pair_host-host=350.6ms link_ready=350.6ms"
+ ],
+ "hostd_signaling_after_kill_s": 1.95,
+ "link_up_after_kill_s": 2.35,
+ "link_up_after_signaling_s": 0.4
+}

@@ -66,6 +66,20 @@ if (($env:Path -split ";") -notcontains $BinDir) {
 
 Write-Host "Installed cmux to $Destination"
 
+# Remote hosting (plans/cmux-next/remote-hosts.md): with CMUX_HOST=1 this
+# machine serves its cmux sessions to its owner's other machines over the
+# tailnet. A tagged machine names its owner with CMUX_HOST_OWNER=<login>.
+if ($env:CMUX_HOST -eq "1") {
+    if ($env:CMUX_HOST_OWNER) {
+        & $Destination host enable --owner $env:CMUX_HOST_OWNER
+    } else {
+        & $Destination host enable
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "cmux: remote hosting could not be turned on (see above)"
+    }
+}
+
 try {
     $Telemetry = @{
         product = "tui"

@@ -7,6 +7,8 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
     public enum Source: Hashable, Sendable {
         case team
         case connection
+        /// One of the user's Chiefs (its conversation is a DM with it).
+        case agent
     }
 
     public let id: ParticipantID
@@ -32,11 +34,27 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
         return result
     }
 
-    /// Team members first (by name), then connections not in the team.
-    public static func merged(team: [HomeContact], connections: [HomeContact]) -> [HomeContact] {
+    /// Team members first (by name), then connections not in the team,
+    /// then the user's Chiefs (`agents`) not listed yet.
+    public static func merged(team: [HomeContact], connections: [HomeContact], agents: [HomeContact] = []) -> [HomeContact] {
         let members = team.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        let ids = Set(members.map(\.id))
-        return members + connections.filter { !ids.contains($0.id) }
+        var ids = Set(members.map(\.id))
+        let people = connections.filter { ids.insert($0.id).inserted }
+        return members + people + agents.filter { ids.insert($0.id).inserted }
+    }
+
+    /// The user's Chiefs and agents with a one-to-one conversation, each
+    /// once, newest conversation first (New Message suggests them by name).
+    public static func agents(in rows: [InboxRow], me: ParticipantID) -> [HomeContact] {
+        var seen: Set<ParticipantID> = []
+        var result: [HomeContact] = []
+        for row in rows where row.kind == .chief {
+            for peer in row.summary.participants where peer.id != me && peer.kind == .agent && !peer.visibleName.isEmpty {
+                guard seen.insert(peer.id).inserted else { continue }
+                result.append(HomeContact(id: peer.id, name: peer.visibleName, source: .agent))
+            }
+        }
+        return result
     }
 }
 
@@ -65,12 +83,13 @@ public enum HomeComposeOutcome: Hashable, Sendable {
     case notReachable(String)
     /// Too many conversations started in the last hour.
     case rateLimited
-    /// People and email addresses in one group: invite the addresses first.
-    case mixedRecipients
     /// The text is not an email address.
     case invalidAddress(String)
     /// The owner is offline: nothing was sent.
     case offline
+    /// Sent, but cmux Cloud did not answer (`HomeSendState`): the store may
+    /// still resend it, so this never says nothing was sent.
+    case cloudUnreachable
     /// Refused for another reason, shown as is.
     case refused(String)
 }

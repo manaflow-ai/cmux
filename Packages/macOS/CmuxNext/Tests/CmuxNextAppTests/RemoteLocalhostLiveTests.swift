@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhost
+import CmuxNextRemoteLocalhostService
 import Foundation
 import Testing
 @testable import CmuxNextApp

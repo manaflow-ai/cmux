@@ -16,6 +16,7 @@ Usage: swift-exports-key.py ROOT [--stamp | --source | --outputs | --list]
 """
 import hashlib
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -33,17 +34,27 @@ INPUTS = [
 
 # What the export tests and ci-target-graph.py write. actions.md is the action
 # section of a hand-written page; the whole file counts as an export.
+# The settings half comes from settings-exports.txt beside this script, the one
+# list of what the settings export writes, so the key cannot miss one: this list
+# was already short by docs/mdm/cmux-example.mobileconfig, so a change to that
+# export alone kept the key and reused a cache entry made without it (review of
+# #23915).
+def _settings_exports() -> list[str]:
+    text = (pathlib.Path(__file__).resolve().parent / "settings-exports.txt").read_text(encoding="utf-8")
+    listed = [line.split("#", 1)[0].strip() for line in text.splitlines()]
+    exports = [path for path in listed if path]
+    if not exports:
+        raise SystemExit("scripts/cmux-next/settings-exports.txt lists no export")
+    return exports
+
+
 OUTPUTS = [
     "Packages/macOS/CmuxNext/ci-target-graph.json",
     "plans/cmux-next/action-surfaces.json",
     "plans/cmux-next/actions.md",
     "plans/cmux-next/daemon-capabilities.json",
     "plans/cmux-next/links.json",
-    "schemas/settings/settings-schema.json",
-    "docs/mdm/com.manaflow.cmux.json",
-    "docs/mdm/com.manaflow.cmux.plist",
-    "docs/mdm/com.manaflow.cmux.intune.plist",
-    "docs/mdm/managed-preferences.md",
+    *_settings_exports(),
 ]
 
 # The web bundles (scripts/cmux-next/web-bundle-key.py OUTPUTS), so a web-only

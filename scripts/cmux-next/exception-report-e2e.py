@@ -7,12 +7,19 @@ Two phases around a relaunch the caller does (a capture slot: `capture-host laun
   --phase raise   `debug.crash.exception` raises an NSException from a run-loop perform, which
                   AppKit catches in reportException: and crashes on (NSApplicationCrashOnExceptions,
                   cx-r3q). The app's process must end.
+                  With --crash frozen it instead calls `debug.crash.app {"signal": "frozen"}`: a crash
+                  path that blocks (a trap whose Mach exception nothing receives, the 2026-10-20
+                  NIGHTLY freezes); the crash deadline must end the process, not before 8 s.
+                  (--phase check applies to the exception crash only.)
+                  --expect-reporting: Sentry must run in the app (launch it with
+                  CMUX_NEXT_DEV_SENTRY=1), the setup that froze instead of crashing.
   --phase check   after the relaunch: `debug.crashes` says the previous run ended, its restart
                   notice names the exception, and the app's crash report holds its name and reason.
 
 The script never launches or quits the app itself.
 
 Usage: exception-report-e2e.py --socket <path> --phase raise|check [--app-pid PID]
+       [--crash exception|frozen] [--expect-reporting] [--end-within SECONDS]
 """
 import argparse, json, os, socket, sys, time
 
@@ -20,6 +27,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--phase", required=True, choices=["raise", "check"])
 parser.add_argument("--app-pid", type=int, help="raise: the app's pid, to see it end")
+parser.add_argument("--crash", choices=["exception", "frozen"], default="exception",
+                    help="raise: an NSException (default) or a crash path that blocks")
+parser.add_argument("--expect-reporting", action="store_true",
+                    help="raise: fail unless Sentry runs in the app (CMUX_NEXT_DEV_SENTRY=1)")
+parser.add_argument("--end-within", type=float, default=30, help="raise: seconds the app has to end")
 # Accepted for the capture-slot harness, which passes them to every e2e.
 parser.add_argument("--runs", type=int, default=1)
 parser.add_argument("--out", default="/tmp/exception-report-e2e")
@@ -71,13 +83,25 @@ def ended(pid):
 if opts.phase == "raise":
     if not wait(lambda: "error" not in (rpc("debug.crashes", timeout=5) or {"error": "no reply"}), 60):
         sys.exit("FAIL the app does not answer on its socket")
-    reply = rpc("debug.crash.exception") or {}
-    print(f"debug.crash.exception: {json.dumps(reply)}", flush=True)
-    if not reply.get("scheduled") or not reply.get("crash_on_exceptions"):
-        sys.exit("FAIL the exception was not scheduled with NSApplicationCrashOnExceptions on")
-    if opts.app_pid and not wait(lambda: ended(opts.app_pid), 30):
-        sys.exit(f"FAIL the app ({opts.app_pid}) still runs after the exception")
-    print("PASS the exception ended the app")
+    started = time.time()
+    if opts.crash == "frozen":
+        # The verb never replies: the main thread traps inside it.
+        print(f"debug.crash.app frozen: {json.dumps(rpc('debug.crash.app', {'signal': 'frozen'}, timeout=5))}", flush=True)
+    else:
+        reply = rpc("debug.crash.exception") or {}
+        print(f"debug.crash.exception: {json.dumps(reply)}", flush=True)
+        if not reply.get("scheduled") or not reply.get("crash_on_exceptions"):
+            sys.exit("FAIL the exception was not scheduled with NSApplicationCrashOnExceptions on")
+        if opts.expect_reporting and not reply.get("crash_reporting"):
+            sys.exit("FAIL Sentry does not run in the app (launch it with CMUX_NEXT_DEV_SENTRY=1)")
+    if opts.app_pid and not wait(lambda: ended(opts.app_pid), opts.end_within):
+        sys.exit(f"FAIL the app ({opts.app_pid}) still runs {opts.end_within:.0f} s after the {opts.crash} crash")
+    elapsed = time.time() - started
+    # A frozen crash that ended early never blocked (the dead exception port was not set): the
+    # deadline (10 s) did not end it, so it proves nothing.
+    if opts.crash == "frozen" and opts.app_pid and elapsed < 8:
+        sys.exit(f"FAIL the frozen crash ended after {elapsed:.1f} s: its trap did not block, the deadline was not tested")
+    print(f"PASS the {opts.crash} crash ended the app" + (f" after {elapsed:.1f} s" if opts.app_pid else ""))
     sys.exit(0)
 
 report = wait(lambda: (lambda r: r if "error" not in r else None)(rpc("debug.crashes", timeout=5) or {"error": "no reply"}), 60)

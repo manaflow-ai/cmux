@@ -48,6 +48,11 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     }
     /// Share of a safety-net interval the system may add to coalesce wakeups.
     static let safetyNetTolerance = 0.1
+    /// Leeway of a delayed request: Chromium's own default for delayed tasks
+    /// (base's `kDefaultLeeway`, 8 ms), so the system can coalesce the wake
+    /// with others (an idle browser asks about 1.7 times a second). Never more
+    /// than a tenth of the delay; a request for "now" stays exact.
+    static let delayedLeeway: TimeInterval = 0.008
 
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {
@@ -68,7 +73,13 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// Work that must run on the next run loop pass.
     private var immediate = false
     private var requestedDeadline: TimeInterval?
+    /// Leeway of `requestedDeadline` (`delayedLeeway`, capped by its delay).
+    private var requestedTolerance: TimeInterval = 0
     private var safetyNetDeadline: TimeInterval?
+    /// The earliest Chromium-thread request the gate kept (``CEFPumpCrossThreadGate``). It stays
+    /// until a pass at or after it: a later CEF request does not replace it, since that request may
+    /// be a stale one posted before the keep.
+    private var keptDeadline: TimeInterval?
     /// The interval of the pending safety-net wake (nil when none is armed).
     private(set) var armedSafetyNetInterval: TimeInterval?
     /// The gap of the next follow-up wake; nil when the chain has ended.
@@ -87,11 +98,13 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     var nextWake: Wake? {
         guard !isWorking else { return nil }
         if immediate { return Wake(deadline: -.infinity, tolerance: 0) }
+        let requestedDeadline = [self.requestedDeadline, keptDeadline].compactMap { $0 }.min()
+        let requestedTolerance = requestedDeadline == self.requestedDeadline ? self.requestedTolerance : Self.delayedLeeway
         switch (requestedDeadline, safetyNetDeadline) {
         case let (requested?, net?) where net < requested:
             return Wake(deadline: net, tolerance: safetyNetTolerance, reason: .fallback)
         case let (requested?, _):
-            return Wake(deadline: requested, tolerance: 0)
+            return Wake(deadline: requested, tolerance: requestedTolerance)
         case let (nil, net?):
             return Wake(deadline: net, tolerance: safetyNetTolerance, reason: .fallback)
         case (nil, nil):
@@ -108,10 +121,18 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         } else {
             // CEF's earliest delayed task, including those the last pass
             // posted: it replaces the earlier request and the safety net.
-            requestedDeadline = now + TimeInterval(milliseconds) / 1_000
+            let delay = TimeInterval(milliseconds) / 1_000
+            requestedDeadline = now + delay
+            requestedTolerance = min(Self.delayedLeeway, delay / 10)
             safetyNetDeadline = nil
             armedSafetyNetInterval = nil
         }
+    }
+
+    /// A Chromium thread's delayed request that the gate kept (``CEFPumpCrossThreadGate``): a pass
+    /// runs no later than `deadline`, whatever CEF requests until then.
+    mutating func requestNoLater(than deadline: TimeInterval) {
+        keptDeadline = min(keptDeadline ?? .infinity, deadline)
     }
 
     /// Call before `CefDoMessageLoopWork`. Returns false when a pass is
@@ -130,6 +151,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         // The timer and this clock differ by microseconds: a request due
         // within a millisecond is served by this pass.
         if let requested = requestedDeadline, requested <= now + 0.001 { requestedDeadline = nil }
+        if let kept = keptDeadline, kept <= now + 0.001 { keptDeadline = nil }
         return true
     }
 

@@ -37,7 +37,7 @@ describe("Home objects: ConversationDO fan-out to the UserDO inbox stream (E2, E
     const user = userIdFor(testEnv.STACK_PROJECT_ID, sub)
     const token = await stackToken(sub)
     await worker.fetch("https://api.test/v1/ops", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ op: "user.ensure", params: {}, idempotency_key: "ensure" }) })
-    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const ws = res.webSocket!
     const frames: Array<any> = []
     let wake: (() => void) | undefined

@@ -111,6 +111,7 @@ pub(super) fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
             | MenuAction::RestoreManagedWorkspace(_)
             | MenuAction::PurgeManagedWorkspace(_)
             | MenuAction::CopyWorkspaceId(_)
+            | MenuAction::PinWorkspace { .. }
             | MenuAction::RenameScreen(_)
             | MenuAction::BrowserEditUrl(_)
             | MenuAction::BrowserCopyUrl(_)

@@ -154,6 +154,21 @@ impl OrderedSession {
         self.inner.supports_tab_workspace_moves()
     }
 
+    pub(super) fn sidebar_workspace_pinned(&self, workspace: &str) -> Option<bool> {
+        self.inner.sidebar_workspace_pinned(workspace)
+    }
+
+    pub(super) fn sidebar_workspace_container(
+        &self,
+        workspace: &str,
+    ) -> Option<(String, Option<String>)> {
+        self.inner.sidebar_workspace_container(workspace)
+    }
+
+    pub(super) fn tick_sidebar_doc(&self) {
+        self.inner.tick_sidebar_doc();
+    }
+
     pub(super) fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
         self.inner.supports_clear_history_key_fallback(surface)
     }

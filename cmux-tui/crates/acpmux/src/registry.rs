@@ -386,6 +386,7 @@ pub const RESERVED_IDS: &[&str] = &[
     "prime",
     "grok",
     "cursor",
+    "hermes",
     "aider",
 ];
 
@@ -398,6 +399,7 @@ pub fn harness_id(registry_id: &str) -> Option<String> {
         "codex-acp" => "codex",
         "pi-acp" => "pi",
         "grok-build" => "grok",
+        "hermes-agent" => "hermes",
         "antigravity-acp" => "antigravity",
         other => other,
     };
@@ -601,6 +603,7 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
     if std::fs::read(&path).is_ok_and(|old| old == body) {
         return Ok(false);
     }
+    crate::config::refuse_lost_home(&dir).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
@@ -610,9 +613,8 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
             .create(&dir)
             .map_err(|e| e.to_string())?;
     }
-    // Windows port: owner-only is an ACL there (a later landing).
-    #[cfg(not(unix))]
-    std::fs::DirBuilder::new().recursive(true).create(&dir).map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    crate::owner_only::create_dir_all(&dir).map_err(|e| e.to_string())?;
     crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;
     Ok(true)
 }

@@ -28,6 +28,20 @@ FORMAT = re.compile(
 )
 MARKER = re.compile(r"\bTODO\b|(?i:\b(?:TRANSLATE_ME|MACHINE_TRANSLATION)\b|__CMUX_TOKEN_\d+__|<translated>)")
 BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+# cmux NEXT's catalogs carry translation debt from before this check covered them. With this
+# file present, `check` is a ratchet: each catalog may keep up to its recorded count of each
+# debt kind, never more, and a catalog not listed may have none. `check --write-baseline`
+# lowers the counts after a cleanup and refuses to raise one. main has no such file and no
+# debt, so there every parity error still fails.
+DEBT_BASELINE = "localization-debt-baseline.json"
+DEBT_KINDS = ("needs_review", "identical", "other")
+# New cmux NEXT strings land as machine translations awaiting review (`needs_review`, which
+# scripts/cmux-next/check-l10n.sh counts as present): 269 more in one hour on 2026-10-21. Growth
+# of that kind is reported, not failed; copied English and malformed entries never grow.
+DEBT_ENFORCED = ("identical", "other")
+# What decides a catalog's debt besides the catalog: base debt is only counted with the
+# base's own rules when the pull request leaves these unchanged.
+RULE_FILES = ("localization_catalog.py", "localization-allowed-omissions.json", "localization-plurals.json")
 
 
 @dataclass
@@ -373,6 +387,118 @@ def check_entry(entry: Member, locale: str, omissions: dict, counts: dict) -> li
     return errors
 
 
+def debt_kind(error: str) -> str:
+    if "state is 'needs_review'" in error:
+        return "needs_review"
+    if "identical to English" in error:
+        return "identical"
+    return "other"
+
+
+def catalog_name(path: Path, root: Path) -> str:
+    """A catalog's baseline key: its path from the repository root."""
+    path, root = path.resolve(), root.resolve()
+    return path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
+
+
+def debt_counts(findings: list[tuple[str, str]]) -> dict[str, dict[str, int]]:
+    """Per catalog (repository-relative path), how many errors of each debt kind it has."""
+    counts: dict[str, dict[str, int]] = {}
+    for catalog, error in findings:
+        kinds = counts.setdefault(catalog, {})
+        kind = debt_kind(error)
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return {catalog: dict(sorted(kinds.items())) for catalog, kinds in sorted(counts.items())}
+
+
+def load_debt_baseline(path: Path) -> dict[str, dict[str, int]] | None:
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    catalogs = data.get("catalogs") if isinstance(data, dict) else None
+    if not isinstance(catalogs, dict):
+        raise ValueError(f"{path}: expected an object with a catalogs object")
+    for catalog, kinds in catalogs.items():
+        if not isinstance(kinds, dict) or any(kind not in DEBT_KINDS or not isinstance(count, int) or count < 1
+                                              for kind, count in kinds.items()):
+            raise ValueError(f"{path}: {catalog}: counts must be positive integers of {', '.join(DEBT_KINDS)}")
+    return catalogs
+
+
+def debt_raises(counts: dict[str, dict[str, int]], baseline: dict[str, dict[str, int]],
+                kinds: tuple[str, ...] = DEBT_KINDS) -> list[str]:
+    """Each catalog and kind whose count is above the baseline's (absent counts as 0)."""
+    raised = []
+    for catalog in sorted(set(counts) | set(baseline)):
+        for kind in kinds:
+            now, allowed = counts.get(catalog, {}).get(kind, 0), baseline.get(catalog, {}).get(kind, 0)
+            if now > allowed:
+                raised.append(f"{catalog}: {kind} {allowed} -> {now}")
+    return raised
+
+
+def catalog_keys(path: Path) -> set[str]:
+    """The string keys a catalog file holds (empty when it cannot be read as a catalog)."""
+    try:
+        return {entry.key for entry in catalog_entries(path.read_text(encoding="utf-8"))}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
+def same_strings(old: set[str], new: set[str]) -> bool:
+    """Most of OLD's keys are in NEW and most of NEW's keys came from OLD: the same catalog moved
+    (perhaps edited on the way), not an unrelated catalog that happens to share its file name."""
+    shared = len(old & new)
+    return bool(old) and bool(new) and shared * 2 > len(old) and shared * 2 > len(new)
+
+
+def follow_moves(current: dict[str, dict[str, int]], previous: dict[str, dict[str, int]], root: Path,
+                 previous_root: Path | None = None) -> tuple[dict[str, dict[str, int]], list[str]]:
+    """PREVIOUS's counts with each moved catalog's counts under its new path, and the moves.
+
+    A catalog moved between packages keeps its debt: a key of PREVIOUS that CURRENT does not
+    list and whose file left ROOT passes its counts to the one new key of CURRENT with the same
+    file name. Without this, every `git mv` of a catalog reads as new debt at the new path and a
+    raised baseline. Most catalogs are named Localizable.xcstrings, so when the old file is in
+    PREVIOUS_ROOT (the base tree) the candidate must also hold mostly the same string keys
+    (``same_strings``), even when it is the only one with that name: deleting one package's
+    catalog and adding an unrelated one with new untranslated strings must not hand the new one
+    the old debt allowance. Several matching candidates are narrowed to the byte-identical one.
+    A move it cannot pair stays unpaired, so the check still fails.
+    """
+    followed, moves = dict(previous), []
+    new = [catalog for catalog in current if catalog not in previous and (root / catalog).is_file()]
+    for old in sorted(catalog for catalog in previous if catalog not in current and not (root / catalog).exists()):
+        candidates = [catalog for catalog in new if Path(catalog).name == Path(old).name]
+        if previous_root is not None and (previous_root / old).is_file():
+            old_keys = catalog_keys(previous_root / old)
+            candidates = [catalog for catalog in candidates if same_strings(old_keys, catalog_keys(root / catalog))]
+            if len(candidates) > 1:
+                content = (previous_root / old).read_bytes()
+                candidates = [catalog for catalog in candidates if (root / catalog).read_bytes() == content]
+        if len(candidates) != 1:
+            continue
+        followed[candidates[0]] = followed.pop(old)
+        new.remove(candidates[0])
+        moves.append(f"{old} -> {candidates[0]}")
+    return followed, moves
+
+
+def debt_findings(root: Path, locales, omissions: dict, counts: dict) -> list[tuple[str, str]]:
+    """(catalog, error) for every parity error in the catalogs under root."""
+    findings = []
+    for path in discover(root):
+        catalog = catalog_name(path, root)
+        for entry in catalog_entries(path.read_text(encoding="utf-8")):
+            for locale in locales:
+                findings.extend((catalog, error) for error in check_entry(entry, locale, omissions, counts))
+    return findings
+
+
+def debt_json(catalogs: dict[str, dict[str, int]]) -> str:
+    return json.dumps({"catalogs": catalogs}, indent=2, sort_keys=True) + "\n"
+
+
 def render(value: dict, indent: int) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2).replace("\n", "\n" + " " * indent)
 
@@ -467,6 +593,13 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--batch", type=int, default=0)
     parser.add_argument("--limit", type=int, default=40, help="maximum printed diagnostics; 0 prints all")
+    parser.add_argument("--baseline", type=Path, help=f"debt baseline (default: scripts/{DEBT_BASELINE} under --root)")
+    parser.add_argument("--write-baseline", action="store_true",
+                        help="check: rewrite the debt baseline to the current counts; refuses to raise any")
+    parser.add_argument("--base-baseline", type=Path,
+                        help="check: also fail when the baseline is above this one (the base branch's copy)")
+    parser.add_argument("--base-root", type=Path,
+                        help="check: the base tree's catalogs; debt the base already has warns instead of failing")
     args = parser.parse_args()
     if args.batch_size < 1 or args.batch < 0 or args.limit < 0:
         parser.error("batch size must be positive; batch and limit must be nonnegative")
@@ -483,14 +616,16 @@ def main() -> int:
         raise ValueError("no macOS catalogs found")
     if args.command == "extract" and not args.locale:
         parser.error("extract requires --locale")
-    rows, diagnostics = [], []
+    rows, diagnostics, findings = [], [], []
     locales = [args.locale] if args.locale else LOCALES
     for path in paths:
         entries = catalog_entries(path.read_text(encoding="utf-8"))
+        catalog = catalog_name(path, args.root)
         for entry in entries:
             for locale in locales:
                 errors = check_entry(entry, locale, omissions, counts)
                 diagnostics.extend(f"{path}:{entry.key}:{locale}: {error}" for error in errors)
+                findings.extend((catalog, error) for error in errors)
                 if errors and args.command == "extract":
                     rows.append({"catalog": str(path), "key": entry.key, "source": source(entry.value),
                                  "comment": entry.value.get("comment"), "placeholders": placeholders(source(entry.value)),
@@ -503,10 +638,91 @@ def main() -> int:
         else:
             print(output, end="")
         return 0
-    for diagnostic in diagnostics[:args.limit or None]:
-        print(diagnostic, file=sys.stderr)
-    print(f"{len(paths)} catalogs, {len(locales)} locales: {len(diagnostics)} parity errors")
-    return int(bool(diagnostics))
+    baseline_path = args.baseline or args.root / "scripts" / DEBT_BASELINE
+    baseline = load_debt_baseline(baseline_path)
+    if args.base_root and not args.base_baseline:
+        parser.error("--base-root needs --base-baseline: the base's debt is judged against its own baseline")
+    if (args.write_baseline or args.base_baseline or args.base_root) and (args.catalog or args.locale):
+        parser.error("--write-baseline, --base-baseline and --base-root judge every catalog and locale")
+    debt = debt_counts(findings)
+    if args.write_baseline:
+        if baseline is not None:
+            baseline, moves = follow_moves(debt, baseline, args.root)
+            for move in moves:
+                print(f"note: a catalog moved and keeps its baseline: {move}")
+            raised = debt_raises(debt, baseline, DEBT_ENFORCED)
+            if raised:
+                print("refusing to raise the localization debt baseline:", file=sys.stderr)
+                for line in raised:
+                    print(f"  {line}", file=sys.stderr)
+                return 1
+            # A reported kind keeps the lower count, so it only goes down too.
+            for catalog, kinds in debt.items():
+                for kind in DEBT_KINDS:
+                    if kind not in DEBT_ENFORCED and kind in kinds:
+                        kinds[kind] = min(kinds[kind], baseline.get(catalog, {}).get(kind, 0))
+            debt = {catalog: {kind: count for kind, count in kinds.items() if count}
+                    for catalog, kinds in debt.items()}
+            debt = {catalog: kinds for catalog, kinds in debt.items() if kinds}
+        baseline_path.write_text(debt_json(debt), encoding="utf-8")
+        print(f"wrote {baseline_path}: {sum(sum(kinds.values()) for kinds in debt.values())} errors in {len(debt)} catalogs")
+        return 0
+    if baseline is None or args.locale:
+        for diagnostic in diagnostics[:args.limit or None]:
+            print(diagnostic, file=sys.stderr)
+        print(f"{len(paths)} catalogs, {len(locales)} locales: {len(diagnostics)} parity errors")
+        return int(bool(diagnostics))
+    if args.catalog:
+        only = catalog_name(args.catalog, args.root)
+        baseline = {catalog: kinds for catalog, kinds in baseline.items() if catalog == only}
+    failed = False
+    allowed = baseline
+    if args.base_root:
+        # A pull request runs on its merge with the base, so debt the base added past its own
+        # baseline is in every pull request's count; only the push that added it fails.
+        base_baseline = load_debt_baseline(args.base_baseline) or {}
+        changed = [name for name in RULE_FILES if not (args.base_root / "scripts" / name).is_file()
+                   or (args.base_root / "scripts" / name).read_bytes() != (ROOT / "scripts" / name).read_bytes()]
+        if changed:
+            print(f"note: this change changes {', '.join(changed)}, so debt the base has is not excused")
+        base_debt = {} if changed else debt_counts(debt_findings(args.base_root, locales, omissions, counts))
+        for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
+            print(f"warning: the base is already over its baseline, not this change: {line}")
+        allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)
+                             + max(0, base_debt.get(catalog, {}).get(kind, 0) - base_baseline.get(catalog, {}).get(kind, 0))
+                             for kind in DEBT_KINDS}
+                   for catalog in set(baseline) | set(base_debt)}
+    raised = debt_raises(debt, allowed, DEBT_ENFORCED)
+    reviews = debt_raises(debt, baseline, tuple(kind for kind in DEBT_KINDS if kind not in DEBT_ENFORCED))
+    for line in reviews:
+        print(f"note: more strings await review than the baseline records: {line}")
+    if raised:
+        failed = True
+        over = {line.split(": ", 1)[0] for line in raised}
+        shown = [d for d, (catalog, _) in zip(diagnostics, findings) if catalog in over]
+        for diagnostic in shown[:args.limit or None]:
+            print(diagnostic, file=sys.stderr)
+        print(f"localization debt grew past {baseline_path.name}; translate the new strings:", file=sys.stderr)
+        for line in raised:
+            print(f"  {line}", file=sys.stderr)
+    if args.base_baseline:
+        base, moves = follow_moves(baseline, load_debt_baseline(args.base_baseline) or {}, args.root, args.base_root)
+        for move in moves:
+            print(f"note: a catalog moved and keeps the base's baseline: {move}")
+        grown = debt_raises(baseline, base)
+        if grown:
+            failed = True
+            print(f"{baseline_path.name} may only go down; it rose above the base's:", file=sys.stderr)
+            for line in grown:
+                print(f"  {line}", file=sys.stderr)
+    lowered = [catalog for catalog, kinds in baseline.items()
+               if any(debt.get(catalog, {}).get(kind, 0) < count for kind, count in kinds.items())]
+    if lowered and not failed:
+        print(f"{len(lowered)} catalogs are below the baseline; lower it with: "
+              f"python3 scripts/localization_catalog.py check --write-baseline")
+    print(f"{len(paths)} catalogs, {len(locales)} locales: {len(diagnostics)} parity errors, "
+          f"{'over' if raised else 'within'} the debt baseline")
+    return int(failed)
 
 
 if __name__ == "__main__":

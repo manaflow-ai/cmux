@@ -5,14 +5,13 @@ import { useT } from "./i18n";
 /// Start Agent's keys, always in view: Return starts the chat in the background, ⌘Return starts it
 /// and opens it in a window, Escape hides the panel. The keys are the composer's own (Composer, useEscapeToDismiss), not
 /// app shortcuts the user rebinds, so they are drawn as they are. The floating chat (cx-b9qi) keeps its
-/// chat: Return sends, ⌘J folds it, ⌘⇧P keeps it on top, ⌘Return moves it to a tab.
+/// chat: Return sends, ⌘J folds it, ⌘⇧I includes the focused tab, ⌘Return moves it to a tab.
 export function QuickKeyHints({ floating = false }: { floating?: boolean }) {
   const t = useT();
   const hints: [key: string, label: string][] = floating
     ? [
         ["↩", t("floating.key.send")],
         ["⌘J", t("floating.key.compact")],
-        ["⌘⇧P", t("floating.key.onTop")],
         ["⌘⇧I", t("floating.key.include")],
         ["⌘↩", t("floating.key.moveToTab")],
         ["esc", t("quick.close")],

@@ -5,13 +5,14 @@ public import AppKit
 extension AddressBarView: OmnibarPopupSurface {
     func showRows(_ rows: [BrowserSuggestion], highlighted: Int?) {
         guard let window else { return }
-        panel.show(rows, highlighted: highlighted, below: self, pane: cardPane(in: window), in: window)
+        panel.show(rows, highlighted: highlighted, at: self, upward: toolbarOpensUpward, pane: cardPane(in: window), in: window)
     }
 
-    /// Keeps an open card flush under the bar after the chrome laid out again.
+    /// Keeps an open card flush under the bar (above it, with the toolbar at the bottom) after
+    /// the chrome laid out again.
     func followLayout() {
         guard let window else { return }
-        panel.follow(below: self, pane: cardPane(in: window), in: window)
+        panel.follow(at: self, upward: toolbarOpensUpward, pane: cardPane(in: window), in: window)
     }
 
     /// The card is clipped to the browser pane (the chrome view), or to the surface an omnibar row
@@ -35,11 +36,13 @@ extension AddressBarView: OmnibarPopupSurface {
 extension AddressBarView: OmnibarFieldEditorSink {
     func fieldEditorDidChange(kind: OmnibarState.EditKind?) { observeField(kind: kind) }
 
-    func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool { controller.send(.key(key)) }
+    func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool { admits(key) && controller.send(.key(key)) }
 
     func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?) {
         controller.send(.fieldMouseDown(clickCount: clickCount, button: button, word: word))
     }
+
+    func fieldEditorMouseDragged() { controller.send(.fieldMouseDragged) }
 
     func fieldEditorMouseUp() { controller.send(.fieldMouseUp) }
 
@@ -59,20 +62,21 @@ extension AddressBarView: NSTextFieldDelegate {
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        switch selector {
-        case #selector(NSResponder.moveDown(_:)): controller.send(.key(.down))
-        case #selector(NSResponder.moveUp(_:)): controller.send(.key(.up))
-        case #selector(NSResponder.insertTab(_:)): controller.send(.key(.tab))
-        case #selector(NSResponder.insertBacktab(_:)): controller.send(.key(.backTab))
+        let send = { (key: OmnibarInput.Key) in self.admits(key) && self.controller.send(.key(key)) }
+        return switch selector {
+        case #selector(NSResponder.moveDown(_:)): send(.down)
+        case #selector(NSResponder.moveUp(_:)): send(.up)
+        case #selector(NSResponder.insertTab(_:)): send(.tab)
+        case #selector(NSResponder.insertBacktab(_:)): send(.backTab)
         case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertLineBreak(_:)):
-            controller.send(.key(.enter(.init(NSApp.currentEvent?.modifierFlags ?? []))))
-        case #selector(NSResponder.cancelOperation(_:)): controller.send(.key(.escape))
-        case #selector(NSResponder.selectAll(_:)): controller.send(.key(.selectAll))
+            send(.enter(.init(NSApp.currentEvent?.modifierFlags ?? [])))
+        case #selector(NSResponder.cancelOperation(_:)): send(.escape)
+        case #selector(NSResponder.selectAll(_:)): send(.selectAll)
         // The Home key (Shift-Home extends); Cmd-Left is a caret move.
-        case #selector(NSResponder.scrollToBeginningOfDocument(_:)): controller.send(.key(.home(extend: false)))
-        case #selector(NSResponder.moveToBeginningOfDocumentAndModifySelection(_:)): controller.send(.key(.home(extend: true)))
+        case #selector(NSResponder.scrollToBeginningOfDocument(_:)): send(.home(extend: false))
+        case #selector(NSResponder.moveToBeginningOfDocumentAndModifySelection(_:)): send(.home(extend: true))
         // Backspace at the start leaves an extension keyword session.
-        case #selector(NSResponder.deleteBackward(_:)): controller.send(.key(.backspaceAtStart))
+        case #selector(NSResponder.deleteBackward(_:)): send(.backspaceAtStart)
         default: false
         }
     }

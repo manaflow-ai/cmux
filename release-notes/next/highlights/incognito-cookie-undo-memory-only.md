@@ -1,4 +1,5 @@
 title: An agent's incognito cookies never reach the disk
 category: security
+docs: https://cmux.com/docs/browser-automation
 
-When an agent cleared cookies in an incognito browser store, cmux saved the removed cookies in an encrypted backup file on disk, and a backup that held a session cookie stayed there with no end date. Now an incognito store keeps this undo in memory only. The agent can still undo a clear while the store is open. When the store closes, the undo goes with it.
+When an agent clears cookies in an incognito browser, the copy kept for undo now stays in memory and is never written to disk. The agent can undo while incognito is open; closing it discards the copy.

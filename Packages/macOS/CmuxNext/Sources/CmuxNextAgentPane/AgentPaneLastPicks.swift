@@ -55,6 +55,9 @@ public nonisolated struct AgentPaneRememberedPick: Sendable, Equatable {
     public var folder: String?
     /// Integrate a harness was dismissed on the page, for every later page (`harnessHint: "dismissed"`).
     public var dismissesHarnessHint = false
+    /// The person picked a project (or kept the page's) and sent a prompt there (`started`): later
+    /// New Tab pages default to it (Leo 2026-10-21). Agents', CLI and socket chats never send it.
+    public var started: String?
 
     public init(agent: String, model: String? = nil, folder: String? = nil) {
         self.agent = agent

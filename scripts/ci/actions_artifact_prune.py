@@ -14,7 +14,6 @@ each name is listed on its own):
 
   cmux-tui-<target>, cmux-relay-<target>, chatmux-relay-<target>,
   cmux-agent-screen-detection-<target>, npm-packages, pypi-wheels      older than 3 days
-  gallery-stage-<stage>-<shard>                                         older than 1 day
 
 An artifact from a run of cmux-tui-release.yml, cmux-tui-nightly.yml or relay-publish-npm.yml is kept
 for 30 days, because tui-publish-npm.yml and tui-publish-pypi.yml download those by run id. If
@@ -42,7 +41,6 @@ import urllib.request
 API = "https://api.github.com"
 TARGETS = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "aarch64-apple-darwin")
 BUILD_DAYS = 3
-STAGE_DAYS = 1
 RELEASE_DAYS = 30
 QUOTA_FLOOR = 50  # API calls left in the hour when a run stops deleting
 RELEASE_WORKFLOWS = ("cmux-tui-release.yml", "cmux-tui-nightly.yml", "relay-publish-npm.yml")
@@ -60,7 +58,6 @@ def rules() -> dict[str, int]:
     for family in ("cmux-relay", "chatmux-relay", "cmux-agent-screen-detection"):
         names.update({f"{family}-{t}": BUILD_DAYS for t in TARGETS})
     names.update({"npm-packages": BUILD_DAYS, "pypi-wheels": BUILD_DAYS})
-    names.update({f"gallery-stage-{s}-{n}": STAGE_DAYS for s in ("base", "head", "repeat") for n in range(4)})
     return names
 
 

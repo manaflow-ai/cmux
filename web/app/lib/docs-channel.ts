@@ -47,7 +47,7 @@ export function docsPathAvailableInChannel(
   pathname: string,
 ): boolean {
   const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
-  return channel === "nightly" || !/\/docs\/base(?=\/|$)/.test(releasePath);
+  return channel === "nightly" || !/\/docs\/(?:base|next)(?=\/|$)/.test(releasePath);
 }
 
 export function docsChannelUrl(
@@ -59,15 +59,20 @@ export function docsChannelUrl(
   const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
   const releaseFallback = docsPathAvailableInChannel("release", releasePath)
     ? releasePath
-    : releasePath.replace(/\/docs\/base(?=\/|$)/, "/docs/getting-started");
+    : releasePath.replace(/\/docs\/(?:base|next)(?:\/.*)?$/, "/docs/getting-started");
   const targetPath = channel === "nightly"
     ? releasePath.replace(/\/docs(?=\/|$)/, "/docs/nightly")
     : releaseFallback;
   return `${targetPath}${search}${hash}`;
 }
 
+/**
+ * A docs path without its locale and nightly prefixes, to match a nav entry.
+ * Unlike `docsChannelUrl("release", ...)` it keeps nightly-only pages
+ * (Base, cmux-next) instead of falling back to Getting Started.
+ */
 export function docsNavPath(pathname: string, locale: string): string {
-  const releasePath = docsChannelUrl("release", pathname);
+  const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
   const localePrefix = `/${locale}`;
   return releasePath.startsWith(`${localePrefix}/`)
     ? releasePath.slice(localePrefix.length)

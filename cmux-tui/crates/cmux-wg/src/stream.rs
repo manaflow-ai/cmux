@@ -110,7 +110,9 @@ impl AsyncWrite for WgStream {
             Poll::Ready(Ok(())) => {
                 let count = data.len().min(MAX_WRITE_CHUNK_BYTES);
                 this.outbound
-                    .send_item(Outbound::Data(Bytes::copy_from_slice(&data[..count])))
+                    .send_item(Outbound::Data(Bytes::copy_from_slice(
+                        data.get(..count).unwrap_or(data),
+                    )))
                     .map_err(|_| broken_pipe())?;
                 this.wake.notify_one();
                 Poll::Ready(Ok(count))

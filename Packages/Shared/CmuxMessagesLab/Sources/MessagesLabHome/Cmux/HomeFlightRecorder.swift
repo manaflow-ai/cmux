@@ -38,7 +38,7 @@ public struct HomeFlightRecorder {
     /// (a short or new conversation; a new Chief conversation dumped on its
     /// first send).
     static func coverageGaps(_ view: MessagesWindowView, minGap: CGFloat = 40) -> [(CGFloat, CGFloat)] {
-        let top = Fixture.headerHeight, bottom = view.fieldTop - 4
+        let top = view.visibleTop, bottom = view.fieldTop - 4
         var spans: [(CGFloat, CGFloat)] = []
         // The space above the conversation's first message is empty by design
         // (a short or new conversation): coverage starts at that row.
@@ -71,7 +71,7 @@ public struct HomeFlightRecorder {
             guard let spec = cell.spec, case .part = spec.kind, RowDraw.needsFill(spec) else { continue }
             let cl = cell.layer.presentation() ?? cell.layer
             let body = cl.convert(RowDraw.bodyRect(spec), to: root)
-            guard body.maxY > Fixture.headerHeight, body.minY < view.fieldTop else { continue }
+            guard body.maxY > view.visibleTop, body.minY < view.fieldTop else { continue }
             let g = cell.fillGradient.presentation() ?? cell.fillGradient
             let gr = g.convert(g.bounds, to: root)
             if !gr.insetBy(dx: -0.5, dy: -0.5).contains(body) { out.append("\(spec.key) body \(CrashGuard.int(body.minY))-\(CrashGuard.int(body.maxY)) fill \(CrashGuard.int(gr.minY))-\(CrashGuard.int(gr.maxY))") } // crash program

@@ -67,7 +67,8 @@ public struct LeaderLayer {
     /// leader defaults.
     func defaultChord(for id: ActionID) -> ShortcutChord? {
         guard registry.shortcutOverrides[id] == nil, let chord = registry.descriptor(for: id)?.defaultChord,
-              !registry.shortcutOverrides.values.contains(.some(chord.first)) else { return nil }
+              !registry.shortcutOverrides.values.contains(.some(chord.first)),
+              !registry.alternateShortcuts.values.contains(where: { $0.contains([chord.first]) }) else { return nil }
         return chord
     }
 }

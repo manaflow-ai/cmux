@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { createBody } from "../src/cloud-driver.ts"
 import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"

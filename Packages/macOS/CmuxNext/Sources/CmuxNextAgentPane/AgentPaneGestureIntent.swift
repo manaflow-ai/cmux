@@ -25,7 +25,10 @@ public nonisolated enum AgentPaneJSONScalar: Equatable, Sendable {
 /// user sent that acpmux held for the folder trust answer,
 /// `{intent: {method: "session/prompt", params: {promptId}}}`: the send's own gesture, kept for that
 /// one prompt (its `_meta.acpmux.promptId`), so the Trust click's gesture goes to the trust answer.
-/// Nothing else.
+/// A permission answer's intent names its session, prompt and option, and a question's `answers`
+/// and `annotations` (objects) when it has them: the ticket is then for exactly those, compared by
+/// the sha256 of their canonical JSON bytes (``AcpmuxSecretKey/canonicalDigest(_:)``), never by
+/// `String` equality, which counts canonically equivalent Unicode as equal. Nothing else.
 public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// The methods a ticket may be redeemed by, and the exact param keys of their intent.
     public static let methods: [String: Set<String>] = [
@@ -37,6 +40,20 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
     ]
 
+    /// Intent params a method may add to its keys: objects, each held as its canonical digest. A
+    /// question's answers and annotations, so a ticket taken for one answer never redeems another.
+    public static let objectKeys: [String: Set<String>] = [
+        "_acpmux/permission_respond": ["answers", "annotations"],
+    ]
+
+    /// Intent params a method may add that bind the ticket without being part of its pick: a
+    /// send's chat (`sessionId`). A send ticket bound to a chat is the one ticket an upload of that
+    /// send may hold (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``),
+    /// and only a prompt to that chat redeems it.
+    public static let bindingKeys: [String: Set<String>] = [
+        "session/prompt": ["sessionId"],
+    ]
+
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
@@ -45,6 +62,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
 
     public var method: String
     public var params: [String: AgentPaneJSONScalar]
+    /// The chat a send ticket is for (``bindingKeys``); nil when the intent names none.
+    public var sessionId: String?
 
     /// The intent of `transport.gesture`'s params, nil when they break the contract (a missing or
     /// unknown method, an unknown or missing intent param, a value that is not a scalar, or any
@@ -53,9 +72,22 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         guard let gestureParams, Set(gestureParams.keys) == ["intent"],
               let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
               let method = intent["method"] as? String, let keys = Self.methods[method],
-              let raw = intent["params"] as? [String: Any], Set(raw.keys) == keys else { return nil }
+              let raw = intent["params"] as? [String: Any], keys.isSubset(of: raw.keys),
+              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []))
+        else { return nil }
         var params: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in raw {
+            if Self.bindingKeys[method]?.contains(key) == true {
+                guard let session = value as? String, !session.isEmpty else { return nil }
+                sessionId = session
+                continue
+            }
+            if !keys.contains(key) {
+                // A question's answers or annotations: an object, by its canonical digest.
+                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
+                params[key] = .string(digest)
+                continue
+            }
             guard let scalar = AgentPaneJSONScalar(value) else { return nil }
             params[key] = scalar
         }
@@ -97,14 +129,25 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
             self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
             return
         }
-        // A permission answer's pick names its session too (the ticket binds the prompt).
+        // A permission answer's pick names its session too (the ticket binds the prompt), and a
+        // question's answers and annotations by their canonical digest (the ticket binds them too).
         if method == "_acpmux/permission_respond" {
             guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
-                  let option = params["optionId"] as? String, params["answers"] == nil else {
+                  let option = params["optionId"] as? String else {
                 self.params = nil
                 return
             }
-            self.params = ["sessionId": .string(session), "permissionId": .string(permission), "optionId": .string(option)]
+            var pick: [String: AgentPaneJSONScalar] = ["sessionId": .string(session), "permissionId": .string(permission),
+                                                       "optionId": .string(option)]
+            for key in AgentPaneGestureIntent.objectKeys["_acpmux/permission_respond"] ?? [] {
+                guard let value = params[key], !(value is NSNull) else { continue }
+                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else {
+                    self.params = nil
+                    return
+                }
+                pick[key] = .string(digest)
+            }
+            self.params = pick
             return
         }
         var scalars: [String: AgentPaneJSONScalar] = [:]

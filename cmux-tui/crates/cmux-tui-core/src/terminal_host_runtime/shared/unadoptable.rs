@@ -161,11 +161,13 @@ pub fn wait_for_unadoptable_terminal_host_exit(
         Err(error) => return Err(error.into()),
     }
     let Some(parent) = record.record_path.parent() else { return Ok(()) };
-    let endpoint = sys::canonical_endpoint(sys::file_owner(parent)?, &record.terminal_id);
+    let endpoints = sys::canonical_endpoints(sys::file_owner(parent)?, parent, &record.terminal_id);
     let _ = fs::remove_file(&record.record_path);
     let _ = fs::remove_file(marker);
-    if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
-        let _ = fs::remove_file(endpoint);
+    for endpoint in endpoints {
+        if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
+            let _ = fs::remove_file(endpoint);
+        }
     }
     Ok(())
 }

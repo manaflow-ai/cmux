@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
 
-use super::command::{RequestPlan, WireOperation};
+use super::command::{RequestPlan, ResponseView, WireOperation};
 use super::{GlobalArgs, UsageError};
 
 /// Public id prefixes a session qualifier may stand in front of.
@@ -301,7 +301,20 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
             }
         }
     }
-    let code = super::wire::print_local_success(&join(results), global.output);
+    let code = if let ResponseView::AgentRoster(_) = plan.view {
+        let mut terminals = Vec::new();
+        for (session, socket) in session_sockets() {
+            if let Ok(Some(Value::Array(list))) =
+                list_on(&socket, &session, ResourceOperation::TerminalList, &json!({}))
+            {
+                terminals.extend(list);
+            }
+        }
+        let roster = super::wire::agent_roster_across(plan.view, join(results), &terminals);
+        super::wire::print_result(global, &plan, roster)
+    } else {
+        super::wire::print_local_success(&join(results), global.output)
+    };
     if failed && code == 0 { 1 } else { code }
 }
 
@@ -328,12 +341,17 @@ fn list_on(
     let mut reader = BufReader::new(stream);
     let mut params: Map<String, Value> = params.as_object().cloned().unwrap_or_default();
     params.insert("session".into(), json!(session));
-    match super::resolve::read(&mut reader, operation, params) {
+    // Each session's fresh connection declares conversation tabs too, so a federated list shows
+    // agent chats as the single-session list does, not the daemon's browser compatibility view.
+    let listed = super::tab_capabilities::negotiate(&mut reader)
+        .and_then(|()| super::resolve::read(&mut reader, operation, params));
+    match listed {
         Ok(value) => Ok(Some(value)),
         Err(
             super::resolve::Failure::Resource(error) | super::resolve::Failure::Local { error, .. },
         ) => Err(error.get("message").and_then(Value::as_str).unwrap_or("failed").to_owned()),
         Err(super::resolve::Failure::Transport(message)) => Err(message),
+        Err(super::resolve::Failure::Refused) => Err("session is busy".into()),
         Err(super::resolve::Failure::AppAction { .. }) => Err("unexpected app action".into()),
     }
 }

@@ -77,6 +77,7 @@ public struct ActionSurfaceReport {
             case .choices(let id): "\(id.rawValue)[choices]"
             case .submenu(let id, let children): "\(id.rawValue) > (" + render(children) + ")"
             case .folder(let folder, let children): "[\(folder.rawValue)] > (" + render(children) + ")"
+            case .group(let group, let children): "[\(group.key)] > (" + render(children) + ")"
             }
         }.joined(separator: " ")
     }

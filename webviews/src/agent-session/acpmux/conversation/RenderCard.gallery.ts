@@ -4,7 +4,7 @@
 // a cap that Expand lifts.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
-import { latencyChart, pricingCard, renderTool } from "../../../gallery/fixtures/renders";
+import { latencyChart, plainReport, pricingCard, renderTool } from "../../../gallery/fixtures/renders";
 
 const turn = (prompt: string, render: Parameters<typeof renderTool>[0], answer: string) =>
   chat([
@@ -28,6 +28,14 @@ export default agentPaneEntry({
         "Chart typing latency per split layout",
         { html: latencyChart(), title: "Keystroke to paint, ms" },
         "Latency stays under 9 ms up to 8 splits; this branch matches main within 0.3 ms.",
+      ),
+    },
+    plain: {
+      note: "A page with no CSS of its own: the base stylesheet gives it the chat's type, tables and controls.",
+      snapshot: turn(
+        "Summarize build times per lane",
+        { html: plainReport(), title: "Build report" },
+        "The fast lane holds at 4.2 s; the full lane is 11.8 s.",
       ),
     },
     tall: {

@@ -23,6 +23,23 @@ final class WorkspaceContentView: NSView {
         }
     }
     private var tokenObservation: Task<Void, Never>?
+    /// Parked in its window (``ParkingContainer``): set with `isHidden` by `WindowRootView`, so it is
+    /// redundant while hidden parking is the only parking.
+    private(set) var isParkedOffScreen = false
+
+    /// Parks or shows this workspace's subtree. Observers hear it only while the view is not hidden
+    /// (``AppKit/NSView/notifyParkingChange()``): hidden parking sets this after hiding and clears it
+    /// before showing, so it walks nothing.
+    func setParked(_ parked: Bool) {
+        guard parked != isParkedOffScreen else { return }
+        isParkedOffScreen = parked
+        notifyParkingChange()
+    }
+
+    /// Showing a hidden parked view shows it (the side-by-side view unhides companions directly).
+    override var isHidden: Bool {
+        willSet { if !newValue, isHidden, isParkedOffScreen { isParkedOffScreen = false } }
+    }
 
     init(layoutView: NSView, bar: TabStripView) {
         self.layoutView = layoutView
@@ -49,7 +66,7 @@ final class WorkspaceContentView: NSView {
         }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Shows the workspace action surface in place of an empty layout.
     func showEmpty(_ view: NSView?) {
@@ -92,9 +109,25 @@ final class WorkspaceContentView: NSView {
         return true
     }
 
+    /// A parked workspace (hidden or parked in its window, `WindowRootView.show`) takes no shortcut,
+    /// and its subtree is not walked for one.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard !isHidden, !isParkedOffScreen else { return false }
         if let emptyView, emptyView.performKeyEquivalent(with: event) { return true }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// A parked workspace lists nothing to VoiceOver or the window's hint targets: AppKit unwraps an
+    /// ignored (hidden) view into its children, so the subtree is cut here.
+    override func accessibilityChildren() -> [Any]? { isHidden || isParkedOffScreen ? [] : super.accessibilityChildren() }
+
+    /// A parked workspace takes no click: AppKit skips a hidden view, not a parked one.
+    override func hitTest(_ point: NSPoint) -> NSView? { isParkedOffScreen ? nil : super.hitTest(point) }
+
+    /// Counts window entries (`debug.layout_counters`): a switch to a parked workspace adds none.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { DebugLayoutCounters.workspaceWindowEntries &+= 1 }
     }
 
     override func layout() {
@@ -104,3 +137,5 @@ final class WorkspaceContentView: NSView {
         bar.frame = NSRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
     }
 }
+
+extension WorkspaceContentView: ParkingContainer {}

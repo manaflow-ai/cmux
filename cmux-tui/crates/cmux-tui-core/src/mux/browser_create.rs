@@ -9,6 +9,7 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
         resource_identity: Option<TabResourceIdentity>,
+        mut transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
         let lifecycle = self.workspace_lifecycle(workspace);
         let workspace_lifecycle = lifecycle.lock().unwrap();
@@ -66,7 +67,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
-                        transaction: None,
+                        transaction: transaction.take(),
                     },
                     true,
                 )
@@ -116,6 +117,11 @@ impl Mux {
         drop(pending_surface);
         self.emit_tree_delta(delta, selection_resync);
         drop(workspace_lifecycle);
+        // A tab that arrived inside its new screen's delta still gets the
+        // `tab-added` that carries the client's transaction.
+        if let Some(transaction) = transaction {
+            self.emit_tab_added_for_transaction(surface.id, transaction);
+        }
         self.reap_if_dead(&surface);
         Ok(surface)
     }

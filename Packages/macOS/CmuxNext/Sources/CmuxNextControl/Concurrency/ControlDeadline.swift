@@ -1,6 +1,8 @@
 import CmuxNextCompat
 
-/// Races async work against a deadline without waiting for the loser.
+/// Races async work against a deadline without waiting for the loser. Time
+/// the main thread spends in Chromium's start moves the deadline out
+/// (`MainThreadEngineStart`).
 ///
 /// A task group would wait for a child that ignores cancellation (a
 /// continuation parked on another process's reply), turning a deadline into
@@ -12,10 +14,14 @@ public struct ControlDeadline: Sendable {
         method: String,
         deadline: ContinuousClock.Instant,
         startsTerminal: Bool = false,
+        countingFrom mark: Duration? = nil,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let limit = max(deadline - .now, .zero)
         let timeout = startsTerminal ? ControlError.terminalStartTimeout(method, after: limit) : ControlError.timeout(method, after: limit)
+        // Main-thread time in Chromium's start after `mark` does not count (MainThreadEngineStart).
+        let engineStart = MainThreadEngineStart.shared
+        let mark = mark ?? engineStart.total
         let race = Race<T>()
         return try await withCheckedThrowingContinuation { continuation in
             race.begin(continuation)
@@ -28,7 +34,7 @@ public struct ControlDeadline: Sendable {
             }
             let timer = Task {
                 // wakeup-allow: one-shot request deadline, cancelled when the body answers
-                do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+                do { try await engineStart.waitPast(deadline, countingFrom: mark) } catch { return }
                 if race.finish(.failure(timeout)) { work.cancel() }
             }
             race.onFinish { timer.cancel() }

@@ -266,6 +266,49 @@ fn home_stays_first_in_the_top_section() {
     mux.shutdown();
 }
 
+/// An order that already has home out of the first slot (a synced order:
+/// sidebar-doc sync moves rows without the rule) still takes other moves;
+/// the rule refuses only a change that takes home out of the first slot
+/// (2026-10-20: home at index 13 refused every `workspace.place`).
+#[test]
+fn home_already_out_of_first_slot_does_not_block_other_moves() {
+    let session = Session::new("order-stale");
+    let mux = session.open();
+    let home = ensure_home(&mux, "connect")["value"]["workspace_id"].as_str().unwrap().to_string();
+    let a = empty_workspace(&mux, "a");
+    let c = empty_workspace(&mux, "c");
+    {
+        let registry = mux.workspace_registry.lock().unwrap();
+        let db = registry.connection.get();
+        db.execute(
+            "UPDATE personal_workspaces
+             SET position = (SELECT MAX(position) + 1 FROM personal_workspaces)
+             WHERE workspace_key = ?1",
+            [key_of(&mux, &home)],
+        )
+        .unwrap();
+    }
+    let ids = |order: Vec<Value>| -> Vec<String> {
+        order
+            .iter()
+            .map(|row| row["workspace"]["workspace_id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(ids(placements(&mux)).last(), Some(&home), "the order does not start stale");
+
+    send(&mux, "workspace.place", json!({"workspace": c, "index": 0}), Some("place-c-first"))
+        .unwrap_or_else(|error| panic!("a stale home order refused another move: {error:?}"));
+    assert_eq!(ids(placements(&mux))[0], c);
+    // Putting home back first is allowed, and from then on the rule holds.
+    send(&mux, "workspace.place", json!({"workspace": home, "index": 0}), Some("place-home-first"))
+        .unwrap();
+    assert_eq!(ids(placements(&mux))[0], home);
+    let refused =
+        send(&mux, "workspace.place", json!({"workspace": a, "index": 0}), Some("place-a-first"));
+    assert_eq!(error_code(refused), "home.pinned_first");
+    mux.shutdown();
+}
+
 /// The raw tree names the home workspace with `kind: "home"`.
 #[test]
 fn home_raw_tree_names_the_home_workspace() {

@@ -1,0 +1,9 @@
+{
+  "title": "Sidebar footer: the account control and Search on one line above the bottom margin",
+  "steps": [
+    {"title": "Launch: the footer at compact density", "wait": 2},
+    {"title": "Comfortable rows", "cmux": ["settings", "set", "sidebar.density", "comfortable"], "wait": 2},
+    {"title": "Expanded rows", "cmux": ["settings", "set", "sidebar.density", "expanded"], "wait": 2},
+    {"title": "Back to compact rows", "cmux": ["settings", "set", "sidebar.density", "compact"], "wait": 1, "shot": false}
+  ]
+}

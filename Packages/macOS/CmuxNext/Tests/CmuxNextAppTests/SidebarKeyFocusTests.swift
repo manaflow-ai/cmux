@@ -30,19 +30,19 @@ struct SidebarKeyFocusTests {
         #expect(row.fill?.cgColor == row.performWithTheme { Palette.pressedFill.cgColor })
     }
 
-    /// The update card's button and checkbox (Full Keyboard Access) ring in the theme's focus color.
+    /// The update card's button and switch (Full Keyboard Access) ring in the theme's focus color.
     @Test func updateCardControlsRingInTheThemeColor() {
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        let checkbox = SidebarUpdateCheckbox(frame: NSRect(x: 0, y: 0, width: 120, height: 18))
-        for view in [button, checkbox] as [NSView] {
+        let toggle = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 120, height: 18))
+        for view in [button, toggle] as [NSView] {
             #expect(view.focusRingType == .none)
             _ = view.becomeFirstResponder()
             view.updateLayer()
         }
         let ring = button.performWithTheme { Palette.focusRing.cgColor }
         #expect(button.layer?.borderColor == ring && (button.layer?.borderWidth ?? 0) > 0)
-        // The checkbox's box is its first sublayer.
-        #expect(checkbox.layer?.sublayers?.first?.borderColor == ring)
+        // The switch's track is its first sublayer.
+        #expect(toggle.layer?.sublayers?.first?.borderColor == ring)
     }
 
     /// As the system ring did, the tint shows only in the key window: a background window's

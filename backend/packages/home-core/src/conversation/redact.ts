@@ -7,7 +7,7 @@
  * `invhash` writes out of subscriber effects (PRIVATE_TABLES). `unread` (per-user counts) and
  * `consent` (who has written in a DM, consent.ts) are owner bookkeeping and stay private too.
  */
-export const PRIVATE_TABLES: ReadonlyArray<string> = ["invhash", "unread", "consent", "attref"]
+export const PRIVATE_TABLES: ReadonlyArray<string> = ["invhash", "unread", "consent", "attref", "ban", "granthash", "grant"]
 
 const without = (value: unknown, keys: ReadonlyArray<string>): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value

@@ -2,7 +2,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextUpdater
 
-/// `debug.update_indicator {phase, version?, progress?, note?}` (DEBUG): a
+/// `debug.update_indicator {phase, version?, progress?, bytes?, total?, note?}` (DEBUG): a
 /// fixed update phase for screenshots. A note shows after a check from the
 /// palette; `phase: "live"` (or none) follows the updater again.
 extension UpdateIndicatorPhase {
@@ -10,7 +10,15 @@ extension UpdateIndicatorPhase {
         switch params["phase"]?.stringValue {
         case "hidden": self = .hidden
         case "checking": self = .checking
-        case "downloading": self = .downloading(progress: params["progress"]?.doubleValue)
+        case "downloading":
+            // `bytes` and `total` show the byte counts; `progress` alone a bare fraction.
+            if let bytes = params["bytes"]?.doubleValue {
+                self = .downloading(.downloading(received: UInt64(max(0, bytes)), expected: params["total"]?.doubleValue.map { UInt64(max(0, $0)) }))
+            } else {
+                self = .downloading(UpdateTransfer(stage: .downloading, fraction: params["progress"]?.doubleValue))
+            }
+        case "starting_download": self = .downloading(.starting)
+        case "preparing": self = .downloading(.preparing(params["progress"]?.doubleValue))
         case "available": self = .available(version: params["version"]?.stringValue)
         case "ready": self = .ready(version: params["version"]?.stringValue)
         case "installing": self = .installing

@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import Foundation
+import Observation
 import Testing
 
 /// The model picked last outlives a relaunch (Leo 2026-10-11, found again on nightly-next
@@ -40,5 +41,27 @@ struct NewTabLastPickTests {
             ["folder": "/work/a", "harness": "codex", "model": "gpt-6-astra"],
             ["folder": "/work/b", "harness": "claude", "model": "claude-opus-5-5"],
         ])
+    }
+}
+
+/// The iPhone host follows the last picks (``NewTabChoiceMemory`` is observable through its
+/// revision), so a pick made on this Mac reaches acpmux and a phone's New Agent Chat.
+@MainActor
+struct NewTabChoiceMemoryObservationTests {
+    @Test func aRememberedPickNotifiesAnObserverOfThePicks() throws {
+        let suite = "NewTabChoiceMemoryObservationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let memory = NewTabChoiceMemory(defaults: defaults)
+        nonisolated(unsafe) var changed = false
+        withObservationTracking {
+            _ = memory.picks
+            _ = memory.agent
+        } onChange: {
+            changed = true
+        }
+        memory.remember(AgentPaneRememberedPick(agent: "codex", model: "gpt-5.5", folder: "/work/a"))
+        #expect(changed)
+        #expect(memory.picks?.global == .init(harness: "codex", model: "gpt-5.5"))
     }
 }

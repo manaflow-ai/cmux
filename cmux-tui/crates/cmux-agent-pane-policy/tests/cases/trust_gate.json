@@ -266,6 +266,24 @@
    "breaks": true
   },
   {
+   "name": "trust gate: start_mode may not carry a forward mark",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "_acpmux/start_mode",
+    "id": 8,
+    "params": {
+     "harness": "claude",
+     "cwd": "/x",
+     "_meta": {
+      "acpmux": {
+       "via": "web"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
    "name": "trust gate: set_mode may not carry a forward mark",
    "frame": {
     "jsonrpc": "2.0",

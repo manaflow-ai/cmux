@@ -25,7 +25,7 @@ When local native execution is authorized:
 
 ```sh
 ./scripts/reload.sh --tag <short-tag>
-CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh list-workspaces
+CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh workspace list
 ```
 
 Reload builds without launching; add `--launch` when live verification is needed.
@@ -40,10 +40,11 @@ An app build does not establish test-target compilation or execution. Follow
 
 ## Toolchain and project files
 
-`.xcode-version` owns the Xcode major; `cmux.xcodeproj/project.pbxproj` currently
-uses objectVersion 60. The Intel/macOS 14 fallback uses Xcode 16.2/Swift 6.0;
-keep app-linked code compatible as specified in
-[Swift 6.0 compatibility](../cmux-architecture/references/swift-6-0-compatibility.md).
+`.xcode-version` owns the Xcode major. `cmux.xcodeproj/project.pbxproj` uses
+objectVersion 77 because it has synchronized folders; `scripts/check-pbxproj.sh`
+pins 60 for Xcode 26 and accepts 77 only with a `PBXFileSystemSynchronizedRootGroup`.
+The app package needs Swift tools 6.2; see
+[toolchain and macOS 14 compatibility](../cmux-architecture/references/swift-6-0-compatibility.md).
 
 The installed pre-commit hook normalizes staged project files and registers new
 Python tests in `tests/test-execution.toml`. Preserve it and

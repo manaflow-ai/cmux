@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1, "version": "1.0.0-nightly.8", "channel": "nightly", "date": "2026-10-20",
+  "headline": {"en": "Sidebar fixes"},
+  "entries": [
+    {"id": "commit", "category": "fixed", "title": {"en": "fix(sidebar): group labels keep band color"},
+     "summary": {"en": "sidebar: group labels keep their band color"},
+     "tryIt": {"action": "home.show"}, "platforms": ["macos"], "audience": "all"}
+  ]
+}

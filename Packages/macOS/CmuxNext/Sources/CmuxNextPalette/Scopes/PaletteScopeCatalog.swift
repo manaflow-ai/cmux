@@ -9,6 +9,12 @@ nonisolated extension PaletteScopeID {
     public static let settings: PaletteScopeID = "settings"
     public static let shortcuts: PaletteScopeID = "shortcuts"
     public static let scopes: PaletteScopeID = "scopes"
+    /// Search (Cmd-Shift-A and the sidebar's Search button, plans/cmux-next/sidebar-search.md,
+    /// search-everything-DESIGN.md section 10): every kind the other scopes and the App's
+    /// contributed pages (history, agent chats) list, in one page. Cmd-P is `workspaces`.
+    public static let search: PaletteScopeID = "search"
+    /// Chats & agents: Search narrowed to the agent chats and sessions the App contributes.
+    public static let chats: PaletteScopeID = "chats"
 }
 
 /// The built-in scopes and the root, as descriptors.
@@ -22,7 +28,13 @@ nonisolated extension PaletteScopeDescriptor {
     /// Built-in scopes whose sources exist. English keywords always work;
     /// the localized title also works as a keyword.
     public static func builtIns(tabs: Bool, workspaces: Bool, settings: Bool) -> [PaletteScopeDescriptor] {
-        var scopes: [PaletteScopeDescriptor] = []
+        // Search goes first in the scope list: it is the one that finds everything.
+        var scopes: [PaletteScopeDescriptor] = [
+            scope(PaletteScopeID.search, PaletteStrings.searchEverythingTitle, "magnifyingglass", PaletteStrings.searchEverythingPlaceholder,
+                  keywords: ["search", "everything", "all", "history"], openAction: "search.chats"),
+            scope(PaletteScopeID.chats, PaletteStrings.chatsAndAgentsTitle, "bubble.left.and.bubble.right", PaletteStrings.chatsAndAgentsPlaceholder,
+                  keywords: ["chats", "agents", "chat"]),
+        ]
         if tabs {
             scopes.append(scope(PaletteScopeID.tabs, PaletteStrings.sectionTabs, "rectangle.on.rectangle", PaletteStrings.tabSearchPlaceholder,
                                 prefix: "@", keywords: ["tabs", "tab"], openAction: "tab.search", emptyQuerySelection: 1))

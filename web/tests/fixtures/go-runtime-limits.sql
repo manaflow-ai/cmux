@@ -57,4 +57,50 @@ BEGIN
   RAISE NOTICE 'PASS: runtime transitions, cross-team cap, saved cap, deleted VM accounting, renewal';
 END;
 $$;
+
+-- An App Store Go subscription (no web subscription row) has a billing period.
+DO $$
+DECLARE
+  u text := 'go-meter-apple-' || gen_random_uuid();
+  apple_vm uuid;
+  rejected boolean;
+  constraint_seen text;
+BEGIN
+  rejected := false;
+  BEGIN
+    INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
+      VALUES (u,u,'go','freestyle','test','running');
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
+    rejected := constraint_seen='cmux_go_period_unavailable';
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'Go started without any subscription'; END IF;
+  INSERT INTO apple_subscriptions(original_transaction_id,user_id,bundle_id,environment,product_id,plan_id,status,
+      purchase_date,expires_at,state_signed_at)
+    VALUES (u,u,'com.cmux.app','Production','com.cmux.app.go.monthly','go','active',
+      now() - interval '3 days', now() + interval '27 days', now());
+  INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
+    VALUES (u,u,'go','freestyle','test','running') RETURNING id INTO apple_vm;
+  UPDATE cloud_vms SET status='paused' WHERE id=apple_vm;
+  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '41 hours', ended_at=now() WHERE vm_id=apple_vm;
+  rejected := false;
+  BEGIN
+    UPDATE cloud_vms SET status='running' WHERE id=apple_vm;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
+    rejected := constraint_seen='cmux_go_hours_limit';
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'App Store Go bypassed the runtime cap'; END IF;
+  UPDATE apple_subscriptions SET status='expired' WHERE original_transaction_id=u;
+  rejected := false;
+  BEGIN
+    UPDATE cloud_vms SET status='running' WHERE id=apple_vm;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
+    rejected := constraint_seen='cmux_go_period_unavailable';
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'an expired App Store Go subscription kept a period'; END IF;
+  RAISE NOTICE 'PASS: App Store Go period, runtime cap, expiry';
+END;
+$$;
 ROLLBACK;

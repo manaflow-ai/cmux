@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
@@ -7,31 +8,44 @@ import Testing
 
 /// Theme sweep 3, batch B: Home's sheets (New Message, Invite, New Chief) sat on the sheet
 /// window's system background, and their fields, the New Message search field and the Chief
-/// settings' name and avatar fields drew AppKit's bezel, text and gray placeholder. Under a
-/// purple room theme the sheets paint the theme's popup surface and every field draws the theme.
+/// settings' name field drew AppKit's bezel, text and gray placeholder. Under a
+/// purple room theme every field draws the theme. The sheets then painted the theme's solid popup
+/// surface until Leo, 2026-10-21: "glass is never opaque (the only exception is the Reduce
+/// Transparency fallback)". They sit on this Mac's overlay glass now, as the Share dialog does (#24048).
 @MainActor @Suite(.serialized) struct HomeSheetThemeTests {
-    @Test func homeSheetsPaintThePopupSurface() throws {
+    @Test func homeSheetsAreGlassUnlessReduceTransparency() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let surface = scope.perform { Palette.popupSurface }
-        let sheets: [HomeSheetController] = [HomeComposeSheet(contacts: []), HomeInviteSheet(pending: []), HomeNewChiefSheet()]
-        for sheet in sheets {
-            scope.root(sheet.view)
-            let fill = try #require(sheet.view.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)),
-                                    "\(type(of: sheet)) paints a surface over the system sheet background")
-            #expect(ThemedOverlayColorsTests.same(fill, surface), "\(type(of: sheet)): \(fill) vs \(surface)")
+        let system = OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                                            reduceTransparency: ReduceTransparency.shared.isEnabled)
+        let sheets: [HomeSheetController] = [HomeInviteSheet(pending: []), HomeNewChiefSheet()]
+        let info = HomeGroupInfoSheet(model: Self.groupInfoModel(), colors: HomeGroupInfoColors())
+        let surfaces: [(String, NSView, OverlaySurfaceView)] = sheets.map { ("\(type(of: $0))", $0.view, $0.surface) }
+            + [("HomeGroupInfoSheet", info.view, info.surface)]
+        for (name, root, glass) in surfaces {
+            scope.root(root)
+            #expect((root.layer?.backgroundColor?.alpha ?? 0) == 0, "\(name) paints no solid fill over its glass")
+            #expect(root.subviews.first === glass, "\(name): the glass sits under the content")
+            #expect(glass.materialOverride == nil && !glass.isCard, "\(name) follows this Mac's material")
+            #expect(glass.material == system, "\(name): \(glass.material) vs \(system)")
+            #expect(glass.samplesBehindWindow, "\(name)'s vibrancy blurs the window behind the sheet")
         }
-        // New Message's people list lets that surface show instead of the control background.
-        let compose = HomeComposeSheet(contacts: [])
-        scope.root(compose.view)
-        #expect((compose.table.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1) < 0.01)
-        #expect(compose.scroll.borderType == .noBorder)
+        // New Message's suggestion list (a page now, no sheet) floats over the page on the shared
+        // overlay glass, not the solid popup surface (Leo 2026-10-21: "STOP DOING SOLID").
+        let suggestions = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        scope.root(suggestions)
+        suggestions.applyColors()
+        #expect((suggestions.table.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1) < 0.01)
+        #expect(suggestions.scroll.borderType == .noBorder)
+        #expect((suggestions.layer?.backgroundColor?.alpha ?? 0) == 0, "the list paints a fill over its glass")
+        #expect(suggestions.subviews.first === suggestions.glass, "the glass sits under the rows")
+        #expect(!suggestions.glass.isCard && suggestions.glass.frame == suggestions.bounds)
     }
 
     @Test func homeFieldsDrawTheThemeNotTheSystemBezel() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let roots: [NSView] = [
-            HomeComposeSheet(contacts: []).view, HomeInviteSheet(pending: []).view, HomeNewChiefSheet().view,
-            HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
+            HomeInviteSheet(pending: []).view, HomeNewChiefSheet().view,
+            HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
         ]
         let ink = scope.perform { Palette.textPrimary }
         let hint = scope.perform { Palette.textTertiary }
@@ -40,8 +54,8 @@ import Testing
             scope.root(root)
             fields += Self.editableFields(in: root)
         }
-        // Compose: search and group name; Invite: email; New Chief: name; Chief settings: name and avatar.
-        #expect(fields.count >= 6)
+        // Invite: email; New Chief: name; Chief settings: name.
+        #expect(fields.count >= 3)
         for field in fields {
             let name = field.accessibilityLabel() ?? "\(type(of: field))"
             #expect(!field.isBezeled && !field.drawsBackground, "\(name): AppKit's bezel and fill are gone")
@@ -52,6 +66,14 @@ import Testing
             }
             #expect(placeholder.map { ThemedOverlayColorsTests.same($0, hint) } == true, "\(name): placeholder in the theme hint ink")
         }
+    }
+
+    static func groupInfoModel() -> HomeGroupInfoModel {
+        let info = HomeGroupInfo(conversation: ConversationID("a"), isGroup: true, title: "A", displayTitle: "A", members: [],
+                                 canMute: true, muted: false)
+        return HomeGroupInfoModel(info: info, addable: [], actions: HomeGroupInfoActions(
+            rename: { _ in .done }, add: { _, _ in .done }, remove: { _ in .done }, setMuted: { _ in .done },
+            leave: {}, inviteByEmail: {}, setChiefReplies: { _ in .done }))
     }
 
     static func editableFields(in view: NSView) -> [NSTextField] {
@@ -67,5 +89,5 @@ private struct OfflineEngine: HomeChiefEngineSource {
     var isLocal: Bool { true }
     var place: String? { nil }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
 }

@@ -28,6 +28,7 @@ nonisolated struct RustDragRequest: Encodable {
 nonisolated struct RustPayload: Encodable {
     var kind: String; var ids: [String]?; var id: String?
     init(_ payload: DragPayload) {
-        switch payload { case let .workspaces(ids): kind = "workspaces"; self.ids = ids.map(\.rawValue); id = nil; case let .group(group): kind = "group"; ids = nil; id = group.rawValue }
+        switch payload { case let .workspaces(ids): kind = "workspaces"; self.ids = ids.map(\.rawValue); id = nil; case let .group(group): kind = "group"; ids = nil; id = group.rawValue
+        case let .item(item): kind = "group"; ids = nil; id = "item:" + item } // never resolved here: only the document drags items
     }
 }

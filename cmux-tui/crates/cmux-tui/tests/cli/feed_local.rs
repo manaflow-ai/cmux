@@ -208,6 +208,24 @@ fn is_unread(item: &Value) -> bool {
     item["read_at_ms"].is_null()
 }
 
+/// Waits (bounded) until `terminal` runs again after a restart: it is
+/// `adopting` until the restarted owner has adopted its host.
+fn wait_until_running(daemon: &Daemon, terminal: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved =
+            daemon.ok(json!({"id": "resolve", "cmd": "resolve-terminal", "terminal_id": terminal}));
+        if resolved["lifecycle"] == "running" {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal {terminal} did not run again after the restart: {resolved}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 /// Selecting a tab no longer clears its unread marker or its local item;
 /// `ack-tab-notifications` clears both.
 #[test]
@@ -268,12 +286,93 @@ fn cmux_next_feed_a_ring_kept_by_a_partial_ack_survives_a_restart() {
     assert_eq!(read["error_code"], "owner.unreachable", "{read}");
 
     daemon.restart();
+    // A restarted owner answers before it adopts its surviving terminal
+    // hosts (81577dcd4b3); the tab shows its terminal once it is adopted.
+    wait_until_running(&daemon, &terminal);
     let tree = daemon.tree();
     let (_, restored) = tabs(&tree)
         .into_iter()
         .find(|(_, tab)| tab["terminal_id"] == terminal.as_str())
         .unwrap_or_else(|| panic!("terminal {terminal} came back without a tab: {tree}"));
     assert_eq!(restored["notification"]["unread"], true, "the ring was lost: {restored}");
+}
+
+/// The terminal host of `terminal` (its durable record's pid).
+fn host_pid(daemon: &Daemon, terminal: &str) -> libc::pid_t {
+    use cmux_tui_core::terminal_host_runtime::{load_terminal_host_records, terminal_host_root};
+    let root = terminal_host_root(&daemon.dir.join("state"), &daemon.session);
+    let records = load_terminal_host_records(&root).unwrap();
+    let record = records
+        .iter()
+        .map(|(_, record)| record)
+        .find(|record| record.terminal_id == terminal)
+        .unwrap_or_else(|| panic!("no host record for {terminal}: {records:?}"));
+    libc::pid_t::try_from(record.host_pid).unwrap()
+}
+
+/// A terminal host stopped with SIGSTOP: it holds its adoption handshake
+/// unanswered until it is resumed, at the latest when this is dropped.
+struct StoppedHost(libc::pid_t);
+
+impl StoppedHost {
+    fn stop(pid: libc::pid_t) -> Self {
+        // SAFETY: the durable record names this test's live terminal host.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let state = Command::new("ps").args(["-o", "state=", "-p", &pid.to_string()]).output();
+            if state.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim().starts_with('T')) {
+                return Self(pid);
+            }
+            assert!(Instant::now() < deadline, "host {pid} did not stop after SIGSTOP");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+impl Drop for StoppedHost {
+    fn drop(&mut self) {
+        // SAFETY: resumes the host stopped above.
+        unsafe { libc::kill(self.0, libc::SIGCONT) };
+    }
+}
+
+/// A restarted owner answers before it adopts its terminal hosts
+/// (81577dcd4b3). While a terminal adopts, its tab keeps the unread ring and
+/// counts in its workspace's unread count: unread state never blinks out
+/// after a restart.
+#[test]
+fn cmux_next_feed_a_ring_shows_while_its_terminal_adopts_after_a_restart() {
+    let daemon = Daemon::start("adopting");
+    let surface = new_workspace(&daemon);
+    let (_, before) = tab(&daemon.tree(), surface);
+    let terminal = before["terminal_id"].as_str().unwrap().to_string();
+    let content = before["content_resource_id"].clone();
+    daemon.notify("agent waiting", Some(surface));
+    assert!(unread(&daemon.tree(), surface));
+
+    let stopped = daemon.server("stop").output().unwrap();
+    assert!(stopped.status.success(), "stop failed: {}", String::from_utf8_lossy(&stopped.stderr));
+    let host = StoppedHost::stop(host_pid(&daemon, &terminal));
+    daemon.ensure();
+    let tree = daemon.tree();
+    let workspace = &tree["workspaces"][0];
+    let (_, adopting) = tabs(&tree)
+        .into_iter()
+        .find(|(_, tab)| tab["content_resource_id"] == content)
+        .unwrap_or_else(|| panic!("terminal {terminal} came back without a tab: {tree}"));
+    assert_eq!(adopting["terminal_state"], "adopting", "{adopting}");
+    assert_eq!(adopting["notification"]["unread"], true, "no ring while adopting: {adopting}");
+    assert_eq!(workspace["unread_count"], 1, "{workspace}");
+
+    drop(host);
+    wait_until_running(&daemon, &terminal);
+    let tree = daemon.tree();
+    let (_, adopted) = tabs(&tree)
+        .into_iter()
+        .find(|(_, tab)| tab["terminal_id"] == terminal.as_str())
+        .unwrap_or_else(|| panic!("terminal {terminal} was not adopted: {tree}"));
+    assert_eq!(adopted["notification"]["unread"], true, "the ring was lost: {adopted}");
 }
 
 /// Closing a terminal, or a browser tab (a tab without a terminal), reads

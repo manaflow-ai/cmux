@@ -7,6 +7,7 @@ fn every_high_level_operation_constant_has_a_facade_call_site() {
         include_str!("../src/resource/handles/closed.rs"),
         include_str!("../src/resource/handles/column_update.rs"),
         include_str!("../src/resource/handles/home.rs"),
+        include_str!("../src/resource/handles/machine.rs"),
         include_str!("../src/resource/handles/palette_usage.rs"),
         include_str!("../src/resource/handles/saved_tab_groups.rs"),
         include_str!("../src/resource/handles/tab_groups.rs"),

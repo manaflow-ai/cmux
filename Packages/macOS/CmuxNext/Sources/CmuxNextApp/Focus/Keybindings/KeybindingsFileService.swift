@@ -30,7 +30,7 @@ final class KeybindingsFileService {
     }
 
     /// The home daemon serves keybindings.json.
-    var serves: Bool { services?.machines.local.supports(DaemonCapabilities.shared.keybindings) ?? false }
+    var serves: Bool { services?.machines.local.supports(DaemonCapability.keybindings.rawValue) ?? false }
 
     func start() {
         services?.machines.local.store.sideEvents.subscribe { [weak self] event in
@@ -38,7 +38,8 @@ final class KeybindingsFileService {
         }
         // task-owner: lives as long as the service; event-driven (Observation)
         observation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in self?.serves ?? false }) {
+            // A trigger: a daemon restart that still serves keybindings reads them again.
+            for await _ in ObservationStream({ [weak self] in ObservationTrigger(self?.serves ?? false) }) {
                 guard let self else { return }
                 await read().value
             }

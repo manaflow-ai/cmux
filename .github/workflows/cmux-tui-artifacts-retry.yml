@@ -40,7 +40,7 @@ jobs:
       ${{ github.repository_owner == 'manaflow-ai' &&
           github.event.workflow_run.conclusion == 'failure' &&
           github.event.workflow_run.event == 'push' &&
-          (github.event.workflow_run.head_branch == 'feat-cmux-next' || startsWith(github.event.workflow_run.head_branch, 'cmux-tui-pin-')) &&
+          github.event.workflow_run.head_branch == 'feat-cmux-next' &&
           github.event.workflow_run.run_attempt < 3 &&
           github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

@@ -1,0 +1,445 @@
+/* The Chief Usage page: header controls, tiles, inline SVG charts, the breakdown table and the top
+   list on the shared page backdrop (pageBase.css). Series colors come from the theme: the
+   accent for cache (read full, write lighter), the page ink for uncached input and output
+   (input stronger), so the page follows light, dark and custom themes.
+   Cost, p50 and the p95 band are neutral ink so they never read as a token kind. */
+.cu {
+  --cu-cache-read: var(--cmux-accent, var(--page-text));
+  --cu-cache-write: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
+  --cu-input: color-mix(in srgb, var(--page-text) 62%, transparent);
+  --cu-output: color-mix(in srgb, var(--page-text) 28%, transparent);
+  --cu-ink: var(--page-text);
+  --cu-hit: var(--cu-cache-read);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+.cu-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cu-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.cu-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cu-segmented {
+  display: inline-flex;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--page-hover);
+}
+
+.cu-segment-button {
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 10px;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.cu-segment-button.is-selected {
+  background: var(--page-elevated);
+  color: var(--page-text);
+}
+
+.cu-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--page-text-3);
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.cu-by select,
+.cu-refresh {
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: transparent;
+  color: var(--page-text);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.cu-refresh:disabled {
+  color: var(--page-text-disabled);
+}
+
+.cu-message {
+  margin: 12px 0;
+}
+
+.cu-muted,
+.cu-tile-label,
+.cu-section-title,
+.cu-top-meta,
+.cu-by span {
+  color: var(--page-text-3);
+}
+
+.cu-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.cu-tile,
+.cu-card {
+  padding: 10px 12px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.cu-tile-label {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cu-tile-value {
+  margin-top: 2px;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+
+.cu-section {
+  margin-top: 24px;
+  min-width: 0;
+}
+
+.cu-section-title {
+  margin: 0 0 8px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.cu-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  column-gap: 24px;
+}
+
+.cu-multiples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.cu-card .cu-chart {
+  margin-top: 6px;
+}
+
+/* Charts */
+.cu-chart {
+  position: relative;
+  width: 100%;
+}
+
+.cu-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.cu-grid line {
+  stroke: var(--page-separator);
+  stroke-width: 1;
+}
+
+.cu-grid text,
+.cu-axis text {
+  fill: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cu-hit {
+  fill: transparent;
+}
+
+.cu-hover-slot {
+  fill: var(--page-hover);
+}
+
+.cu-kind-input { fill: var(--cu-input); background: var(--cu-input); }
+.cu-kind-cache_read { fill: var(--cu-cache-read); background: var(--cu-cache-read); }
+.cu-kind-cache_write { fill: var(--cu-cache-write); background: var(--cu-cache-write); }
+.cu-kind-output { fill: var(--cu-output); background: var(--cu-output); }
+
+.cu-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.cu-line.cu-cost,
+.cu-line.cu-p50 { stroke: var(--cu-ink); }
+.cu-line.cu-hit-line,
+.cu-line.cu-kind-cache_read { stroke: var(--cu-hit); background: none; fill: none; }
+.cu-dot.cu-hit-line { fill: var(--cu-hit); }
+.cu-dot.cu-cost { fill: var(--cu-ink); }
+.cu-band { fill: color-mix(in srgb, var(--cu-ink) 14%, transparent); }
+
+.cu-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cu-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cu-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.cu-swatch.cu-cost,
+.cu-swatch.cu-p50 {
+  height: 2px;
+  width: 10px;
+  background: var(--cu-ink);
+}
+
+.cu-swatch.cu-hit-line { height: 2px; width: 10px; background: var(--cu-hit); }
+.cu-swatch.cu-band { background: color-mix(in srgb, var(--cu-ink) 14%, transparent); }
+
+.cu-tooltip {
+  position: absolute;
+  top: 4px;
+  z-index: var(--layer-raised);
+  transform: translateX(8px);
+  min-width: 140px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  /* The liquid glass (.ui-glass in charts.tsx) in the tooltip frost is its fill, blur, rim and
+     shadow, as every tooltip's (ui/glass/glass.css; Leo 2026-10-21: glass, never the solid card). */
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  pointer-events: none;
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cu-tooltip.is-left {
+  transform: translateX(calc(-100% - 8px));
+}
+
+.cu-tooltip-title {
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.cu-tooltip dl {
+  margin: 0;
+}
+
+.cu-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cu-tooltip-row dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--page-text-2);
+}
+
+.cu-tooltip-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Table and top list */
+.cu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.cu-table th,
+.cu-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--page-separator);
+  text-align: start;
+  font-weight: 400;
+}
+
+.cu-table thead th {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cu-table tfoot th,
+.cu-table tfoot td {
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.cu-num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cu-table th.cu-num,
+.cu-table td.cu-num {
+  text-align: end;
+}
+
+.cu-row th {
+  max-width: 260px;
+}
+
+.cu-row-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cu-share {
+  display: block;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--page-hover);
+  overflow: hidden;
+}
+
+.cu-share span {
+  display: block;
+  height: 100%;
+  background: var(--cu-ink);
+  opacity: 0.45;
+}
+
+.cu-receipt td {
+  min-width: 110px;
+}
+
+.cu-receipt td .cu-num {
+  display: block;
+  text-align: start;
+}
+
+.cu-inline-track {
+  display: block;
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--page-hover);
+  overflow: hidden;
+}
+
+.cu-inline-bar {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.cu-inline-bar.cu-cost { background: var(--cu-ink); }
+.cu-inline-bar.cu-hit-line { background: var(--cu-hit); }
+
+.cu-top {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cu-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--page-separator);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.cu-top-row:hover {
+  background: var(--page-hover);
+}
+
+a.cu-top-row:focus-visible {
+  outline: 2px solid var(--cmux-accent, var(--page-text));
+  outline-offset: -2px;
+}
+
+.cu-top-name {
+  white-space: nowrap;
+}
+
+.cu-top-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cu-top-tokens {
+  color: var(--page-text-2);
+}
+
+.cu-top-cost {
+  min-width: 7ch;
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .cu-segment-button.is-selected { outline: 1px solid CanvasText; }
+  .cu-segment { stroke: Canvas; stroke-width: 1; }
+}

@@ -1,0 +1,14 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 00:15:12.690 I  cmux DEV[5803:14820f2] [com.cmuxterm.app.next:app.iphone.pairing] asking to pair phone c23e2ef8
+2026-10-14 00:15:50.990 I  cmux DEV[5803:14820f2] [com.cmuxterm.app.next:app.iphone.pairing] phone c23e2ef8 allow
+2026-10-14 00:15:50.997 I  cmux DEV[5803:14820f2] [com.cmuxterm.app.next:app.iphone.approvers] acpmux holds 1 phone approvers
+2026-10-14 00:17:39.541 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.approvers] acpmux holds 1 phone approvers
+2026-10-14 00:17:39.820 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.approvers] acpmux holds 1 phone approvers
+2026-10-14 00:19:37.529 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.pairing] asking to pair phone ccf5433a
+2026-10-14 00:20:55.717 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.pairing] phone ccf5433a allow
+2026-10-14 00:20:55.718 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.approvers] acpmux holds 2 phone approvers
+2026-10-14 00:20:55.977 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.pairing] phone ccf5433a signed out; forgetting it
+2026-10-14 00:20:55.979 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.approvers] acpmux holds 1 phone approvers
+2026-10-14 00:21:19.627 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.pairing] asking to pair phone f105f7c5
+2026-10-14 00:21:25.202 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.pairing] phone f105f7c5 deny
+2026-10-14 00:21:25.209 I  cmux DEV[9965:1486887] [com.cmuxterm.app.next:app.iphone.approvers] acpmux holds 1 phone approvers

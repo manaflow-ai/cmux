@@ -1,0 +1,25 @@
+.nt-cards-loading {
+  pointer-events: none;
+}
+
+.nt-card-placeholder {
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  border-radius: var(--ds-radius-control);
+}
+
+.nt-cards-loading .nt-card-age {
+  width: 3.2em;
+}
+
+.nt-cards-loading .nt-card-title {
+  width: min(65%, 18ch);
+}
+
+.nt-cards-loading .nt-card-message > .nt-card-placeholder {
+  display: block;
+  width: 85%;
+}
+
+.nt-card-placeholder-icon {
+  flex: none;
+}

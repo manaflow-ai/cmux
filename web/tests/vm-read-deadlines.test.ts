@@ -85,7 +85,7 @@ describe("VM read deadlines through the real route path", () => {
     const run = await statsRoute("vm-ok", 5_000);
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.value).toMatchObject({ state: "awake", cpus: 2 });
+    expect(run.value).toMatchObject({ state: "unknown", health: "unknown", cpus: 2 });
     expect(fetches.find((entry) => entry.path === "/v5/vms/vm-ok")?.signal?.aborted).toBe(false);
   });
 

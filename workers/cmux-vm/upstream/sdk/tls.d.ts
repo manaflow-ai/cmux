@@ -226,7 +226,7 @@ export type TlsTransform = {
     s3: S3Transform;
 };
 /** An S3 operation understood by the edge. Other operations fail closed. */
-export type S3Operation = "GetObject" | "HeadObject" | "PutObject" | "DeleteObject" | "ListObjectsV2" | "CreateMultipartUpload" | "UploadPart" | "ListParts" | "CompleteMultipartUpload" | "AbortMultipartUpload" | "ListMultipartUploads";
+export type S3Operation = "GetObject" | "HeadObject" | "PutObject" | "DeleteObject" | "ListObjects" | "ListObjectsV2" | "CreateMultipartUpload" | "UploadPart" | "ListParts" | "CompleteMultipartUpload" | "AbortMultipartUpload" | "ListMultipartUploads";
 /** Credentials are sealed at rest, redacted on reads, and never sent to the VM. */
 export interface S3Credentials {
     accessKeyId: string;

@@ -48,7 +48,11 @@ else
   echo "no JWT_PRIVATE_JWK for $env_name" >&2; exit 1
 fi
 # Merging deploys: code ships only onto a schema that already has every migration.
-if [ "$env_name" = staging ] || [ "$env_name" = production ]; then
+# The Chief off switch redeploys the code production serves now, so the schema already fits it; a later
+# migration applied ahead of its code (the rule) must not block the switch (review of #21864, P1).
+if [ "${CMUX_DEPLOY_CHIEF_OFF:-}" = 1 ]; then
+  echo "chief-off: the serving code again; schema verify skipped"
+elif [ "$env_name" = staging ] || [ "$env_name" = production ]; then
   (cd ../../db && bun migrate.ts --env "$env_name" --verify)
 fi
 # Workflow names are account-wide: a preview gets its own (`cmux-automation-run-preview-<n>`)
@@ -99,11 +103,21 @@ fi
 # and the run. The promote job and the staleness check read the tag back; a dirty tree is marked.
 sha="$(git rev-parse HEAD)"
 git -C ../../.. diff --quiet HEAD 2>/dev/null || sha="${sha}-dirty"
-tag=(--tag "${sha:0:12}" --message "source ${sha} ${GITHUB_RUN_ID:+run ${GITHUB_RUN_ID}}")
+# CMUX_DEPLOY_CHIEF_OFF=1 (backend.yml target=chief-off): the Chief brain's off switch on production. The
+# same code (no Durable Object lifecycle change) with CHIEF_BRAIN_ENABLED "0", so brain and hand routes
+# answer 404 and wakes stop. `prod-promote.ts rollback` turns it on again (the previous version).
+off=()
+off_note=""
+if [ "${CMUX_DEPLOY_CHIEF_OFF:-}" = 1 ]; then
+  { [ "$env_name" = production ] && [ "${CMUX_RELEASE_PROMOTE:-}" = 1 ]; } || { echo "CMUX_DEPLOY_CHIEF_OFF is for the production off switch only" >&2; exit 2; }
+  off=(--var "CHIEF_BRAIN_ENABLED:0")
+  off_note=" chief-off"
+fi
+tag=(--tag "${sha:0:12}" --message "source ${sha}${off_note} ${GITHUB_RUN_ID:+run ${GITHUB_RUN_ID}}")
 if [ -n "$no_secrets" ]; then
-  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" "${tag[@]}"
+  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" "${off[@]}" "${tag[@]}"
 else
-  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" "${tag[@]}" --secrets-file "$secrets"
+  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" "${off[@]}" "${tag[@]}" --secrets-file "$secrets"
 fi
 if [ -n "$worker" ] && [ "${CMUX_RELEASE_VERIFY_STEP:-}" != 1 ]; then
   bun "$rails" verify --worker "$worker" --url "$origin" --routes release-smoke.json --previous-file "$previous" \

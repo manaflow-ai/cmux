@@ -1,0 +1,67 @@
+/* A session reference's hover card (SessionHoverCard.tsx), as Claude desktop's and Codex's hover
+   previews read (Leo, 2026-10-20): the shared glass hover card (.ui-card.ui-glass in desktop.css: the
+   liquid glass, never the grey of a user bubble, with the hover card elevation --elevation-2; glass
+   under plain glass too), a hairline of clear border under the glass rim and a 12px
+   corner. Inside, 10px by 14px of
+   padding and three steps: the title in the body step at emphasis (two lines at most), the status
+   line (SessionStatusLine, styled in startedSessions.css), then the meta line, the folder and branch
+   in the caption step and the muted ink. It is as wide as its title, 240px to 420px. The whole card is
+   one button that opens the session. Sizes are the type scale's steps (desktop.css). */
+.acpmux-session-hover-card.ui-card {
+  max-width: min(420px, calc(100vw - 12px));
+  padding: 0;
+  border-width: var(--cmux-hairline-ring);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.acpmux-session-hover {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  text-align: start;
+  cursor: default;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-session-hover:hover {
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.acpmux-session-hover:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-session-hover-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-weight: var(--weight-emphasis);
+  overflow-wrap: anywhere;
+}
+.acpmux-session-hover-meta {
+  min-width: 0;
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-hover {
+    transition: background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
+  }
+}

@@ -72,6 +72,10 @@ impl Brain {
                 .outbox
                 .iter()
                 .any(|e| e.conversation == conversation)
+            // A person message no reply answered yet: a host that dies
+            // before it answers gets the wake again (reply_ledger.rs).
+            || (self.state.conversation.as_deref() == Some(conversation)
+                && !self.state.awaiting.is_empty())
     }
 
     /// `cloud-mux-ack {conversation, seq}` through the leased port.

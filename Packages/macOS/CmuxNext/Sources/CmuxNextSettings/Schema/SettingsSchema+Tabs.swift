@@ -11,11 +11,12 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabPosition.help",
                                     "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
             kind: .choice([
-                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
                 SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+                SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
             ]),
             default: .string(NewTabPosition.fallback.rawValue),
-            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "insert"]
+            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "start", "first", "beginning", "insert"]
         )
     }
 
@@ -27,6 +28,8 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabTemplate.help",
                                      "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
             kind: .choice([
+                SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
+                SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
                 SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
                 SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
@@ -35,7 +38,7 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console"]
+            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
         )
     }
 
@@ -50,6 +53,33 @@ nonisolated enum TabSettingsSchema {
             kind: .toggle,
             default: .bool(NewTerminalWorkspaceSetting.fallback),
             keywords: ["new terminal", "workspace", "space", "tab", "option"]
+        )
+    }
+
+    /// `tabs.terminalFirst`, shown as cmux Classic Mode: every new tab, split, workspace and window a
+    /// person opens is a terminal, as in cmux classic (#23021). The help says how to reach the GUI.
+    static func terminalFirst(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            TerminalFirstSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.terminalFirst", "cmux Classic Mode"),
+            help: SettingsText.keyed("settings.tabs.terminalFirst.help",
+                                     "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."),
+            kind: .toggle,
+            default: .bool(TerminalFirstSetting.fallback),
+            keywords: ["terminal", "classic", "classic mode", "cmux classic", "new tab", "split", "workspace", "window", "cmd-t", "cmd-d", "cmd-n", "new tab page", "gui", "default"]
+        )
+    }
+
+    /// `tabs.nativeNewTabPage`: the native New Tab page, an alternative to the web one (off by default).
+    static func nativeNewTabPage(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NativeNewTabPageSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.nativeNewTabPage", "Native New Tab Page"),
+            help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help",
+                                     "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."),
+            kind: .toggle,
+            default: .bool(NativeNewTabPageSetting.fallback),
+            keywords: ["new tab", "native", "swift", "page", "cmd-t", "fast", "web", "alternative", "command palette", "actions"]
         )
     }
 
@@ -77,32 +107,6 @@ nonisolated enum TabSettingsSchema {
             default: .bool(SwapCmdTAndCmdNSetting.fallback),
             keywords: ["cmd-t", "cmd-n", "swap", "new tab", "new workspace", "shortcut", "keyboard"]
         )
-    }
-
-    /// `tabs.tabBar.<kind>`: whether a pane of that kind shows its tab bar.
-    static func paneTabBars(group: SettingText) -> [SettingDescriptor] {
-        func title(_ kind: PaneTabBarKind) -> SettingText {
-            switch kind {
-            case .terminal: SettingsText.keyed("settings.tabs.tabBar.terminal", "Tab Bar in Terminal Panes")
-            case .browser: SettingsText.keyed("settings.tabs.tabBar.browser", "Tab Bar in Browser Panes")
-            case .agent: SettingsText.keyed("settings.tabs.tabBar.agent", "Tab Bar in Agent Chats")
-            }
-        }
-        return PaneTabBarKind.allCases.map { kind in
-            SettingDescriptor(
-                kind.settingsPath, section: .general, group: group,
-                title: title(kind),
-                help: SettingsText.keyed("settings.tabs.tabBar.help",
-                                         "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."),
-                kind: .choice([
-                    SettingChoice(PaneTabBarMode.auto.rawValue, SettingsText.keyed("settings.choice.tabBarAuto", "Automatic")),
-                    SettingChoice(PaneTabBarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                    SettingChoice(PaneTabBarMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
-                ]),
-                default: .string(PaneTabBarMode.auto.rawValue),
-                keywords: ["tab bar", "tabs", "strip", "horizontal", "show", "hide", kind.rawValue, "pane"]
-            )
-        }
     }
 
     /// `app.warnBeforeClosingTab` and `app.warnBeforeClosingAgentSession`,

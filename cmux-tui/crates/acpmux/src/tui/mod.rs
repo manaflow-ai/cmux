@@ -11,6 +11,8 @@
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 //!   (on a question, y opens the answer flow: digits pick, Enter confirms)
 
+use cmux_json::JsonSet as _;
+
 pub mod actions;
 mod answering;
 mod events;
@@ -31,9 +33,13 @@ pub mod notify;
 mod picker;
 pub mod render;
 pub use menu::{Menu, MenuAction};
+#[cfg(all(test, unix))]
+mod answering_tests;
 pub(crate) mod directory;
 mod keymap;
 pub mod markdown;
+#[cfg(all(test, unix))]
+mod recovery_tests;
 pub mod scroll;
 mod session_ops;
 pub mod shimmer;
@@ -75,17 +81,28 @@ pub(super) enum Reread {
     Status,
 }
 
+/// Keep lag recovery responsive even if a session has an unusually large
+/// event log. Each page is capped by the daemon's attach limit below.
+pub(super) const MAX_RECOVERY_PAGES: u8 = 8;
+
 impl Reread {
     async fn run(self, client: &Arc<Client>, tx: &mpsc::UnboundedSender<AppMsg>) {
         match self {
             Reread::Nothing => {}
             Reread::Detail(id) => {
                 if let Ok(v) = client.request(method::MUX_INFO, json!({"sessionId": id})).await {
-                    let _ = tx.send(AppMsg::Attached { id, detail: v, events: vec![] });
+                    let _ = tx.send(AppMsg::Attached {
+                        id,
+                        detail: v,
+                        events: vec![],
+                        after_seq: None,
+                        has_more: false,
+                        last_seq: 0,
+                    });
                 }
             }
             Reread::Sessions => {
-                if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+                if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                     let _ = tx.send(AppMsg::Sessions(
                         v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                     ));
@@ -109,6 +126,15 @@ pub struct App {
     pub transcripts: HashMap<String, Transcript>,
     pub(super) details: HashMap<String, Value>,
     pub(super) attached: HashSet<String>,
+    /// Sessions with a lag recovery request in flight. A broadcast lag can
+    /// notify us more than once; only one replay page per session is in flight.
+    pub(super) recovery_in_flight: HashSet<String>,
+    /// Number of pages already requested for each lagged session.
+    pub(super) recovery_pages: HashMap<String, u8>,
+    /// Number of records accepted from the current lag recovery.
+    pub(super) recovery_replayed: HashMap<String, usize>,
+    /// Cursor that started the current lag recovery, for the terminal status.
+    pub(super) recovery_start: HashMap<String, u64>,
     pub input: Editor,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
@@ -392,9 +418,7 @@ impl App {
         true
     }
     pub(super) fn selected_id(&self) -> Option<String> {
-        self.selected_session()
-            .and_then(|s| s.get("sessionId").and_then(Value::as_str))
-            .map(str::to_owned)
+        self.selected_session().and_then(session_route_id)
     }
     pub(super) fn selected_name(&self) -> String {
         if let Some(d) = self.draft() {
@@ -455,20 +479,55 @@ impl App {
 
     pub(super) fn attach(&mut self, id: &str) {
         self.attached.insert(id.to_owned());
+        self.request_attach(id, None);
+    }
+
+    /// Replay records after the last sequence the TUI applied.  The daemon's
+    /// page is forward-ordered for `afterSeq`, so Transcript's existing
+    /// sequence deduplication can merge it into the live model.
+    pub(super) fn recover_after_lag(&mut self, id: &str, after_seq: u64) -> bool {
+        if !self.recovery_in_flight.insert(id.to_owned()) {
+            return false;
+        }
+        self.recovery_pages.insert(id.to_owned(), 1);
+        self.recovery_replayed.insert(id.to_owned(), 0);
+        self.recovery_start.insert(id.to_owned(), after_seq);
+        self.request_attach(id, Some(after_seq));
+        true
+    }
+
+    fn request_attach(&mut self, id: &str, after_seq: Option<u64>) {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            match client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 3000})).await
-            {
+            let mut params = json!({"sessionId": id, "limit": 3000});
+            if let Some(after) = after_seq {
+                params.set("afterSeq", json!(after));
+            }
+            match client.request(method::MUX_ATTACH, params).await {
                 Ok(v) => {
                     let events =
                         v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
                     let detail = v.get("session").cloned().unwrap_or(Value::Null);
-                    let _ = tx.send(AppMsg::Attached { id, detail, events });
+                    let has_more = v.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
+                    let last_seq = v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
+                    let _ = tx.send(AppMsg::Attached {
+                        id,
+                        detail,
+                        events,
+                        after_seq,
+                        has_more,
+                        last_seq,
+                    });
                 }
                 Err(e) => {
-                    let _ = tx.send(AppMsg::Error(format!("attach: {e}")));
+                    if let Some(after_seq) = after_seq {
+                        let _ =
+                            tx.send(AppMsg::RecoveryFailed { id, after_seq, error: e.to_string() });
+                    } else {
+                        let _ = tx.send(AppMsg::Error(format!("attach: {e}")));
+                    }
                 }
             }
         });
@@ -478,7 +537,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+            if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                 let _ = tx.send(AppMsg::Sessions(
                     v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                 ));
@@ -524,7 +583,7 @@ impl App {
                     if (m == method::SESSION_NEW
                         || m == method::SESSION_FORK
                         || m == method::MUX_IMPORT)
-                        && let Some(id) = v.get("sessionId").and_then(Value::as_str)
+                        && let Some(id) = session_route_id(&v)
                     {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                     }
@@ -652,15 +711,36 @@ impl App {
     }
 }
 
+fn session_route_id(session: &Value) -> Option<String> {
+    crate::cli::resolve::routed_id(session).ok()
+}
+
+#[cfg(test)]
+mod session_route_tests {
+    use super::session_route_id;
+    use serde_json::json;
+
+    #[test]
+    fn peer_rows_keep_the_qualified_route_for_tui_requests() {
+        assert_eq!(
+            session_route_id(
+                &json!({"sessionId": "raw", "peer": "box", "qualifiedSessionId": "box/raw"})
+            ),
+            Some("box/raw".into())
+        );
+        assert_eq!(session_route_id(&json!({"sessionId": "local"})), Some("local".into()));
+    }
+}
+
 #[cfg(all(test, unix))]
-mod interaction_tests {
+pub(super) mod interaction_tests {
     use super::*;
     pub(super) async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", uuid::Uuid::now_v7()));
         let _ = std::fs::remove_file(&socket);
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
-        let (sent, requests) = mpsc::unbounded_channel();
+        let (sent, mut requests) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let (reader, mut writer) = stream.into_split();
@@ -687,6 +767,9 @@ mod interaction_tests {
         app.default_harness = Some("codex".into());
         app.harnesses = vec!["codex".into(), "claude".into()];
         app.open_draft();
+        // Client::connect performs initialization before the fixture returns;
+        // keep that setup request out of interaction assertions below.
+        let _ = requests.recv().await;
         (app, requests)
     }
     #[tokio::test]
@@ -705,6 +788,82 @@ mod interaction_tests {
         let draft = app.draft().unwrap();
         assert_eq!(draft.peer.as_deref(), Some("providers"));
         assert_eq!(draft.harness, "deepseek");
+    }
+
+    /// The TUI offers steer from the session's own `steering` (acpmux sets it from the agent's
+    /// `_meta.steering` at initialize). It read `agentCapabilities._meta`, which acpmux never
+    /// stores, and a list row's `agentInfo`, which it never sends, so Ctrl-s never steered.
+    #[tokio::test]
+    async fn a_steering_session_offers_steer() {
+        let (mut app, _) = app().await;
+        app.sessions = vec![
+            json!({"sessionId": "steers", "status": "running", "steering": true}),
+            json!({"sessionId": "stops", "status": "running", "steering": false}),
+        ];
+        app.selected = app.drafts.len();
+        assert!(app.selected_supports_steer(), "a steering session does not offer steer");
+        app.selected = app.drafts.len() + 1;
+        assert!(!app.selected_supports_steer(), "a session that cannot steer offers it");
+    }
+
+    #[tokio::test]
+    async fn lagged_recovery_replays_from_each_transcript_cursor() {
+        let (mut app, mut requests) = app().await;
+        let id = "test-session";
+        app.sessions = vec![json!({"sessionId": id})];
+        app.selected = 0;
+        app.attached.insert(id.into());
+        let mut transcript = Transcript::default();
+        transcript.last_seq = 41;
+        app.transcripts.insert(id.into(), transcript);
+
+        app.on_notification("_acpmux/lagged", json!({"dropped": 3}));
+        assert_eq!(app.status, "event stream lagged; recovering 1 session(s)…");
+
+        let request = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request["method"], method::MUX_ATTACH);
+        assert_eq!(request["params"]["sessionId"], id);
+        assert_eq!(request["params"]["afterSeq"], 41);
+        assert_eq!(request["params"]["limit"], 3000);
+
+        // A second lag notification while the replay is in flight does not
+        // fan out another request for the same session.
+        app.on_notification("_acpmux/lagged", json!({"dropped": 1}));
+        assert_eq!(app.status, "event stream lagged; recovery required");
+    }
+
+    #[tokio::test]
+    async fn recovery_attach_merges_only_new_records_and_clears_the_guard() {
+        let (mut app, _) = app().await;
+        let id = "test-session";
+        let mut transcript = Transcript::default();
+        transcript.last_seq = 41;
+        app.transcripts.insert(id.into(), transcript);
+        app.recovery_in_flight.insert(id.into());
+
+        app.on_msg(AppMsg::Attached {
+            id: id.into(),
+            detail: json!({"status": "running"}),
+            events: vec![
+                json!({"seq": 41, "dir": "mux", "kind": "user_message", "msg": {"text": "old"}}),
+                json!({"seq": 42, "dir": "mux", "kind": "user_message", "msg": {"text": "new"}}),
+            ],
+            after_seq: Some(40),
+            has_more: false,
+            last_seq: 42,
+        });
+
+        let transcript = app.transcripts.get(id).unwrap();
+        assert_eq!(transcript.last_seq, 42);
+        assert_eq!(
+            transcript.items,
+            vec![Item::User { text: "new".into(), steer: false, queued: false }]
+        );
+        assert!(!app.recovery_in_flight.contains(id));
+        assert_eq!(app.status, "recovered 1 events from seq 40");
     }
 
     #[tokio::test]

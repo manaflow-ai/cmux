@@ -9,6 +9,7 @@ nonisolated enum RustSidebarClient {
     static let initialCapacity = 4096
 
     static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request, as: Response.Type) -> Response? {
+        SidebarPerfCounters.add(.ffiCalls)
         guard let data = try? JSONEncoder().encode(request) else { return nil }
         var capacity = initialCapacity
         for _ in 0..<2 {

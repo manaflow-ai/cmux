@@ -4,6 +4,7 @@
 
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
+use std::os::fd::AsRawFd;
 
 pub const FRAME_CONTROL: u8 = 1;
 pub const FRAME_DATAGRAM: u8 = 2;
@@ -19,7 +20,7 @@ pub struct FrameReader {
 
 impl FrameReader {
     /// Reads what is available; returns Err on EOF or a hard error.
-    pub fn fill(&mut self, s: &mut TcpStream) -> io::Result<()> {
+    pub fn fill<S: Read>(&mut self, s: &mut S) -> io::Result<()> {
         let mut chunk = [0u8; 65536];
         // Bounded: process what is buffered before reading more from a fast sender.
         while self.buf.len() <= MAX_FRAME + 5 {
@@ -59,7 +60,7 @@ impl FrameReader {
     }
 }
 
-pub fn write_frame(s: &mut TcpStream, ty: u8, payload: &[u8]) -> io::Result<()> {
+pub fn write_frame<S: Write + AsRawFd>(s: &mut S, ty: u8, payload: &[u8]) -> io::Result<()> {
     let mut out = Vec::with_capacity(5 + payload.len());
     out.push(ty);
     out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -67,14 +68,14 @@ pub fn write_frame(s: &mut TcpStream, ty: u8, payload: &[u8]) -> io::Result<()> 
     write_all_nb(s, &out)
 }
 
-pub fn write_control(s: &mut TcpStream, c: &Control) -> io::Result<()> {
+pub fn write_control<S: Write + AsRawFd>(s: &mut S, c: &Control) -> io::Result<()> {
     let json = serde_json::to_vec(c).map_err(io::Error::other)?;
     write_frame(s, FRAME_CONTROL, &json)
 }
 
 /// Writes all bytes to a non-blocking stream, waiting for writability when the kernel
 /// buffer is full (flow control keeps this rare: at most one frame is in flight).
-fn write_all_nb(s: &mut TcpStream, mut bytes: &[u8]) -> io::Result<()> {
+fn write_all_nb<S: Write + AsRawFd>(s: &mut S, mut bytes: &[u8]) -> io::Result<()> {
     // One deadline for the whole write: a viewer that drains slowly cannot hold the loop.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
     while !bytes.is_empty() {
@@ -86,11 +87,7 @@ fn write_all_nb(s: &mut TcpStream, mut bytes: &[u8]) -> io::Result<()> {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "closed")),
             Ok(n) => bytes = &bytes[n..],
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                let mut pfd = libc::pollfd {
-                    fd: std::os::fd::AsRawFd::as_raw_fd(s),
-                    events: libc::POLLOUT,
-                    revents: 0,
-                };
+                let mut pfd = libc::pollfd { fd: s.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                 // SAFETY: one valid pollfd; bounded wait.
                 let rc = unsafe { libc::poll(&mut pfd, 1, left.as_millis().clamp(1, 1000) as i32) };
                 if rc == 0 {
@@ -124,9 +121,8 @@ impl DatagramOut {
     }
 }
 
-#[cfg(target_os = "linux")]
-/// TCP keepalive (2 s idle, 1 s interval, 3 probes) and a 10 s user timeout, so a viewer
-/// that vanishes without a FIN ends its session quickly.
+/// TCP keepalive (2 s idle, 1 s interval, 3 probes) and, on Linux, a 10 s user timeout, so
+/// a viewer that vanishes without a FIN ends its session quickly.
 pub fn harden_tcp(s: &TcpStream) {
     use std::os::fd::AsRawFd;
     let fd = s.as_raw_fd();
@@ -143,9 +139,14 @@ pub fn harden_tcp(s: &TcpStream) {
         }
     };
     set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
+    #[cfg(target_os = "linux")]
     set(libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 2);
+    // macOS names the idle time TCP_KEEPALIVE and has no user timeout.
+    #[cfg(target_os = "macos")]
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPALIVE, 2);
     set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 1);
     set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3);
+    #[cfg(target_os = "linux")]
     set(libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, 10_000);
 }
 

@@ -10,7 +10,7 @@ export type HistoryRange = "hour" | "today" | "week" | "month" | "all";
 
 export const HISTORY_RANGES: readonly HistoryRange[] = ["hour", "today", "week", "month", "all"];
 
-export type ClosedKind = "terminal_tab" | "browser_tab" | "screen" | "workspace";
+export type ClosedKind = "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace";
 
 /** One row of the merged timeline. Optional fields are absent when the kind has no such fact. */
 export interface HistoryEntry {

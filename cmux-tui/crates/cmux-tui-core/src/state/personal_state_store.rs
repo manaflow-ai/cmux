@@ -18,7 +18,7 @@ use crate::workspace_registry::personal_mutations::{
 };
 use crate::workspace_registry::personal_store::{
     PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group, read_groups,
-    read_pins, read_profile, read_profiles, read_workspaces,
+    read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
 };
 
 fn group_value(group: &PersonalGroup) -> Value {
@@ -118,29 +118,81 @@ pub(crate) fn placement_id(session_id: &str, workspace_key: &str) -> String {
 /// Every placement in personal order. This session's live workspaces that
 /// have no personal row yet follow, in registry order, ungrouped.
 pub(crate) fn placement_snapshots(connection: &Connection) -> anyhow::Result<Vec<Value>> {
+    placements_in(connection, 0..=usize::MAX)
+}
+
+/// The placements whose `index` is in `range` (the rows a move or an
+/// insert shifted), built from one read of the rows, the pins and the live
+/// public ids.
+pub(crate) fn placements_in(
+    connection: &Connection,
+    range: std::ops::RangeInclusive<usize>,
+) -> anyhow::Result<Vec<Value>> {
     let local = local_registry_id(connection)?;
     let rows = read_workspaces(connection)?;
-    let pins = read_pins(connection)?;
-    let mut placements = rows
-        .iter()
-        .map(|row| placement_value(connection, &local, row, &pins))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let unplaced = {
+    let rooms: std::collections::HashMap<(String, String), String> = read_pins(connection)?
+        .into_iter()
+        .map(|pin| ((pin.session_id, pin.workspace_key), pin.profile))
+        .collect();
+    let live: Vec<(String, String)> = {
         let mut statement = connection.prepare(
-            "SELECT w.workspace_key FROM workspaces AS w
+            "SELECT w.workspace_key, rw.public_id FROM workspaces AS w
              JOIN resource_workspaces AS rw ON rw.workspace_key = w.workspace_key
              WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
              ORDER BY w.position ASC",
         )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
     };
-    for key in unplaced {
-        if rows.iter().any(|row| row.session_id == local && row.workspace_key == key) {
+    // Public ids as `workspace_ref` reads them (deleted_revision only).
+    let public: Vec<(String, String)> = {
+        let mut statement = connection.prepare(
+            "SELECT workspace_key, public_id FROM resource_workspaces
+             WHERE deleted_revision IS NULL",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let ids: std::collections::HashMap<&str, &str> =
+        public.iter().map(|(key, id)| (key.as_str(), id.as_str())).collect();
+    let reference = |session: &str, key: &str| {
+        let id = (session == local).then(|| ids.get(key).copied()).flatten();
+        json!({"session_id": session, "workspace_ref": key, "workspace_id": id})
+    };
+    let mut placements = Vec::new();
+    let mut placed = std::collections::HashSet::new();
+    for row in &rows {
+        if row.session_id == local {
+            placed.insert(row.workspace_key.as_str());
+        }
+        if !range.contains(&row.index) {
             continue;
         }
-        let mut value = placement_snapshot(connection, &local, &key)?;
-        value["index"] = json!(placements.len());
-        placements.push(value);
+        let room = rooms.get(&(row.session_id.clone(), row.workspace_key.clone()));
+        placements.push(json!({
+            "workspace": reference(&row.session_id, &row.workspace_key),
+            "index": row.index,
+            "group_id": row.group,
+            "room_id": room,
+        }));
+    }
+    let mut index = rows.len();
+    for (key, _) in &live {
+        if placed.contains(key.as_str()) {
+            continue;
+        }
+        if range.contains(&index) {
+            let room = rooms.get(&(local.clone(), key.clone()));
+            placements.push(json!({
+                "workspace": reference(&local, key),
+                "index": index,
+                "group_id": null,
+                "room_id": room,
+            }));
+        }
+        index += 1;
     }
     Ok(placements)
 }
@@ -153,11 +205,10 @@ pub(crate) fn placement_snapshot(
     workspace_key: &str,
 ) -> anyhow::Result<Value> {
     let local = local_registry_id(connection)?;
-    match read_workspaces(connection)?
-        .iter()
-        .find(|row| row.session_id == session_id && row.workspace_key == workspace_key)
-    {
-        Some(row) => placement_value(connection, &local, row, &read_pins(connection)?),
+    // One row by its key and its ordinal by the order index, not a read of
+    // every row: a create and a move publish this for one row at a time.
+    match read_workspace(connection, session_id, workspace_key)? {
+        Some(row) => placement_value(connection, &local, &row, &read_pins(connection)?),
         None => {
             let room = read_pins(connection)?
                 .into_iter()

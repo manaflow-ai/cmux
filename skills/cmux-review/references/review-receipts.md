@@ -92,13 +92,7 @@ Then state the strongest verification actually performed and any important cover
 
 ## Existing cmux review inputs
 
-Human comments saved in the diff viewer can be inspected with:
-
-```bash
-cmux comments list --json
-```
-
-Treat these as candidate findings or reviewer intent. Verify them through the same protocol instead of assuming they are correct.
+Human review comments (on the PR or passed in by the user) are candidate findings or reviewer intent. Verify them through the same protocol instead of assuming they are correct.
 
 Repository review rules under `.github/review-bot-rules/` are evidence-bearing policy inputs. A PR that edits review rules should be reviewed against the base-branch version of those rules.
 

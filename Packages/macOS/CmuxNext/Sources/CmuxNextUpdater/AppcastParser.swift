@@ -24,6 +24,7 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
     private var fields: [String: String]?
     private var enclosure: [String: String]?
     private var deltaDepth = 0
+    private var listsDeltas = false
     private var text = ""
 
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?,
@@ -31,8 +32,10 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
         text = ""
         switch name {
         case "channel": sawChannel = true
-        case "item": fields = [:]; enclosure = nil
-        case "sparkle:deltas": deltaDepth += 1
+        case "item": fields = [:]; enclosure = nil; listsDeltas = false
+        case "sparkle:deltas":
+            deltaDepth += 1
+            if fields != nil { listsDeltas = true }
         case "enclosure" where fields != nil && deltaDepth == 0: enclosure = attributes
         default: break
         }
@@ -80,7 +83,9 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             releaseNotesURL: (fields["sparkle:fullReleaseNotesLink"] ?? fields["sparkle:releaseNotesLink"]).flatMap(URL.init(string:)),
             downloadURL: enclosure["url"].flatMap(URL.init(string:)),
             itemDescription: fields["description"],
-            date: fields["pubDate"].flatMap(Self.rfc822)
+            date: fields["pubDate"].flatMap(Self.rfc822),
+            sparkleChannel: fields["sparkle:channel"],
+            listsDeltas: listsDeltas
         ))
     }
 }

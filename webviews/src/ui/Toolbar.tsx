@@ -1,40 +1,38 @@
 // Toolbars over Base UI Toolbar: one Tab stop, arrows move between controls (direction-aware),
 // each icon control named by `label` with a tooltip that repeats it.
-import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { Toolbar as BaseToolbar } from "@base-ui/react/toolbar";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { Toggle } from "@base-ui/react/toggle";
+import { cx } from "./cx";
+import { tooltipGroup, useHoverIntent } from "./hoverIntent";
 
 // A toolbar button's hint is an AnchoredCard (Base UI Tooltip) that loads on first use, so the
 // page's open path carries no Floating UI; the button itself never remounts, so focus stays put.
 // The hint only repeats the button's accessible name (`label`), which is there from the start.
 const LazyCard = lazy(() => import("./Tooltip").then((module) => ({ default: module.AnchoredCard })));
 
-/** Hint timing: the first hint waits, the next one within `GROUP_MS` shows at once. */
-const HINT_DELAY_MS = 500;
-const GROUP_MS = 400;
-let lastHintAt = 0;
-
+/**
+ * A hint waits the hover delay, then shows at once while the page's tooltip group is warm
+ * (ui/hoverIntent.ts); keyboard focus shows it at once. A press or Escape puts it away and cools
+ * the group.
+ */
 function useHint() {
-  const [anchor, setAnchor] = useState<Element | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clear = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
+  const intent = useHoverIntent<Element>({ group: tooltipGroup });
+  // The last button it showed under: the card stays mounted there once loaded, so it can fade out
+  // (and fade in again next time) instead of vanishing with its element.
+  const [placed, setPlaced] = useState<Element | null>(null);
+  if (intent.shown && intent.shown !== placed) setPlaced(intent.shown);
+  return {
+    anchor: intent.shown,
+    placed: intent.shown ?? placed,
+    /** A warm group's hint: there at once, with no fade in. */
+    instant: intent.instant,
+    show: (element: Element, delay?: number) => intent.hover(element, delay),
+    hide: () => intent.hover(null),
+    dismiss: intent.dismiss,
   };
-  const show = (element: Element) => {
-    clear();
-    const wait = Date.now() - lastHintAt < GROUP_MS ? 0 : HINT_DELAY_MS;
-    timer.current = setTimeout(() => setAnchor(element), wait);
-  };
-  const hide = () => {
-    clear();
-    if (anchor) lastHintAt = Date.now();
-    setAnchor(null);
-  };
-  return { anchor, show, hide };
 }
-import { cx } from "./cx";
 
 export function Toolbar({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
@@ -87,21 +85,21 @@ export function ToolbarButton({
         onClick={() => onPress?.()}
         onMouseEnter={tooltip ? (event) => hint.show(event.currentTarget) : undefined}
         onMouseLeave={tooltip ? hint.hide : undefined}
-        onPointerDown={tooltip ? hint.hide : undefined}
+        onPointerDown={tooltip ? hint.dismiss : undefined}
         // The hint shows for keyboard focus only (a click focuses without a ring, and without one).
         onFocus={
           tooltip
-            ? (event) => event.currentTarget.matches(":focus-visible") && hint.show(event.currentTarget)
+            ? (event) => event.currentTarget.matches(":focus-visible") && hint.show(event.currentTarget, 0)
             : undefined
         }
         onBlur={tooltip ? hint.hide : undefined}
-        onKeyDown={tooltip ? (event) => event.key === "Escape" && hint.anchor && hint.hide() : undefined}
+        onKeyDown={tooltip ? (event) => event.key === "Escape" && hint.anchor && hint.dismiss() : undefined}
       >
         {children}
       </BaseToolbar.Button>
-      {hint.anchor ? (
+      {hint.placed ? (
         <Suspense fallback={null}>
-          <LazyCard anchor={hint.anchor} className="ui-hint">
+          <LazyCard anchor={hint.placed} open={hint.anchor !== null} className="ui-hint" instant={hint.instant}>
             {label}
           </LazyCard>
         </Suspense>

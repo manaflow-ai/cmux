@@ -16,7 +16,7 @@ public final class MockResourceSource: ResourceSampleSource {
         let now = calls * 1_000_000_000
         let chosen: [TabResourceSources] = switch target {
         case .tab(let id): tabs.filter { $0.tabID == id }
-        case .workspace: tabs
+        case .workspace, .everything: tabs
         }
         var samples: [ProcessKey: ProcessSample] = [:]
         for (index, tab) in chosen.enumerated() {

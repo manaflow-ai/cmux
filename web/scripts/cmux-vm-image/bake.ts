@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -22,6 +22,11 @@
  *   edge carrier; it holds no secret.
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
+ * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
+ *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
+ *   memory and task limits, and the user's systemd manager outlives a runaway session.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
  *   snapshot.
@@ -30,12 +35,18 @@
  *   and computer-use units (on demand) and the tool dir acpmux reads, so agent sessions on the
  *   machine get the cmux browser and computer-use tools (agent-tools.ts).
  *
+ * - --dev-tree (dev snapshots only): the public cmux checkout at this commit, bindgen's libclang,
+ *   the checkout's Rust and Zig toolchains and the caches its first build leaves (dev-tree.ts), so
+ *   a developer's first build is a fetch and an incremental build (first-build.ts measures both).
+ *
  * - --team-vm (TEAM_VM_SNAPSHOT images, bead cx-cemg): the team files root /srv/team
  *   (root:cmux-ssh 2750, teamVmDirsCommand).
  * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
  *
  * Every VM and snapshot is named cmuxnp-dev-vmimg-<tag> unless --promotion
- * (unused for now) and is recorded in <out-dir>/resources.tsv the moment it
+ * (unused for now) or --prod-copy (cmuxnp-prod-vmimg-<tag>: the production
+ * copy of a recorded dev image, baked on the production account with the dev
+ * image's flags; prod-copy.ts plans it) and is recorded in <out-dir>/resources.tsv the moment it
  * exists. The builder is deleted whatever happens.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -54,10 +65,15 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxSnapshotClockCommand,
+  devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
+import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
+import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -98,13 +114,16 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const GUEST_DIR = path.resolve(HERE, "../../../images/cmux-vm/guest");
+/** Cloud VM shell defaults shared with the Chief VM bake (cmux-shell.sh: TERM fallback, UTF-8, truecolor). */
+export const SHELL_DIR = path.resolve(HERE, "../../services/vms/images/shell");
 const DPKG_LIST = "dpkg-query -W -f='${Package}\\t${Version}\\t${Architecture}\\n' | LC_ALL=C sort";
 const PGDG_KEY = "/usr/share/keyrings/cmux-pgdg.asc";
 const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
 export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
-const STORE_PATH = `${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+// The gh shim (github-auth.ts) comes first so plain `gh` gets a repo-scoped token.
+const STORE_PATH = `${GITHUB_SHIM_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 
 export type BakeOptions = {
   tag: string;
@@ -117,6 +136,14 @@ export type BakeOptions = {
   agentTools?: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
+  /** Bake the cmux dev tree (dev-tree.ts); off by default. */
+  devTree?: boolean;
+  /**
+   * The production copy of a recorded dev image (cloud-vm-image-bake.yml mode prod-copy): the same
+   * inputs and flags, baked on the production Freestyle account and named cmuxnp-prod-vmimg-<tag>,
+   * the prefix the production Worker boots.
+   */
+  prodCopy?: boolean;
 };
 
 /** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
@@ -188,8 +215,9 @@ function npmGlobals(json: string): Map<string, string> {
   return new Map(Object.entries(parsed.dependencies ?? {}).map(([name, dep]) => [name, dep.version ?? ""]));
 }
 
-function storeProfileScript(): string {
-  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\nexport PATH\n`;
+/** The login profile's PATH: the gh shim (github-auth.ts), then the store, ahead of the rest. */
+export function storeProfileScript(): string {
+  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
 function coderouterProfileScript(): string {
@@ -287,6 +315,12 @@ async function checkBase(ctx: Ctx): Promise<void> {
  */
 export const APT_BATCH_BYTES = 20_000_000;
 
+/**
+ * `--error-on=any`: without it apt-get update exits 0 when an index fails to download (it warns
+ * and keeps the old or no index), so a mirror outage surfaced later as a locked pin with no size.
+ */
+export const APT_UPDATE_COMMAND = "apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }";
+
 /** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
 export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
   return `apt-cache show --no-all-versions ${aptPinArgs(packages)} | awk '/^Package: /{p=$2} /^Version: /{v=$2} /^Size: /{print p "=" v " " $2}'`;
@@ -307,12 +341,16 @@ export function aptDownloadBatches(
   sizes: ReadonlyMap<string, number>,
   maxBytes = APT_BATCH_BYTES,
 ): Array<{ pins: string[]; bytes: number }> {
+  const entries = Object.entries(packages).sort(([a], [b]) => a.localeCompare(b));
+  // Every missing pin at once: all of them missing means the index is empty (a mirror outage), not the lock.
+  const missing = entries.map(([name, version]) => `${name}=${version}`).filter((pin) => !sizes.has(pin));
+  if (missing.length > 0) throw new Error(`apt index has no size for ${missing.length} of ${entries.length} locked pins (${missing.join(", ")})`);
   const batches: Array<{ pins: string[]; bytes: number }> = [];
   let current: { pins: string[]; bytes: number } = { pins: [], bytes: 0 };
-  for (const [name, version] of Object.entries(packages).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, version] of entries) {
     const pin = `${name}=${version}`;
     const size = sizes.get(pin);
-    if (size === undefined) throw new Error(`apt index has no size for ${pin}`);
+    if (size === undefined) continue;
     if (current.pins.length > 0 && current.bytes + size > maxBytes) {
       batches.push(current);
       current = { pins: [], bytes: 0 };
@@ -344,7 +382,7 @@ async function installApt(ctx: Ctx): Promise<void> {
   const { ubuntu, pgdg } = lock.apt;
   await L.step(vm, "apt-sources-snapshot", "cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/ubuntu.sources.live");
   await writeGuestFile(vm, "/etc/apt/sources.list.d/ubuntu.sources", ubuntuSourcesFile(ubuntu), 0o644);
-  await L.step(vm, "apt-update", "apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }");
+  await L.step(vm, "apt-update", APT_UPDATE_COMMAND);
   // The locked mirror can be too slow for one 5-minute exec (the guest agent's cap), so the
   // closure is downloaded in batches of about APT_BATCH_BYTES, each its own step, then
   // installed offline (--no-download) from the apt cache.
@@ -358,9 +396,10 @@ async function installApt(ctx: Ctx): Promise<void> {
   // postgresql-common would create and start a 17/main cluster on install; the image carries binaries only.
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
-  await L.step(vm, "apt-install-pgdg", `apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
-  const added = dpkgChanges(parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv")), parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
-  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added);
+  await L.step(vm, "apt-install-pgdg", `${APT_UPDATE_COMMAND}; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
+  const baseDpkg = parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv"));
+  const added = dpkgChanges(baseDpkg, parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
+  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added, baseDpkg);
   if (problems.length > 0) throw new Error(`apt closure differs from the lock:\n${problems.join("\n")}`);
   ctx.result.aptInstalled = added.size;
   await L.step(vm, "postgres-binaries-only", [
@@ -384,6 +423,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
+  // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
+  for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */
@@ -416,7 +458,28 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "systemctl list-timers --all --no-legend | awk '{print $NF}' | tr '\\n' ' '",
   ].join(" && "));
   await writeGuestFile(vm, "/etc/tmpfiles.d/cmux-snapshot-resume.conf", "# Clones resume with a monotonic clock jump; do not report a workqueue lockup.\nw- /sys/module/workqueue/parameters/watchdog_thresh - - - - 0\n", 0o644);
-  await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
+  // Shell defaults (web/services/vms/images/shell): the devbox terminfo overlay
+  // so TERM=xterm-ghostty works in htop/vim/tmux/less, the TERM fallback and
+  // truecolor profile, and no provider banner (Freestyle's static /etc/motd,
+  // the stock Ubuntu motd scripts).
+  await writeGuestFile(vm, "/etc/cmux/terminfo.src", devboxFileBytes("cmux-terminfo.src"), 0o644);
+  await writeGuestFile(vm, "/etc/profile.d/cmux-terminfo.sh", devboxFileBytes("cmux-terminfo.sh"), 0o644);
+  await writeGuestFile(vm, "/etc/profile.d/cmux-shell.sh", readFileSync(path.join(SHELL_DIR, "cmux-shell.sh")), 0o644);
+  await writeGuestFile(vm, "/etc/cmux/nvm-lazy.sh", readFileSync(path.join(SHELL_DIR, "nvm-lazy.sh")), 0o644);
+  await L.step(vm, "terminfo", devboxTerminfoInstallCommand);
+  await L.step(vm, "shell-env", [
+    "grep -qxF '[ -f /etc/profile.d/cmux-shell.sh ] && . /etc/profile.d/cmux-shell.sh' /etc/bash.bashrc || echo '[ -f /etc/profile.d/cmux-shell.sh ] && . /etc/profile.d/cmux-shell.sh' >> /etc/bash.bashrc",
+    ": > /etc/motd",
+    // The provider's eager nvm loader costs ~300 ms per login shell; node stays on PATH.
+    "if [ -f /etc/profile.d/nvm.sh ] && grep -q 'nvm\\.sh\"' /etc/profile.d/nvm.sh; then cp /etc/profile.d/nvm.sh /etc/cmux/nvm.sh.orig && cp /etc/cmux/nvm-lazy.sh /etc/profile.d/nvm.sh; fi",
+    "env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'command -v node' >/dev/null",
+    "for f in /etc/update-motd.d/*; do [ -f \"$f\" ] && chmod -x \"$f\"; done; true",
+    "[ \"$(env -i HOME=/root TERM=bogus-term sh -c '. /etc/profile.d/cmux-shell.sh; echo $TERM $COLORTERM')\" = 'xterm-256color truecolor' ]",
+    "echo shell-env-ok",
+  ].join(" && "));
+  await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
 /** The metadata service for root only (metadata-guard.ts), loaded now so the parked snapshot carries it. */
@@ -463,10 +526,13 @@ async function configureRoles(ctx: Ctx): Promise<void> {
 async function installHostConfig(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await L.step(vm, "host-dirs", "install -d -m 0700 /var/lib/cmux && install -d -m 0755 /etc/cmux");
-  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfig(), 0o644);
+  const hostConfigBody = hostConfig();
+  const hostCarrier = (JSON.parse(hostConfigBody) as { remoteWs: { carrier: string } }).remoteWs.carrier;
+  ctx.result.cmuxRemoteAuth = hostCarrier === "freestyle-edge-grant" ? "client-grant" : "trusted-carrier";
+  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfigBody, 0o644);
   ctx.result.hostConfig = (await L.step(vm, "host-config", [
     `chown root:root ${HOST_CONFIG_PATH}`,
-    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "freestyle-edge"}}, c' ${HOST_CONFIG_PATH}`,
+    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "${hostCarrier}"}}, c' ${HOST_CONFIG_PATH}`,
     `test "$(stat -c '%U %a' ${HOST_CONFIG_PATH})" = "root 644"`,
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
     `${HOST_CLI} --help >/dev/null`,
@@ -505,12 +571,43 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
+/** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
+async function installMachineHealth(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  for (const file of machineHealthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  const out = await L.step(vm, "machine-health", machineHealthBakeCommand(), 120_000);
+  ctx.result.machineHealth = JSON.parse(out.slice(out.lastIndexOf('{"schema"')));
+}
+
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
   for (const file of agentToolsFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+}
+
+/**
+ * --dev-tree: the lock's libclang closure from the dated snapshot (exactly, as installApt), then the
+ * checkout at this commit (GITHUB_SHA; the branch head in a local run), Zig, Rust and the first build.
+ */
+async function installDevTree(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  const tree = devTreeLock(ctx.lock);
+  const sizes = parseAptSizes(await L.step(vm, "dev-tree-apt-sizes", aptSizesCommand(tree.apt)));
+  const batches = aptDownloadBatches(tree.apt, sizes);
+  for (const [i, batch] of batches.entries()) await L.step(vm, `dev-tree-apt-download-${i + 1}-of-${batches.length}`, aptDownloadBatchCommand(batch.pins));
+  await L.step(vm, "dev-tree-apt-install", `${DPKG_LIST} > /root/dev-tree-before.tsv && { apt-get install -y --no-install-recommends --no-download ${aptPinArgs(tree.apt)} >/tmp/apt-dev-tree.log 2>&1 || { tail -40 /tmp/apt-dev-tree.log; exit 1; }; } && ${DPKG_LIST} > /root/dev-tree-after.tsv`);
+  const before = parseDpkgList(await readGuestText(vm, "/root/dev-tree-before.tsv"));
+  const problems = aptClosureProblems(tree.apt, dpkgChanges(before, parseDpkgList(await readGuestText(vm, "/root/dev-tree-after.tsv"))), before);
+  if (problems.length > 0) throw new Error(`dev tree apt closure differs from devTree.apt:\n${problems.join("\n")}`);
+  await uploadDevTreeScript(vm);
+  const phases: Record<string, number> = {};
+  const head = await setUpDevTree(vm, tree, process.env.GITHUB_SHA ?? "", phases, (line) => L.log(line));
+  await L.step(vm, "dev-tree-no-credentials", devTreeCredentialCheckCommand(tree));
+  const bytes = await devTreeSizes(vm, tree);
+  await L.step(vm, "dev-tree-done", `rm -f ${DEV_TREE_SCRIPT} /root/dev-tree-before.tsv /root/dev-tree-after.tsv /tmp/apt-dev-tree.log`);
+  ctx.result.devTree = { head, dir: tree.dir, firstBuild: FIRST_BUILD.join(" "), phasesMs: phases, bytes };
 }
 
 async function startDaemon(ctx: Ctx): Promise<void> {
@@ -545,14 +642,16 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", "mkdir -p /tmp/cmux-out");
   await writeGuestFile(vm, "/tmp/cmux-out/manifest.py", readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
-  result.manifest = (await L.step(vm, "file-manifest", "python3 /tmp/cmux-out/manifest.py /tmp/cmux-out/manifest.tsv && gzip -9 /tmp/cmux-out/manifest.tsv")).trim();
+  // The dev tree is the recorded commit, public crates and toolchains (result.devTree), not hashed or catalogued file by file.
+  const skip = options.devTree ? devTreeUserPaths(devTreeLock(lock)) : [];
+  result.manifest = (await L.step(vm, "file-manifest", `python3 /tmp/cmux-out/manifest.py /tmp/cmux-out/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9 /tmp/cmux-out/manifest.tsv`)).trim();
   result.syft = (await L.step(vm, "sbom", [
     `mkdir -p /tmp/cmux-syft && curl -fsSL --retry 3 -o /tmp/cmux-syft/syft.tgz ${sq(syft.url)}`,
     `printf '%s  %s\\n' ${syft.sha256} /tmp/cmux-syft/syft.tgz | sha256sum -c --quiet -`,
     `test "$(stat -c %s /tmp/cmux-syft/syft.tgz)" = ${syft.size}`,
     "tar -xzf /tmp/cmux-syft/syft.tgz -C /tmp/cmux-syft syft",
     "t=$(date +%s)",
-    "cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=/tmp/cmux-syft timeout 280 /tmp/cmux-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' -o cyclonedx-json=/tmp/cmux-out/sbom.cdx.json -q",
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=/tmp/cmux-syft timeout 280 /tmp/cmux-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=/tmp/cmux-out/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     "gzip -9 /tmp/cmux-out/sbom.cdx.json",
   ].join(" && "))).trim();
@@ -566,6 +665,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
 
 /** Bakes one snapshot. Never throws: failures land in result.error; the builder is always deleted. */
@@ -574,7 +674,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const lockText = readFileSync(options.lockPath, "utf8");
   const lock = parseInputsLock(lockText);
   const sha = (process.env.GITHUB_SHA ?? "0000000000").toLowerCase();
-  const name = imageResourceName({ promotion: options.promotion, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
+  const name = imageResourceName({ promotion: options.promotion, prodCopy: options.prodCopy, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
   const L = new StepLog(path.join(options.outDir, `bake-${name}.log`));
   const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot };
@@ -582,7 +682,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   try {
-    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion });
+    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
     await firstExec(builder.vm, builder.t0);
     const ctx: Ctx = { vm: builder.vm, L, lock, lockText, options, result, name };
@@ -601,6 +701,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
+    if (options.devTree) await installDevTree(ctx);
+    await installMachineHealth(ctx);
     await installHostConfig(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
@@ -627,8 +729,12 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
+  if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
@@ -638,6 +744,8 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     promotion: hasFlag("--promotion", argv),
     agentTools: hasFlag("--agent-tools", argv),
     teamVm: hasFlag("--team-vm", argv),
+    devTree: hasFlag("--dev-tree", argv),
+    prodCopy: hasFlag("--prod-copy", argv),
   };
 }
 

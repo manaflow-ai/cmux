@@ -14,12 +14,13 @@ use std::time::{Duration, Instant};
 use cmux_app_host::{AppInfo, FromHost, ToHost};
 use serde_json::{Value, json};
 
-use super::grants::{Decision, Grant, ScopeTable};
+use super::grants::{Grant, ScopeTable};
 use super::host::{Exit, HostProcess};
 use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
 };
 use crate::backoff::Backoff;
+use cmux_json::JsonSet as _;
 
 /// A host that stays up this long after `ready` counts as healthy: its next
 /// crash starts the backoff over.
@@ -160,7 +161,7 @@ impl Supervisor {
         payload.as_object_mut().expect("object").remove("gesture");
         if user && !host_key.preview {
             let token = inner.gestures.mint(&host_key.app, Instant::now());
-            payload["gesture"] = Value::String(token);
+            payload.set("gesture", Value::String(token));
         }
         let running = inner
             .hosts
@@ -233,8 +234,8 @@ impl Supervisor {
             });
         }
         let host = inner.hosts.get_mut(key).expect("host record");
-        for run in host.queued_runs.drain(..) {
-            process.send(&run);
+        for run in std::mem::take(&mut host.queued_runs) {
+            run.dispatch(host, &process);
         }
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
@@ -277,6 +278,7 @@ impl Supervisor {
             for (_, respond) in host.runs {
                 outs.push(Out::Respond(respond, Err(ApiError::new("apps.host", reason))));
             }
+            outs.extend(host.queued_runs.into_iter().map(|run| run.refuse("apps.host", reason)));
         }
         outs.push(Out::Broadcast(
             json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": reason }),
@@ -325,6 +327,9 @@ impl Supervisor {
         {
             self.stop_host_locked(&mut inner, key);
         }
+        let outs = Self::inventory_demand_locked(&mut inner).into_iter().collect();
+        drop(inner);
+        self.emit(outs);
     }
 
     fn stop_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
@@ -365,7 +370,7 @@ impl Supervisor {
         outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
         if let Some(host) = inner.hosts.get_mut(&key) {
             host.grant = Grant { revoked: true, ..Grant::default() };
-            host.queued_runs.clear();
+            outs.extend(host.queued_runs.drain(..).map(|run| run.refuse("apps.disabled", reason)));
             for (_, respond) in host.runs.drain() {
                 outs.push(Out::Respond(respond, Err(ApiError::new("apps.disabled", reason))));
             }
@@ -403,7 +408,9 @@ impl Supervisor {
             if inner.hosts.get(key).is_none_or(|h| h.generation != generation) {
                 return;
             }
-            self.host_message_locked(&mut inner, key, message)
+            let mut outs = self.host_message_locked(&mut inner, key, message);
+            outs.extend(Self::inventory_demand_locked(&mut inner));
+            outs
         };
         self.emit(outs);
     }
@@ -441,7 +448,7 @@ impl Supervisor {
                 let mut event =
                     json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
                 if std::mem::take(&mut record.reset) {
-                    event["reset"] = Value::Bool(true);
+                    event.set("reset", Value::Bool(true));
                 }
                 vec![Out::Client(mount_key.client, event)]
             }
@@ -492,20 +499,15 @@ impl Supervisor {
         sub: u64,
         stream: String,
     ) -> Vec<Out> {
-        let host = inner.hosts.get_mut(key).expect("host");
-        let family = stream.strip_suffix(".changed").unwrap_or_default();
-        let table = ScopeTable::get();
-        let readable = ["list", "get"].iter().any(|verb| {
-            matches!(
-                table.check(&format!("{family}.{verb}"), &Value::Null, &host.grant),
-                Decision::Allow(_)
-            )
-        });
-        if !readable || host.subs.len() >= MAX_SUBSCRIPTIONS {
+        let host = &inner.hosts[key];
+        if !Self::stream_readable(inner, key, host, &stream) || host.subs.len() >= MAX_SUBSCRIPTIONS
+        {
             return vec![];
         }
+        let host = inner.hosts.get_mut(key).expect("host");
+        let inventory = stream == super::subscriptions::INVENTORY_STREAM;
         host.subs.insert(sub, stream);
-        if inner.events_started {
+        if inventory || inner.events_started {
             return vec![];
         }
         inner.events_started = true;
@@ -548,6 +550,7 @@ impl Supervisor {
                 }
                 _ => outs.extend(self.crashed_locked(&mut inner, key, &exit)),
             }
+            outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
         self.emit(outs);
@@ -601,13 +604,12 @@ impl Supervisor {
 
     /// Delivers a daemon change event to every subscribed host.
     pub fn publish(&self, stream: &str, body: Value) {
-        let inner = self.inner.lock().unwrap();
-        for host in inner.hosts.values() {
-            let Some(process) = &host.process else { continue };
-            for (sub, _) in host.subs.iter().filter(|(_, s)| s.as_str() == stream) {
-                process.send(&ToHost::Event { sub: *sub, body: body.clone() });
-            }
+        // This family has one verified-provider ingress, never the generic router feed.
+        if stream == super::subscriptions::INVENTORY_STREAM {
+            return;
         }
+        let inner = self.inner.lock().unwrap();
+        Self::publish_stream_locked(&inner, stream, body);
     }
 }
 

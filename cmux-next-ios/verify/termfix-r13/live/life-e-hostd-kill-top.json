@@ -1,0 +1,32 @@
+{
+ "t0": 1792478478.2506711,
+ "t_kill": 1792478481.262521,
+ "pill_changes": [
+  [
+   0.46,
+   "e2e-t1, ~"
+  ],
+  [
+   1.03,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   2.26,
+   "e2e-t1, ~"
+  ]
+ ],
+ "pill_live_after_kill_s": 2.26,
+ "hostd_log": [
+  "2026-10-20T06:35:27.658217Z  INFO cnx_hostd::host: link up session_id=\"0a3d6d15-26a2-4d56-b38c-33a343196c25\" kind=WebRtc path=Direct phone=\"8f5a4013-831f-4a35-a19f-30fd5f5fa236\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms pc_created=0.2ms answer_sent=0.6ms remote_host=0.6ms ice_checking=0.6ms remote_srflx=0.6ms remote_relay=0.7ms local_host=1.1ms local_srflx=36.1ms ice_connected=45.4ms dtls_connected=48.4ms video_lane=49.7ms channel_open=49.7ms pair_host-prflx=49.7ms link_ready=49.7ms",
+  "2026-10-20T06:35:55.928074Z  INFO cnx_hostd::host: link down session_id=\"782d99d3-deb8-4092-8b94-58e4ff2f89fc\" reason=\"keepalive timed out\"",
+  "2026-10-20T06:37:39.753383Z  INFO cnx_hostd::host: signaling connected device_id=\"0db6eaea-0902-4e54-a20b-c34ae6143ca3\"",
+  "2026-10-20T06:37:40.152836Z  INFO cnx_hostd::host: link up session_id=\"12f37d7a-337e-4863-89bf-44a2f57ba96d\" kind=WebRtc path=Direct phone=\"a18ea56a-56b4-4c64-bc02-f3b252dc20a5\" video=true timings=offer_received=0.0ms ice_servers_fetched=309.1ms pc_created=309.6ms ice_checking=310.1ms answer_sent=310.4ms remote_host=310.4ms remote_srflx=310.5ms remote_relay=310.8ms local_host=311.3ms local_srflx=321.6ms local_relay=338.3ms ice_connected=343.2ms dtls_connected=349.5ms video_lane=350.5ms channel_open=350.5ms pair_host-host=350.6ms link_ready=350.6ms",
+  "2026-10-20T06:40:12.867845Z  INFO cnx_hostd::host: signaling connected device_id=\"0db6eaea-0902-4e54-a20b-c34ae6143ca3\"",
+  "2026-10-20T06:40:13.207144Z  INFO cnx_hostd::host: link up session_id=\"ab1ae270-9dce-44b4-8fac-7fd49a302387\" kind=WebRtc path=Direct phone=\"a18ea56a-56b4-4c64-bc02-f3b252dc20a5\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms pc_created=0.5ms answer_sent=1.0ms remote_host=1.0ms ice_checking=1.0ms remote_srflx=1.1ms remote_relay=1.1ms local_host=1.4ms local_srflx=30.3ms ice_connected=45.3ms dtls_connected=49.2ms local_relay=49.6ms video_lane=49.8ms channel_open=49.8ms pair_host-host=49.8ms link_ready=49.8ms",
+  "2026-10-20T06:41:22.850239Z  INFO cnx_hostd::host: signaling connected device_id=\"0db6eaea-0902-4e54-a20b-c34ae6143ca3\"",
+  "2026-10-20T06:41:23.005170Z  INFO cnx_hostd::host: link up session_id=\"4f7522db-d0ee-4c95-9500-be2d4570c6fa\" kind=WebRtc path=Direct phone=\"a18ea56a-56b4-4c64-bc02-f3b252dc20a5\" video=true timings=offer_received=0.0ms ice_servers_fetched=79.3ms pc_created=80.2ms answer_sent=81.2ms remote_host=81.2ms ice_checking=81.3ms remote_srflx=81.3ms remote_relay=81.4ms local_host=81.8ms local_srflx=97.9ms ice_connected=99.2ms dtls_connected=101.6ms video_lane=102.3ms channel_open=102.3ms pair_host-host=102.4ms link_ready=102.4ms"
+ ],
+ "hostd_signaling_after_kill_s": 1.59,
+ "link_up_after_kill_s": 1.74,
+ "link_up_after_signaling_s": 0.15
+}

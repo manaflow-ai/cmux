@@ -65,6 +65,9 @@ def main() -> int:
             "chromium": args.chromium,
             "devices": len(chrome),
         },
+        # cmux's menu fields for Chrome's rows (released, brand, group) by title,
+        # kept apart so the Chrome rows stay verbatim.
+        "chrome-annotations": current.get("chrome-annotations", {}),
         "devices": chrome + cmux,
     }
     text = json.dumps(data, indent=1, ensure_ascii=False) + "\n"

@@ -30,7 +30,7 @@ public final class TabImage: Hashable, @unchecked Sendable {
     public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
 }
 
-/// Agent or process status shown as a small colored dot on the icon.
+/// Agent or process status shown as a small colored dot at the tab's trailing end (TabCell+TrailingMarks).
 /// A status dot takes priority over the neutral unread dot.
 public enum TabStatus: Hashable, Sendable {
     case none

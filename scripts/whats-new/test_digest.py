@@ -77,14 +77,16 @@ class DigestTests(unittest.TestCase):
         folder = os.path.join(root, digest.HIGHLIGHTS)
         if not os.path.isdir(folder):
             self.skipTest("no highlight files in this checkout")
-        entries = []
+        # A nightly digest holds only the files one build adds, so each file is checked as the
+        # digest checks it: on its own. One document of every file would trip the entry limit.
+        problems = {}
         for name in sorted(os.listdir(folder)):
             if name.endswith(".md"):
                 with open(os.path.join(folder, name), encoding="utf-8") as f:
-                    entries.append(digest.parse(name, f.read()))
-        document = {"schemaVersion": 1, "version": "1.0.0-nightly.1", "channel": "nightly", "date": "2026-10-07",
-                    "headline": {"en": digest.headline(entries)}, "entries": entries}
-        self.assertEqual(validate.validate_document("1.0.0-nightly.1.json", document), [])
+                    found = digest.entry_problems(digest.parse(name, f.read()))
+                if found:
+                    problems[name] = found
+        self.assertEqual(problems, {})
 
 
 if __name__ == "__main__":

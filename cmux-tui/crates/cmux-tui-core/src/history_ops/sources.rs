@@ -6,6 +6,36 @@ use cmux_history::{ClosedKind, HistoryEntry, HistoryKind};
 use serde_json::Value;
 
 use super::trail::TrailEntry;
+use crate::state::closed_history_query::{closed_page, closed_tabs};
+
+/// The closed items worth reopening as entries, newest first, a page closed again once, at
+/// its newest close (Leo 2026-10-14: Recently Closed is high signal; `closed_page`).
+pub(super) fn closed_entries(items: &[Value]) -> Vec<HistoryEntry> {
+    let mut entries = items
+        .iter()
+        .filter_map(|item| Some((closed_entry(item)?, closed_page(item))))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.at_ms));
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|(_, page)| page.is_none_or(|page| seen.insert(page)));
+    entries.into_iter().map(|(entry, _)| entry).collect()
+}
+
+/// The closed groups the row `id` (`closed:daemon:<closed id>`) stands for: its own, and for a
+/// page every other close of it, so removing the row leaves no older close to take its place.
+pub(super) fn closed_ids_of(items: &[Value], id: &str) -> Vec<String> {
+    let row = |item: &Value| {
+        let closed = item.get("id").and_then(Value::as_str)?;
+        Some(format!("{}{closed}", super::closed::PREFIX))
+    };
+    let page = items.iter().find(|item| row(item).as_deref() == Some(id)).and_then(closed_page);
+    match page {
+        Some(page) => {
+            items.iter().filter(|item| closed_page(item) == Some(page)).filter_map(row).collect()
+        }
+        None => vec![id.to_owned()],
+    }
+}
 
 /// One closed-history item (`closed.list` shape) as an entry
 /// `closed:daemon:<closed id>`. An item that reopens as nothing (only tabs
@@ -13,7 +43,7 @@ use super::trail::TrailEntry;
 /// left out, and a row is named by its first other tab, never by the
 /// `about:blank` placeholder a chat or New Tab page is kept on (Leo
 /// 2026-10-11).
-pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
+fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let id = item.get("id")?.as_str()?;
     let at_ms = decimal(item.get("closed_at_ms")?)?;
     let tabs = closed_tabs(item);
@@ -35,6 +65,9 @@ pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let url = text(tab, "url");
     let cwd = text(tab, "cwd");
     let closed_kind = match item.get("kind")?.as_str()? {
+        "tab" if text(tab, "kind").as_deref() == Some("conversation") => {
+            ClosedKind::ConversationTab
+        }
         "tab" if text(tab, "kind").as_deref() == Some("browser") => ClosedKind::BrowserTab,
         "tab" => ClosedKind::TerminalTab,
         "screen" => ClosedKind::Screen,
@@ -56,24 +89,6 @@ pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     entry.url = url;
     entry.cwd = cwd;
     Some(entry)
-}
-
-/// Every tab the item would recreate: every member's, else the top level's
-/// (a v1 item), as the Swift `ClosedItem.tabs`.
-fn closed_tabs(item: &Value) -> Vec<&Value> {
-    fn tabs_of(screens: Option<&Value>) -> Vec<&Value> {
-        screens
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
-            .flatten()
-            .collect()
-    }
-    match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
-        Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
-        None => tabs_of(item.get("screens")),
-    }
 }
 
 /// One trail entry as a location row (`location:<entry id>`). The daemon
@@ -103,5 +118,23 @@ fn decimal(value: &Value) -> Option<i64> {
     match value {
         Value::String(text) => text.parse().ok(),
         other => other.as_i64(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_chat_keeps_conversation_kind_in_merged_history() {
+        for (kind, expected) in
+            [("conversation", ClosedKind::ConversationTab), ("browser", ClosedKind::BrowserTab)]
+        {
+            let item = serde_json::json!({"id":"closed_chat","kind":"tab","closed_at_ms":1,
+                "screens":[{"tabs":[{"kind":kind,"url":"about:blank","agent_session":{"session":"sess-closed","harness":"codex"}}]}]});
+            let entry = closed_entry(&item).unwrap();
+            assert_eq!(entry.closed_kind, Some(expected));
+            assert_eq!(entry.id, "closed:daemon:closed_chat");
+        }
     }
 }

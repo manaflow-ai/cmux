@@ -6,6 +6,7 @@
 //! handles before any driver sees the call; the VM never holds a driver.
 
 use crate::protocol::DriverError;
+use cmux_json::JsonSet as _;
 use rquickjs::{Context, Ctx, Function, Object, Persistent, Promise, Runtime};
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -531,13 +532,13 @@ fn install(
                     if op == "writeFile"
                         && let Some(encoded) = args["base64"].as_str().and_then(masked)
                     {
-                        args["base64"] = Value::String(encoded);
+                        args.set("base64", Value::String(encoded));
                     }
                     let mut result = sandbox.call(&op, &args);
                     if op == "readFile"
                         && let Some(encoded) = result["ok"].as_str().and_then(masked)
                     {
-                        result["ok"] = Value::String(encoded);
+                        result.set("ok", Value::String(encoded));
                     }
                     result.to_string()
                 }

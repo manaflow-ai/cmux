@@ -1,5 +1,6 @@
 //! `cmux-tui wg hub` logic in-process: a hub owns the tunnel, a SOCKS dialer
-//! reaches a daemon through it, and the hub enforces its ruleset.
+//! reaches a daemon through it, and the hub enforces its client token and
+//! ruleset.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::observability::ConnectionState;
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, SocksDialer, TransportProvider,
+    ConnectRequest, Dialer, DirectWebSocketProvider, HubClientToken, SocksDialer, TransportProvider,
 };
 use cmux_remote::session::SessionLimits;
 use cmux_remote::wireguard_hub::serve_wireguard_hub;
@@ -39,13 +40,25 @@ async fn bridge_to_daemon(net: &WgNet, port: u16, daemon: SocketAddr) {
     });
 }
 
-/// Raw SOCKS5 CONNECT; returns the reply code.
-async fn socks_connect_reply(path: &std::path::Path, request_tail: &[u8]) -> u8 {
+/// Raw SOCKS5 CONNECT with the hub's token; returns the reply code.
+async fn socks_connect_reply(
+    path: &std::path::Path,
+    token: &HubClientToken,
+    request_tail: &[u8],
+) -> u8 {
     let mut stream = UnixStream::connect(path).await.unwrap();
-    stream.write_all(&[0x05, 1, 0x00]).await.unwrap();
+    stream.write_all(&[0x05, 1, 0x02]).await.unwrap();
     let mut chosen = [0u8; 2];
     stream.read_exact(&mut chosen).await.unwrap();
-    assert_eq!(chosen, [0x05, 0x00]);
+    assert_eq!(chosen, [0x05, 0x02]);
+    let mut auth = vec![0x01, 4];
+    auth.extend_from_slice(b"cmux");
+    auth.push(u8::try_from(token.as_str().len()).unwrap());
+    auth.extend_from_slice(token.as_str().as_bytes());
+    stream.write_all(&auth).await.unwrap();
+    let mut status = [0u8; 2];
+    stream.read_exact(&mut status).await.unwrap();
+    assert_eq!(status, [0x01, 0x00]);
     let mut request = vec![0x05, 0x01, 0x00];
     request.extend_from_slice(request_tail);
     stream.write_all(&request).await.unwrap();
@@ -72,7 +85,10 @@ async fn sidecar_reaches_a_daemon_through_the_hub() {
 
     let hub_dir = tempdir().unwrap();
     let socket_path = hub_dir.path().join("hub").join("wg.sock");
-    let hub = serve_wireguard_hub(Arc::clone(&tunnel), socket_path.clone()).await.unwrap();
+    let token = HubClientToken::generate().unwrap();
+    let hub = serve_wireguard_hub(Arc::clone(&tunnel), socket_path.clone(), Some(token.clone()))
+        .await
+        .unwrap();
     assert!(socket_path.exists());
     assert_eq!(hub.routes().len(), 2);
     #[cfg(unix)]
@@ -95,7 +111,7 @@ async fn sidecar_reaches_a_daemon_through_the_hub() {
         }
     });
     let session = SessionId([77; 16]);
-    let dialer = Arc::new(SocksDialer::new(socket_path.clone()));
+    let dialer = Arc::new(SocksDialer::new(socket_path.clone()).with_token(token.clone()));
     let group = DirectWebSocketProvider::with_dialer(65_535, dialer)
         .connect(ConnectRequest {
             endpoint,
@@ -146,21 +162,42 @@ async fn sidecar_reaches_a_daemon_through_the_hub() {
         .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
 
+    // Another program of this user that finds the socket but lacks the token
+    // reaches only ssh (`cmux wg dial`, which ssh authenticates end to end):
+    // the daemon's port is refused by ruleset, and a wrong token gets nothing.
+    let mut anonymous = UnixStream::connect(&socket_path).await.unwrap();
+    anonymous.write_all(&[0x05, 1, 0x00]).await.unwrap();
+    let mut chosen = [0u8; 2];
+    anonymous.read_exact(&mut chosen).await.unwrap();
+    assert_eq!(chosen, [0x05, 0x00], "no-auth is the ssh-only lane");
+    let target = format!("{server_v6}");
+    let tokenless = SocksDialer::new(socket_path.clone());
+    let refused = tokenless.dial(&target, 1337).await.err().expect("no token, no daemon");
+    assert!(refused.to_string().contains("reply 0x02"), "{refused}");
+    // Port 22 passes the hub's rule: nothing listens there in this test, so the
+    // tunnel's own answer (connection refused) comes back, not the ruleset's.
+    let ssh = tokenless.dial("10.200.0.2", 22).await.err().expect("nothing listens on 22");
+    assert!(ssh.to_string().contains("reply 0x05"), "{ssh}");
+    let forged =
+        SocksDialer::new(socket_path.clone()).with_token(HubClientToken::generate().unwrap());
+    let refused = forged.dial(&target, 1337).await.err().expect("wrong token, no tunnel");
+    assert!(refused.to_string().contains("refused the client token"), "{refused}");
+
     // Ruleset: outside the tunnel's routes -> 0x02.
     let mut outside = vec![0x01, 192, 0, 2, 1];
     outside.extend_from_slice(&80u16.to_be_bytes());
-    assert_eq!(socks_connect_reply(&socket_path, &outside).await, 0x02);
+    assert_eq!(socks_connect_reply(&socket_path, &token, &outside).await, 0x02);
 
     // Names are not dialed -> 0x08 address type not supported.
     let mut domain = vec![0x03, 11];
     domain.extend_from_slice(b"example.com");
     domain.extend_from_slice(&443u16.to_be_bytes());
-    assert_eq!(socks_connect_reply(&socket_path, &domain).await, 0x08);
+    assert_eq!(socks_connect_reply(&socket_path, &token, &domain).await, 0x08);
 
     // Inside the routes but nothing listens -> connection refused.
     let mut refused = vec![0x01, 10, 200, 0, 2];
     refused.extend_from_slice(&4444u16.to_be_bytes());
-    assert_eq!(socks_connect_reply(&socket_path, &refused).await, 0x05);
+    assert_eq!(socks_connect_reply(&socket_path, &token, &refused).await, 0x05);
 
     client.close().await.unwrap();
     hub.shutdown().await.unwrap();
@@ -175,7 +212,7 @@ async fn a_hub_dropped_without_shutdown_still_unlinks_its_socket() {
     let tunnel = Arc::new(WgNet::start(client, client_socket).await.unwrap());
     let hub_dir = tempdir().unwrap();
     let socket_path = hub_dir.path().join("wg.sock");
-    let hub = serve_wireguard_hub(tunnel, socket_path.clone()).await.unwrap();
+    let hub = serve_wireguard_hub(tunnel, socket_path.clone(), None).await.unwrap();
     assert!(socket_path.exists());
     drop(hub);
     assert!(!socket_path.exists());
@@ -187,8 +224,8 @@ async fn a_second_hub_on_a_live_socket_is_refused() {
     let tunnel = Arc::new(WgNet::start(client, client_socket).await.unwrap());
     let hub_dir = tempdir().unwrap();
     let socket_path = hub_dir.path().join("wg.sock");
-    let first = serve_wireguard_hub(Arc::clone(&tunnel), socket_path.clone()).await.unwrap();
-    let second = serve_wireguard_hub(tunnel, socket_path.clone()).await;
+    let first = serve_wireguard_hub(Arc::clone(&tunnel), socket_path.clone(), None).await.unwrap();
+    let second = serve_wireguard_hub(tunnel, socket_path.clone(), None).await;
     assert!(second.is_err(), "two hubs must not share one socket path");
     first.shutdown().await.unwrap();
 }

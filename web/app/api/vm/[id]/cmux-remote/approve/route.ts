@@ -9,11 +9,8 @@ import { approveVmCmuxRemoteEnrollment } from "../../../../../../services/vms/wo
 import { parseLenientObjectBody } from "../../../../../../services/vms/routeInput";
 
 /**
- * Compatibility endpoint. Cloud machines serve a trusted-carrier listener
- * (reachable only inside the owner's private network), so there is no device
- * enrollment to approve: the provider answers `approved` without touching the
- * machine. Older Mac builds call this once after their first connect; the
- * route stays until every published build has stopped calling it.
+ * Approves the short-lived enrollment invitation returned by attach-endpoint.
+ * Compatibility providers may still answer `approved` without guest work.
  */
 export async function POST(
   request: Request,

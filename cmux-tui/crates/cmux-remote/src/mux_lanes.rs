@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use cmux_remote_protocol::Lane;
 use serde::Deserialize;
@@ -133,7 +133,9 @@ impl MuxLaneTracker {
         }
         match envelope
             .id
-            .and_then(|id| self.state.lock().unwrap().requests.remove(&id))
+            .and_then(|id| {
+                self.state.lock().unwrap_or_else(PoisonError::into_inner).requests.remove(&id)
+            })
             .map(|tracked| tracked.disposition)
         {
             Some(ResponseDisposition::Forward(lane)) => Some(lane),
@@ -143,7 +145,7 @@ impl MuxLaneTracker {
     }
 
     fn track(&self, id: u64, disposition: ResponseDisposition) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.next_token == u64::MAX {
             state.requests.clear();
             state.order.clear();
@@ -193,8 +195,8 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         // look missing to the client resolving it.
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
-            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "terminal-resources"
-            | "subscribe" | "resolve-terminal",
+            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "terminal-ports"
+            | "terminal-resources" | "subscribe" | "resolve-terminal",
         ) => Lane::Control,
         // Mutations default to one ordered lane with compact PTY input. This
         // keeps a later close, move, focus, resize, or configuration change

@@ -2,16 +2,32 @@ import Foundation
 
 /// The install gate over Sparkle's flow (R114, SIDEBAR-FOOTER-MINIMAL):
 /// downloads stay invisible, a staged update is the footer's "Update Ready"
-/// pill, one click installs and relaunches at once (the relaunch keeps every
-/// terminal and agent, so nothing waits for agents and nothing asks), and a
-/// quit installs a staged update unless `updates.installOnQuit` is off. A
-/// pure value: the App feeds events and performs the effects.
+/// pill, and a click or approved idle install passes through the relaunch gate
+/// before Sparkle relaunches. A quit installs a staged update unless
+/// `updates.installOnQuit` is off. A pure value: the App feeds events and
+/// performs the effects.
+///
+/// Without the automatic-install opt-in (`updates.downloadAutomatically`, off by default on
+/// every channel) the flow asks twice, as Sparkle's own UI does: a found update waits on the
+/// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
+/// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
+/// until Restart to Update (``UpdateFlowEvent/installRequested``). Hide, or no answer, never
+/// relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
+/// nightly restart policy).
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
     /// The user asked to install; held until the update is staged.
     public private(set) var installRequested = false
     /// The user asked to check: checking, downloading and the result show.
+    /// Only the person's own check sets it; a scheduled (background) check
+    /// clears it, so it shows nothing until its update is staged (Lawrence
+    /// 2026-10-20: "if there is a background check for updates, it should
+    /// not be visible to the user").
     public private(set) var userAsked = false
+    /// The person's request waits for its check to start: the next
+    /// ``UpdateIndicatorPhase/checking`` is theirs. A check that starts
+    /// without one is a scheduled check.
+    private var askPending = false
 
     public init() {}
 
@@ -21,11 +37,16 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             return sparkleMoved(to: next)
         case .checkRequested:
             userAsked = true
+            // Joining a check that already runs needs no new start.
+            askPending = phase != .checking
             return []
         case .installRequested:
             switch phase {
             case .ready:
+                // The staged update card took the click: its own button says
+                // Installing…, so the notice card does not take its place.
                 installRequested = true
+                userAsked = false
                 return installIfStaged()
             case .downloading, .checking:
                 // Installs once staged; the progress shows meanwhile.
@@ -40,6 +61,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             case .hidden, .installing, .note:
                 return []
             }
+        case .downloadRequested:
+            // The answer to the update-found step: download, show the progress, then ask again
+            // before the relaunch (the staged update card). A held install click keeps its install.
+            guard case .available = phase else { return [] }
+            userAsked = true
+            return [.download]
         case .quitRequested:
             guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }
             return [.quit(.cancelPendingInstall)]
@@ -50,15 +77,36 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         }
     }
 
+    /// The person's check while an update waits was answered without a new check (the staged
+    /// update card, ``StagedUpdateRefresh``): the next check is not theirs.
+    public mutating func askAnswered() {
+        askPending = false
+    }
+
     private mutating func sparkleMoved(to next: UpdateIndicatorPhase) -> [UpdateFlowEffect] {
+        let previous = phase
         phase = next
+        switch next {
+        case .checking:
+            // A check the person did not ask for (scheduled) shows nothing,
+            // even while an earlier result of theirs still waits for its x.
+            if askPending { askPending = false } else if previous != .checking { userAsked = false }
+        case .hidden:
+            // A check or download that ended with nothing ends the request:
+            // the next scheduled check stays silent. (A note that leaves
+            // through ``UpdateFlowEvent/noteExpired`` ends it there.)
+            if previous == .checking || previous.isDownloading { userAsked = false }
+        case .note, .available, .downloading, .ready, .installing:
+            askPending = false
+        }
         switch next {
         case .ready:
             userAsked = false
             return installIfStaged()
         case .installing:
+            // A person who watched the check and download on the notice card
+            // keeps watching it there until the relaunch (``card``).
             installRequested = false
-            userAsked = false
             return []
         case .hidden, .note:
             // The flow ended, failed or was cancelled: a held click does not
@@ -85,16 +133,26 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// The notice card's update status, or nil: what the user asked for (a
     /// check, its download, its result), and a found update that waits for
     /// a click (`updates.downloadAutomatically` off), which needs no check.
-    /// A staged or installing update is never this card (the staged update
-    /// card, ``footerPill(preferences:)``).
-    public var card: UpdateCard? {
-        if case .available(let version) = phase { return .available(version: version) }
+    /// A scheduled check, its download and its result show nothing.
+    /// A staged update is never this card (the staged update card,
+    /// ``footerPill(preferences:)``); an install shows here only when the
+    /// person followed it here (Attempt Update), so the loading card never
+    /// swaps for another card halfway.
+    ///
+    /// - Parameter downloadsAutomatically: `updates.downloadAutomatically`.
+    ///   While on, a found update that is not downloaded yet (the download
+    ///   waits for Low Data Mode or a metered link to end) shows nothing until
+    ///   it is staged, unless the person asked; off, the found update shows,
+    ///   since nothing else would tell the person about it.
+    public func card(downloadsAutomatically: Bool) -> UpdateCard? {
+        if case .available(let version) = phase, userAsked || !downloadsAutomatically { return .available(version: version) }
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
-        case .downloading(let progress): return .downloading(progress: progress)
+        case .downloading(let transfer): return .downloading(transfer)
+        case .installing: return .installing
         case .note(let note): return .note(note)
-        case .hidden, .available, .ready, .installing: return nil
+        case .hidden, .available, .ready: return nil
         }
     }
 
@@ -108,6 +166,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         case .installing: .installing
         case .hidden, .checking, .downloading, .available, .note: nil
         }
+    }
+}
+
+extension UpdateIndicatorPhase {
+    /// Downloading or unpacking.
+    nonisolated var isDownloading: Bool {
+        if case .downloading = self { true } else { false }
     }
 }
 

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 
 // Creating workspaces and windows. A window exists only while it owns a
@@ -47,7 +48,8 @@ extension WindowManager {
     /// `holdingKeysFrom`: Cmd-Shift-N's window; keys typed there meanwhile go to the new page (cx-kql5h).
     func newWindow(frame: CGRect? = nil, holdingKeysFrom keyWindow: NSWindow? = nil) -> String {
         let windowID = UUID().uuidString.lowercased(), input = services.keyRouter.newTabInputCoordinator
-        let keys = input.beginIncoming(in: keyWindow, followsNewWindow: true)
+        // cmux Classic Mode opens a terminal, not a page: no page would take the held keys.
+        let keys = NewTabKind.terminalFirst(services) ? nil : input.beginIncoming(in: keyWindow, followsNewWindow: true)
         Task { [services] in
             let made = await createWorkspace(into: windowID, frame: frame, newTabPage: true, inputToken: keys)
             input.endIncoming(keys, pageMade: made != nil); withExtendedLifetime(services) {}

@@ -20,7 +20,7 @@ public struct BrowserProfileBadge: Hashable, Sendable {
 /// tab's browser profile. Hidden while only one profile exists.
 final class ProfileBadgeView: NSView {
     static let size: CGFloat = 16
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private let symbol = NSImageView()
     /// What the badge shows now (tests): an SF Symbol name, or text.
     private(set) var shownSymbol: String?
@@ -58,6 +58,13 @@ final class ProfileBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The badge takes the whole press (not its image or label) and the first
+    /// one in a browser window that is not key: one click acts, as Chrome's
+    /// omnibar buttons do (user, 2026-10-28, "click the star twice").
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     func show(_ badge: BrowserProfileBadge) {
         color = badge.color
         // A profile icon is an emoji, a letter, or an SF Symbol name.
@@ -82,6 +89,7 @@ final class ProfileBadgeView: NSView {
     /// letters, digits and dots, more than one character).
     static func symbolImage(_ name: String) -> NSImage? {
         guard name.count > 1, name.allSatisfy({ ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "." }) else { return nil }
+        // chrome-icons: allow the profile's own symbol, chosen by the user
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
@@ -89,10 +97,10 @@ final class ProfileBadgeView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let menu = makeMenu?() else { return super.mouseDown(with: event) }
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 4), in: self)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 4), in: self)
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {

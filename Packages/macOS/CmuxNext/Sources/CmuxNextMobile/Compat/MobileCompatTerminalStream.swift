@@ -96,7 +96,7 @@ actor MobileCompatTerminalStream {
             let seq = nextSeq
             nextSeq += UInt64(clamping: bytes.count)
             await emit(surfaceID, seq, bytes)
-        case .colorsChanged, .scrollChanged:
+        case .colorsChanged, .scrollChanged, .sizeState:
             break
         case .snapshot:
             // The phone compat attach never asks for snapshots (no snapshotVersion).

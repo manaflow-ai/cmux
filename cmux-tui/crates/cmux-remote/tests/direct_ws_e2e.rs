@@ -140,7 +140,7 @@ async fn carrier_dial_is_accepted_only_by_a_trusted_listener() {
         daemon.clone(),
         "127.0.0.1:0".parse().unwrap(),
         65_535,
-        DirectWebSocketOptions { allow_insecure_non_loopback: false, trusted_carrier: true },
+        DirectWebSocketOptions { trusted_carrier: true, ..Default::default() },
     )
     .await
     .unwrap();
@@ -271,7 +271,7 @@ async fn enrolled_listener_refuses_strangers_and_closes_a_revoked_session_within
             daemon,
             bind.parse().unwrap(),
             65_535,
-            DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier: false },
+            DirectWebSocketOptions { allow_insecure_non_loopback, ..Default::default() },
         )
         .await
         .unwrap();

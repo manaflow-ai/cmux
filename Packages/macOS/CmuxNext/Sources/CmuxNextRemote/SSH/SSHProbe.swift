@@ -49,6 +49,9 @@ public struct RemoteProbe: Decodable, Hashable, Sendable {
     public var remoteProtocol: Int
     public var os: String
     public var arch: String
+    /// The probe's own JSON, as the machine printed it: what `cmux-tui remote update-need`
+    /// reads (cx-3r9mt; the app never orders builds itself).
+    public var json: String = ""
 
     enum CodingKeys: String, CodingKey {
         case app, version, os, arch
@@ -58,7 +61,9 @@ public struct RemoteProbe: Decodable, Hashable, Sendable {
     }
 
     public static func decode(_ text: String) throws -> RemoteProbe {
-        try JSONDecoder().decode(RemoteProbe.self, from: Data(text.utf8))
+        var probe = try JSONDecoder().decode(RemoteProbe.self, from: Data(text.utf8))
+        probe.json = text
+        return probe
     }
 }
 

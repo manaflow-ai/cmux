@@ -20,7 +20,12 @@ namespace cmux_shim {
 namespace {
 
 struct ContextProxy {
+  // A remote machine's store: the app's proxy on this port.
   int port = 0;
+  // Else a browser profile's own proxy (#24432): `server` empty clears it.
+  bool profile = false;
+  std::string server;
+  std::string bypass_list;
   // 0 none, 1 pending, 2 applied, -1 failed.
   int state = 0;
 };
@@ -120,13 +125,24 @@ bool IsLoopbackHost(const std::string& raw) {
 }
 
 // Whether a main-frame URL is a web URL (http, https) and loopback.
-static bool WebURL(const std::string& url, bool* loopback) {
+static bool WebURL(const std::string& url, bool* loopback, std::string* host_out = nullptr) {
   CefURLParts parts;
   if (!CefParseURL(url, parts)) return false;
   std::string scheme = CefString(&parts.scheme).ToString();
   if (scheme != "http" && scheme != "https") return false;
-  *loopback = IsLoopbackHost(CefString(&parts.host).ToString());
+  std::string host = CefString(&parts.host).ToString();
+  *loopback = IsLoopbackHost(host);
+  if (host_out) *host_out = host;
   return true;
+}
+
+// An Open Desktop page: a host under `.cloud-desktop.localhost`
+// (RemoteLocalhostService.desktopHostSuffix), which only the machine's own store reaches.
+static bool IsCloudDesktopHost(std::string host) {
+  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (!host.empty() && host.back() == '.') host.pop_back();
+  static const std::string suffix = ".cloud-desktop.localhost";
+  return host.size() > suffix.size() && host.compare(host.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 constexpr int kStoreGuardMask = 3;
@@ -138,8 +154,11 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url) {
   int store = it->second & kStoreGuardMask;
   if (store == 0) return false;
   bool loopback = false;
+  std::string host;
   // Non-web URLs (about:blank, data:, chrome://) never switch stores.
-  if (!WebURL(url, &loopback)) return false;
+  if (!WebURL(url, &loopback, &host)) return false;
+  // 3: any URL but an Open Desktop page, which goes to its machine's store, never this Mac.
+  if (store == 3) return IsCloudDesktopHost(host);
   return store == 1 ? !loopback : loopback;
 }
 
@@ -167,22 +186,29 @@ bool NavigationIsAuthCallback(int browser_id, const std::string& url) {
 
 // UI thread: applies the proxy of `cache_path` to its request context.
 void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& cache_path) {
-  int port = 0;
+  ContextProxyValues values;
   {
     std::lock_guard<std::mutex> lock(proxy_mutex());
     auto it = proxies().find(cache_path);
     if (it == proxies().end()) return;
-    port = it->second.port;
+    values = it->second.profile ? ContextProxyForServer(it->second.server, it->second.bypass_list)
+                                : ContextProxyFor(it->second.port);
   }
-  const ContextProxyValues values = ContextProxyFor(port);
   CefRefPtr<CefDictionaryValue> dict = CefDictionaryValue::Create();
   dict->SetString("mode", values.mode);
-  dict->SetString("server", values.server);
-  dict->SetString("bypass_list", values.bypass_list);
+  if (!values.server.empty()) dict->SetString("server", values.server);
+  if (!values.bypass_list.empty()) dict->SetString("bypass_list", values.bypass_list);
   CefRefPtr<CefValue> value = CefValue::Create();
   value->SetDictionary(dict);
   CefString error;
   bool ok = context->SetPreference("proxy", value, error);
+  if (ok && !values.webrtc_policy.empty() && context->CanSetPreference("webrtc.ip_handling_policy")) {
+    CefRefPtr<CefValue> policy = CefValue::Create();
+    policy->SetString(values.webrtc_policy);
+    CefString webrtc_error;
+    // Leak policy: a proxied profile must not send WebRTC UDP around the proxy.
+    ok = context->SetPreference("webrtc.ip_handling_policy", policy, webrtc_error);
+  }
   std::lock_guard<std::mutex> lock(proxy_mutex());
   auto it = proxies().find(cache_path);
   if (it != proxies().end()) it->second.state = ok ? 2 : -1;
@@ -210,6 +236,28 @@ int cmux_shim_set_context_proxy(const char* profile_cache_path, int port) {
   }
   // A context created earlier this launch gets it now; a new one gets it
   // in OnRequestContextInitialized.
+  if (CefRefPtr<CefRequestContext> context = ExistingRequestContext(path)) {
+    ApplyContextProxy(context, path);
+  }
+  return 1;
+}
+
+int cmux_shim_set_context_proxy_server(const char* profile_cache_path, const char* server, const char* bypass_list) {
+  if (!profile_cache_path || !*profile_cache_path) return 0;
+  const std::string value = server ? server : "";
+  const std::string bypass = bypass_list ? bypass_list : "";
+  if (!ContextProxyServerValid(value) || bypass.find_first_of("\r\n") != std::string::npos) return 0;
+  std::string path = profile_cache_path;
+  {
+    std::lock_guard<std::mutex> lock(proxy_mutex());
+    ContextProxy& proxy = proxies()[path];
+    // A remote machine's store keeps its own proxy.
+    if (proxy.port != 0 && !proxy.profile) return 0;
+    proxy.profile = true;
+    proxy.server = value;
+    proxy.bypass_list = bypass;
+    proxy.state = 1;
+  }
   if (CefRefPtr<CefRequestContext> context = ExistingRequestContext(path)) {
     ApplyContextProxy(context, path);
   }

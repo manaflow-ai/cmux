@@ -117,10 +117,10 @@ pub fn plan(original: Option<&str>, self_exe: Option<&str>) -> Result<Vec<String
         let allowed: Vec<&str> = ALLOWED.iter().map(|(n, _)| *n).collect();
         return Err(format!("`cmux team {verb}` is not allowed; allowed: {}", allowed.join(", ")));
     };
-    if w.len() - 3 > *max_args {
+    if w.len().saturating_sub(3) > *max_args {
         return Err(format!("`cmux team {verb}` takes at most {max_args} argument(s)"));
     }
-    Ok(w[1..].to_vec())
+    Ok(w.iter().skip(1).cloned().collect())
 }
 
 /// Entry for `cmux team restricted-shell`: replaces this process with the

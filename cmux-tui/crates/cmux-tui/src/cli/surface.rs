@@ -7,6 +7,7 @@ use super::*;
 /// (`app`, `action`, `settings`, `window`, `events`) and `acp` route before
 /// this parser.
 pub(super) const CMUX_SCOPES: &[&str] = &[
+    "machine",
     // The session daemon's lifecycle (`server` on the `cmux-tui` surface);
     // `cmux server` is the machine server, routed before this parser.
     "daemon",
@@ -17,6 +18,8 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "settings",
+    "attention",
     "agent",
     "room",
     "closed",
@@ -78,3 +81,12 @@ impl std::fmt::Display for ProgramName {
         })
     }
 }
+
+pub(super) const MACHINE_CATALOG_HELP: &str = "\
+USAGE
+  cmux machine list [--catalog]
+  cmux machine <selector> show [--catalog]
+
+With the cmux app running, `machine list` also lists its Cloud machines
+(`kind: cloud`, `target: machine:<id>`); without it a note says they are missing.
+";

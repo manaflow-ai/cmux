@@ -10,9 +10,10 @@
       "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/rustc-1.95.0-aarch64-apple-darwin.tar.xz (xz_hash 149e85a285b6eba58eb6c8bdf7deb1b93763890598e62cb635a712e3a8454f04 in https://static.rust-lang.org/dist/channel-rust-1.95.0.toml; the x86_64-unknown-linux-gnu rustc of 1.95.0 carries the same bytes)",
       "toolchain_files": [
         "cmux-tui/rust-toolchain.toml",
-        "first-party-apps/cloud/server/rust-toolchain.toml"
+        "first-party-apps/cloud/server/rust-toolchain.toml",
+        "cmux-next-ios/rust/rust-toolchain.toml"
       ],
-      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host, bin/cmux-browser-host (cmux-tui) and bin/cmux-cloud (first-party-apps/cloud/server)"
+      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host, bin/cmux-browser-host (cmux-tui), bin/cmux-cloud (first-party-apps/cloud/server), bin/cmux-mobile-host (cmux-next-ios/rust) and Helpers/cmux-remote-browser-host.app (cmux-tui/crates/cmux-remote-browser-host, under cmux-tui's toolchain file; the pinned binary names /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/)"
     },
     {
       "version": "1.91.0",

@@ -53,13 +53,36 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.65.2": {
+    title: "Reliable Agent Restores, Steadier Cloud, Calmer Sign-In",
+    features: [
+      {
+        title: "Reliable Agent Restores",
+        description:
+          "Agent sessions come back after a relaunch: Codex retries a busy lock, Claude Code resumes in the right directory, agy and OpenCode auto-resume, and Running/Idle stays accurate when a Stop hook never arrives. Codex no longer asks to review cmux's own hooks.",
+        tryIt: "Quit cmux while Claude Code or Codex is running, then reopen it.",
+      },
+      {
+        title: "Steadier Cloud",
+        description:
+          "Cloud recovers frozen machines and wedged terminal links, shows a new split's terminal sooner, and explains a full resource pool instead of reporting a missing plan. Shared team members can enable Cloud, and the upgrade offer shows your next plan tier.",
+        tryIt: "Open Settings > Cloud.",
+      },
+      {
+        title: "Calmer Sign-In",
+        description:
+          "Sign-in refreshes its token only near expiry, retries when the sign-in service is busy instead of failing, and shows the error details when it does fail.",
+        tryIt: "Open Settings > Account and sign in.",
+      },
+    ],
+  },
   "0.65.1": {
     title: "Keyboard Navigation, Session Search, Smarter Cmd-Click, Smaller Download",
     features: [
       {
         title: "Move Around From the Keyboard",
         description:
-          "Ctrl-Tab and Cmd-Shift-] / [ move between sidebar workspaces from any pane. Ctrl-Cmd-E focuses the sidebar, Ctrl-Cmd-1 through 9 focuses a pane by number, and Cmd-Shift-B jumps back to the pane where you last sent a prompt.",
+          "Ctrl-Cmd-E focuses the sidebar, Ctrl-Cmd-1 through 9 focuses a pane by number, and Cmd-Shift-B jumps back to the pane where you last sent a prompt.",
         tryIt: "Press `⌃⌘1` to focus the first pane.",
       },
       {

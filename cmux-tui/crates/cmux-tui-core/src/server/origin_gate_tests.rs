@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::server::origin_gate::{
-    advance_origin_clock_for_test, jump_origin_wall_clock_for_test, set_peer_key_for_test,
-    set_role_for_test, set_verified_app_for_test,
+    advance_origin_clock_for_test, jump_origin_wall_clock_for_test, set_local_peer_for_test,
+    set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
 };
 use crate::server::*;
 
@@ -31,6 +31,58 @@ fn connect(mux: &Arc<Mux>) -> Conn {
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     Conn { client, writer, outbound, scheduler }
+}
+
+#[test]
+fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
+    let mux = mux("peer-terminal");
+    let surface = mux
+        .new_workspace_as(&crate::Actor::Daemon, None, Some((80, 24)))
+        .expect("a terminal workspace");
+    let process = surface.process_id().expect("the terminal child pid");
+    let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
+
+    let peer = super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process));
+    assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal));
+
+    let conn = connect(&mux);
+    set_local_peer_for_test(&mux, conn.client, peer);
+    let mint = send(
+        &mux,
+        &conn,
+        &v2(
+            "credential.mint",
+            json!({"machine": "current", "session": "current", "acp_session": "forged"}),
+            None,
+            None,
+        ),
+    );
+    assert_eq!(mint["error"]["details"]["reason"], "credential_owner_only", "{mint}");
+    mux.shutdown();
+}
+
+#[test]
+fn only_the_verified_app_mints_and_rotates() {
+    let mux = mux("credential-owner");
+    let plain = connect(&mux);
+    let mint_request = v2(
+        "credential.mint",
+        json!({"machine": "current", "session": "current", "acp_session": "acp-test"}),
+        None,
+        None,
+    );
+    assert_forbidden(&send(&mux, &plain, &mint_request));
+
+    let rotate = v2(
+        "credential.rotate",
+        json!({"machine": "current", "session": "current"}),
+        Some("credential-owner-rotate"),
+        None,
+    );
+    let app = verified_app(&mux, "token:20.1");
+    assert_eq!(send(&mux, &app, &mint_request)["ok"], true);
+    assert_eq!(send(&mux, &app, &rotate)["ok"], true);
+    mux.shutdown();
 }
 
 /// A page relay connection whose peer is `peer`.

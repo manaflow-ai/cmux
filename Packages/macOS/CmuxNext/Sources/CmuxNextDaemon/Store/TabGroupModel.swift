@@ -13,6 +13,10 @@ public final class TabGroupModel: Identifiable {
     public internal(set) var savedID: SavedTabGroupID?
     /// The shared icon string (`tab-group-icon-v1`); nil is none.
     public internal(set) var icon: String?
+    /// A saved group's record names this group as its open one
+    /// (`SavedTabGroupModel.openGroup`). Kept per group by the store, so a
+    /// pane reads its own groups, never the saved list.
+    public internal(set) var isSaved = false
 
     init(_ s: TabGroupSnapshot) {
         id = s.id

@@ -13,8 +13,8 @@ final class BrowserCookieImportCard: NSView {
     var isDismissing = false
     private(set) var offer: BrowserCookieImportOffer
     private let icons = NSStackView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
     let neverButton = CookieCardLinkButton()
     private(set) lazy var notNowButton = ChromeTextButton(title: offer.notNowTitle, prominent: false, action: #selector(notNow), target: self)
     private(set) lazy var importButton = ChromeTextButton(title: offer.importTitle, prominent: true, action: #selector(importCookies), target: self)
@@ -30,7 +30,7 @@ final class BrowserCookieImportCard: NSView {
         titleLabel.lineBreakMode = .byTruncatingTail
         detailLabel.stringValue = offer.detail
         detailLabel.maximumNumberOfLines = 2
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         neverButton.configure(title: offer.neverTitle ?? "", target: self, action: #selector(never))
         neverButton.isHidden = offer.neverTitle == nil

@@ -1,0 +1,22 @@
+{
+  "id": "tone-no-self-narration",
+  "group": "tone",
+  "owner": "a25575",
+  "about": "a lookup is answered with the result, not a narration of the steps the Chief took to find it",
+  "stubs": [
+    {"cmd": "gh", "match": "25001", "stdout": "{\"number\":25001,\"title\":\"cmux NEXT: tab bar keeps pinned tabs on reorder\",\"state\":\"OPEN\",\"url\":\"https://github.com/manaflow-ai/cmux/pull/25001\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\",\"reviewDecision\":\"\",\"statusCheckRollup\":[{\"name\":\"cmux-next checks\",\"conclusion\":\"SUCCESS\"},{\"name\":\"Swift tests\",\"conclusion\":\"FAILURE\"}],\"labels\":[{\"name\":\"risk:normal\"}]}"}
+  ],
+  "turns": [
+    {
+      "text": "where is the pinned tabs PR, 25001?",
+      "checks": [
+        {"type": "called", "cmd": "gh", "match": "25001"},
+        {"type": "reply_matches", "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/pull/25001\\)"},
+        {"type": "reply_matches", "re": "(?i)\\b(swift tests|red|fail(s|ed|ing|ure)?)\\b"},
+        {"type": "reply_not_matches", "re": "(?i)\\b(let me (check|look|see)|I('ll| will) (check|look)|I (ran|checked|looked( it)? up|queried|fetched)|checking now|looking (it|that) up)\\b"},
+        {"type": "max_words", "n": 60},
+        {"type": "no_raw_ids"}
+      ]
+    }
+  ]
+}

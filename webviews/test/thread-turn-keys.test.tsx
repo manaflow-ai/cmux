@@ -4,6 +4,8 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -32,6 +34,8 @@ const replacements: Record<string, unknown> = {
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  // Reduce Motion: a step lands at once (the browser test checks its curve).
+  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 // Pierre's registered elements read their own DOM constructors at import time.
@@ -45,7 +49,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
-// Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
@@ -57,11 +61,8 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
     offsets.set(this, value);
   },
 });
-const jumps: number[] = [];
 dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
-  const top = typeof options === "number" ? 0 : (options?.top ?? 0);
-  jumps.push(top);
-  this.scrollTop = top;
+  this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0);
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
@@ -101,11 +102,18 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
         dom.window.dispatchEvent(new dom.window.CustomEvent(`cmux-acpmux-${name}`));
         await scrolled();
       });
-    /// The turn being read, from the minimap's current tick.
-    const reading = () =>
-      Number(
-        dom.window.document.querySelector<HTMLElement>('.acpmux-minimap__tick[aria-current="location"]')?.dataset.tick,
-      );
+    /// The turn being read: the last whose prompt bubble is at or below 35 px under the viewport's
+    /// top, where a step lands it (the thread pads its rows 16 px down); the first before any is.
+    const reading = () => {
+      const prompts = turns.filter((entry) => entry.kind === "user");
+      let read = 0;
+      prompts.forEach((entry, index) => {
+        const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        const top = Number.parseFloat(node?.style.top ?? "") - 16; // less the thread's top padding
+        if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
+      });
+      return read;
+    };
     await act(async () => {
       scroller.scrollTop = 0;
       await scrolled();
@@ -120,9 +128,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
     // At the first prompt, Previous Turn stays.
     await step("previousTurn");
     expect(reading()).toBe(0);
-    jumps.length = 0;
+    const before = scroller.scrollTop;
     await step("previousTurn");
-    expect(jumps).toEqual([]);
+    expect(scroller.scrollTop).toBe(before);
     expect(reading()).toBe(0);
 
     // A step counts from where the reader is, not from an earlier step's target: Next twice, then
@@ -138,6 +146,61 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
     expect(reading()).toBe(0);
     await step("nextTurn");
     expect(reading()).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Next Turn steps past a retried prompt beside acpmux's echo of it", async () => {
+  // Turn 4's prompt is acpmux's echo (promptId p-dup); turn 5's is the pane's retried send of the
+  // same prompt, back to sending (one promptId, two prompts). Next steps through every prompt.
+  const dup = turns.map((entry) =>
+    entry.id === "t4-user"
+      ? { ...entry, promptId: "p-dup" }
+      : entry.id === "t5-user"
+        ? { ...entry, delivery: { state: "sending" as const, promptId: "p-dup", sessionId: "chat", sentAt: 0 } }
+        : entry,
+  );
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(dup, new Set())}
+          sessionId="chat"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
+    const prompts = dup.filter((entry) => entry.kind === "user");
+    const reading = () => {
+      let read = 0;
+      prompts.forEach((entry, index) => {
+        const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        const top = Number.parseFloat(node?.style.top ?? "") - 16;
+        if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
+      });
+      return read;
+    };
+    await act(async () => {
+      scroller.scrollTop = 0;
+      await scrolled();
+    });
+    // Steps in a row, each while the one before is still pending (its key is what it counts from).
+    const seen: number[] = [];
+    for (let n = 1; n < prompts.length; n += 1) {
+      await act(async () => {
+        dom.window.dispatchEvent(new dom.window.CustomEvent("cmux-acpmux-nextTurn"));
+        await scrolled();
+      });
+      seen.push(reading());
+    }
+    // Each step lands on the next prompt through and past the pair, until the transcript's end stops
+    // the scroll (the last prompts cannot reach the top of the view).
+    expect(seen.slice(0, 7)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   } finally {
     await act(async () => root.unmount());
   }

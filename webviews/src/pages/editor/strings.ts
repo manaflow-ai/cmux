@@ -28,6 +28,17 @@ export const L = {
   utf8Bom: "status.utf8Bom",
   mixed: "status.mixed",
   plainText: "language.plain",
+  findPlaceholder: "find.placeholder",
+  findPrevious: "find.previous",
+  findNext: "find.next",
+  findClose: "find.close",
+  findMatchCase: "find.matchCase",
+  findCount: "find.count",
+  findNoMatches: "find.noMatches",
+  findReplaceWith: "find.replaceWith",
+  findReplace: "find.replace",
+  findReplaceAll: "find.replaceAll",
+  findToggleReplace: "find.toggleReplace",
   editorLabel: "editor.label",
 } as const;
 

@@ -15,6 +15,7 @@ export const optchat_new: (a: number) => number;
 export const optchat_pump: (a: number, b: any) => [number, number, number, number];
 export const optchat_renderView: (a: number, b: any) => [number, number, number, number];
 export const optchat_settled: (a: number) => number;
+export const optchat_turnInput: (a: number, b: any, c: number, d: number, e: number) => [number, number, number, number];
 export const optchat_view: (a: number) => [number, number];
 export const optchat_viewSize: (a: number) => number;
 export const optchat_zoom: (a: number, b: any, c: number, d: number) => [number, number, number, number];

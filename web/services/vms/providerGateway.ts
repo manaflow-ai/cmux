@@ -1,4 +1,5 @@
 import type { NetworkRulePlan } from "./networkPolicy";
+import type { ProviderTlsRuleInventory, ProviderVmInventory, VmControlProbe } from "./health/types";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -17,6 +18,7 @@ import {
   type VMFileStat,
   type CreateProviderTunnelOptions,
   type ProviderId,
+  type ProviderCredential,
   type ProviderNetwork,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
@@ -50,7 +52,7 @@ import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/t
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
-  readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly destroy: (provider: ProviderId, vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }) => Effect.Effect<void, VmProviderOperationError>;
   /** Optional: delete a machine-owned persistent home volume after its machine is destroyed. */
   readonly deleteHomeVolume?: (
     provider: ProviderId,
@@ -61,10 +63,26 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
-  readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
-  readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
-  readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
-  readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  /** Account-wide VM inventory for the read-only staff health sweep. */
+  readonly listAccountVms?: (
+    provider: ProviderId,
+    options: { readonly deadlineAtMs: number },
+  ) => Effect.Effect<ProviderVmInventory, VmProviderOperationError>;
+  /** Account-wide TLS rules, reduced to attribution ids, for the health sweep. */
+  readonly listAccountTlsRules?: (
+    provider: ProviderId,
+    options: { readonly deadlineAtMs: number },
+  ) => Effect.Effect<ProviderTlsRuleInventory, VmProviderOperationError>;
+  /** One bounded control-path probe of a running VM; never fails, a failure is an outcome. */
+  readonly probeVmControl?: (
+    provider: ProviderId,
+    vmId: string,
+    options: { readonly timeoutMs: number },
+  ) => Effect.Effect<VmControlProbe, VmProviderOperationError>;
+  readonly getStatus?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<VMStatus, VmProviderOperationError>;
+  readonly getPauseState?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
+  readonly resume?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly pause?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<void, VmProviderOperationError>;
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
@@ -115,6 +133,8 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
+  /** Force a provider-level reboot; unlike resume this does not probe the guest first. */
+  readonly restart?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -144,7 +164,7 @@ export type VmProviderGatewayShape = {
     options?: CmuxRemoteApprovalOptions,
   ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
   readonly prepareSCP?: (provider: ProviderId, vmId: string, publicKey: string) => Effect.Effect<SCPEndpoint, VmProviderOperationError>;
-  readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
+  readonly openSSH: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
     identityHandle: string,
@@ -159,6 +179,8 @@ export type VmProviderGatewayShape = {
    * treat an absent member the same as a provider without the capability.
    */
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
+  /** VPC provisioning can be available before a provider has tunnel enrollment. */
+  readonly supportsNetworkProvisioning?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
     options: EnsureProviderNetworkOptions,
@@ -215,6 +237,15 @@ function privateNetworking(provider: ProviderId) {
   const impl = getProvider(provider).privateNetworking;
   if (!impl) {
     throw new VmOperationUnsupportedError({ provider, operation: "privateNetworking" });
+  }
+  return impl;
+}
+
+/** The driver's health inventory, or a typed unsupported failure. */
+function healthInventory(provider: ProviderId) {
+  const impl = getProvider(provider).healthInventory;
+  if (!impl) {
+    throw new VmOperationUnsupportedError({ provider, operation: "healthInventory" });
   }
   return impl;
 }
@@ -278,8 +309,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         }),
       }),
     ),
-  destroy: (provider, vmId) =>
-    providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
+  destroy: (provider, vmId, credential, options) =>
+    providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId, credential, options)),
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
@@ -291,6 +322,21 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       await impl.deleteHomeVolume(volumeName);
     }),
+  listAccountVms: (provider, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).listAccountVms({ ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "listAccountVms", cause }),
+    }),
+  listAccountTlsRules: (provider, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).listAccountTlsRules({ ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "listAccountTlsRules", cause }),
+    }),
+  probeVmControl: (provider, vmId, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).probeControl(vmId, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "probeVmControl", cause }),
+    }),
   listVolumes: (provider, options) =>
     providerEffect(provider, "listVolumes", async () => {
       const impl = getProvider(provider);
@@ -298,21 +344,21 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!impl.listVolumes) return [];
       return await impl.listVolumes(options);
     }),
-  getStatus: (provider, vmId) =>
+  getStatus: (provider, vmId, credential) =>
     boundedProviderRead(provider, "getStatus", async (options) => {
       const driver = getProvider(provider);
       if (!driver.getStatus) return "running" as const;
-      return await driver.getStatus(vmId, options);
+      return await driver.getStatus(vmId, { ...options, credential });
     }),
-  getPauseState: (provider, vmId) =>
+  getPauseState: (provider, vmId, credential) =>
     providerEffect(provider, "getPauseState", async () => {
       const driver = getProvider(provider);
-      return driver.getPauseState ? await driver.getPauseState(vmId) : null;
+      return driver.getPauseState ? await driver.getPauseState(vmId, credential) : null;
     }),
-  resume: (provider, vmId) =>
-    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
-  pause: (provider, vmId) =>
-    providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+  resume: (provider, vmId, credential) =>
+    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, credential)),
+  pause: (provider, vmId, credential) =>
+    providerEffect(provider, "pause", () => getProvider(provider).pause(vmId, credential)),
   setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
     const driver = getProvider(provider);
     if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
@@ -348,8 +394,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await driver.fork(vmId);
     }),
-  exec: (provider, vmId, command, options) =>
-    providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  exec: (provider, vmId, command, options) => options?.cancelOnInterrupt
+    ? Effect.tryPromise({
+      // Effect aborts this signal when the fiber is interrupted.
+      try: (signal) => getProvider(provider).exec(vmId, command, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "exec", cause }),
+    })
+    : providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   listFiles: (provider, vmId, path) => boundedProviderRead(provider, "listFiles", async (options) => {
     const impl = getProvider(provider);
     if (!impl.listFiles) throw new VmOperationUnsupportedError({ provider, operation: "listFiles" });
@@ -405,6 +456,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }
     return await impl.getResourceStats(vmId);
   }),
+  restart: (provider, vmId) => {
+    const impl = getProvider(provider);
+    if (!vmCapabilitiesFor(provider).restart || !impl.restart) {
+      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "restart" }));
+    }
+    return providerEffect(provider, "restart", () => impl.restart!(vmId));
+  },
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
@@ -446,13 +504,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!impl.prepareSCP) throw new VmOperationUnsupportedError({ provider, operation: "prepareSCP" });
       return impl.prepareSCP(vmId, publicKey);
     }),
-  openSSH: (provider, vmId) =>
+  openSSH: (provider, vmId, credential) =>
     providerEffect(provider, "openSSH", async () => {
       const impl = getProvider(provider);
       if (!impl.openSSH) {
         throw new VmOperationUnsupportedError({ provider, operation: "openSSH" });
       }
-      return await impl.openSSH(vmId);
+      return await impl.openSSH(vmId, credential);
     }),
   revokeSSHIdentity: (provider, identityHandle) => {
     const driver = getProvider(provider);
@@ -468,7 +526,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     if (!driver.revokeEndpointLeases) return Effect.void;
     return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
   },
-  supportsPrivateNetworking: (provider) => !!getProvider(provider).privateNetworking,
+  supportsPrivateNetworking: (provider) => {
+    const driver = getProvider(provider);
+    return !!driver.privateNetworking && driver.privateNetworkingTunnels !== false;
+  },
+  supportsNetworkProvisioning: (provider) => !!getProvider(provider).privateNetworking,
   ensureNetwork: (provider, options) =>
     providerEffect(provider, "ensureNetwork", () =>
       privateNetworking(provider).ensureNetwork(options)

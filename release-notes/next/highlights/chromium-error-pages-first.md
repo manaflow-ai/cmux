@@ -1,4 +1,5 @@
 title: Chromium tabs show Chrome's own error pages at once
 category: fixed
+action: openBrowser.chromium | New Chromium Tab
 
-A Chromium tab that cannot open a page now shows Chrome's own page directly: "Your connection is not private" for a certificate problem (with Advanced and Proceed), "This site can't be reached" for a name that does not resolve, a refused or reset connection or a timeout, and Chrome's pages for too many redirects and blocked sites. Before, cmux's "Can't open this page" view showed first for a moment.
+A Chromium tab that can't open a page now goes straight to Chrome's own error page, such as “Your connection is not private” or “This site can't be reached”. cmux's own error view no longer flashes first.

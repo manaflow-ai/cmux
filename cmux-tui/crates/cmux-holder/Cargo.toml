@@ -1,0 +1,23 @@
+[package]
+name = "cmux-holder"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "One small process that holds every PTY of an install: no VT, std and libc only (plus the std+libc flow marks)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-holder"
+path = "src/main.rs"
+
+[dependencies]
+cmux-flow-trace.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+# The spawn-race test only: the holder binary stays std and libc.
+cmux-process.workspace = true

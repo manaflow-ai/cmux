@@ -36,6 +36,9 @@ public struct SpawnOptions: Sendable, Hashable {
     /// daemon without the capability.
     public var paneID: String?
     public var tabID: String?
+    /// Client-minted public id of the split a `split` makes (`split-client-split-id-v1`); only
+    /// `split` sends it. Dropped by `DaemonConnection` for a daemon without the capability.
+    public var splitID: String?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
                 env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
@@ -50,20 +53,21 @@ public struct SpawnOptions: Sendable, Hashable {
     }
 
     /// Drops what a daemon does not serve: the caller-chosen terminal id
-    /// (`terminal-placement-env-v1`) and the client-minted pane and tab ids
-    /// (`split-client-keys-v1`).
-    mutating func drop(callerTerminal: Bool, clientKeys: Bool) {
+    /// (`terminal-placement-env-v1`), the client-minted pane and tab ids
+    /// (`split-client-keys-v1`) and split id (`split-client-split-id-v1`).
+    mutating func drop(callerTerminal: Bool, clientKeys: Bool, clientSplitID: Bool) {
         if callerTerminal { terminalID = nil }
         if clientKeys {
             paneID = nil
             tabID = nil
         }
+        if clientSplitID { splitID = nil }
     }
 
     enum CodingKeys: String, CodingKey {
         case cwd, cols, rows, argv, command, name, env, keep, terminalID
         case shellArgs = "shell_args"
-        case paneID, tabID
+        case paneID, tabID, splitID
     }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -78,6 +82,7 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(terminalID, forKey: .terminalID)
         try c.encodeIfPresent(shellArgs, forKey: .shellArgs)
         try c.encodeIfPresent(paneID, forKey: .paneID)
+        try c.encodeIfPresent(splitID, forKey: .splitID)
         try c.encodeIfPresent(tabID, forKey: .tabID)
     }
 }

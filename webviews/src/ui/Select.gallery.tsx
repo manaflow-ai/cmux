@@ -55,7 +55,8 @@ const keyboard: Play = async (ctx) => {
 const disabled: Play = async (ctx) => {
   await open(ctx);
   await ctx.waitFor(() => ctx.find({ role: "menuitemradio", name: "Dense" }).getAttribute("aria-disabled") === "true");
-  await ctx.click({ role: "menuitemradio", name: "Compact" });
+  // The shortcut is part of the item's name ("Compact⌥C").
+  await ctx.click({ role: "menuitemradio", name: /^Compact/ });
   await ctx.waitFor(() => ctx.document.querySelector(".select-gallery-receipt")?.textContent?.includes("Compact"));
 };
 

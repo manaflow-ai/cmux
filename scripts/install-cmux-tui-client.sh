@@ -11,6 +11,12 @@
 # scripts/cmux-next/notices/bundle-map.json maps that path: release and nightly
 # bundles fail check_bundle_notices.py on an unmapped Mach-O, and the map's test
 # requires its THIRD_PARTY_LICENSES.md section. Until then it is not installed.
+# cmux-tui-host-<target> (the slim terminal host) goes beside bin/cmux as
+# bin/cmux-tui-host: a macOS daemon runs every terminal host from it when it
+# reports the daemon's build, else from a copy of bin/cmux.
+# cmux-tui-holder-<target> (the terminal holder, std and libc only) goes beside
+# bin/cmux as bin/cmux-holder: the daemon starts every terminal holder from a
+# content-addressed copy of it, else runs the holder built into cmux-tui-host.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -40,7 +46,12 @@
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
-# (default 60, below 1 KiB/s) bound each download attempt.
+# (default 60, below 1 KiB/s) and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS
+# (default 600) bound each download attempt and its total retry budget.
+# The attestation is first verified offline from the Sigstore bundle the publisher
+# uploads beside the manifest (CMUX_TUI_ATTEST_BUNDLE_BASE, default
+# <manifest origin>/cmux-tui-attestations, holds sha256-<manifest digest>.sigstore.json);
+# with no bundle, or one that does not verify, it asks GitHub's attestations API.
 # CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES (default 9) retries rate-limited `gh attestation verify`
 # before failing with a rate-limit error; CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS (default 60)
 # is the first wait, doubling to a 600 s cap: 65 minutes in total, past GitHub's hourly reset.
@@ -113,7 +124,36 @@ verify_manifest_attestation() {
     echo "error: verifying the cmux-tui manifest attestation needs the GitHub CLI (gh); pass --allow-unattested only for local development" >&2
     exit 1
   }
+  local output status
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
+  # Offline first: the publisher (cmux-tui-artifacts.yml, "Publish the manifest's
+  # Sigstore bundle") uploads the attestation bundle for the manifest's digest to
+  # <origin>/cmux-tui-attestations/sha256-<digest>.sigstore.json. Verifying that
+  # bundle checks the same signer, repository and source commit against the
+  # Sigstore trust root and makes no GitHub API call, so a spent installation
+  # budget cannot hold the install. Run 41150090913 (2026-10-31) sat 37 minutes in
+  # "Bundle the cmux-tui client" waiting out that budget with its compile done.
+  # A missing or rejected bundle falls through to the API lookup below, so a
+  # bundle never admits anything the lookup would refuse.
+  local digest origin bundle bundle_url
+  digest="$(sha256_of "$MANIFEST")"
+  origin="${CMUX_TUI_ATTEST_BUNDLE_BASE:-$(printf '%s' "$MANIFEST_URL" | sed -E 's#^(https?://[^/]+)/.*#\1#')/cmux-tui-attestations}"
+  bundle_url="$origin/sha256-$digest.sigstore.json"
+  bundle="$MANIFEST.sigstore.json"
+  rm -f "$bundle"
+  if DOWNLOAD_ATTEMPTS=1 DOWNLOAD_MAX_SECONDS=60 download "$bundle_url" "$bundle" 0 2>/dev/null && [[ -s "$bundle" ]]; then
+    status=0
+    output="$(gh attestation verify "$MANIFEST" --bundle "$bundle" "${args[@]}" 2>&1)" || status=$?
+    rm -f "$bundle"
+    if [[ $status -eq 0 ]]; then
+      echo "cmux-tui manifest attestation verified offline from $bundle_url" >&2
+      return 0
+    fi
+    printf '%s\n' "$output" >&2
+    echo "warning: the published Sigstore bundle at $bundle_url did not verify; asking the GitHub attestations API instead" >&2
+  else
+    rm -f "$bundle"
+  fi
   # An exhausted GitHub API quota says nothing about the attestation, and
   # failing on it discards a signed nightly leg (run 37526635018). Retry only
   # that answer, with backoff (1, 2, 4, 8, then 10 minutes five times by
@@ -123,7 +163,6 @@ verify_manifest_attestation() {
   local max_delay=600
   local retries="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-9}"
   local retries_left="$retries"
-  local output status
   while :; do
     status=0
     output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
@@ -200,7 +239,7 @@ check_acpmux() {
 
 # The companions this bundle may carry: the browser host only once its license
 # notices are mapped (see the header).
-COMPANIONS=(cmux-app-host cmux-cloud)
+COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host cmux-holder)
 BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
 if python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/cmux-browser-host" for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" 2>/dev/null; then
   COMPANIONS+=(cmux-browser-host)
@@ -228,40 +267,80 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   done
   verify_probe
   check_acpmux
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
 
 # A dead HTTP/2 stream holds a transfer open until the server resets it, which
 # took twenty minutes per attempt on a Release job, and curl's own --retry
-# reuses that connection. Bound each attempt by progress, not total time, so a
-# slow but moving download of a 40 MB slice still finishes, and give each its
-# own curl process, so a retry opens a fresh connection.
+# reuses that connection. Bound each attempt by progress and the whole
+# download by a total budget. Each retry resumes a partial slice with a fresh
+# curl process, so a slow but moving download can finish without hanging the
+# release job forever.
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
+DOWNLOAD_MAX_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS:-600}"
 for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
-  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS"; do
+  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS"; do
   [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
     || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
 done
-download() { # <url> <output>
+download() { # <url> <output> [resume]
+  local url="$1" output="$2" resume="${3:-1}"
   local attempt=1
-  until curl --proto '=https' --tlsv1.2 -fsSL \
-      --connect-timeout 30 \
-      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" \
-      "$1" -o "$2"; do
+  local deadline=$((SECONDS + DOWNLOAD_MAX_SECONDS))
+  while :; do
+    local remaining=$((deadline - SECONDS))
+    if (( remaining <= 0 )); then
+      echo "error: download budget exceeded for $url after $attempt attempts" >&2
+      (( resume )) || rm -f "$output"
+      return 1
+    fi
+    local -a curl_args=(
+      --proto '=https' --tlsv1.2 -fsSL
+      --connect-timeout 30
+      --max-time "$remaining"
+      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS"
+    )
+    (( resume )) && curl_args+=(--continue-at -)
+    local status=0
+    local http_code_file="$output.http-code"
+    local http_code=""
+    rm -f "$http_code_file"
+    curl "${curl_args[@]}" --write-out '%{http_code}' "$url" -o "$output" >"$http_code_file" || status=$?
+    http_code="$(cat "$http_code_file" 2>/dev/null || true)"
+    rm -f "$http_code_file"
+    [[ "$http_code" =~ ^[0-9]{3}$ ]] || http_code=""
+    if (( status == 0 )); then
+      return 0
+    fi
+    # A rejected range leaves an invalid partial behind. curl reports both
+    # range errors as 33 and an HTTP 416 response as 22 with a write-out code.
+    # Preserve the partial for transient HTTP failures such as 503 so a later
+    # attempt can resume it within the remaining budget.
+    if (( resume )) && (( status == 33 || http_code == 416 )); then rm -f "$output"; fi
     if (( attempt >= DOWNLOAD_ATTEMPTS )); then
-      echo "error: could not download $1 after $attempt attempts" >&2
+      echo "error: could not download $url after $attempt attempts" >&2
+      (( resume )) || rm -f "$output"
       return 1
     fi
     attempt=$((attempt + 1))
-    sleep 3
+    local backoff=3
+    remaining=$((deadline - SECONDS))
+    (( backoff > remaining )) && backoff=$remaining
+    (( backoff > 0 )) && sleep "$backoff"
   done
 }
 
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-download "$MANIFEST_URL" "$MANIFEST"
+MANIFEST_TMP="$(mktemp "$CACHE_DIR/manifest.XXXXXX")"
+trap 'rm -f "$MANIFEST_TMP"' EXIT
+download "$MANIFEST_URL" "$MANIFEST_TMP" 0
+mv -f "$MANIFEST_TMP" "$MANIFEST"
+trap - EXIT
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
@@ -362,6 +441,8 @@ install_companion() {
 }
 install_companion cmux-tui-app-host cmux-app-host
 install_companion cmux-tui-cloud-server cmux-cloud
+install_companion cmux-tui-host cmux-tui-host
+install_companion cmux-tui-holder cmux-holder
 if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
   install_companion cmux-tui-browser-host cmux-browser-host
 else
@@ -373,6 +454,9 @@ fi
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
 check_acpmux
+# bin/daemon-capabilities.json from the client just installed (a build from
+# before `capabilities` leaves none, with a warning).
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.

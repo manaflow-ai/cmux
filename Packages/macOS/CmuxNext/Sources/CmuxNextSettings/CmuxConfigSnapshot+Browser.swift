@@ -5,6 +5,7 @@ nonisolated extension CmuxConfigSnapshot {
     static func parseBrowser(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
         _ = BrowserPasswordsSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        _ = BrowserVerificationAutofillSetting.parse(root, diagnostics: &snapshot.diagnostics)
         _ = BrowserToolbarButtonsSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the root (`current`)
     }
 }

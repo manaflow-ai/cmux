@@ -57,6 +57,7 @@ pub(super) fn get(mux: &Mux, params: GetParams) -> anyhow::Result<Value> {
 impl Mux {
     /// Run one icon asset operation on the workspace registry. A poisoned
     /// lock is a refused request, not a panic.
+    #[track_caller]
     pub(crate) fn with_icon_registry<T>(
         &self,
         operation: impl FnOnce(&mut crate::workspace_registry::WorkspaceRegistry) -> anyhow::Result<T>,

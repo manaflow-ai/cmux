@@ -5,6 +5,11 @@
 //! the session (and its summary), and a fork does not inherit it unless the
 //! fork request sets it again.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -179,5 +184,32 @@ async fn only_the_unix_socket_reads_a_session_env() {
             !text.contains("sessionEnv") && !text.contains(WS),
             "Web {m} carried the session env: {text}"
         );
+    }
+}
+
+/// A Chief turn's seal (optchat-chief `chiefs` tool): the unix socket sets it
+/// for one session, the harness gets it, and `_acpmux/info` never shows it.
+#[tokio::test]
+async fn a_chief_turn_seal_reaches_its_session_and_is_never_shown() {
+    let hub = hub();
+    let mut local = client(&hub, Origin::Local);
+    let seal = "ab".repeat(32);
+    let reply =
+        local.call("session/new", new_params(json!({"env": {"OPTCHAT_TURN_SEAL": seal}}))).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
+    // Before the harness echoes it into the transcript (which info carries).
+    let info = local.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(
+        info.pointer("/result/sessionEnv/OPTCHAT_TURN_SEAL"),
+        Some(&json!("(hidden)")),
+        "{info}"
+    );
+    assert!(!info.to_string().contains(&seal), "{info}");
+    assert_eq!(local.env_of(&id, "OPTCHAT_TURN_SEAL").await, format!("OPTCHAT_TURN_SEAL={seal}"));
+    for bad in [json!("short"), json!("zz".repeat(32))] {
+        let reply =
+            local.call("session/new", new_params(json!({"env": {"OPTCHAT_TURN_SEAL": bad}}))).await;
+        assert_eq!(reason(&reply), "env.value_refused", "{bad}: {reply}");
     }
 }

@@ -1,6 +1,6 @@
 # Live Reload Behavior
 
-This describes the Markdown panel of the old app. cmux-next has no Markdown viewer yet.
+This describes the Markdown panel of the classic app. cmux-next opens Markdown in its own page (`cmux open <path>`); this behavior is not verified there.
 
 The panel watches the file with a kernel-level watcher (`DispatchSource` with `O_EVTONLY`) for write, extend, delete, and rename events, and re-renders on change.
 

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextServer
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -11,7 +12,29 @@ import CmuxNextRemote
 /// installing run in tasks; failures surface as a sheet in the UI and as a
 /// refusal on the control socket.
 enum RemoteHandlers {
+    /// Whether the observation task should end before handling this update.
+    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status) -> Bool {
+        status == .offline
+    }
+
+    /// A daemon failure belongs to one stamped connection attempt. An old failure
+    /// must never reopen recovery after a newer Retry or Reconnect has started.
+    static func shouldPresentDaemonFailure(_ failure: SSHMachineSession.DaemonFailure?, currentAttemptID: UInt64) -> Bool {
+        failure?.attemptID == currentAttemptID
+    }
+
+    /// With no active window, a focused connect needs a window for its persistent
+    /// recovery sheet. A loaded daemon is handled by `CloudHandlers.show` instead.
+    static func shouldOpenRecoveryWindow(loaded: Bool, hasWindow: Bool,
+                                         status: SSHConnectionMachine.Status,
+                                         failure: SSHMachineSession.DaemonFailure?,
+                                         currentAttemptID: UInt64) -> Bool {
+        !loaded && !hasWindow && (status.needsRecovery || shouldPresentDaemonFailure(failure, currentAttemptID: currentAttemptID))
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
+        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
@@ -20,7 +43,9 @@ enum RemoteHandlers {
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            // A CLI/MCP run stays headless unless it explicitly requests focus;
+            // capture and automation must not steal the person's active window.
+            let interactive = invocation.allowsViewChange
             let connect = { (text: String) in
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
@@ -30,10 +55,8 @@ enum RemoteHandlers {
             if let text = invocation["destination"]?.stringValue {
                 return try connect(text)
             }
-            CloudPresenter.askText(RemoteStrings.connectTitle, initial: "", button: RemoteStrings.connect, in: CloudHandlers.window(context)) { text in
-                guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                do { try connect(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-            }
+            // The host as a Cmd-Shift-P step; Return runs this again with it.
+            registry.ask("remote.connect", invocation, ActionArgumentAsk(argument: "destination"))
         }
         // A terminal of another machine in this pane (a mixed workspace,
         // plans/cmux-next/data-model.md 1.2b): any connected session, SSH,
@@ -45,14 +68,25 @@ enum RemoteHandlers {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
             let home = context.services.daemon(for: pane)
-            if daemon === home {
+            let cwd = invocation["cwd"]?.stringValue
+            // Rex-style placement words too (`below`, `bottom`); the daemon splits right or down only.
+            var direction: SplitDirection?
+            if let word = invocation["direction"]?.stringValue {
+                switch word {
+                case "right": direction = .right
+                case "down", "below", "bottom": direction = .down
+                default: throw ActionFailure(message: RemoteStrings.splitRightOrDown)
+                }
+            }
+            if daemon === home && direction == nil && cwd == nil {
                 registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
                 return
             }
-            if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: nil) {
+            if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {
                 throw ActionFailure(message: failure.message)
             }
         })
+        bindOpenRemote(into: registry, context: context)
         CloudHandlers.bind("remote.newWorkspace", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
@@ -112,6 +146,25 @@ enum RemoteHandlers {
             }
             registry.track(work)
         }
+        // The Add Machine card (plans/cmux-next/add-machine-DESIGN.md). A destination (the CLI, MCP)
+        // only fills the card: the enroll starts when the person presses Add, never from outside the
+        // app alone (trust policy, the conservative default until it is decided).
+        // Add Device (plans/cmux-next/add-device-DESIGN.md): the one entry; Add Machine and Add Server are its ways.
+        registry.bind("device.add", run: { invocation in
+            let way = invocation["way"]?.stringValue.flatMap(AddDeviceWay.init(rawValue:))
+            context.services.addDevice.open(way: way, over: CloudHandlers.window(context))
+        })
+        CloudHandlers.bind("machine.add", registry, reason: available) { invocation in
+            let card = context.services.addMachine
+            card.open(destination: invocation["destination"]?.stringValue, name: invocation["name"]?.stringValue,
+                      over: CloudHandlers.window(context))
+        }
+        // Check Machine: the same card's checklist for one SSH machine, with Fix.
+        CloudHandlers.bind("machine.doctor", registry, reason: hasMachine) { invocation in
+            let session = try machine(invocation, context), card = context.services.addMachine
+            card.check(host: session.host.destination.description, machineID: session.machineID, over: CloudHandlers.window(context))
+            registry.track(Task { await card.finished().map { ActionWorkFailure($0) } })
+        }
     }
 
     /// The SSH machine an invocation acts on.
@@ -132,28 +185,111 @@ enum RemoteHandlers {
         throw ActionFailure(message: RemoteStrings.noMachine)
     }
 
-    /// After a Connect from the UI: shows the machine's first workspace in
+    /// After Connect from the UI or CLI: shows the machine's first workspace in
     /// the active window once its tree loads (creating one when it has
-    /// none). Gives up when the machine stops connecting.
+    /// none). Keeps recovery available through retries; ends on dismissal or disconnect.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
+        session.connectPresentationTask?.cancel()
+        session.connectRecovery?.stop()
+        let target = ActionTargetRef(kind: .machine, id: session.machineID)
+        let recovery = SSHConnectRecovery(
+            retry: {
+                context.services.ssh.reconnect(session)
+            },
+            check: { context.registry.perform("machine.doctor", invocation: ActionInvocation(target: target)) },
+            copy: { context.copy($0) },
+            dismissed: { [weak session] in session?.connectPresentationTask?.cancel() })
+        session.connectRecovery = recovery
         let daemon = session.daemon
-        // task-owner: ends when the tree loads or the machine stops connecting
-        Task { @MainActor in
-            for await (loaded, status) in ObservationStream({ (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus) }) {
+        var requestedRecoveryWindow = false
+        // task-owner: ends on loaded workspace, disconnect, dismissal, removed session, or closed window.
+        session.connectPresentationTask = Task { @MainActor in
+            defer { recovery.stop() }
+            for await (loaded, status, failure, attemptID, hasWindow) in ObservationStream({
+                (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure,
+                 session.connectionAttemptID, context.services.windows.active?.window != nil)
+            }) {
+                guard !Task.isCancelled else { return }
                 if loaded {
+                    recovery.stop()
                     let id: String?
-                    if let first = daemon.store.workspaces.first { id = first.id } else { id = await context.services.windows.createWorkspace(on: daemon) }
-                    if let id { CloudHandlers.show(id, context) }
+                    if let first = daemon.store.workspaces.first { id = first.id }
+                    else { id = await context.services.windows.createWorkspace(on: daemon) }
+                    if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed:
-                    if status != .offline { CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label),
-                                                                 RemoteStrings.detail(session) ?? "", in: CloudHandlers.window(context)) }
-                    return
+                if Self.shouldEndConnectionObservation(status: status) { return }
+                if Self.shouldOpenRecoveryWindow(loaded: loaded, hasWindow: hasWindow, status: status,
+                                                 failure: failure, currentAttemptID: attemptID), !requestedRecoveryWindow {
+                    requestedRecoveryWindow = true
+                    context.services.windows.reopenOrCreateWindow()
+                }
+                guard let window = CloudHandlers.window(context) else { continue }
+                let currentFailure = Self.shouldPresentDaemonFailure(failure, currentAttemptID: attemptID) ? failure : nil
+                if status.needsRecovery || currentFailure != nil {
+                    let detail = RemoteStrings.detail(session) ?? ""
+                    let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
+                        detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
+                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)
+                    recovery.present(spec, error: RemoteStrings.sshError(session) ?? detail, in: window)
                 }
             }
+        }
+    }
+}
+
+/// `cmux open-remote <host>` (manaflow-ai/cmux#25092): one idempotent verb that opens a persistent
+/// terminal of a connected machine in a tab or a split, or focuses the one a first run made.
+extension RemoteHandlers {
+    static func bindOpenRemote(into registry: ActionRegistry, context: AppActionContext) {
+        // action-wait-allow: the terminal is created on the remote daemon over the network, so nothing local can show before its reply.
+        registry.bind("remote.openRemote", run: { invocation in
+            let request: OpenRemoteRequest
+            do { request = try OpenRemoteRequest(invocation) } catch let failure as OpenRemoteRequest.Failure {
+                throw ActionFailure(message: message(for: failure))
+            }
+            guard let pane = context.daemonPane(invocation) else { throw ActionFailure.invalidTarget(RefusalStrings.noPaneID(invocation.target?.id ?? "focused")) }
+            let machines = context.services.machines
+            let known = machines.ssh.map { OpenRemoteMachine(id: $0.machineID, name: $0.host.label, destination: $0.host.destination.description) }
+                + machines.cloud.map { OpenRemoteMachine(id: $0.machineID, name: $0.machine.title, destination: "") }
+            guard let match = OpenRemoteMachine.match(request.host, in: known) else {
+                throw ActionFailure.notFound(RemoteStrings.openRemoteHostNotFound(request.host))
+            }
+            guard let daemon = machines.daemon(machine: match.id), let session = daemon.identity?.sessionID else {
+                throw ActionFailure(message: WorkspaceVerbStrings.machineNotConnected)
+            }
+            let home = context.services.daemon(for: pane)
+            let title = RemoteStrings.terminalOn(context.services.remoteTerminals.sessionName(of: daemon))
+            // Idempotent: the tab a first run made, anywhere in the home's workspaces.
+            let existing = home.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first {
+                $0.kind == .remoteTerminal && $0.remote?.sessionID == session
+                    && request.matchesTab(name: $0.name, title: $0.displayTitle, defaultTitle: title)
+            }
+            if let existing {
+                if request.focus {
+                    registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: existing.id), origin: invocation.origin))
+                }
+                return
+            }
+            let direction: SplitDirection? = switch request.placement {
+            case .tab: nil
+            case .right: .right
+            case .down: .down
+            }
+            if let failure = context.services.remoteTerminals.openTerminal(
+                on: daemon, in: pane, home: home, cwd: request.cwd, splitting: direction, name: request.attach ?? request.name,
+                command: request.cmd, ratio: request.ratio, keepFocus: !request.focus
+            ) {
+                throw ActionFailure(message: failure.message)
+            }
+        })
+    }
+
+    private static func message(for failure: OpenRemoteRequest.Failure) -> String {
+        switch failure {
+        case .missingHost: RemoteStrings.noMachine
+        case .unsupportedSplit: RemoteStrings.splitRightOrDown
+        case .badRatio(let text): RemoteStrings.openRemoteBadRatio(text)
         }
     }
 }

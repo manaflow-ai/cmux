@@ -254,6 +254,9 @@ async fn preset_args_are_validated() {
         json!(["--tools", "default"]),
         json!(["--tools", "Bash(rm:*)"]),
         json!(["--add-dir", "/"]),
+        json!(["--setting-sources", "user"]),
+        json!(["--setting-sources", "project,local,user"]),
+        json!(["--setting-sources", "local"]),
     ] {
         let err =
             c.request(method::MUX_PRESETS, set(words.clone(), "fakeclaude")).await.unwrap_err();
@@ -267,6 +270,11 @@ async fn preset_args_are_validated() {
         .await
         .unwrap();
     assert_eq!(ok["args"], json!(["--tools", "", "--strict-mcp-config"]));
+    // The session folder's local settings, where Claude Code takes the
+    // allow rules of the Chief's own MCP tools (2026-10-20 stuck turn).
+    let local = json!(["--setting-sources", "project,local", "--disable-slash-commands"]);
+    let ok = c.request(method::MUX_PRESETS, set(local.clone(), "fakeclaude")).await.unwrap();
+    assert_eq!(ok["args"], local);
     // A refused set changes nothing.
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"].as_array().unwrap().len(), 1, "{list}");

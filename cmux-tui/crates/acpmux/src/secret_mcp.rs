@@ -7,7 +7,10 @@
 use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+use std::future::Future;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -19,7 +22,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "request_secret",
-            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. Returns a one-use secretRef for this project: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
+            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -31,7 +34,7 @@ fn tools() -> Value {
         },
         {
             "name": "run_with_secret",
-            "description": "Run one command in the project folder with a secret from request_secret in an environment variable. The secretRef is spent by this call. The secret's value is masked in the output.",
+            "description": "Run one command in this chat's folder with a secret from request_secret in an environment variable. It runs without your environment (only basics such as HOME, PATH and the locale, plus your login shell's variables), with no stdin, for at most 2 minutes (then it is killed and timedOut is true), and returns exitCode, stdout and stderr (about 64 KiB each at most) with the secret's value masked. The secretRef is spent once the command starts; one that could not start stays usable.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -47,7 +50,28 @@ fn tools() -> Value {
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
-    let session = std::env::var(SESSION_ENV).map_err(|_| anyhow!("{SESSION_ENV} is not set"))?;
+    serve(SERVER_NAME, SESSION_ENV, tools(), None, |daemon, session, params| async move {
+        call(&daemon, &session, &params).await
+    })
+    .await
+}
+
+/// An MCP stdio server for one agent session (the one in `session_env`):
+/// `tools/call` is `call(daemon, session, params)` on a new daemon
+/// connection, and `instructions` the MCP `instructions` it gives at
+/// `initialize`. `offer_mcp.rs` and `subsession_mcp.rs` serve theirs with it too.
+pub(crate) async fn serve<F, Fut>(
+    name: &'static str,
+    session_env: &str,
+    tools: Value,
+    instructions: Option<String>,
+    call: F,
+) -> Result<()>
+where
+    F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
+    let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
     let (tx, mut rx) = mpsc::channel::<Value>(64);
     let writer = tokio::spawn(async move {
         let mut out = tokio::io::stdout();
@@ -65,21 +89,27 @@ pub async fn run() -> Result<()> {
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
-            "initialize" => json!({
-                "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
-            }),
+            "initialize" => {
+                let mut reply = json!({
+                    "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
+                });
+                if let Some(text) = &instructions {
+                    reply.set("instructions", json!(text));
+                }
+                reply
+            }
             "ping" => json!({}),
-            "tools/list" => json!({"tools": tools()}),
+            "tools/list" => json!({"tools": tools}),
             "tools/call" => {
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
-                let (tx, session, params) =
-                    (tx.clone(), session.clone(), message["params"].clone());
+                let (tx, session, params, call) =
+                    (tx.clone(), session.clone(), message["params"].clone(), call.clone());
                 tokio::spawn(async move {
                     let result = match crate::daemon::connect(false).await {
-                        Ok(daemon) => call(&daemon, &session, &params).await,
+                        Ok(daemon) => call(daemon, session, params).await,
                         Err(e) => error_result(format!("{e:#}")),
                     };
                     let _ = tx.send(response(&id, result)).await;
@@ -106,7 +136,7 @@ fn response(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-fn error_result(text: String) -> Value {
+pub(crate) fn error_result(text: String) -> Value {
     json!({"content": [{"type": "text", "text": text}], "isError": true})
 }
 
@@ -127,7 +157,7 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         ),
         other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
     };
-    request["sessionId"] = Value::String(session.to_owned());
+    request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
             let text = if result["outcome"] == "cancelled" {

@@ -7,7 +7,9 @@
 import {
   errorCode,
   newIdempotencyKey,
+  revisionNumber,
   wireError,
+  type MutationResult,
   type ListRow,
   type SettingsClient,
   type SnapshotResult,
@@ -18,7 +20,11 @@ import {
 export type ScopeRead = { rows: ListRow[]; snapshot: SnapshotResult };
 
 /** A change any writer made (this page, the CLI, a hand edit, an MDM profile). */
-export type ChangeEvent = { keys: string[]; origin?: string };
+export type ChangeEvent = {
+  keys: string[];
+  origin?: string;
+  /** The owner's revision once the change applied. */ revision?: number;
+};
 
 /** The settings scopes the page reads; today only the user's file (cmux.json and its MDM overlay). */
 export type SettingsScope = "user";
@@ -26,10 +32,12 @@ export type SettingsScope = "user";
 export interface SettingsTransport {
   /** Reads every row of a scope. Rejects with a WireError. */
   get(scope: SettingsScope): Promise<ScopeRead>;
-  /** Writes one key. Rejects with a WireError (managed, invalid, revision conflict, unavailable). */
-  set(key: string, value: unknown): Promise<void>;
-  /** Returns one key to its default, or every key (`"all"`, except the ones reset all keeps). */
-  reset(key: string | "all"): Promise<void>;
+  /** Writes one key; resolves to the owner's revision after it, when the owner says.
+   * Rejects with a WireError (managed, invalid, revision conflict, unavailable). */
+  set(key: string, value: unknown): Promise<number | void>;
+  /** Returns one key to its default, or every key (`"all"`, except the ones reset all keeps);
+   * resolves to the owner's revision after it, when the owner says. */
+  reset(key: string | "all"): Promise<number | void>;
   /** Calls back on every change and on each loss or return of the owner; resolves to unsubscribe. */
   subscribe(listener: { changed(event: ChangeEvent): void; connection(connected: boolean): void }): Promise<() => void>;
 }
@@ -63,11 +71,16 @@ export function pageTransport(client: SettingsClient): SettingsTransport {
       return { rows, snapshot };
     },
     async set(key, value) {
-      await call(client, "cmux.settings.set", { key, value, idempotency_key: newIdempotencyKey() });
+      return replyRevision(
+        await call<MutationResult>(client, "cmux.settings.set", { key, value, idempotency_key: newIdempotencyKey() }),
+      );
     },
     async reset(key) {
-      if (key === "all") await call(client, "cmux.settings.reset_all", { idempotency_key: newIdempotencyKey() });
-      else await call(client, "cmux.settings.reset", { key, idempotency_key: newIdempotencyKey() });
+      const reply =
+        key === "all"
+          ? await call<MutationResult>(client, "cmux.settings.reset_all", { idempotency_key: newIdempotencyKey() })
+          : await call<MutationResult>(client, "cmux.settings.reset", { key, idempotency_key: newIdempotencyKey() });
+      return replyRevision(reply);
     },
     async subscribe(listener) {
       const stops = await Promise.all([
@@ -81,4 +94,10 @@ export function pageTransport(client: SettingsClient): SettingsTransport {
       return () => stops.forEach((stop) => stop());
     },
   };
+}
+
+/** The revision a mutation reply names, or undefined when it names none. */
+function replyRevision(reply: MutationResult | undefined): number | undefined {
+  const revision = revisionNumber(reply?.revision);
+  return revision > 0 ? revision : undefined;
 }

@@ -31,6 +31,21 @@ struct SwitchToColdTabTypeAheadTests {
 
     private static func lastSeq() -> UInt64 { InputJournal.shared.entries(last: 1).last?.seq ?? 0 }
 
+    /// The one tab `pane` lists beyond `known`, once it is the daemon's. `newSurface` shows a
+    /// stand-in first (`pending_tab_…`, ctrl-backtick-instant), and the daemon's tab takes its
+    /// place a round trip later. A script's tab is cold either way; this test selects the daemon's,
+    /// whose surface attaches, so the journal's per-surface input counts see its keys.
+    private static func daemonTab(in pane: PaneController, beyond known: Set<String>) -> String? {
+        let fresh = pane.orderedIDs.map(\.rawValue).filter { !known.contains($0) }
+        guard fresh.count == 1, let tab = fresh.first, !ProvisionalTab.isProvisional(tab) else { return nil }
+        return tab
+    }
+
+    /// The Ctrl-<number> that selects `tab` in `pane`.
+    private static func number(of tab: String, in pane: PaneController) throws -> Int {
+        try #require(pane.orderedIDs.firstIndex { $0.rawValue == tab }) + 1
+    }
+
     /// A plain key-down, delivered as `CmuxApplication.sendEvent` delivers it.
     private static func type(_ text: String, in window: NSWindow, router: KeyRouter) {
         let codes: [Character: UInt16] = ["h": 4, "e": 14, "l": 37, "o": 31, "x": 7, "s": 1, "\u{03}": 8]
@@ -89,11 +104,11 @@ struct SwitchToColdTabTypeAheadTests {
         let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
 
         // A second terminal tab made by a script: the window does not show it, so it has no surface.
-        let before = pane.orderedIDs.count
+        let before = Set(pane.orderedIDs.map(\.rawValue))
         _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .cli))
-        await Self.wait(within: .seconds(30)) { pane.orderedIDs.count > before }
-        let cold = try #require(pane.orderedIDs.last?.rawValue)
-        let number = pane.orderedIDs.count
+        await Self.wait(within: .seconds(30)) { Self.daemonTab(in: pane, beyond: before) != nil }
+        let cold = try #require(Self.daemonTab(in: pane, beyond: before), "the script's tab never became the daemon's: \(pane.orderedIDs)")
+        let number = try Self.number(of: cold, in: pane)
         #expect(pane.currentTabKey != cold, "the script's tab was shown")
         #expect(!services.cache.hasContent(for: cold), "the script's tab already has a surface")
 
@@ -110,13 +125,14 @@ struct SwitchToColdTabTypeAheadTests {
         #expect(after.count == 1 && after.values.first == 5, "the selected tab's terminal got \(after) of 5 typed bytes")
 
         // Another cold tab, then typing and a terminal chord behind it: the chord waits its turn.
-        let count = pane.orderedIDs.count
+        let listed = Set(pane.orderedIDs.map(\.rawValue))
         _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .cli))
-        await Self.wait(within: .seconds(30)) { pane.orderedIDs.count > count }
-        let second = try #require(pane.orderedIDs.last?.rawValue)
+        await Self.wait(within: .seconds(30)) { Self.daemonTab(in: pane, beyond: listed) != nil }
+        let second = try #require(Self.daemonTab(in: pane, beyond: listed), "the second script tab never became the daemon's: \(pane.orderedIDs)")
         #expect(!services.cache.hasContent(for: second), "the second script tab already has a surface")
+        let secondNumber = try Self.number(of: second, in: pane)
         seq = Self.lastSeq()
-        _ = services.registry.perform("selectSurfaceByNumber", invocation: ActionInvocation(arguments: ["index": .int(pane.orderedIDs.count)]))
+        _ = services.registry.perform("selectSurfaceByNumber", invocation: ActionInvocation(arguments: ["index": .int(secondNumber)]))
         Self.type("ls\u{03}", in: window, router: router)
         await Self.wait(within: .seconds(15)) { Self.inputBytes(after: seq).values.reduce(0, +) >= 3 }
         try? await Task.sleep(for: .milliseconds(300))

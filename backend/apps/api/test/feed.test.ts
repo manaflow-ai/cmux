@@ -46,7 +46,7 @@ const setup = async (stackUser: string) => {
 }
 
 const openFeed = async (token: string) => {
-  const res = await worker.fetch("https://api.test/v1/wire/feed", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+  const res = await worker.fetch("https://api.test/v1/wire/feed", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   expect(res.status).toBe(101)
   const ws = res.webSocket!
   const frames: Array<any> = []

@@ -1,5 +1,4 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Tooltip, TooltipProvider } from "../Tooltip";
 import { useUiDirection } from "../UiProvider";
 import { moveVariant } from "./model";
 import { variantPickStrings } from "./strings";
@@ -50,7 +49,7 @@ export function VariantPick({
     }
   };
   return (
-    <TooltipProvider>
+    <>
       <fieldset className="variant-pick" aria-label={strings.t("group")} aria-busy={pending} dir={dir}>
         <div className="variant-pick-options">
           {options.map((option) => {
@@ -64,43 +63,41 @@ export function VariantPick({
                   {recommended && <span>{strings.t("recommended")}</span>}
                 </div>
                 {option.preview}
-                <Tooltip label={label}>
-                  <button
-                    type="button"
-                    className="ui-button variant-pick-button"
-                    aria-label={label}
-                    aria-pressed={selected}
-                    aria-disabled={pending || selected}
-                    tabIndex={option.id === active ? 0 : -1}
-                    ref={(node) => {
-                      if (node) buttons.current.set(option.id, node);
-                      else buttons.current.delete(option.id);
-                    }}
-                    onFocus={() => setFocused(option.id)}
-                    onClick={() => {
-                      void pick(option.id);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-                      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
-                        event.preventDefault();
-                        const next = moveVariant(ids, option.id, event.key, dir);
-                        if (next) buttons.current.get(next)?.focus();
-                      } else if (event.key === "Enter") {
-                        event.preventDefault();
-                        if (!event.repeat) void pick(option.id);
-                      }
-                    }}
-                  >
-                    {strings.t(selected ? "picked" : "pick")}
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  className="ui-button variant-pick-button"
+                  aria-label={label}
+                  aria-pressed={selected}
+                  aria-disabled={pending || selected}
+                  tabIndex={option.id === active ? 0 : -1}
+                  ref={(node) => {
+                    if (node) buttons.current.set(option.id, node);
+                    else buttons.current.delete(option.id);
+                  }}
+                  onFocus={() => setFocused(option.id)}
+                  onClick={() => {
+                    void pick(option.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+                    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                      event.preventDefault();
+                      const next = moveVariant(ids, option.id, event.key, dir);
+                      if (next) buttons.current.get(next)?.focus();
+                    } else if (event.key === "Enter") {
+                      event.preventDefault();
+                      if (!event.repeat) void pick(option.id);
+                    }
+                  }}
+                >
+                  {strings.t(selected ? "picked" : "pick")}
+                </button>
               </div>
             );
           })}
         </div>
         <output aria-live="polite">{pending ? strings.t("pending") : failed ? strings.t("error") : ""}</output>
       </fieldset>
-    </TooltipProvider>
+    </>
   );
 }

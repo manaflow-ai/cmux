@@ -4,7 +4,7 @@ import Foundation
 // "Browser runtimes"; cx-2cob slice 2).
 
 enum BrowserRuntimeRequest {
-    static let capability = DaemonCapabilities.shared.browserRuntime
+    static let capability = DaemonCapability.browserRuntime.rawValue
 }
 
 struct BrowserRuntimeStatusRequest: DaemonRequest {

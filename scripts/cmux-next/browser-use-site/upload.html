@@ -1,0 +1,4 @@
+<!doctype html><meta charset=utf-8><title>bu-upload</title>
+<style>body{font:16px -apple-system;margin:60px}.drop{margin-top:20px;padding:30px;border:2px dashed #94a3b8;border-radius:12px;width:420px}</style>
+<h2>Attach a file</h2><div class=drop><input id=file type=file multiple></div><ul id=names></ul>
+<script>file.onchange=async()=>{names.innerHTML='';for(const f of file.files){const li=document.createElement('li');li.textContent=f.name+' ('+f.size+' bytes): '+(await f.text()).slice(0,40);names.appendChild(li)}}</script>

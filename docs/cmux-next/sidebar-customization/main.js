@@ -4,10 +4,10 @@
 
 // ---- Hover card --------------------------------------------------------------------------
 // The fields the card shows, in this order. Remove a name to hide that field.
-const FIELDS = ["needsInput", "task", "agent", "command", "presence", "lastReply", "folder", "branch", "pullRequest", "machine", "status"]
+const FIELDS = ["needsInput", "notification", "unread", "task", "agent", "command", "presence", "lastReply", "folder", "branch", "pullRequest", "machine", "status"]
 
 const ICONS = {
-  needsInput: "questionmark.bubble", agent: "sparkles", task: "text.alignleft", lastReply: "text.bubble",
+  needsInput: "questionmark.bubble", notification: "bell", unread: "bell", agent: "sparkles", task: "text.alignleft", lastReply: "text.bubble",
   presence: "pencil", command: "terminal", folder: "folder", branch: "arrow.triangle.branch",
   pullRequest: "arrow.triangle.pull", machine: "desktopcomputer", status: "circle.fill", more: "ellipsis",
 }

@@ -1,0 +1,24 @@
+# Soft Blue: soft grey surfaces, low-glare contrast and a blue accent. A cmux theme (light pair: Soft Blue Light).
+# cmux-accent = #3666f0
+palette = 0=#2f2f2f
+palette = 1=#f06c63
+palette = 2=#5fc28a
+palette = 3=#f0b54a
+palette = 4=#5a8ee6
+palette = 5=#b58cf0
+palette = 6=#4fbfd0
+palette = 7=#d4d4d4
+palette = 8=#6b6b6b
+palette = 9=#ff8a80
+palette = 10=#7ed6a3
+palette = 11=#f6c770
+palette = 12=#7aa7f0
+palette = 13=#c9a6f5
+palette = 14=#7ad3df
+palette = 15=#ffffff
+background = #181818
+foreground = #ffffff
+cursor-color = #ffffff
+cursor-text = #181818
+selection-background = #24395a
+selection-foreground = #ffffff

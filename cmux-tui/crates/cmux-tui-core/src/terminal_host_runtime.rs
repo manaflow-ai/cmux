@@ -22,6 +22,7 @@ use crate::surface::{
     TerminalStreamProgress, apply_clear_history_transition, replace_ghostty_cursor_defaults,
     write_clear_history_fallback,
 };
+pub use crate::terminal_activity::ShellActivitySnapshot;
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
@@ -31,17 +32,21 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS, FLAG_PTY_CUSTODY,
-    FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY,
-    Frame, HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
-    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
-    encode_terminal_exit, read_frame, wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS,
+    FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure, HostLaunchFailureKind,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
+    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 mod grant_failure;
 // Neutral code compiles on every platform; until the Windows host uses it,
 // only Unix calls it.
+/// The Colors frame payload codec.
+mod colors_wire;
+pub use colors_wire::{decode_terminal_color_overrides, encode_terminal_color_overrides};
 #[cfg_attr(not(unix), allow(dead_code))]
 mod shared;
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -79,8 +84,12 @@ const MAX_SMART_RETAINED_FRAMES: usize = 4096;
 const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
 const MAX_HOST_PARSER_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
-const TERMINAL_DIMENSION_MAX: u16 = 10_000;
-const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
+/// The largest terminal side, in cells. `crate::mux::clamp_terminal_size`
+/// applies it (and the area limit) to every request; the host keeps the
+/// check for sizes that come over its socket.
+pub(crate) const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+/// The largest terminal grid, in cells.
+pub(crate) const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
 const KITTY_GRAPHICS_LIMITS_ENCODED_LEN: usize = 4 * size_of::<u64>();
@@ -189,6 +198,17 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_PROGRAM_STATUS`.
     #[serde(default)]
     pub supports_program_status: bool,
+    /// Additive handshake capability (cx-6so.59). Missing/false records
+    /// belong to hosts that hand over no OSC 133 shell state and reject a
+    /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
+    #[serde(default)]
+    pub supports_shell_activity: bool,
+    /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
+    /// ends its terminal after this long with no client. `None` (normal
+    /// installs, and hosts from before this field): it never does; only a
+    /// close ends the terminal. Informational; no daemon decides on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphan_grace_secs: Option<u64>,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -211,6 +231,8 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .field("supports_pty_custody", &self.supports_pty_custody)
             .field("supports_program_status", &self.supports_program_status)
+            .field("supports_shell_activity", &self.supports_shell_activity)
+            .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
 }
@@ -273,6 +295,9 @@ pub struct HostSnapshot {
     /// The host's OSC 7501 records at the same boundary; `None` unless the
     /// client and host negotiate `FLAG_PROGRAM_STATUS`.
     pub program_status: Option<ProgramStatusSnapshot>,
+    /// The host's OSC 133 shell state at the same boundary; `None` unless
+    /// the client and host negotiate `FLAG_SHELL_ACTIVITY`.
+    pub shell_activity: Option<ShellActivitySnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -318,118 +343,6 @@ impl std::fmt::Debug for RendererGrant {
             .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .finish()
     }
-}
-
-/// Encode a complete dynamic render-metadata state.
-///
-/// Wire layout is little-endian: schema_version:u16, flags:u16 (foreground,
-/// background, cursor color, cursor visual), palette_count:u16, reserved:u16,
-/// each flagged RGB in that order, the atomic cursor style/blink pair when
-/// flagged, then palette_count repetitions of index:u8 + RGB. RGB and palette
-/// fields remain sparse theme overrides. Version 2 producers populate the
-/// host-resolved cursor visual. An absent visual is the version 1 fallback:
-/// the cursor state is unknown and the receiving renderer must preserve its
-/// current raw-VT/default cursor rather than infer a reset.
-pub fn encode_terminal_color_overrides(colors: &TerminalColorOverrides) -> Vec<u8> {
-    let cursor_visual =
-        colors.cursor_visual.expect("terminal-host Colors v2 requires a resolved cursor visual");
-    let mut flags = 0u16;
-    flags |= colors.foreground.is_some() as u16;
-    flags |= (colors.background.is_some() as u16) << 1;
-    flags |= (colors.cursor.is_some() as u16) << 2;
-    flags |= 1 << 3;
-    let palette_count = colors.palette.iter().filter(|color| color.is_some()).count() as u16;
-    let rgb_bytes = (flags & 0b111).count_ones() as usize * 3;
-    let mut payload = Vec::with_capacity(8 + rgb_bytes + 2 + usize::from(palette_count) * 4);
-    payload.extend_from_slice(&TERMINAL_COLORS_WIRE_VERSION.to_le_bytes());
-    payload.extend_from_slice(&flags.to_le_bytes());
-    payload.extend_from_slice(&palette_count.to_le_bytes());
-    payload.extend_from_slice(&0u16.to_le_bytes());
-    for color in [colors.foreground, colors.background, colors.cursor].into_iter().flatten() {
-        payload.extend_from_slice(&[color.r, color.g, color.b]);
-    }
-    let (style, blink) = cursor_visual;
-    let style = match style {
-        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => 1,
-        ghostty_vt::CursorShape::Underline => 2,
-        ghostty_vt::CursorShape::Bar => 3,
-    };
-    payload.extend_from_slice(&[style, blink as u8]);
-    for (index, color) in colors.palette.iter().enumerate() {
-        if let Some(color) = color {
-            payload.extend_from_slice(&[index as u8, color.r, color.g, color.b]);
-        }
-    }
-    debug_assert!(payload.len() <= MAX_TERMINAL_COLORS_PAYLOAD);
-    payload
-}
-
-pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<TerminalColorOverrides> {
-    if payload.len() < 8 || payload.len() > MAX_TERMINAL_COLORS_PAYLOAD {
-        anyhow::bail!("terminal-host Colors payload length is out of range");
-    }
-    let version = u16::from_le_bytes(payload[0..2].try_into().unwrap());
-    let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
-    let palette_count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
-    let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
-    let allowed_flags = match version {
-        TERMINAL_COLORS_WIRE_VERSION_V1 => 0b111,
-        TERMINAL_COLORS_WIRE_VERSION if flags & 0b1000 != 0 => 0b1111,
-        TERMINAL_COLORS_WIRE_VERSION => {
-            anyhow::bail!("terminal-host Colors v2 is missing the cursor visual")
-        }
-        _ => anyhow::bail!("unsupported terminal-host Colors payload version"),
-    };
-    if flags & !allowed_flags != 0 || reserved != 0 {
-        anyhow::bail!("unsupported terminal-host Colors payload header");
-    }
-    if palette_count > 256 {
-        anyhow::bail!("terminal-host Colors palette count is out of range");
-    }
-    let expected = 8
-        + (flags & 0b111).count_ones() as usize * 3
-        + usize::from(flags & 0b1000 != 0) * 2
-        + palette_count * 4;
-    if payload.len() != expected {
-        anyhow::bail!("malformed terminal-host Colors payload");
-    }
-    fn take_rgb(payload: &[u8], offset: &mut usize) -> Rgb {
-        let color = Rgb { r: payload[*offset], g: payload[*offset + 1], b: payload[*offset + 2] };
-        *offset += 3;
-        color
-    }
-    let mut offset = 8;
-    let foreground = (flags & 1 != 0).then(|| take_rgb(payload, &mut offset));
-    let background = (flags & 2 != 0).then(|| take_rgb(payload, &mut offset));
-    let cursor = (flags & 4 != 0).then(|| take_rgb(payload, &mut offset));
-    let cursor_visual = if flags & 8 != 0 {
-        let style = match payload[offset] {
-            1 => ghostty_vt::CursorShape::Block,
-            2 => ghostty_vt::CursorShape::Underline,
-            3 => ghostty_vt::CursorShape::Bar,
-            _ => anyhow::bail!("terminal-host Colors cursor style is out of range"),
-        };
-        let blink = match payload[offset + 1] {
-            0 => false,
-            1 => true,
-            _ => anyhow::bail!("terminal-host Colors cursor blink is out of range"),
-        };
-        offset += 2;
-        Some((style, blink))
-    } else {
-        None
-    };
-    let mut palette = [None; 256];
-    for _ in 0..palette_count {
-        let index = payload[offset] as usize;
-        if palette[index].is_some() {
-            anyhow::bail!("duplicate terminal-host Colors palette index");
-        }
-        palette[index] =
-            Some(Rgb { r: payload[offset + 1], g: payload[offset + 2], b: payload[offset + 3] });
-        offset += 4;
-    }
-    Ok(TerminalColorOverrides { foreground, background, cursor, cursor_visual, palette })
 }
 
 #[derive(Debug)]
@@ -510,7 +423,9 @@ mod unix {
     /// alive, so a failed reader, writer, callback, or thread setup cannot
     /// leave the interactive child detached from its parent.
     pub(crate) struct SpawnedPtyChild {
-        child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+        child: Box<dyn cmux_pty::Child + Send + Sync>,
+        /// False once the child is reaped: Drop then leaves it alone.
+        armed: bool,
         process_groups: [Option<libc::pid_t>; 2],
     }
 
@@ -546,15 +461,15 @@ mod unix {
             process_group_leader: Option<libc::pid_t>,
         ) -> Self {
             let child_pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
-            Self { child: Some(child), process_groups: [child_pid, process_group_leader] }
+            Self { child, armed: true, process_groups: [child_pid, process_group_leader] }
         }
 
         fn child(&self) -> &dyn cmux_pty::Child {
-            self.child.as_deref().expect("PTY child is present")
+            self.child.as_ref()
         }
 
         fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
-            self.child.as_deref_mut().expect("PTY child is present")
+            self.child.as_mut()
         }
 
         fn wait_and_disarm(&mut self) -> TerminalExit {
@@ -566,7 +481,7 @@ mod unix {
         }
 
         fn disarm(&mut self) {
-            let _ = self.child.take();
+            self.armed = false;
             self.process_groups = [None, None];
         }
     }
@@ -585,7 +500,8 @@ mod unix {
                     unsafe { libc::killpg(group, signal) == 0 }
                 },
             );
-            if let Some(child) = self.child.as_deref_mut() {
+            if self.armed {
+                let child = self.child.as_mut();
                 // A valid process group already includes the child. Avoid a
                 // second direct PID signal unless group signaling failed, which
                 // could leave the child running while the guard waits below.
@@ -684,17 +600,29 @@ mod unix {
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
         let pty = cmux_pty::open(initial_pty_size)?;
         crate::debug_spans::mark("host.pty_opened");
-        let mut command = PtyCommand::new(&launch.command[0]);
-        command.args(launch.command[1..].iter().cloned());
+        // A frontend's shell starts through login(1) (`login_shell`); the
+        // recorded launch command stays the shell's.
+        let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
+        let argv = login.as_deref().unwrap_or(&launch.command);
+        let Some((program, args)) = argv.split_first() else {
+            anyhow::bail!("terminal-host launch command is empty");
+        };
+        let mut command = PtyCommand::new(program);
+        command.args(args.iter().cloned());
         command.env("TERM", &launch.term);
         // Terminal-host children get the same truecolor guarantee as directly
         // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
         command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
-            command.env(key, value);
+            if !crate::login_shell::is_marker(key) {
+                command.env(key, value);
+            }
+        }
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+            command.env_remove(*key);
         }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
@@ -737,6 +665,10 @@ pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_paylo
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
+pub use shared::host_state::set_dev_host_orphan_grace;
+#[cfg(unix)]
+pub(crate) use shared::host_state::spawned_orphan_grace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]
@@ -768,6 +700,9 @@ pub(crate) use unix::input_ack_surface_fixture;
 pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
+// The holder launch marks the holder with the same owner (holder_runtime).
+#[cfg(unix)]
+pub(crate) use unix::host_owner_args;
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, enter_terminal_host_process,
@@ -831,11 +766,12 @@ mod tests {
 
     #[test]
     fn colors_payload_v2_requires_resolved_cursor_visual() {
-        assert!(
-            std::panic::catch_unwind(|| {
-                encode_terminal_color_overrides(&TerminalColorOverrides::default())
-            })
-            .is_err()
+        // Without a resolved cursor visual the encoder falls back to v1.
+        let fallback = encode_terminal_color_overrides(&TerminalColorOverrides::default());
+        assert_eq!(fallback, [1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            decode_terminal_color_overrides(&fallback).unwrap(),
+            TerminalColorOverrides::default()
         );
         assert!(
             decode_terminal_color_overrides(&[2, 0, 0, 0, 0, 0, 0, 0]).is_err(),

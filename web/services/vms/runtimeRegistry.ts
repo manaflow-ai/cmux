@@ -4,7 +4,15 @@ import { cloudDb } from "../../db/client";
 import { cloudRuntimeAgentBindings, cloudRuntimes, cloudVms } from "../../db/schema";
 import { VmDatabaseError } from "./errors";
 
-export type CloudRuntimeRow = typeof cloudRuntimes.$inferSelect;
+// Keep the M0 registry surface source-compatible for callers that construct a
+// placement row from the original identity fields. Persistence-aware callers
+// can use RuntimeRow from runtimeModel, while database reads still carry all
+// of the newer lifecycle and lease columns.
+export type CloudRuntimeRow = Pick<typeof cloudRuntimes.$inferSelect,
+  "id" | "ownerTeamId" | "journalSessionId" | "machineId" | "placementGeneration" | "createdAt"
+> & Partial<Omit<typeof cloudRuntimes.$inferSelect,
+  "id" | "ownerTeamId" | "journalSessionId" | "machineId" | "placementGeneration" | "createdAt"
+>>;
 export type HiveRuntimeAgentBinding = typeof cloudRuntimeAgentBindings.$inferSelect;
 
 /** Exact incarnation carried across asynchronous work; never a journal cursor. */

@@ -18,7 +18,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         }
     }
     public static let command = "new-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserTabs
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
     public var url: String
     public var engine: BrowserEngine
     public var pane: PaneID?
@@ -33,6 +33,9 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// `frontend-browser-insert-after-v1`: the new tab goes right after this
     /// tab of the pane (a link's opener, or its last child) instead of at the end.
     public var after: SurfaceID?
+    /// `frontend-browser-tab-keys-v1`: a request with the same key answers
+    /// the tab the first one made (`replayed`), so a retry never makes two.
+    public var idempotencyKey: String?
 
     public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, title: String? = nil, faviconURL: String? = nil,
                 profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil) {
@@ -64,7 +67,7 @@ public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
         }
     }
     public static let command = "update-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserTabs
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
     public var surface: SurfaceID
     public var url: String?
     public var title: String?
@@ -101,7 +104,7 @@ public struct SetFrontendBrowserTabProfileRequest: DaemonRequest {
         }
     }
     public static let command = "update-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserTabProfile
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabProfile.rawValue
     public var surface: SurfaceID
     /// `default` or a lowercase UUID.
     public var profileID: String

@@ -102,3 +102,71 @@ test("a refused history removal announces the error and keeps the timeline", asy
   expect(host.querySelector('[role="alert"].history-error')?.textContent).toBe("history cannot be changed");
   expect(host.querySelectorAll(".history-row").length).toBeGreaterThan(0);
 });
+
+test("a lost host says so once, in the page's words, not again in a banner above it", async () => {
+  const [
+    { createRoot },
+    { HistoryPage },
+    { UiProvider, languageDirection },
+    { createStrings },
+    tableModule,
+    historyModule,
+    storeModule,
+  ] = await Promise.all([
+    import("react-dom/client"),
+    import("../src/pages/history/HistoryPage"),
+    import("../src/ui/UiProvider"),
+    import("../src/pages/shared/i18n"),
+    import("../src/pages/history/generated/strings.json"),
+    import("../src/pages/history/mockProvider"),
+    import("../src/pages/history/store"),
+  ]);
+  const provider = new historyModule.MockHistoryProvider();
+  provider.offline = true;
+  const store = new storeModule.HistoryStore(provider, { newKey: () => "k" });
+  const strings = createStrings(tableModule.default, ["en"]);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => {
+    root!.render(
+      <UiProvider container={host} dir={languageDirection(strings.language)}>
+        <HistoryPage store={store} strings={strings} />
+      </UiProvider>,
+    );
+  });
+  await act(async () => store.start());
+
+  expect(store.getSnapshot().connection).toBe("disconnected");
+  expect(host.querySelector(".history-empty")?.textContent).toBe(strings.t("page.disconnected"));
+  expect(host.querySelector(".history-error")).toBeNull();
+  // The page's own words are announced in place of the banner's alert: `output` is the status
+  // region, which is the tag the role belongs to (jsx-a11y prefer-tag-over-role).
+  expect(host.querySelector(".history-empty")?.tagName).toBe("OUTPUT");
+  // Clear has nothing to reach while the host is gone, like the search field.
+  const clear = [...host.querySelectorAll<HTMLButtonElement>(".history-menu-button")].find(
+    (button) => button.textContent === strings.t("page.clear"),
+  );
+  expect(clear?.disabled).toBe(true);
+});
+
+test("a host that comes back drops the lost link's error before it re-reads", async () => {
+  const [historyModule, storeModule] = await Promise.all([
+    import("../src/pages/history/mockProvider"),
+    import("../src/pages/history/store"),
+  ]);
+  const provider = new historyModule.MockHistoryProvider();
+  const store = new storeModule.HistoryStore(provider, { newKey: () => "k" });
+  const unsubscribe = store.subscribe(() => {});
+  await store.start();
+  provider.offline = true;
+  provider.page.setConnected(false);
+  store.setText("atlas");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(store.getSnapshot()).toMatchObject({ connection: "disconnected" });
+  expect(store.getSnapshot().error).toBeDefined();
+  provider.offline = false;
+  provider.page.setConnected(true);
+  // While the re-read is on its way the stale error would come back as a banner and an alert.
+  expect(store.getSnapshot()).toMatchObject({ connection: "connecting", error: undefined });
+  unsubscribe();
+});

@@ -7,13 +7,20 @@ import type { ComputerUseState } from "../ops";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 
-function phaseText(state: ComputerUseState): string {
+function helperText(state: ComputerUseState): string {
+  if (state.host_unverified) return t("settingsWindow.computerUse.hostUnverified");
   if (state.phase === "ready") {
     return state.accessibility && state.screen_recording
       ? t("settingsWindow.computerUse.phase.ready")
       : t("settingsWindow.computerUse.phase.missing");
   }
   return t(`settingsWindow.computerUse.phase.${state.phase}`);
+}
+
+// Driver "upstream" in a build without its helper runs the legacy helper: say so first.
+function phaseText(state: ComputerUseState): string {
+  const text = helperText(state);
+  return state.upstream_fallback ? `${t("settingsWindow.computerUse.upstreamFallback")} ${text}` : text;
 }
 
 function Grant({ granted }: { granted: boolean | null }) {
@@ -34,6 +41,8 @@ export function ComputerUseCard() {
   const { host } = useSettingsState();
   const state = host?.computer_use;
   if (!state || state.phase === "disabled_by_policy") return null;
+  const failed = state.phase === "failed";
+  const action = failed ? "palette.computerUse.restart" : "palette.computerUse.setup";
   const row = (
     pane: "accessibility" | "screenRecording",
     granted: boolean | null,
@@ -50,16 +59,11 @@ export function ComputerUseCard() {
     <section className="group" data-card="computer-use" data-phase={state.phase}>
       <h3 className="group-title">{t("settingsWindow.computerUse.title")}</h3>
       <div className="rows">
-        {row("accessibility", state.accessibility, "palette.computerUse.accessibility")}
-        {row("screenRecording", state.screen_recording, "palette.computerUse.screenRecording")}
+        {!failed && row("accessibility", state.accessibility, "palette.computerUse.accessibility")}
+        {!failed && row("screenRecording", state.screen_recording, "palette.computerUse.screenRecording")}
         <ActionRow title={t("settingsWindow.computerUse.status")} help={phaseText(state)}>
-          <button
-            type="button"
-            className="button"
-            data-action="palette.computerUse.setup"
-            onClick={() => void store.runAction("palette.computerUse.setup")}
-          >
-            {t("settingsWindow.computerUse.setUp")}
+          <button type="button" className="button" data-action={action} onClick={() => void store.runAction(action)}>
+            {t(failed ? "settingsWindow.computerUse.restartHelper" : "settingsWindow.computerUse.setUp")}
           </button>
         </ActionRow>
       </div>

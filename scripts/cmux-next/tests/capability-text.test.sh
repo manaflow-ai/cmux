@@ -32,5 +32,27 @@ rm "$src/bad.rs"
 printf 'pub const E: &str = "x";\n#[cfg(test)]\nmod tests {\n    const T: &str = "update the app";\n}\n' >"$src/inline.rs"
 python3 "$check" --root "$tmp" >/dev/null || fail "an inline #[cfg(test)] module must be skipped"
 
-python3 "$check" --root "$repo" || fail "the repository has capability texts that say update"
+# The release.rs handshake hints are allowed only as their exact literals.
+rel="$tmp/cmux-tui/crates/cmux-tui-core/src"
+mkdir -p "$rel"
+cat >"$rel/release.rs" <<'RS'
+const PYPI_UPDATE: &str = "uv tool upgrade cmux";
+        None => format!(
+            "update cmux: `{NPM_UPDATE}` (npm), `{PYPI_UPDATE}` (PyPI), or Check for Updates in the cmux app"
+        ),
+RS
+python3 "$check" --root "$tmp" >/dev/null || fail "the exact release.rs handshake hints must pass"
+cat >>"$rel/release.rs" <<'RS'
+            "update cmux: `{NPM_UPDATE}` (npm), `{PYPI_UPDATE}` (PyPI), or Check for Updates in the cmux app; or update the app"
+RS
+if out="$(python3 "$check" --root "$tmp")"; then fail "a longer literal with an allowed prefix must be refused"; fi
+case "$out" in *"cmux-tui-core/src/release.rs:5"*) ;; *) fail "the longer release.rs literal not named: $out" ;; esac
+rm -r "$tmp/cmux-tui/crates/cmux-tui-core"
+
+# The repository's own texts: a copy lint, so a warning while CMUX_NEXT_STYLE_GUARDS is
+# `warn` (cmux-next.yml, Leo 2026-10-19). The fixture cases above always fail.
+if ! python3 "$check" --root "$repo"; then
+  [[ "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] || fail "the repository has capability texts that say update"
+  echo "::warning title=capability text (warn-only)::the repository has capability texts that say update"
+fi
 echo "capability-text tests: ok"

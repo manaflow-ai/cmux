@@ -52,7 +52,7 @@ public nonisolated extension CGContext {
             strokePath()
         } else {
             setFillColor(paint)
-            fillPath(using: .winding)
+            fillPath(using: layer.rule.cgFillRule)
         }
     }
 }

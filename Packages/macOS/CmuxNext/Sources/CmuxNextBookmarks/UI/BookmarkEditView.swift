@@ -49,8 +49,7 @@ struct BookmarkEditView: View {
                 Spacer(minLength: Metrics.space6)
                 Button(BookmarkStrings.remove) { model.onRemove() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.remove")
-                Button(BookmarkStrings.done) { model.onDone() }
-                    .keyboardShortcut(.defaultAction)
+                CmuxDialogActionButton(BookmarkStrings.done, hint: .return) { model.onDone() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.done")
             }
             .font(Font(Typography.body))

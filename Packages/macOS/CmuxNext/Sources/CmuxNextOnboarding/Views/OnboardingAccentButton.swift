@@ -35,6 +35,16 @@ final class OnboardingAccentButton: NSButton {
         applyAppearance()
     }
 
+    /// Room around the title so the filled button reads as a button, at the
+    /// height of the bordered large buttons beside it.
+    override var intrinsicContentSize: NSSize {
+        let size = super.intrinsicContentSize
+        return NSSize(width: size.width + 2 * Self.horizontalPadding, height: max(size.height, Self.minimumHeight))
+    }
+
+    private static let horizontalPadding: CGFloat = 14
+    private static let minimumHeight: CGFloat = 28
+
     func refreshAppearance() {
         applyAppearance()
     }

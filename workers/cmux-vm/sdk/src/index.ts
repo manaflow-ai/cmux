@@ -18,6 +18,15 @@ export const TEAM_HEADER = "x-cmux-team-id";
 
 export type Vm = components["schemas"]["Vm"];
 export type VmList = components["schemas"]["VmList"];
+export type RetiredVm = components["schemas"]["RetiredVm"];
+export type FileStat = components["schemas"]["FileStat"];
+export type VmInstanceIdentity = components["schemas"]["VmInstanceIdentity"];
+export type VmCreationReceipt = components["schemas"]["VmCreationReceipt"];
+export type VmCreationCancellation = components["schemas"]["VmCreationCancellation"];
+export type VmCreationList = components["schemas"]["VmCreationList"];
+export type VmCreationListItem = components["schemas"]["VmCreationListItem"];
+export type VmCreationKey = components["schemas"]["VmCreationKey"];
+export type VmCreationStatus = components["schemas"]["VmCreationStatus"];
 export type VmState = Vm["state"];
 export type CreateVmRequest = components["schemas"]["CreateVmRequest"];
 export type ForkVmRequest = components["schemas"]["ForkVmRequest"];
@@ -53,3 +62,5 @@ export function createCmuxVmClient(options: CmuxVmClientOptions): CmuxVmClient {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
 }
+
+export { CmuxVmError, CmuxVmPlanRequired, CmuxVmQuotaExceeded, DEFAULT_UPGRADE_URL, createCmuxVm, toCmuxVmError, type ExecResult } from "./vm.ts";

@@ -40,6 +40,9 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     }
 
     private var owners: [Key: Owner] = [:]
+    /// `owners` inverted, kept by `setOwner`: a presence change reads one
+    /// owner's keys, never a scan of every presented key.
+    private var ownedKeys: [Owner: Set<Key>] = [:]
     private var ownerPresence: [Owner: SurfacePresence] = [:]
     private var retention: SurfaceRetention<Key>
     /// Keys the LRU never counts or evicts (browser pages: their memory is
@@ -62,7 +65,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 
     /// Keys `owner` presents (at most one per pane in practice).
     public func keys(ownedBy owner: Owner) -> [Key] {
-        owners.compactMap { $0.value == owner ? $0.key : nil }
+        ownedKeys[owner].map(Array.init) ?? []
     }
 
     public var capacity: Int { retention.capacity }
@@ -98,7 +101,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
             effects.displaced.append(Displacement(key: key, owner: previous))
             forgetOwnerIfIdle(previous, except: key)
         }
-        owners[key] = owner
+        setOwner(owner, of: key)
         update(key, into: &effects)
         return effects
     }
@@ -107,7 +110,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     public mutating func withdraw(_ key: Key, by owner: Owner) -> Effects {
         var effects = Effects()
         guard owners[key] == owner else { return effects }
-        owners[key] = nil
+        setOwner(nil, of: key)
         update(key, into: &effects)
         forgetOwnerIfIdle(owner, except: nil)
         return effects
@@ -131,10 +134,21 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     public mutating func removeOwner(_ owner: Owner) -> Effects {
         var effects = Effects()
         for key in keys(ownedBy: owner) {
-            owners[key] = nil
+            setOwner(nil, of: key)
             update(key, into: &effects)
         }
         ownerPresence[owner] = nil
+        return effects
+    }
+
+    /// Destroys `key`'s surface now if no pane presents it (its workspace hibernated,
+    /// plans/cmux-next/workspace-hibernation-DESIGN.md), instead of when the LRU reaches it. A key a
+    /// pane still presents, one outside the LRU, or one not warm is left alone (empty effects).
+    public mutating func evictHidden(_ key: Key) -> Effects {
+        var effects = Effects()
+        guard owners[key] == nil, !unretained.contains(key), retention.isRetained(key) else { return effects }
+        retention.remove(key)
+        evict(key, into: &effects)
         return effects
     }
 
@@ -145,7 +159,8 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         retention.remove(key)
         unretained.remove(key)
         rendering.remove(key)
-        guard let owner = owners.removeValue(forKey: key) else { return nil }
+        guard let owner = owners[key] else { return nil }
+        setOwner(nil, of: key)
         forgetOwnerIfIdle(owner, except: nil)
         return owner
     }
@@ -171,14 +186,26 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         rendering.remove(key)
         effects.rendering[key] = nil
         effects.evicted.append(key)
-        if let owner = owners.removeValue(forKey: key) {
+        if let owner = owners[key] {
+            setOwner(nil, of: key)
             effects.displaced.append(Displacement(key: key, owner: owner))
         }
     }
 
     private mutating func forgetOwnerIfIdle(_ owner: Owner, except key: Key?) {
-        guard !owners.contains(where: { $0.value == owner && $0.key != key }) else { return }
+        let keys = ownedKeys[owner] ?? []
+        guard keys.isEmpty || (keys.count == 1 && key.map(keys.contains) == true) else { return }
         ownerPresence[owner] = nil
+    }
+
+    /// The one writer of `owners`, so `ownedKeys` stays its inverse.
+    private mutating func setOwner(_ owner: Owner?, of key: Key) {
+        if let previous = owners[key] {
+            ownedKeys[previous]?.remove(key)
+            if ownedKeys[previous]?.isEmpty == true { ownedKeys[previous] = nil }
+        }
+        owners[key] = owner
+        if let owner { ownedKeys[owner, default: []].insert(key) }
     }
 }
 

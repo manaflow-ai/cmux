@@ -110,8 +110,27 @@ impl PromptOsc {
 }
 
 impl PromptSemanticTracker {
-    pub(super) fn feed(&mut self, data: &[u8]) {
+    pub(super) fn is_ground(&self) -> bool {
+        matches!(self.state, PromptTrackState::Ground)
+    }
+
+    /// Whether a line end (LF, VT, FF) in ground state would change the
+    /// semantic: only while input runs until the end of the line.
+    pub(super) fn waits_for_line_end(&self) -> bool {
+        let current = if self.alternate_active { self.alternate } else { self.primary };
+        current == PromptSemantic::InputUntilEndOfLine
+    }
+
+    /// Original byte-at-a-time feed, kept as the exactness reference.
+    pub(super) fn feed_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    pub(super) fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
                 // The PTY stream is UTF-8. Accept only 7-bit ESC forms so

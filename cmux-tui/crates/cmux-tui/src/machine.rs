@@ -54,6 +54,14 @@ pub struct MachineDescriptor {
     pub name: String,
     pub subtitle: String,
     pub status: MachineStatus,
+    pub platform: Option<MachinePlatform>,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachinePlatform {
+    pub os: Option<String>,
+    pub arch: Option<String>,
 }
 
 /// Provider-owned identity boundary shown above the machine catalog. The TUI
@@ -1038,6 +1046,8 @@ mod tests {
                     name: "one".into(),
                     subtitle: String::new(),
                     status: MachineStatus::Running,
+                    platform: None,
+                    capabilities: Vec::new(),
                 },
                 MachineDescriptor {
                     key: MachineKey(2),
@@ -1045,6 +1055,8 @@ mod tests {
                     name: "two".into(),
                     subtitle: String::new(),
                     status: MachineStatus::Sleeping,
+                    platform: None,
+                    capabilities: Vec::new(),
                 },
             ],
             active: Some(MachineKey(2)),
@@ -1084,6 +1096,8 @@ mod tests {
                     name: "one".into(),
                     subtitle: String::new(),
                     status: MachineStatus::Running,
+                    platform: None,
+                    capabilities: Vec::new(),
                 },
                 MachineDescriptor {
                     key: second,
@@ -1091,6 +1105,8 @@ mod tests {
                     name: "two".into(),
                     subtitle: String::new(),
                     status: MachineStatus::Running,
+                    platform: None,
+                    capabilities: Vec::new(),
                 },
             ],
             active: Some(first),
@@ -1116,6 +1132,8 @@ mod tests {
                 name: "seven".into(),
                 subtitle: String::new(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             active: Some(MachineKey(7)),
             capabilities: MachineCapabilities { create: true, connect: true },
@@ -1155,6 +1173,8 @@ mod tests {
             name: key.to_string(),
             subtitle: String::new(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         };
         let mut previous = MachineUiState::new(MachineSnapshot {
             machines: vec![descriptor(1), descriptor(2)],

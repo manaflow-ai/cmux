@@ -1,0 +1,6 @@
+[bindings.swift]
+# Swift module `CmuxMobileLinkFFI` (cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI) imports the C module
+# `CmuxMobileLinkFFIFFI`, which the CmuxMobileLinkFFI.xcframework's static frameworks provide.
+module_name = "CmuxMobileLinkFFI"
+ffi_module_name = "CmuxMobileLinkFFIFFI"
+ffi_module_filename = "CmuxMobileLinkFFIFFI"

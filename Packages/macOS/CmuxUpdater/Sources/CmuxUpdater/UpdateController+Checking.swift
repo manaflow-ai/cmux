@@ -196,7 +196,7 @@ extension UpdateController {
         readyCheckTask = nil
     }
 
-    private func describeLifecycleState(_ state: UpdateState) -> String {
+    func describeLifecycleState(_ state: UpdateState) -> String {
         switch state {
         case .idle: return "idle"
         case .permissionRequest: return "permissionRequest"
@@ -214,9 +214,18 @@ extension UpdateController {
 }
 
 extension UpdateController: UpdateDriverEventDelegate {
+    func updateDriverNeedsSilentInstallResume() {
+        // Returning NO from willInstallUpdateOnQuit ends Sparkle's silent cycle. Resume it as
+        // a foreground cycle only after that callback, so the user driver gets a cancellable
+        // reply instead of trapping the updater in its private silent-install session.
+        pendingCheckIntent = pendingCheckIntent?.merged(with: .manual) ?? activeCheckIntent ?? .manual
+        showPreparingCheck()
+    }
+
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil
+        onUpdateCycleFinished?()
         log.append(
             "controller observed cycle finish (check=\(updateCheck.rawValue), active=\(finishedIntent?.rawValue ?? "external"), pending=\(pendingCheckIntent?.rawValue ?? "none"), state=\(describeLifecycleState(model.state)), error=\(error?.code.description ?? "none"))"
         )

@@ -26,15 +26,22 @@ extension HomeService {
             Task { @MainActor [weak self] in
                 guard let self, self.homeOpened else { return }
                 self.publishAppLinks()
+                self.requests.refresh()
             }
         }
     }
 
-    /// Quit: the cache's last batch reaches disk, and the links that still
-    /// point at this app go (another build that took them over keeps them).
+    /// Quit's save step: the Home cache's last batch reaches disk (written on the cache actor;
+    /// the quit only waits), before the process can end.
+    func flushCacheForQuit() async {
+        await homeStore.flushCache()
+    }
+
+    /// Quit: the links that still point at this app go (another build that took them over keeps
+    /// them). The cache was written by the quit's save step (``flushCacheForQuit()``).
     func applicationWillTerminate() {
         settleWatch?.cancel()
-        homeStore.flushCache()
+        if homeListPrimed { sidebarLaunch.flush() }
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,
                                 daemonSocket: publishedDaemonSocket)
     }

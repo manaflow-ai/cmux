@@ -12,7 +12,9 @@
 //! - the WebSocket listener (`mod.rs` `serve_ws_with`): the handshake checks
 //!   the listener token before the upgrade, so every WebSocket connection
 //!   starts at [`ConnAuth::ListenerToken`]; this launch's LocalApp token
-//!   (`local_app.rs`) or peer token (`peer_auth.rs`) raises it.
+//!   (`local_app.rs`) or peer token (`peer_auth.rs`) raises it. A paired
+//!   machine's credential (`crate::pairing`) stands in for the listener
+//!   token: [`ConnAuth::Device`] or [`ConnAuth::ReadOnlyDevice`].
 //!
 //! [`ConnAuth::None`] is the value of any connection no proof was checked
 //! for. It gets no sessions and no data: every request is refused and no
@@ -34,6 +36,12 @@ pub enum ConnAuth {
     LocalApp,
     /// The listener token plus this launch's peer token (`peer_auth.rs`).
     PeerToken,
+    /// A paired machine's `client` credential, in place of the listener
+    /// token, from a loopback address (`crate::pairing`). Served as Peer.
+    Device,
+    /// A paired machine's `read-only` credential: served as Web, and every
+    /// request goes through the read-only gate (`pairing::read_only`).
+    ReadOnlyDevice,
 }
 
 impl ConnAuth {
@@ -50,6 +58,8 @@ impl ConnAuth {
             ConnAuth::ListenerToken => "listenerToken",
             ConnAuth::LocalApp => "localApp",
             ConnAuth::PeerToken => "peerToken",
+            ConnAuth::Device => "device",
+            ConnAuth::ReadOnlyDevice => "readOnlyDevice",
         }
     }
 

@@ -310,6 +310,12 @@ impl App {
                     if let Some(target) = targets.get(next).cloned() {
                         self.select_workspace_rail_target(target);
                     }
+                } else if key.code == KeyCode::Char('p') && key.modifiers == KeyModifiers::NONE {
+                    // Pin or unpin on the daemon's sidebar document.
+                    if let Some(WorkspaceRailTarget::Workspace(id)) = targets.get(current).cloned()
+                    {
+                        self.toggle_workspace_pin(id);
+                    }
                 } else if key.code == KeyCode::Enter {
                     match targets.get(current).cloned() {
                         Some(WorkspaceRailTarget::Workspace(id)) => {

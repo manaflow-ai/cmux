@@ -55,7 +55,7 @@ impl Session {
 
     /// Registers a connection so `close` can end it. `None` when the
     /// listener is closed or full (the caller drops the connection).
-    fn register(&self, tcp: &TcpStream) -> Option<u64> {
+    pub(crate) fn register(&self, tcp: &TcpStream) -> Option<u64> {
         let mut open = self.lock();
         if self.is_closed() || open.len() >= MAX_CONNECTIONS {
             return None;
@@ -78,7 +78,7 @@ impl Session {
         }
     }
 
-    fn unregister(&self, id: u64) {
+    pub(crate) fn unregister(&self, id: u64) {
         self.lock().retain(|(i, _)| *i != id);
     }
 
@@ -100,6 +100,18 @@ impl Session {
             conn.abort.abort();
             return;
         };
+        self.splice_registered(id, tcp, conn, first);
+    }
+
+    /// Pumps a connection that the handler registered before reading any
+    /// untrusted bytes, so listener shutdown also interrupts request parsing.
+    pub(crate) fn splice_registered(
+        &self,
+        id: u64,
+        tcp: TcpStream,
+        conn: TunnelConn,
+        first: Vec<u8>,
+    ) {
         self.attach_tunnel(id, Arc::clone(&conn.abort));
         let TunnelConn { mut reader, mut writer, abort } = conn;
         let up_abort = Arc::clone(&abort);

@@ -68,9 +68,8 @@ Spec for phase 2:
   rule. A "What's New" entry in Settings re-opens the latest sheet on demand.
 - **Versioning shown**: the sheet shows the marketing version only (`1.0.3`), never
   the build timestamp.
-- **Scope**: this is iOS app runtime code, so it requires a tagged dogfood build
-  (macOS + simulator + best-effort iPhone) and explicit dogfood approval before
-  merge. It is intentionally deferred out of the changelog/scripts PR so that PR
+- **Scope**: this is iOS app runtime code, so it gets a tagged dogfood build
+  (macOS + simulator + best-effort iPhone) before merge. It is intentionally deferred out of the changelog/scripts PR so that PR
   stays script + docs + skill only and can merge after CI without dogfood.
 
 Follow-up issue should track: the build-time changelog→bundle parse step, the

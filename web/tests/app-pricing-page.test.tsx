@@ -371,9 +371,51 @@ describe("app pricing page", () => {
     const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Manage billing")) ?? "";
     expect(card.match(/Current plan/g)).toHaveLength(1);
     expect(card.includes("Manage billing")).toBe(true);
-    // A Pro subscriber can still upgrade to Max from the app.
-    expect(html).toContain("api/billing/portal?flow=switch_plan&amp;plan=max");
+    // The checkout endpoint routes an active Pro subscription to the portal
+    // upgrade flow while also handling granted Pro users without a customer.
+    expect(card).toContain("api/billing/checkout?plan=max");
+    expect(html).not.toContain("api/billing/portal?flow=switch_plan");
     expect(html).toContain("Get Max");
+  });
+
+  test("routes a granted Pro user's Max CTA through checkout", async () => {
+    stackConfigured = true;
+    currentUser = { ...proUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } };
+
+    const html = await renderSettled(
+      await AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }),
+    );
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*><span>Get Max/);
+    expect(card).not.toContain("/api/billing/portal?flow=switch_plan");
+  });
+
+  test("a past-due Pro subscriber is sent to fix the payment, not offered Max", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro", status: "past_due" }];
+
+    const html = await renderSettled(
+      await AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }),
+    );
+
+    // The personalized card set, not the signed-out streaming fallback.
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    expect(card).not.toContain("Get Max");
+    expect(card).not.toContain("plan=max");
+    expect(card.match(/href="\/api\/billing\/portal"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   for (const [name, params, message] of [

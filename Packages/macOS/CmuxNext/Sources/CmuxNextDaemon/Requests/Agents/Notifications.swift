@@ -53,7 +53,7 @@ public struct AckTabNotificationsRequest: DaemonRequest {
         }
     }
     public static let command = "ack-tab-notifications"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.notificationAck
+    public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var surface: SurfaceID
     public init(surface: SurfaceID) { self.surface = surface }
 }
@@ -70,8 +70,13 @@ public struct ListNotificationsRequest: DaemonRequest {
         public var surface: SurfaceID?
         public var createdAtMs: UInt64
         public var acknowledged: Bool
+        /// The producer category the daemon reports for the row (`cli`,
+        /// `terminal`, `agent` or `daemon`; `NotificationSource` in
+        /// cmux-tui). Optional so a daemon that predates it still decodes.
+        public var source: String?
+
         enum CodingKeys: String, CodingKey {
-            case id, title, subtitle, body, level, surface, acknowledged
+            case id, title, subtitle, body, level, surface, acknowledged, source
             case terminalID = "terminal_id"
             case createdAtMs = "created_at_ms"
         }
@@ -80,7 +85,7 @@ public struct ListNotificationsRequest: DaemonRequest {
         public var notifications: [Entry]
     }
     public static let command = "list-notifications"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.notificationAck
+    public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var limit: Int?
     public init(limit: Int? = nil) { self.limit = limit }
 }

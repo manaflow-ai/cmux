@@ -43,6 +43,9 @@ public nonisolated enum BrowserLinkAction: String, Hashable, Sendable, CaseItera
     case backgroundTab
     /// A new selected tab next to the opener.
     case foregroundTab
+    /// Where the host puts every link the person opens (`layout.linkPlacement`;
+    /// default: the pane right of the opener's pane, or a new split there).
+    case linkPlacement
     /// A new cmux window (a new workspace holding the tab).
     case newWindow
     /// Downloads the link target.
@@ -53,6 +56,7 @@ public nonisolated enum BrowserLinkAction: String, Hashable, Sendable, CaseItera
         switch self {
         case .backgroundTab: .backgroundTab
         case .foregroundTab: .foregroundTab
+        case .linkPlacement: .linkPlacement
         case .newWindow: .newWindow
         case .currentTab, .download: nil
         }
@@ -70,7 +74,9 @@ public nonisolated struct BrowserLinkClickMapping: Hashable, Sendable {
     public var optionClick: BrowserLinkAction
     public var middleClick: BrowserLinkAction
 
-    /// Chrome's defaults.
+    /// Chrome's defaults (what a script's request without a user gesture
+    /// follows). cmux's own Cmd-click default (`linkPlacement`) comes from
+    /// cmux.json `browser.links.cmdClick`.
     public static let chrome = BrowserLinkClickMapping()
 
     public init(cmdClick: BrowserLinkAction = .backgroundTab, cmdShiftClick: BrowserLinkAction = .foregroundTab,

@@ -24,7 +24,7 @@ extension MessagesWindowView {
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard case var .part(p) = r.spec.kind, p.ref.messageId == id, p.ref.partIndex < m.parts.count,
                   case .text? = m.parts[checked: p.ref.partIndex] else { return r.spec } // checked
-            let v = MeasureCache.shared.size(m, p.ref.partIndex, width: r.spec.width)
+            let v = MeasureCache.shared.size(m, p.ref.partIndex, width: r.spec.width, scale: renderScale)
             var s = r.spec
             p.size = v.size; p.text = v.text; p.markdown = v.markdown
             s.kind = .part(p); s.height = v.size.height

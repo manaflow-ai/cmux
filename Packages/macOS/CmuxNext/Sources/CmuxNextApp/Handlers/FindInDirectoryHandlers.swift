@@ -1,12 +1,13 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
+import CmuxNextFilesUI
 
 /// Find in Directory (⇧⌘F): ripgrep over the targeted terminal's working
-/// directory. The old app showed matches in the right sidebar's Find mode;
-/// cmux-next has no right sidebar, so the query is the action's text
-/// argument (the palette asks for it inline from the menu or shortcut, the
-/// CLI passes it) and the matches open as a palette page.
+/// directory. The query is the action's text argument (the palette asks for
+/// it inline from the menu or shortcut, the CLI passes it) and the matches
+/// open as a palette page; the right sidebar's Find section (Show Find) runs
+/// the same search as a list.
 enum FindInDirectoryHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("findInDirectory", invoke: { invocation in
@@ -20,7 +21,7 @@ enum FindInDirectoryHandlers {
             guard let root = tab.cwd ?? ctx.refuse(RefusalStrings.noWorkingDirectory) else { return }
             guard let rg = RipgrepSearch.executable() ?? ctx.refuse(FindInDirectoryStrings.ripgrepMissing) else { return }
             let target = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id))
-            let page = FindInDirectoryPage.page(query: query, root: root, rg: rg) { text in
+            let page = FindInDirectoryPage.page(query: query, root: root, rg: rg, effects: ctx.services.fileExplorers.effects) { text in
                 TerminalHandlers.send(text, paste: true, target, ctx)
             }
             ctx.services.palette.show(page: page, relativeTo: ctx.activeWindow?.window)

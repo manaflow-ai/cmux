@@ -8,11 +8,7 @@ export function ActionRow({ title, help, children }: { title: string; help: stri
       <div className="row-main">
         <div className="row-label">
           <div className="row-title">{title}</div>
-          {help && (
-            <div className="row-help" title={help}>
-              {help}
-            </div>
-          )}
+          {help && <div className="row-help">{help}</div>}
         </div>
         <div className="row-control action-row-control">
           {children}

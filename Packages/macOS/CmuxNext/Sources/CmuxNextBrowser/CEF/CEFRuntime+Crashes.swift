@@ -5,7 +5,9 @@ import Foundation
 /// the process-level record from `CEFChildProcessMonitor`.
 extension CEFRuntime {
     func recordRendererExit(_ exit: BrowserProcessExit, tab: CEFTab) {
-        logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public)")
+        // The tab shows the crash notice; it reloads only when the person presses Reload.
+        let shown = tab.host.visibleTab === tab
+        logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public) shown=\(shown); no automatic reload")
         crashLog.append(BrowserCrashRecord(processType: "renderer", reason: exit.reason, code: exit.code,
                                            tab: tab.id, source: .engine))
     }

@@ -29,6 +29,18 @@ public struct SystemKeychainProbe: KeychainProbing {
         // Interaction-not-allowed still proves the item exists.
         return status == errSecSuccess || status == errSecInteractionNotAllowed
     }
+
+    public func genericPassword(service: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
 }
 
 /// A local model server answers an HTTP GET within the deadline. Loopback

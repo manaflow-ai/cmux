@@ -102,6 +102,20 @@ final class TooltipTracker: NSResponder {
         return window.convertToScreen(view.convert(local, to: nil))
     }
 
+    /// The view's own visible label already says the tooltip's text (a titled button, a label):
+    /// no tooltip, as #20375 rules for pages (webviews/test/tooltip-rules.ts). Icon-only controls,
+    /// shortcuts and regions keep theirs.
+    var repeatsVisibleLabel: Bool {
+        guard region == nil, shortcut == nil, let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), let view else { return false }
+        let label: String? = switch view {
+        case let button as NSButton where button.imagePosition != .imageOnly: button.title
+        case let field as any ShownText: field.stringValue
+        default: nil
+        }
+        guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return false }
+        return label.caseInsensitiveCompare(text) == .orderedSame
+    }
+
     /// Adds the tracking area while there is text, removes it without.
     private func track(_ on: Bool) {
         guard let view else { return }

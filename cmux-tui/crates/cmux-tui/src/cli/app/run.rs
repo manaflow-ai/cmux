@@ -63,3 +63,11 @@ pub(in crate::cli) fn request_with_retry(
         }
     }
 }
+
+/// Whether a request may be sent again on a new connection after the app
+/// dropped the first one: a read, or a run with its idempotency key (the app
+/// replays a finished run and joins one still running).
+pub(in crate::cli) fn safe_to_resend(method: &str, params: &Value) -> bool {
+    super::is_retryable_read(method)
+        || params.get("idempotency_key").and_then(Value::as_str).is_some()
+}

@@ -22,8 +22,17 @@ extension AppActionContext {
         return pane
     }
 
-    /// The targeted (or focused) pane's browser page.
+    /// The targeted (or focused) pane's browser page. A tab target whose
+    /// page is on screen is that page itself: a press on its own toolbar
+    /// (Downloads, More, profile, media) names its tab, and the pane's
+    /// selected content is not always that page (a pane shown in two
+    /// windows resolves to the first one's controller, an adopted Web Store
+    /// tab), which refused the press with "No browser tab is focused."
     func page(_ invocation: ActionInvocation) throws -> BrowserEntry {
+        if let target = invocation.target, target.kind == .tab,
+           let entry = services.cache.existingBrowser(target.id), entry.chrome.window != nil {
+            return entry
+        }
         guard case .browser(let entry) = scope(invocation).pane?.currentContent else {
             throw ActionFailure(message: MiscHandlerStrings.noBrowser)
         }

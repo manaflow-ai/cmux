@@ -5,10 +5,13 @@
 // floating chat, an older app) shows the subagent in this pane instead.
 //
 // A chat pane opens a pane by itself for each subagent its chat starts while the pane shows it,
-// unless the user turned that off (the summary card's switch, kept in localStorage). The
-// subagents a chat already had when the pane first showed it open none: they are history.
+// only once the user turned that on (the summary card's switch, kept in localStorage). It is off
+// by default: agent work starts many subagents, and a split for each crowded the workspace. A
+// click on a subagent still opens its pane. The subagents a chat already had when the pane first
+// showed it open none: they are history.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
+import type { Subagent } from "./subagentFold";
 import { subagentsIn } from "./subagentRows";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
@@ -25,23 +28,23 @@ const HISTORY_SLACK_MS = 3_000;
 const listeners = new Set<() => void>();
 const read = () => {
   try {
-    return globalThis.localStorage?.getItem(KEY) !== "off";
+    return globalThis.localStorage?.getItem(KEY) === "on";
   } catch {
-    return true;
+    return false;
   }
 };
 
 const setAutoOpen = (next: boolean) => {
   try {
-    if (next) globalThis.localStorage?.removeItem(KEY);
-    else globalThis.localStorage?.setItem(KEY, "off");
+    if (next) globalThis.localStorage?.setItem(KEY, "on");
+    else globalThis.localStorage?.removeItem(KEY);
   } catch {
     // No storage: the choice holds until the page reloads.
   }
   for (const listener of listeners) listener();
 };
 
-/// Whether new subagents open in panes of their own (on unless turned off).
+/// Whether new subagents open in panes of their own (off unless turned on).
 export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
   const on = useSyncExternalStore(
     (listener) => {
@@ -49,17 +52,27 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
       return () => listeners.delete(listener);
     },
     read,
-    () => true,
+    read,
   );
   return [on, setAutoOpen];
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// Asks the app for subagent `id`'s pane; false when it opened none.
-export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<boolean> {
+/// The name subagent `agent`'s pane tab shows: its own (its task; the Agent tool's description), else
+/// `fallback` ("Subagent of" the chat). Leo 2026-10-30: "the sidebar tab shouldn't just be named claude
+/// sr2 coord if you can just say it's SUbagent of sr2 coord".
+export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefined, fallback: string): string {
+  const own = agent?.name?.trim();
+  return own && own !== agent?.id ? own : fallback;
+}
+
+/// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
+/// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
+/// tab-named the exact same as the parent").
+export async function openSubagentPane(call: Call, id: string, focus: boolean, title?: string): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", { subagent: id, focus });
+    const reply = await call("chat.subagentPane", title ? { subagent: id, focus, title } : { subagent: id, focus });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextFocus
 
 // Page chords a browser's own chrome runs (R88): KeyRouter.allows lets these
 // content-tier actions take the key from the address bar and the find bar.

@@ -46,6 +46,7 @@ export function useOutput(output: string | undefined, reveal = 0) {
   }, [output]);
   return {
     text,
+    tail,
     shown: all || tail === undefined ? text : tail,
     cut: !all && tail !== undefined,
     long: tail !== undefined,
@@ -54,12 +55,36 @@ export function useOutput(output: string | undefined, reveal = 0) {
   };
 }
 
-/// Show all output / Show less under an output long enough to have been cut.
+/// What a block with a preview (BlockParts.tsx) draws of `output`: while it has more lines than
+/// the preview shows, the preview alone decides, all of them once opened and the end of a long one
+/// while cut, so an output opened while short stays whole as it streams past the end it would draw.
+export function previewedOutput(
+  output: ReturnType<typeof useOutput>,
+  preview: { long: boolean; all: boolean },
+): ReturnType<typeof useOutput> {
+  if (!preview.long) return output;
+  const all = preview.all;
+  return {
+    ...output,
+    all,
+    shown: all || output.tail === undefined ? output.text : output.tail,
+    cut: !all && output.tail !== undefined,
+  };
+}
+
+/// Show all output / Show less under an output long enough to have been cut (and too few lines for
+/// a preview, which opens it instead: BlockParts.tsx `PreviewMore`). Find skips its words.
 export function OutputMore({ output }: { output: ReturnType<typeof useOutput> }) {
   const t = useT();
   if (!output.long) return null;
   return (
-    <button type="button" className="cv-output-more" aria-expanded={output.all} onClick={output.toggle}>
+    <button
+      type="button"
+      className="cv-output-more"
+      aria-expanded={output.all}
+      data-find-skip=""
+      onClick={output.toggle}
+    >
       {output.all ? t("shell.showLess") : t("shell.showAll")}
     </button>
   );

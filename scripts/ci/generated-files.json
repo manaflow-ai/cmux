@@ -1,0 +1,188 @@
+{
+  "$comment": [
+    "Which files in this repository a generator writes (Leo, 2026-10-21: don't commit generatable files). scripts/ci/generated_files_guard.py reads this file from a pull request's base and refuses a pull request that adds a generated file no \"committed\" generator owns.",
+    "status \"committed\": the outputs are still in git, pending the cutover (gitignore them, generate them at build time). A new output of such a generator is allowed (a new settings section, a new protocol type). A status may move from committed to build, never back, and no pull request adds a committed generator or widens one's outputs.",
+    "status \"build\": the outputs are made where they are used and gitignored; a pull request that adds one is refused.",
+    "inputs: when listed, a pull request that changes an output must also change the generator or one of these (a hand edit is undone by the next run). Without inputs that check is skipped.",
+    "check: arguments that make the generator (a .py script) exit 0 only when every output it writes equals what it writes from the tree's inputs. When the base lists one and it passes at the head, a pull request that changes an output and none of its inputs is a regeneration, not a hand edit (an input that changed on the base without a regeneration), and the inputs rule lets it through.",
+    "The exports in scripts/cmux-next/generated_outputs.py OUTPUTS (plans/cmux-next action exports, settings schema, docs/mdm, defaults snapshot, SDK bindings, cloud wire, app-host) count as committed generators too; their hand-edit check is the generated drift job.",
+    "conventions: names that mark a file generated wherever it is. committed: files a tool generates that belong in git by design; a new entry needs a \"ruling\" link."
+  ],
+  "conventions": [
+    "**/*.generated.*",
+    "**/*+Generated.*",
+    "**/generated/**",
+    "**/_generated/**"
+  ],
+  "committed": [
+    {
+      "paths": ["**/Cargo.lock"],
+      "why": "A lockfile pins dependency resolution; it is an input to the build, not an output of it."
+    }
+  ],
+  "generators": [
+    {
+      "id": "page-strings",
+      "generator": "webviews/scripts/pages/gen-strings.mjs",
+      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json"],
+      "status": "build"
+    },
+    {
+      "id": "feature-tips",
+      "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
+      "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],
+      "status": "build"
+    },
+    {
+      "id": "settings-sources",
+      "generator": "scripts/cmux-next/gen-settings-sources.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
+      ],
+      "inputs": ["schemas/settings/**"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "motion-scale",
+      "generator": "scripts/cmux-next/gen-motion-scale.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift",
+        "webviews/src/motion/scale.generated.ts"
+      ],
+      "inputs": ["schemas/motion-scale/**"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "type-scale",
+      "generator": "scripts/cmux-next/gen-type-scale.py",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"],
+      "inputs": ["schemas/type-scale/**"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "status-glyphs",
+      "generator": "scripts/cmux-next/gen-status-glyphs.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
+        "webviews/src/ui/statusGlyphs.generated.ts"
+      ],
+      "inputs": ["schemas/status-glyphs/**"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "phone-lane-fields",
+      "generator": "scripts/cmux-next/gen-phone-lane-fields.py",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"],
+      "inputs": ["cmux-tui/spec/sdk-schema.json", "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "protected-folders",
+      "generator": "scripts/cmux-next/gen-protected-folders.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ProtectedFolderEntry.generated.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FolderPicker/ProtectedFolderEntry.generated.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ProtectedFolderEntry.generated.swift",
+        "webviews/src/agent-session/acpmux/protectedFolders.generated.ts"
+      ],
+      "inputs": ["cmux-tui/crates/acpmux/data/protected-folders.json"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "chrome-styles",
+      "generator": "scripts/cmux-next/gen-chrome-styles.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift"
+      ],
+      "inputs": ["schemas/settings/chrome-styles.json"],
+      "check": ["--check"],
+      "status": "committed"
+    },
+    {
+      "id": "agent-icons",
+      "generator": "scripts/agent-icons/generate.py",
+      "outputs": [
+        "Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
+        "webviews/src/agent-session/shared/agentBrands.generated.ts",
+        "agent-chat/src/agentBrands.generated.ts",
+        "cmux-tui/crates/acpmux/src/chats/brand/table.rs"
+      ],
+      "inputs": ["scripts/agent-icons/**", "design/agent-icons/**", "scripts/icons/build_pack.py"],
+      "status": "committed"
+    },
+    {
+      "id": "icon-pack",
+      "generator": "scripts/icons/build_pack.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Catalog.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift"
+      ],
+      "inputs": ["scripts/icons/**", "design/icons/**"],
+      "status": "committed"
+    },
+    {
+      "id": "pane-protocol",
+      "generator": "webviews/scripts/pane-protocol-codegen.ts",
+      "outputs": ["webviews/src/protocol/generated/*"],
+      "inputs": ["webviews/src/protocol/ir/**", "webviews/src/protocol/codegen/**"],
+      "status": "committed"
+    },
+    {
+      "id": "acpmux-protocol",
+      "generator": "webviews/scripts/acpmux-protocol-codegen.ts",
+      "outputs": ["webviews/src/agent-session/acpmux/protocol/generated/*"],
+      "inputs": ["cmux-tui/crates/acpmux/spec/**", "webviews/src/protocol/codegen/**"],
+      "status": "committed"
+    },
+    {
+      "id": "pane-protocol-go",
+      "generator": "cmux-tui/bindings/codegen/pane/generate.py",
+      "outputs": [
+        "cmux-tui/bindings/go-pane/internal/richpane/*.go",
+        "cmux-tui/bindings/go-pane/examples/hello/hellopane/*.go"
+      ],
+      "status": "committed"
+    },
+    {
+      "id": "iroh-v2-contracts",
+      "generator": "workers/iroh-v2/scripts/generate-contracts.ts",
+      "outputs": ["workers/iroh-v2/generated/*"],
+      "status": "committed"
+    },
+    {
+      "id": "control-plane-types",
+      "generator": "scripts/gen-control-plane-types.sh",
+      "outputs": ["workers/presence/src/generated/controlPlane.ts"],
+      "status": "committed"
+    },
+    {
+      "id": "managed-relay-catalog",
+      "generator": "web/tools/generate-managed-iroh-relay-catalog.ts",
+      "outputs": [
+        "web/services/relay/generated/managedRelayCatalog.ts",
+        "workers/presence/src/generated/managedRelayCatalog.ts"
+      ],
+      "inputs": ["config/iroh/managed-relay-catalog.json"],
+      "status": "committed"
+    },
+    {
+      "id": "app-pack",
+      "generator": "cmux app pack",
+      "outputs": [
+        "first-party-apps/*/dist/main.js",
+        "samples/apps/*/dist/main.js",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/first-party/*/dist/main.js"
+      ],
+      "status": "committed"
+    }
+  ]
+}

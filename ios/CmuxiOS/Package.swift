@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
+        .package(path: "../../Packages/Shared/CmuxChiefVoiceCore"),
         .package(path: "../../Packages/Shared/CmuxHomeRender"),
         .package(path: "../../Packages/Shared/CmuxFeedPushCore"),
         .package(path: "../../Packages/Shared/CmuxInstallAuthCore"),
@@ -38,6 +39,8 @@ let package = Package(
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
                 "CmuxiOSIdentity",
+                "CmuxiOSVoice",
+                .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -120,6 +123,14 @@ let package = Package(
         .target(
             name: "CmuxiOSTextConfirm",
             dependencies: [.product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore")],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Action Button Chief call (plans/cmux-next/ios-action-button-DESIGN.md):
+        // AVFoundation recorder, on-device speech, mic permission, call screen.
+        .target(
+            name: "CmuxiOSVoice",
+            dependencies: [.product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

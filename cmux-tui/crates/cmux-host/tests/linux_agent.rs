@@ -79,12 +79,12 @@ impl Harness {
         Self { root, home, bin, daemon_log, metadata, id, _dir: dir }
     }
 
-    /// A Cloud machine's host config: the Freestyle edge carrier on 0.0.0.0.
+    /// A Cloud machine's host config: edge reachability plus client grant auth.
     fn with_cloud_edge(self) -> Self {
         fs::create_dir_all(self.at("/etc/cmux")).unwrap();
         fs::write(
             self.at("/etc/cmux/host.json"),
-            r#"{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}"#,
+            r#"{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge-grant"}}"#,
         )
         .unwrap();
         fs::set_permissions(self.at("/etc/cmux/host.json"), fs::Permissions::from_mode(0o644))
@@ -289,10 +289,11 @@ fn agent_binds_parks_adopts_and_restarts() {
     let argv = fs::read_to_string(&h.daemon_log).unwrap();
     assert!(
         argv.contains(
-            "server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind --remote-ws-trusted-carrier"
+            "server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind"
         ),
         "{argv}"
     );
+    assert!(!argv.contains("--remote-ws-trusted-carrier"), "{argv}");
     wait_until("status", || h.status().is_some_and(|s| s.daemon_pid.is_some()));
     let first_pid = h.status().unwrap().daemon_pid.unwrap();
     let env = fs::read_to_string(h.daemon_log.with_file_name("daemon.env")).unwrap();
@@ -301,7 +302,7 @@ fn agent_binds_parks_adopts_and_restarts() {
     assert!(!env.contains("CMUX_SERVER_MODE"), "{env}");
     assert!(!env.contains("CMUX_TUI_REMOTE_WS"), "{env}");
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
-    assert!(out.contains("trusted-carrier") && out.contains("cx-wx2"), "{out}");
+    assert!(!out.contains("trusted-carrier"), "{out}");
     // /run/cmux belongs to the session host's user (it writes `bound`).
     {
         use std::os::unix::fs::MetadataExt;

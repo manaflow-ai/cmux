@@ -1,0 +1,44 @@
+2026-10-24T03:24:16.946196Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Udp, addr: 104.30.136.5:53511 })
+2026-10-24T03:24:16.964916Z  INFO cmux_mobile_host::host: link up session_id="ec680f43-5621-4ef0-b771-2d4d231c33b7" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=126.3ms link_ready=126.3ms
+2026-10-24T03:24:16.965094Z  INFO cmux_mobile_host::host: first channel session_id="ec680f43-5621-4ef0-b771-2d4d231c33b7" timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=126.3ms link_ready=126.3ms first_channel=126.5ms
+2026-10-24T03:24:16.965140Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:16.965181Z  INFO cmux_mobile_host::host: link path changed session_id="ec680f43-5621-4ef0-b771-2d4d231c33b7" path=Turn
+2026-10-24T03:24:16.965292Z  INFO cmux_mobile_host::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:16.979498Z DEBUG cmux_mobile_link::link: input lane attached role=Mac
+2026-10-24T03:24:17.048766Z  INFO cmux_mobile_host::services: channel opened service="acpmux" channel=7 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:17.048784Z  INFO cmux_mobile_host::services: channel opened service="version" channel=5 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:17.171717Z  INFO cmux_mobile_host::services: channel opened service="chief" channel=9 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:17.197030Z  INFO cmux_mobile_host::services: channel opened service="chief" channel=11 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:19.403702Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=13 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:19.405575Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=15 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:19.458573Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=17 lane=Input own_stream=true peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:26.778085Z  INFO cmux_mobile_host::media_session: media session down session_id="a096ad75-8add-4153-a5c5-6a2eda787ff2" link_session="df65c97a-9cc4-46c4-9f1b-f8f0cab967d9" reason="failed"
+2026-10-24T03:24:30.106340Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard route no longer confirmed; sending on every route again why="route silent"
+2026-10-24T03:24:30.760815Z  WARN boringtun::noise::timers: HANDSHAKE(KEEPALIVE + REKEY_TIMEOUT)
+2026-10-24T03:24:31.012158Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T03:24:31.512659Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T03:24:32.514211Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T03:24:34.515894Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T03:24:35.797465Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T03:24:36.048906Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T03:24:36.550581Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T03:24:37.554083Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T03:24:39.555580Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T03:24:40.831695Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T03:24:41.090455Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T03:24:41.592541Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T03:24:42.345021Z  INFO cmux_mobile_host::services: channel opened service="browser" channel=19 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:42.345078Z  INFO cmux_mobile_host::browser: browser: stopping the least recently used host tab="new-a9b9d947-t1"
+2026-10-24T03:24:42.568933Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=21 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:24:42.593797Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T03:24:42.689303Z  INFO cmux_mobile_host::media_session: media session up session_id="a52ae1c4-3607-4615-964c-fdc63a801eeb" link_session="ec680f43-5621-4ef0-b771-2d4d231c33b7" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.8ms remote_host=0.8ms remote_srflx=0.9ms remote_relay=0.9ms ice_checking=1.0ms local_host=1.4ms local_srflx=10.6ms local_relay=50.3ms ice_connected=75.5ms dtls_connected=79.0ms media_connected=79.0ms
+2026-10-24T03:24:44.595083Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T03:24:45.872610Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T03:24:46.125180Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T03:24:46.626912Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T03:24:47.628323Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T03:24:49.630279Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T03:24:50.395740Z DEBUG cmux_mobile_link::link: link closed reason="keepalive timed out"
+2026-10-24T03:24:50.396274Z  INFO cmux_mobile_host::host: link down session_id="df65c97a-9cc4-46c4-9f1b-f8f0cab967d9" reason="keepalive timed out"
+2026-10-24T03:25:42.346761Z  INFO cmux_mobile_host::services: channel refused or failed service="browser" code="unavailable" reason="the app did not start a browser host in time"
+2026-10-24T03:25:44.422353Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=23 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"

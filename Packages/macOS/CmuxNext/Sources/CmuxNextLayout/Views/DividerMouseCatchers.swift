@@ -20,6 +20,9 @@ public final class DividerMouseCatchers {
     private var panels: [String: DividerMousePanel] = [:]
     /// Called with (divider id, hovered) for the divider's hover line.
     public var onHover: ((String, Bool) -> Void)?
+    /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
+    /// server move, so a bench counts them over an action.
+    public private(set) var panelUpdates = 0
 
     public init(window: NSWindow) {
         self.window = window
@@ -44,11 +47,15 @@ public final class DividerMouseCatchers {
             panels[id] = nil
         }
         for area in wanted {
+            if panels[area.id] == nil { panelUpdates += 1 }
             let panel = panels[area.id] ?? makePanel(id: area.id)
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns
             let frame = window.convertToScreen(area.rect)
-            if panel.frame != frame { panel.setFrame(frame, display: false) }
+            if panel.frame != frame {
+                panel.setFrame(frame, display: false)
+                panelUpdates += 1
+            }
             if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
         }
     }
@@ -116,12 +123,41 @@ final class DividerMouseCatcherView: NSView {
         trackingArea = area
     }
 
+    /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds
+    /// the pointer. A seam for tests, which have no screen pointer.
+    lazy var isPointerOver: () -> Bool = { [weak self] in
+        guard let self, let panel = self.window, panel.isVisible, panel.alphaValue > 0, !panel.ignoresMouseEvents,
+              !self.isHiddenOrHasHiddenAncestor else { return false }
+        return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: NSEvent.mouseLocation))
+    }
+    /// The cursor set queued after an enter, while it is pending (tests await it).
+    private(set) var pendingCursorSet: Task<Void, Never>?
+    /// Between this catcher's enter and its exit.
+    private var isEntered = false
+
     override func cursorUpdate(with event: NSEvent) { cursor.set() }
     override func mouseEntered(with event: NSEvent) {
+        isEntered = true
         cursor.set()
+        // A focused page window holds key. When the pointer leaves it straight onto this panel's
+        // part outside it (the sidebar's resize band reaches over the sidebar), AppKit puts the
+        // arrow back for the key window later in this event's turn, and this panel, never key,
+        // gets no cursor update or move after that. Set the cursor once more on the next turn,
+        // only if no exit came and the panel still shows under the pointer (a panel parked,
+        // hidden or moved meanwhile gets no exit). One-shot: nothing repeats or stays scheduled.
+        pendingCursorSet?.cancel()
+        pendingCursorSet = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingCursorSet = nil
+            guard !Task.isCancelled, self.isEntered, self.isPointerOver() else { return }
+            self.cursor.set()
+        }
         onHover?(true)
     }
-    override func mouseExited(with event: NSEvent) { onHover?(false) }
+    override func mouseExited(with event: NSEvent) {
+        isEntered = false
+        onHover?(false)
+    }
 
     override func mouseDown(with event: NSEvent) { forward(event) }
     override func mouseDragged(with event: NSEvent) { forward(event) }

@@ -17,11 +17,16 @@ use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
+pub(crate) mod byte_scan;
+mod fast_write;
+
 mod prompt_semantic;
 use prompt_semantic::*;
 
 mod vt_boundary;
 use vt_boundary::*;
+
+mod replay_rows;
 
 mod color_override;
 use color_override::*;
@@ -364,7 +369,7 @@ pub struct Terminal {
     prompt_semantic: PromptSemanticTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
-    callbacks: Box<Callbacks>,
+    hooks: Box<callbacks::Hooks>,
     cursor_override: CursorOverrideTracker,
     palette_override: Box<PaletteOverrideTracker>,
     color_overrides: ColorOverrideTracker,
@@ -457,6 +462,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // Grapheme clustering (DEC mode 2027) defaults on, as Ghostty's
+        // `grapheme-width-method = unicode` default sets it in every viewer
+        // that loads a Ghostty config. With it off here the host grid and the
+        // viewers disagree on emoji widths, so cursors and reflow drift apart.
+        let grapheme_default = sys::GhosttyTerminalModeConfig {
+            mode: sys::ghostty_mode_new(2027, false),
+            value: true,
+        };
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+                (&grapheme_default as *const sys::GhosttyTerminalModeConfig).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -473,7 +496,7 @@ impl Terminal {
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
-            callbacks: Box::new(callbacks),
+            hooks: Box::new(callbacks::Hooks::new(callbacks, cols.max(1), rows.max(1))),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
             color_overrides: ColorOverrideTracker::default(),
@@ -481,9 +504,9 @@ impl Terminal {
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
-        // SAFETY: `callbacks` is heap-pinned for the terminal's lifetime and
+        // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
-        unsafe { callbacks::install(raw, &mut term.callbacks) };
+        unsafe { callbacks::install(raw, &mut term.hooks) };
         term.mouse_mode_bits = term.current_mouse_mode_bits();
         term.mouse_mode_signature = term.mouse_mode_probe.signature(term.raw);
         Ok(term)
@@ -557,13 +580,7 @@ impl Terminal {
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
         let normalized = self.empty_kitty_probe_filter.write(normalized);
-        self.kitty_inflight.write(&normalized);
-        self.vt_boundary.feed(&normalized);
-        self.prompt_semantic.feed(&normalized);
-        self.cursor_override.write(&normalized);
-        self.palette_override.write(&normalized);
-        self.color_overrides.write(&normalized);
-        let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
+        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -602,6 +619,31 @@ impl Terminal {
     /// fresh attachment at a later boundary.
     pub fn vt_replay_resumes_stream(&self) -> bool {
         self.pending_sequence_replay().is_some()
+    }
+
+    /// Abandon a pending VT control sequence that exceeded its replay budget.
+    ///
+    /// Checkpoint capture can continue from the rendered terminal state when
+    /// a client leaves an unbounded control string (most often a Kitty upload)
+    /// open forever. CAN has no screen effect and returns the parser to ground;
+    /// callers must publish the returned bytes to every attached parser before
+    /// resuming the live stream.
+    pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
+        // CAN cannot undo completed multipart chunks. Reject recovery even
+        // when a later control string also exceeds the generic replay budget.
+        if self.kitty_inflight.has_unreplayable_prefix() {
+            return None;
+        }
+        // The generic VT boundary can still retain a complete replay for an
+        // APC while the Kitty-specific tracker has already overflowed its
+        // smaller upload budget. In that case the generic result is not a
+        // usable replay, so CAN recovery is still required.
+        if self.vt_replay_resumes_stream() && !self.kitty_inflight.has_unreplayable_command() {
+            return None;
+        }
+        let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
+        self.kitty_inflight.discard_unreplayable();
+        self.vt_stream_is_ground().then_some(normalized)
     }
 
     /// How the replay reproduces the parser's incomplete sequence, if it can.
@@ -932,19 +974,11 @@ impl Terminal {
     }
 
     fn active_row_wrap_continuation(&self, y: u16) -> Option<bool> {
-        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
-        let mut row = sys::GhosttyRow::default();
-        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
-        let mut continuation = false;
-        check(unsafe {
-            sys::ghostty_row_get(
-                row,
-                sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
-                (&mut continuation as *mut bool).cast(),
-            )
-        })
-        .ok()?;
-        Some(continuation)
+        self.row_flag(
+            sys::GHOSTTY_POINT_TAG_ACTIVE,
+            u64::from(y),
+            sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+        )
     }
 
     fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
@@ -992,9 +1026,15 @@ impl Terminal {
                 cell_height_px,
             )
         })?;
-        self.bump_history_epoch();
-        self.reset_history_anchor();
+        self.hooks.size = sys::GhosttySizeReportSize {
+            rows: rows.max(1),
+            columns: cols.max(1),
+            cell_width: cell_width_px,
+            cell_height: cell_height_px,
+        };
         if reflows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
             self.history_markers_reflowed();
         }
         Ok(())
@@ -1111,6 +1151,21 @@ impl Terminal {
             inflight_bytes: self.kitty_inflight_storage_limit(),
             images: self.kitty_image_count_limit()?,
             placements: self.kitty_placement_count_limit()?,
+        })
+    }
+
+    /// Names the terminfo entry this terminal's program runs as (its TERM),
+    /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
+    /// leaves the query unanswered; libghostty refuses names over 128 bytes.
+    pub fn set_terminfo_name(&mut self, name: &str) -> Result<()> {
+        let value = sys::GhosttyString { ptr: name.as_ptr(), len: name.len() };
+        // SAFETY: libghostty copies the string before the call returns.
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
+                (&value as *const sys::GhosttyString).cast(),
+            )
         })
     }
 
@@ -1251,6 +1306,18 @@ impl Terminal {
             Ok(sys::GHOSTTY_TERMINAL_SCREEN_ALTERNATE) => Screen::Alternate,
             _ => Screen::Primary,
         }
+    }
+
+    /// Whether shell integration itself marked the primary screen as at a
+    /// prompt (OSC 133 prompt or input), with no guess from cell contents.
+    pub fn prompt_is_marked(&self) -> bool {
+        self.active_screen() != Screen::Alternate
+            && matches!(
+                self.prompt_semantic.semantic(Screen::Primary),
+                PromptSemantic::Prompt
+                    | PromptSemantic::Input
+                    | PromptSemantic::InputUntilEndOfLine
+            )
     }
 
     /// Whether OSC 133 metadata identifies the cursor as an active shell
@@ -1403,6 +1470,44 @@ impl Terminal {
     /// Number of scrollback rows above the viewport.
     pub fn scrollback_rows(&self) -> usize {
         self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS).unwrap_or(0)
+    }
+
+    /// Change the primary screen's scrollback storage limit in bytes (the
+    /// same budget [`Terminal::new`] takes). Lowering it drops the oldest
+    /// complete pages at once; raising it lets history grow again.
+    pub fn set_scrollback_max_bytes(&mut self, max_bytes: usize) -> Result<()> {
+        let previous_rows = self.scrollback_rows();
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                (&max_bytes as *const usize).cast(),
+            )
+        })?;
+        if self.scrollback_rows() != previous_rows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
+        }
+        Ok(())
+    }
+
+    /// Resident bytes of the primary screen's pages (screen and scrollback),
+    /// `None` when libghostty-vt cannot report it.
+    pub fn primary_resident_bytes(&self) -> Option<u64> {
+        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
+        // the plain C struct; `size` is then set to the struct size the
+        // getter requires.
+        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
+        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
+        check(unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
+                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
+            )
+        })
+        .ok()?;
+        Some(usage.primary_resident_bytes)
     }
 
     /// Number of retained history rows, saturated to the protocol's `u32`.
@@ -2180,115 +2285,6 @@ impl Terminal {
             }
         }
         Ok(best)
-    }
-
-    fn vt_replay_text_range_bounded(
-        &mut self,
-        range: ReplayRowRange,
-        placement_rows: &KittyReplayRowIndex,
-        max_bytes: usize,
-        include_palette: bool,
-    ) -> Result<Option<ReplayText>> {
-        let cols = self.cols();
-        if cols == 0 || range.start > range.end {
-            return Err(Error::InvalidValue);
-        }
-        let suffix = self.cursor_position_escape()?;
-        let suffix_len = suffix.as_ref().map_or(0, Vec::len);
-        let Some(format_max_bytes) = max_bytes.checked_sub(suffix_len) else {
-            return Ok(None);
-        };
-        let insert_at_start = placement_rows.overlaps(range.start);
-        let has_placement_anchor =
-            placement_rows.anchors.range(range.start..=range.end).next().is_some();
-        let mut segment_ends =
-            placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
-        if insert_at_start {
-            segment_ends.insert(range.start);
-        }
-        segment_ends.insert(range.end);
-        let mut bytes = Vec::new();
-        let mut insertion_offsets = BTreeMap::new();
-        let mut segment_start = range.start;
-        let replay_rows = range.end - range.start + 1;
-        let screen_rows = u64::from(self.rows().max(1));
-        // A replay with retained scrollback can contain exactly one viewport
-        // of rows while still carrying a sparse history prefix in Ghostty's
-        // screen coordinate space. Keep every row boundary in that case so
-        // the target cannot retain stale history above the active TUI.
-        let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
-        // A replay without image placement anchors can let the target terminal
-        // recreate soft wraps naturally. Placement commands and history-bearing
-        // ranges depend on physical row cursor positions, so retain the
-        // row-delimited form for those cases.
-        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
-        let mut emitted_breaks = 0usize;
-        for segment_end in segment_ends {
-            if segment_end < segment_start {
-                continue;
-            }
-            let selection = self.screen_selection(segment_start, segment_end)?;
-            let first = segment_start == range.start;
-            let last = segment_end == range.end;
-            let remaining = format_max_bytes.saturating_sub(bytes.len());
-            let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(
-                    &selection,
-                    first,
-                    last,
-                    include_palette,
-                    preserve_soft_wrap,
-                ),
-                remaining,
-            )?
-            else {
-                return Ok(None);
-            };
-            if !preserve_soft_wrap {
-                emitted_breaks = emitted_breaks
-                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
-            }
-            bytes.extend_from_slice(&chunk);
-            if !preserve_soft_wrap && history_bearing {
-                let expected_breaks =
-                    usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
-                while emitted_breaks < expected_breaks {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
-                }
-            }
-            if placement_rows.anchors.contains(&segment_end)
-                || (insert_at_start && segment_end == range.start)
-            {
-                insertion_offsets.insert(segment_end, bytes.len());
-            }
-            if !last {
-                if !preserve_soft_wrap {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
-                }
-                segment_start = segment_end.saturating_add(1);
-            }
-        }
-        if !preserve_soft_wrap && history_bearing {
-            let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
-            for _ in emitted_breaks..expected_breaks {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
-                }
-                bytes.extend_from_slice(b"\r\n");
-            }
-        }
-        if let Some(suffix) = suffix {
-            bytes.extend_from_slice(&suffix);
-        }
-        Ok(Some(ReplayText { bytes, range: Some(range), insertion_offsets }))
     }
 
     fn screen_selection(&self, start_row: u64, end_row: u64) -> Result<sys::GhosttySelection> {

@@ -1,0 +1,23 @@
+/* No entry animations on the New Tab (Leo 2026-10-22: "we should basically have no entry
+   animations a lot of the time, esp here all over the new tab area... exit animations are ok
+   tho."). While a New Tab page shows, the root carries `data-new-tab` (newtab/noEntryMotion.ts),
+   and what the page opens appears in the frame it lands in: every popup's open (Menu, Select,
+   Popover, ContextMenu, the composer's pickers, the ··· and filter menus), tooltips and hover cards,
+   dialogs and their backdrops, and surfaces that enter from an edge (`data-enter`, presence). Each
+   exit keeps its own token and fade: --ui-popup-close, --tooltip-fade-out, --ui-exit-duration.
+   test/new-tab-no-entry-motion.test.ts holds this. */
+:root[data-new-tab] {
+  --ui-popup-open: 0s;
+  --tooltip-fade-in: 0s;
+  --tooltip-rise: 0px;
+  --ui-enter-duration: 0s;
+}
+/* Popups and menus open in one frame on every page (ui/popupSurface.css). The drop sheet runs on
+   tokens of its own, so this names its open animation directly. The drop pill only ever enters, so
+   it is stopped in every phase: a drop turns the mounted overlay `landing`, and a rule that let go
+   of the pill there replayed its entrance under the sheet's exit. The sheet's landing (its exit into
+   the composer) keeps its motion. */
+:root[data-new-tab] .acpmux-drop-pill,
+:root[data-new-tab] .acpmux-drop-overlay:not([data-phase="landing"]) .acpmux-drop-sheet {
+  animation: none;
+}

@@ -14,7 +14,7 @@ struct AgentPresenceTagTests {
         tag.configure(TabPresence(colorKey: "s1", summary: summary))
         tag.frame = NSRect(origin: .zero, size: tag.fittingSize(maxWidth: 1000))
         tag.layoutSubtreeIfNeeded()
-        let cell = try #require(tag.label.cell)
-        #expect(cell.expansionFrame(withFrame: tag.label.bounds, in: tag.label) == .zero, "the label truncates")
+        // The label's frame holds the text's whole width (a narrower frame truncates it).
+        #expect(tag.label.bounds.width >= tag.label.naturalSize.width, "the label truncates")
     }
 }

@@ -18,6 +18,12 @@ public nonisolated enum ShortcutFamily: Sendable, Hashable {
 public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public let id: ActionID
     public var title: String
+    /// What the action does, what it needs and what a CLI or agent run gets
+    /// back, in a sentence or two. English, like the MCP tool text it heads:
+    /// `action.list` and `action.describe` carry it as `description`, and the
+    /// cmux MCP server puts it first in the action's tool description. The GUI
+    /// does not show it. Nil when the catalog has none yet.
+    public var description: String?
     public var keywords: [String]
     public var defaultShortcut: Shortcut?
     /// Display text for shortcuts a `Shortcut` cannot express, such as the
@@ -94,10 +100,24 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public var isGlobalHotKey: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
+    /// The run waits for a person's answer (a consent panel, then a macOS
+    /// prompt): the control socket gives it ``ActionDescriptor/personDeadline``
+    /// instead of ``ActionDescriptor/resultDeadline``.
+    public var waitsForPerson: Bool = false
+    /// How long `action.run` with `wait` may take for an action that waits
+    /// for a person: the consent panel's own limit plus time for the
+    /// Keychain prompt and the import. The cmux CLI waits a little longer.
+    public static let personDeadline: Duration = .seconds(200)
+    /// The action's work makes a daemon object with a keyed create that asks
+    /// again when its reply is late (`NewFrontendBrowserTabRequest.send(on:)`):
+    /// `action.run` with `wait` (the default) then allows that retry budget
+    /// instead of failing at the control-plane deadline while the tab opens.
+    public var waitsForKeyedCreate: Bool = false
 
     public init(
         id: ActionID,
         title: String,
+        description: String? = nil,
         keywords: [String] = [],
         defaultShortcut: Shortcut? = nil,
         shortcutLabel: String? = nil,
@@ -117,6 +137,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     ) {
         self.id = id
         self.title = title
+        self.description = description
         self.keywords = keywords
         self.defaultShortcut = defaultShortcut
         self.shortcutLabel = shortcutLabel

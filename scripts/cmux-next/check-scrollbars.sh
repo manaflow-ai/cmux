@@ -50,6 +50,11 @@ ALLOWED = {
 
 # path suffix -> {rule id -> reason}: one rule off in one file.
 ALLOWED_RULES = {
+    # The compact session rail's list scrolls itself once its ticks outgrow its height, and its
+    # scrollbar never draws (design/session-rail.md "Height and overflow": never a second visible
+    # scrollbar beside the transcript's). `scrollbar-width: none` and `::-webkit-scrollbar
+    # { display: none }` hide it in both engines; no thumb, track or colour is styled.
+    "webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css": {"custom": "rail list scrollbar hidden"},
     # `overflow: "scroll"` here is the @pierre/diffs option for unwrapped code rows, not CSS; the
     # rows' scroller follows the host through PIERRE_DIFFS_SCROLLER_CSS.
     # EditDiffHunks and HighlightedCode load after the first frame (#19974); EditDiff and CodeBlock
@@ -118,14 +123,21 @@ def scan(rel, path, rules, strip):
     return out
 
 # A SwiftUI ScrollView takes the shared thin scroller on its content, and a List on its rows
-# (`.thinScrollers()`); a file needs at least one per ScrollView or List.
+# (`.thinScrollers()`); a file needs at least one per ScrollView or List. Only a file that imports SwiftUI
+# can name SwiftUI's (no CmuxNext module re-exports it), so `List(expectedMachineID:)` in a Foundation-only
+# file (AgentCLIIntentLedger's own List request) is not one.
 SWIFTUI_SCROLL = re.compile(r"(?<![A-Za-z])(?:ScrollView|List)\s*[({]")
+SWIFTUI_IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:struct|class|enum|protocol|typealias|func|var|let)\s+)?SwiftUI\b",
+                            re.M)
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
 def swiftui_scrolls(rel, path):
     if rel in ALLOWED:
         return []
-    lines = [STRING.sub('""', line).split("//", 1)[0] for line in open(path, encoding="utf-8", errors="replace").read().splitlines()]
+    text = open(path, encoding="utf-8", errors="replace").read()
+    if not SWIFTUI_IMPORT.search(text):
+        return []
+    lines = [STRING.sub('""', line).split("//", 1)[0] for line in text.splitlines()]
     scrolls = [number for number, code in enumerate(lines, 1) if SWIFTUI_SCROLL.search(code)]
     if len(scrolls) <= sum(code.count(".thinScrollers()") for code in lines):
         return []

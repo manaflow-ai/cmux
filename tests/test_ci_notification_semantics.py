@@ -43,6 +43,10 @@ class NotificationSemanticsTests(unittest.TestCase):
             isolated = helpers / "run-swift-testing-suites.sh"
             isolated.write_text('#!/bin/bash\nexec swift test --package-path "$1"\n')
             isolated.chmod(0o755)
+            # CmuxNext is selected, so the lane makes the web bundles current first.
+            bundles = helpers / "ensure-web-bundles.sh"
+            bundles.write_text("#!/bin/bash\nexit 0\n")
+            bundles.chmod(0o755)
             bindir = root / "bin"
             bindir.mkdir()
             cargo = bindir / "cargo"
@@ -53,6 +57,9 @@ class NotificationSemanticsTests(unittest.TestCase):
 import json, os, sys, time
 from pathlib import Path
 args = sys.argv[1:]
+# The binary-module guard's resolve and version calls (swiftpm-binary-module-guard.sh).
+if args[:2] == ['package', 'resolve'] or args[:1] == ['--version']:
+    sys.exit(0)
 with open(os.environ['CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\\n')
 package = Path(args[args.index('--package-path') + 1]).name

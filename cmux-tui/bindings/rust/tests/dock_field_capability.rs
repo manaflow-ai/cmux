@@ -68,6 +68,7 @@ fn docked_move() -> MoveTabToColumnRequest {
             mode: "docked".to_string(),
             role: Optional::Missing,
         }),
+        keep_focus: None,
         pane: Optional::Value(3),
         respawn: Optional::Missing,
         screen: Optional::Missing,
@@ -82,7 +83,7 @@ fn a_dock_on_move_tab_to_column_needs_dock_columns_v1() {
     let (path, daemon) = daemon(&["tab-drag-v1", "edge-docks-v1"]);
     let config = ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5));
     let mut client = Client::connect(config).unwrap();
-    client.identify(IdentifyRequest {}).unwrap();
+    client.identify(IdentifyRequest::default()).unwrap();
     let error = client.move_tab_to_column(docked_move()).unwrap_err();
     assert!(
         matches!(error, Error::MissingCapability { capability: "dock-columns-v1", .. }),
@@ -98,7 +99,7 @@ fn a_dock_on_move_tab_to_column_is_sent_to_a_dock_columns_daemon() {
     let (path, daemon) = daemon(&["tab-drag-v1", "edge-docks-v1", "dock-columns-v1"]);
     let config = ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5));
     let mut client = Client::connect(config).unwrap();
-    client.identify(IdentifyRequest {}).unwrap();
+    client.identify(IdentifyRequest::default()).unwrap();
     client.move_tab_to_column(docked_move()).unwrap();
     drop(client);
     let sent = daemon.join().unwrap().expect("the request is sent");

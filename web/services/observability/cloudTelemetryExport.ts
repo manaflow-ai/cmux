@@ -2,6 +2,11 @@ import { createHmac } from "node:crypto";
 import type { CloudTelemetryAuth, CloudTelemetrySpan } from "./cloudTelemetryContract";
 import type { StoredCloudDiagnostic } from "./cloudTelemetryRepository";
 
+/** The keyed account hash shared by exported diagnostics and the ingest route span. */
+export function cloudTelemetryAccountKey(identityKey: string, userId: string): string {
+  return createHmac("sha256", identityKey).update(userId).digest("hex");
+}
+
 export type CloudAxiomConfiguration = {
   readonly origin: string;
   readonly token: string;
@@ -64,7 +69,7 @@ export async function exportCloudDiagnostics(
     backend_tag: row.payload.backend?.tag,
     backend_source_sha256: row.payload.backend?.sourceSha256,
     backend_revision: row.payload.backend?.revision ?? "unknown",
-    account_key: createHmac("sha256", configuration.identityKey).update(row.userId).digest("hex"),
+    account_key: cloudTelemetryAccountKey(configuration.identityKey, row.userId),
     source: row.payload.source ?? "client",
     event_id: row.eventId, operation_id: row.payload.span.operationId,
     trace_id: row.payload.span.traceId, span_id: row.payload.span.spanId,
@@ -117,7 +122,7 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
     "service.instance.id": row.payload.source === "server" ? undefined : client.instanceId,
     "os.version": row.payload.source === "server" ? undefined : client.osVersion,
     "host.arch": row.payload.source === "server" ? undefined : client.architecture,
-    "cmux.account_key": createHmac("sha256", configuration.identityKey).update(row.userId).digest("hex"),
+    "cmux.account_key": cloudTelemetryAccountKey(configuration.identityKey, row.userId),
     "cmux.observation.source": row.payload.source ?? "client",
   };
 }

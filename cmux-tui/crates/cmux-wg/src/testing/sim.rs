@@ -70,7 +70,12 @@ impl Pacer {
     /// has room for it.
     fn start(&self, at: Instant) -> Option<Instant> {
         let start = self.next_free.map_or(at, |free| free.max(at));
-        let backlog = (start - at).as_nanos() / self.interval.as_nanos();
+        // A zero interval (a rate above 1e9 per second) never queues.
+        let backlog = start
+            .saturating_duration_since(at)
+            .as_nanos()
+            .checked_div(self.interval.as_nanos())
+            .unwrap_or(0);
         (backlog < u128::from(self.capacity)).then_some(start)
     }
 
@@ -193,13 +198,11 @@ impl SimNet {
             return;
         }
         let mut at = release;
-        if profile.rate_pps > 0 {
+        if let Some(fresh) = Pacer::new(profile.rate_pps, profile.queue) {
             let (rate, queue) = (profile.rate_pps, profile.queue);
-            let pipe = inner.pipes.entry((from, to)).or_insert_with(|| {
-                (rate, queue, Pacer::new(rate, queue).expect("rate is positive"))
-            });
+            let pipe = inner.pipes.entry((from, to)).or_insert((rate, queue, fresh));
             if (pipe.0, pipe.1) != (rate, queue) {
-                *pipe = (rate, queue, Pacer::new(rate, queue).expect("rate is positive"));
+                *pipe = (rate, queue, fresh);
             }
             match pipe.2.admit(release) {
                 Some(done) => at = done,
@@ -270,8 +273,11 @@ impl DatagramSocket for SimSocket {
     ) -> Poll<io::Result<(usize, SocketAddr)>> {
         match self.inbound.poll_recv(cx) {
             Poll::Ready(Some((datagram, from))) => {
-                let len = datagram.len().min(buffer.len());
-                buffer[..len].copy_from_slice(&datagram[..len]);
+                let mut len = 0;
+                for (slot, byte) in buffer.iter_mut().zip(&datagram) {
+                    *slot = *byte;
+                    len += 1;
+                }
                 Poll::Ready(Ok((len, from)))
             }
             // The network keeps a sender while the socket is bound.

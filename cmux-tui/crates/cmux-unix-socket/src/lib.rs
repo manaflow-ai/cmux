@@ -96,7 +96,10 @@ pub use tempfile::TempDir as TestDir;
 /// `[dev-dependencies]`, so no production build contains this function. A
 /// test that cannot make its socket directory fails here.
 #[cfg(feature = "test-support")]
-#[allow(clippy::expect_used)]
+#[allow(
+    clippy::expect_used,
+    reason = "test-support only: no production build contains this function"
+)]
 pub fn short_test_dir(prefix: &str) -> TestDir {
     let prefix: String = prefix.chars().take(8).collect();
     let root = if cfg!(unix) {

@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// What the person saw on an agent's permission request (cx-aocz): the tool, the summary, the
@@ -29,12 +33,33 @@ public struct FeedApproveShownText: Hashable, Sendable {
     /// `prompt.action` of a feed item (`tool`, `summary`, `command`, `input`, `truncated`).
     /// `truncated` counts only as the JSON boolean true.
     public init(action: [String: Any]) {
+        #if canImport(Darwin)
         let truncated = (action["truncated"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue }
+        #else
+        let truncated = Self.jsonTrue(action["truncated"])
+        #endif
         self.init(tool: action["tool"] as? String, summary: action["summary"] as? String,
                   command: action["command"] as? String,
                   input: (action["input"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:],
                   truncated: truncated ?? false)
     }
+
+    #if !canImport(Darwin)
+    /// `true` only for the JSON boolean true. corelibs Foundation exposes no CFGetTypeID: a JSON
+    /// boolean there is an instance of the class `NSNumber(value: true)` is (its CFBoolean), and a
+    /// dictionary built in Swift may hold a plain `Bool`.
+    private static func jsonTrue(_ value: Any?) -> Bool? {
+        switch value {
+        case let number as NSNumber:
+            return ObjectIdentifier(type(of: number)) == ObjectIdentifier(type(of: NSNumber(value: true)))
+                && number.boolValue
+        case let bool as Bool:
+            return bool
+        default:
+            return nil
+        }
+    }
+    #endif
 
     /// Unambiguous: a version line, then each field as `<name>:<UTF-8 byte count>:<value>` on its
     /// own line (a value may hold newlines), the input fields by name, then `truncated:0|1`.

@@ -18,8 +18,9 @@ this script started and the processes that run for its scratch Chief home
 are stopped (by pid).
 
 Usage: chief-inspector-preflight.py --app APP --tag TAG [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
-import argparse, json, os, signal, socket, subprocess, tempfile, time, urllib.parse, urllib.request
+import argparse, json, os, signal, socket, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--app", required=True)
@@ -28,6 +29,11 @@ ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "chief-insp
 ap.add_argument("--reply-wait", type=int, default=300)
 ap.add_argument("--from-workspace", action="store_true", help="open it from a workspace pane, not from Home")
 opts = ap.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-inspector-preflight.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 os.makedirs(opts.out, exist_ok=True)
 TAG, APP = opts.tag, opts.app
 SOCK = f"/tmp/cmux-debug-{TAG}.sock"

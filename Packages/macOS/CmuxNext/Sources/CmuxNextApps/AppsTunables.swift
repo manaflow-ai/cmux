@@ -1,25 +1,5 @@
 public import CmuxNextDesign
 
-/// App Store layout prototypes (`apps.store.layout`, Debug Settings in DEV
-/// and NIGHTLY; app-platform.md section 5). Lawrence picked cards (2026-10-02):
-/// grid is the default; list and split stay as Debug variants.
-public nonisolated enum AppStoreLayout: String, Sendable, CaseIterable, TunableChoice {
-    /// Cards in a grid.
-    case grid
-    /// Dense rows.
-    case list
-    /// List and detail side by side.
-    case split
-
-    public var tunableTitle: String {
-        switch self {
-        case .grid: "Grid (cards)"
-        case .list: "List (dense rows)"
-        case .split: "Split (list + detail)"
-        }
-    }
-}
-
 /// How an app's sidebar section is framed (`apps.section.look`). Lawrence picked
 /// card (2026-10-02); native and minimal stay as Debug variants.
 public nonisolated enum AppSectionLook: String, Sendable, CaseIterable, TunableChoice {
@@ -43,13 +23,9 @@ public nonisolated enum AppSectionLook: String, Sendable, CaseIterable, TunableC
 public nonisolated enum AppsTunables {
     public static let section = TunableSection(id: "apps", title: "Apps", symbol: "bag", order: 45)
 
-    public static let storeLayout = Tunable<AppStoreLayout>.choice(
-        "apps.store.layout", section, "App Store layout", help: "Prototype layout of the App Store window. Switches live.",
-        default: .grid, code: "AppsTunables.storeLayout")
-
     public static let sectionLook = Tunable<AppSectionLook>.choice(
         "apps.section.look", section, "App section look", help: "How app sidebar sections and store previews are framed.",
         default: .card, code: "AppsTunables.sectionLook")
 
-    public static var all: [TunableDescriptor] { [storeLayout.descriptor, sectionLook.descriptor] }
+    public static var all: [TunableDescriptor] { [sectionLook.descriptor] }
 }

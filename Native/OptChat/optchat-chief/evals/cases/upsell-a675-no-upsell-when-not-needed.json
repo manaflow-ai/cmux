@@ -1,0 +1,34 @@
+{
+  "id": "upsell-a675-no-upsell-when-not-needed",
+  "group": "upsell",
+  "owner": "a675",
+  "about": "no checkout for a task that needs no plan",
+  "history": [],
+  "stubs": [
+    {
+      "cmd": "cmux",
+      "match": "billing",
+      "stdout": "{\"url\": \"https://checkout.stripe.com/c/pay/cs_test_a675eval0001\", \"flow\": \"checkout\", \"mode\": \"test\", \"opened_in\": \"cmux\", \"link_session\": true}"
+    }
+  ],
+  "turns": [
+    {
+      "text": "what's the difference between Pro and Max again? just curious, not buying",
+      "checks": [
+        {
+          "type": "not_called",
+          "cmd": "cmux",
+          "match": "billing checkout"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "checkout\\.stripe\\.com"
+        },
+        {
+          "type": "max_words",
+          "n": 120
+        }
+      ]
+    }
+  ]
+}

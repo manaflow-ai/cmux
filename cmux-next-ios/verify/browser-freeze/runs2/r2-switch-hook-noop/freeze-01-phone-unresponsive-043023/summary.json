@@ -1,0 +1,124 @@
+{
+  "t": 1792816223.747329,
+  "utc": "04:30:23",
+  "kind": "phone-unresponsive",
+  "detail": "2 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+  "tab": "A",
+  "since_start_s": 46.9,
+  "kf_last": [
+    [
+      1792816195.690623,
+      1
+    ],
+    [
+      1792816200.704036,
+      1
+    ],
+    [
+      1792816205.803338,
+      1
+    ],
+    [
+      1792816210.808096,
+      2
+    ],
+    [
+      1792816215.826778,
+      2
+    ],
+    [
+      1792816220.858789,
+      3
+    ]
+  ],
+  "lane_last": [
+    {
+      "t": 1792816195.690623,
+      "frames": "2",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2520",
+      "packets": "6",
+      "nacks": "0"
+    },
+    {
+      "t": 1792816200.704036,
+      "frames": "10",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2986",
+      "packets": "214",
+      "nacks": "0"
+    },
+    {
+      "t": 1792816205.803338,
+      "frames": "11",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "3225",
+      "packets": "216",
+      "nacks": "0"
+    },
+    {
+      "t": 1792816210.808096,
+      "frames": "12",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "3483",
+      "packets": "219",
+      "nacks": "0"
+    },
+    {
+      "t": 1792816215.826778,
+      "frames": "12",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "3483",
+      "packets": "219",
+      "nacks": "0"
+    },
+    {
+      "t": 1792816220.858789,
+      "frames": "30",
+      "keyframe_requests": "3",
+      "loss": "0.0",
+      "target_kbps": "4271",
+      "packets": "256",
+      "nacks": "0"
+    }
+  ],
+  "fps_last": [
+    [
+      1792816191.0473988,
+      "new-6ba7693a-t1",
+      1,
+      "track"
+    ]
+  ],
+  "decode_failed": [],
+  "host_events": [
+    {
+      "t": 1792816178.091155,
+      "utc": "04:29:38",
+      "line": "link up session_id=\"4bdd6ae3-a83e-4b17-b383-3904bd5f87a1\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=156.3ms link_ready=156.3ms"
+    },
+    {
+      "t": 1792816178.091249,
+      "utc": "04:29:38",
+      "line": "link path changed session_id=\"4bdd6ae3-a83e-4b17-b383-3904bd5f87a1\" path=Turn"
+    },
+    {
+      "t": 1792816190.686048,
+      "utc": "04:29:50",
+      "line": "media session up session_id=\"9c08d3cc-3897-4adb-ae6e-0d18f425026e\" link_session=\"4bdd6ae3-a83e-4b17-b383-3904bd5f87a1\" path=Direct timings=media_offer_received=0.0ms pc_created=2.3ms media_answer_sent=3.9ms remote_host=3.9ms remote_srflx=3."
+    },
+    {
+      "t": 1792816203.325547,
+      "utc": "04:30:03",
+      "line": "link down session_id=\"cdd15001-5468-4bd8-9e02-7cfa4ce26454\" reason=\"keepalive timed out\""
+    }
+  ],
+  "tabs": {
+    "A": "new-6ba7693a-t1"
+  }
+}

@@ -413,7 +413,7 @@ class Workflow(unittest.TestCase):
         spec = self.jobs["late-placement"]
         # Any attempt that runs compile admission again runs it too, except the bot's attempt 3 (the
         # rescue's move of a stuck attempt 2), whose jobs all take the retry runner.
-        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')", spec["if"])
+        self.assertIn("(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor))", spec["if"])
         for clause in ("vars.CI_PR_POOL_OWNED == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "needs.macos-compile-admission.result == 'success'"):

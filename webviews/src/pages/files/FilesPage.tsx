@@ -107,9 +107,7 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
 
   return (
     <div className="files">
-      <header className="files-header" title={root.folder}>
-        {root.name}
-      </header>
+      <header className="files-header">{root.name}</header>
       <ContextMenu items={menu(current)} className="files-scroll">
         <Tree
           lines={linesOf("", 0)}

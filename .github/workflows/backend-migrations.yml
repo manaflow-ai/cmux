@@ -131,7 +131,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.files.outputs.migrations == 'true'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - name: Lint head SQL with the base's parser rules
         if: steps.files.outputs.migrations == 'true'
         run: |
@@ -177,7 +177,7 @@ jobs:
           path: head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - name: Apply to cmux-next/staging
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
@@ -205,7 +205,7 @@ jobs:
           path: head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       # Expand migrations are additive (parsed-SQL lint), so the code deployed from main keeps
       # working; contract migrations only come from PRs into main that contain nothing else.
       - name: Apply to cmux-next/main (production)
@@ -253,7 +253,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - name: The tree's migrations are exactly what staging and production have
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         env:

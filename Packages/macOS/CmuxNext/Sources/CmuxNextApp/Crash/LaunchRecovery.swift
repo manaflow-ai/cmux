@@ -1,3 +1,4 @@
+import CmuxNextCrashReporting
 import Foundation
 
 /// What the previous run left behind (`AppRunMarker`).
@@ -20,9 +21,20 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
+    /// Restored browser tabs whose page that run started before it lived past
+    /// `LaunchRecovery.quickCrashWindow` (`AppRunMarker.notePageStarted`). Nil in
+    /// markers written before this field existed.
+    var startedPages: [String]?
+    /// What the run was doing shortly before it ended (`CrashContextRecorder`).
+    /// Nil in markers written before this field existed, and before the first snapshot.
+    var context: CrashContext?
+    /// That run's version (`CFBundleShortVersionString CFBundleVersion`) and commit (`CMUXCommit`):
+    /// an update may install between the crash and the report. Nil in older markers.
+    var version: String?
+    var commit: String?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting
+        case pid, launched, recovery, survived, signal, quitting, startedPages, context, version, commit
     }
 
     /// The run ended because someone asked it to: a requested-quit signal
@@ -51,8 +63,9 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     /// notice.
     case restarted(PreviousRun)
     /// The previous run followed a crash or a quick kill and ended again
-    /// soon after it started: restore windows and terminals, but not browser pages, and
-    /// say so (no restart loop through a page that kills the app).
+    /// soon after it started: restore everything, except that a page that run
+    /// started before it ended waits for Reload (`crashedPages`), so a page that
+    /// kills the app cannot loop.
     case restartedSafely(PreviousRun)
 
     /// A restart that ends within this time of its launch counts as quick.
@@ -72,7 +85,7 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     /// Whether this launch watches for a restart loop: it follows a crash,
     /// or a run killed within `quickCrashWindow` of its launch (a hang at
     /// restore ends in Force Quit, which records no signal). If this run
-    /// also ends early, the next launch restores without browser pages.
+    /// also ends early, the next launch holds the pages it started (`crashedPages`).
     static func watchesForLoop(previous: PreviousRun?) -> Bool {
         if decide(previous: previous).isRestart { return true }
         guard let previous, !previous.endedAsAsked else { return false }
@@ -87,8 +100,18 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     }
 
     var isRestart: Bool { previous != nil }
-    var skipsBrowserPages: Bool {
+
+    /// This launch follows a restart loop (`restartedSafely`).
+    var isSafeRestart: Bool {
         if case .restartedSafely = self { return true }
         return false
+    }
+
+    /// The restored tabs whose page stays unloaded until the person reloads it: after a restart
+    /// loop, the pages the quick-ending run had started (one of them may be what ended it).
+    /// Every other tab loads when it shows, as after any launch.
+    var crashedPages: Set<String> {
+        guard case .restartedSafely(let run) = self else { return [] }
+        return Set(run.startedPages ?? [])
     }
 }

@@ -9,7 +9,7 @@ import Foundation
 // runs that menu item on the row, as a click there does.
 enum DebugDownloads {
     static func register(on router: ControlRouter?, services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         router?.register([
             .mainActor("debug.downloads") { [weak services] call in
                 guard let list = services?.cache.pageRequests.downloads else { return .value(.null) }
@@ -20,7 +20,7 @@ enum DebugDownloads {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension DebugDownloads {
     static func handle(_ params: [String: JSONValue], list: BrowserDownloadList) -> JSONValue {
         let row = { (key: String) in params[key]?.stringValue.flatMap { id in list.items.first { $0.id.uuidString == id } } }

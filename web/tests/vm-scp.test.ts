@@ -93,8 +93,9 @@ describe("SCP setup on a machine that does not answer", () => {
     expect(response?.status).toBe(503);
     const payload = await response!.json() as Record<string, unknown>;
     expect(payload).toMatchObject({ error: "vm_guest_unresponsive", retryable: false });
-    expect(String(payload.action)).toContain("cmux vm pause <machine>, then cmux vm resume <machine>");
-    expect(String(payload.action)).toContain("Pause machine, then Resume machine");
+    expect(String(payload.action)).toMatch(/contact support/i);
+    expect(String(payload.action)).toMatch(/trace ID/i);
+    expect(String(payload.action)).not.toMatch(/cmux vm (?:pause|resume|restart|rm)/);
     expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable/i);
   });
 

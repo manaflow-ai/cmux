@@ -205,7 +205,10 @@ def resolve_state(manifest: Mapping[str, Any], manifest_path: Path) -> Path:
     else:
         if state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
             raise ValueError("notarization state does not match recovery manifest")
-        if state.get("submit_exit", "0") != "0":
+        # A DMG around the stapled app whose upload failed every retry is
+        # recorded as unsubmitted: it can only reach its 6 h fallback.
+        unsubmitted = state.get("stapled_app") == "true" and state.get("submission_id") == "unsubmitted"
+        if state.get("submit_exit", "0") != "0" and not unsubmitted:
             raise ValueError("notarization submit exited nonzero")
     return state_path
 

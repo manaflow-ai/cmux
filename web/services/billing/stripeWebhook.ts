@@ -28,6 +28,7 @@ import {
 import { isStripeBillingConfigured, stripe } from "./stripe";
 import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
+import { databaseTeamSeatQueue } from "./teamSeatQueue";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
 import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
 import {
@@ -45,6 +46,7 @@ type StripeWebhookDependencies = {
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
+  markTeamSeatsDirty?: (stackTeamId: string) => Promise<void>;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   isPersonalWelcomeConfigured?: () => boolean;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
@@ -61,6 +63,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
+  markTeamSeatsDirty: (stackTeamId) => databaseTeamSeatQueue.markDirty(stackTeamId),
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   isPersonalWelcomeConfigured,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
@@ -363,7 +366,9 @@ async function reconcileSubscriptionEvent(
   dependencies: StripeWebhookDependencies,
 ): Promise<StripeEventOutcome> {
   const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
-  const result = await applySubscriptionEntitlementUpdate(subscription, dependencies);
+  const marksTeamSeats = event.type === "customer.subscription.created" ||
+    event.type === "customer.subscription.updated";
+  const result = await applySubscriptionEntitlementUpdate(subscription, dependencies, marksTeamSeats);
   return "skipped" in result
     ? { skipped: unmappedSkip }
     : {
@@ -448,8 +453,11 @@ function analyticsSubject(
 async function applySubscriptionEntitlementUpdate(
   subscription: Stripe.Subscription,
   dependencies: StripeWebhookDependencies,
+  marksTeamSeats: boolean,
 ) {
-  const result = await dependencies.applySubscriptionUpdate(subscription);
+  const result = await dependencies.applySubscriptionUpdate(subscription, {
+    markTeamSeatsDirty: marksTeamSeats ? dependencies.markTeamSeatsDirty ?? false : false,
+  });
   if (
     !("skipped" in result)
     && !result.isActive

@@ -9,6 +9,10 @@
 //!   `sidebar.apply`.
 //! - A closed workspace (placed, not live) draws dimmed in a section that
 //!   keeps closed items (Pinned, custom) and is hidden in the others.
+//! - An archived item (and everything under an archived group) draws
+//!   dimmed with `archived`; it lists after its unarchived siblings, and
+//!   the live workspaces with no item yet show above a section's archived
+//!   tail (plans/cmux-next/archiving-DESIGN.md).
 //! - A machine section shows its header only when more than one machine
 //!   section shows (one machine is the main list, no header, as today).
 //! - A text filter shows the items whose title matches, a group whose name
@@ -20,6 +24,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::doc::Doc;
 use super::model::*;
 
 /// A live workspace of one machine, with the title the filter matches.
@@ -75,6 +80,9 @@ pub struct Row {
     /// A group or section header drawn collapsed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub collapsed: bool,
+    /// An archived item, or one under an archived group: drawn dimmed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 struct Context<'a> {
@@ -97,7 +105,9 @@ impl Context<'_> {
                 .or_else(|| item.label().map(str::to_string))
                 .unwrap_or_default(),
             Body::Group { name, .. } => name.clone(),
-            Body::Url { url, title } => format!("{} {url}", title.clone().unwrap_or_default()),
+            Body::Url { url, title, .. } => {
+                format!("{} {url}", title.clone().unwrap_or_default())
+            }
             Body::Builtin { id }
             | Body::App { id }
             | Body::Room { id }
@@ -122,7 +132,7 @@ impl Context<'_> {
     }
 }
 
-fn item_row(item: &Item, depth: u8, dimmed: bool, collapsed: bool) -> Row {
+fn item_row(item: &Item, depth: u8, dimmed: bool, collapsed: bool, archived: bool) -> Row {
     Row {
         key: item.id.clone(),
         kind: item.body.kind_name().into(),
@@ -133,7 +143,62 @@ fn item_row(item: &Item, depth: u8, dimmed: bool, collapsed: bool) -> Row {
         dimmed,
         reference: item.body.workspace().cloned(),
         collapsed,
+        archived: archived || item.archived(),
     }
+}
+
+/// The rows of a group and its subtree at `depth`: the group's row, then
+/// (unless it is collapsed) its children, a subgroup with its own rows.
+/// With a text filter, a group whose name matches shows its whole subtree
+/// (`shown`), and a group with a matching row anywhere under it shows as the
+/// path to that row; otherwise the group shows nothing.
+fn group_rows(
+    doc: &Doc,
+    context: &Context<'_>,
+    section: &Section,
+    group: &Item,
+    depth: u8,
+    shown: bool,
+    archived: bool,
+) -> Vec<Row> {
+    let Body::Group { collapsed, .. } = &group.body else { return Vec::new() };
+    let archived = archived || group.archived();
+    let name_matches = shown || context.matches(&context.title_of(group));
+    let mut inner = Vec::new();
+    // A valid document has at most MAX_GROUP_DEPTH levels; the bound keeps a
+    // corrupt one finite.
+    if usize::from(depth) < MAX_GROUP_DEPTH {
+        for child in doc.list(&section.id, Some(group.id.as_str())) {
+            if child.body.is_group() {
+                inner.extend(group_rows(
+                    doc,
+                    context,
+                    section,
+                    child,
+                    depth + 1,
+                    name_matches,
+                    archived,
+                ));
+                continue;
+            }
+            let live = child.body.workspace().is_none_or(|r| context.is_live(r));
+            if !live && !section.keeps_closed {
+                continue;
+            }
+            if name_matches || context.matches(&context.title_of(child)) {
+                inner.push(item_row(child, depth + 1, !live, false, archived));
+            }
+        }
+    }
+    if !name_matches && inner.is_empty() {
+        return Vec::new();
+    }
+    let folded = context.is_collapsed(&group.id, *collapsed);
+    let mut rows = vec![item_row(group, depth, false, folded, archived)];
+    if !folded {
+        rows.extend(inner);
+    }
+    rows
 }
 
 /// The rows of `doc` for one window.
@@ -151,8 +216,6 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             .filter(|text| !text.is_empty()),
         collapsed: request.collapsed.as_ref().map(|ids| ids.iter().map(String::as_str).collect()),
     };
-    let mut doc = doc.clone();
-    doc.normalize();
     let shown_session = |session: &str| {
         request
             .window
@@ -161,15 +224,10 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             .is_none_or(|sessions| sessions.iter().any(|s| s == session))
     };
     // Unplaced live workspaces, by machine, in live order.
-    let placed: HashSet<(&str, &str)> = doc
-        .items
-        .iter()
-        .filter_map(|item| item.body.workspace())
-        .map(|r| (r.session_id.as_str(), r.workspace_id.as_str()))
-        .collect();
     let mut unplaced: Vec<(String, Vec<&LiveWorkspace>)> = Vec::new();
     for live in &request.live {
-        if placed.contains(&(live.session_id.as_str(), live.workspace_id.as_str())) {
+        let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
+        if doc.workspace_item(&reference).is_some() {
             continue;
         }
         match unplaced.iter_mut().find(|(session, _)| *session == live.session_id) {
@@ -180,7 +238,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
     // The sections this window shows, with a stand-in for each machine
     // that has unplaced workspaces and no section.
     let mut sections: Vec<Section> = doc
-        .sections
+        .sections()
         .iter()
         .filter(|section| {
             section.room.as_ref().is_none_or(|room| request.window.room.as_ref() == Some(room))
@@ -199,52 +257,24 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
         sections.insert(at, Section::machine(session));
     }
     let machine_count = sections.iter().filter(|s| s.kind.machine().is_some()).count();
-    let mut children: HashMap<&str, Vec<&Item>> = HashMap::new();
-    let mut top: HashMap<&str, Vec<&Item>> = HashMap::new();
-    for item in &doc.items {
-        match &item.parent {
-            Some(parent) => children.entry(parent.as_str()).or_default().push(item),
-            None => top.entry(item.section.as_str()).or_default().push(item),
-        }
-    }
     let mut rows = Vec::new();
     for section in &sections {
         let mut body: Vec<Row> = Vec::new();
         let section_collapsed = context.is_collapsed(&section.id, false);
-        for item in top.get(section.id.as_str()).map(Vec::as_slice).unwrap_or_default() {
+        for item in doc.list(&section.id, None) {
             match &item.body {
                 Body::Workspace { reference } => {
                     let live = context.is_live(reference);
                     if (live || section.keeps_closed) && context.matches(&context.title_of(item)) {
-                        body.push(item_row(item, 0, !live, false));
+                        body.push(item_row(item, 0, !live, false, false));
                     }
                 }
-                Body::Group { collapsed, .. } => {
-                    let name_matches = context.matches(&context.title_of(item));
-                    let mut inner = Vec::new();
-                    for child in
-                        children.get(item.id.as_str()).map(Vec::as_slice).unwrap_or_default()
-                    {
-                        let live = child.body.workspace().is_none_or(|r| context.is_live(r));
-                        if !live && !section.keeps_closed {
-                            continue;
-                        }
-                        if name_matches || context.matches(&context.title_of(child)) {
-                            inner.push(item_row(child, 1, !live, false));
-                        }
-                    }
-                    if !name_matches && inner.is_empty() {
-                        continue;
-                    }
-                    let folded = context.is_collapsed(&item.id, *collapsed);
-                    body.push(item_row(item, 0, false, folded));
-                    if !folded {
-                        body.extend(inner);
-                    }
+                Body::Group { .. } => {
+                    body.extend(group_rows(doc, &context, section, item, 0, false, false));
                 }
                 _ => {
                     if context.matches(&context.title_of(item)) {
-                        body.push(item_row(item, 0, false, false));
+                        body.push(item_row(item, 0, false, false, false));
                     }
                 }
             }
@@ -252,22 +282,37 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
         if let Some(session) = section.kind.machine()
             && let Some((_, list)) = unplaced.iter().find(|(s, _)| s == session)
         {
+            // Above the archived tail, where adopting them puts them.
+            let mut at = body.len();
+            for (index, row) in body.iter().enumerate().rev() {
+                if row.depth == 0 {
+                    if !row.archived {
+                        break;
+                    }
+                    at = index;
+                }
+            }
             for live in list {
                 if !context.matches(live.title.as_deref().unwrap_or_default()) {
                     continue;
                 }
                 let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
-                body.push(Row {
-                    key: workspace_item_id(&reference),
-                    kind: "workspace".into(),
-                    section: section.id.clone(),
-                    parent: None,
-                    depth: 0,
-                    item: None,
-                    dimmed: false,
-                    reference: Some(reference),
-                    collapsed: false,
-                });
+                body.insert(
+                    at,
+                    Row {
+                        key: workspace_item_id(&reference),
+                        kind: "workspace".into(),
+                        section: section.id.clone(),
+                        parent: None,
+                        depth: 0,
+                        item: None,
+                        dimmed: false,
+                        reference: Some(reference),
+                        collapsed: false,
+                        archived: false,
+                    },
+                );
+                at += 1;
             }
         }
         let header = section.shows_title
@@ -284,6 +329,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
                 dimmed: false,
                 reference: None,
                 collapsed: section_collapsed,
+                archived: false,
             });
         }
         if !(header && section_collapsed) {

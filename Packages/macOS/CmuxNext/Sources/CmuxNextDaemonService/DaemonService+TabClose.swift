@@ -38,7 +38,7 @@ extension DaemonService {
     /// Whether a closed terminal tab may only detach its terminal:
     /// `terminal-reap-v1` says the daemon can reap, not that it does.
     static func reapsDetachedTerminals(_ supports: (String) -> Bool) -> Bool {
-        supports(DaemonCapabilities.shared.terminalReaperActive)
+        supports(DaemonCapability.terminalReaperActive.rawValue)
     }
 
     static func closeCommand(for tab: TabModel, reaps: Bool) -> TabCloseCommand {

@@ -16,6 +16,8 @@ const label = ((key: string) =>
     findPreviousMatch: "Previous match",
     findNextMatch: "Next match",
     findClose: "Close find",
+    findCount: "{current} of {total}",
+    findNoMatches: "No results",
   })[key] ?? key) as DiffViewerLabelResolver;
 
 const match = (lineNumber: number): FindMatch => ({
@@ -67,7 +69,7 @@ test("focuses and selects the recovered query, then reports the active match cou
   const rendered = await renderBar();
   const input = rendered.host.querySelector<HTMLInputElement>("#diff-find-input")!;
   expect(document.activeElement).toBe(input);
-  expect(rendered.host.querySelector("#diff-find-count")?.textContent).toBe("1/2");
+  expect(rendered.host.querySelector("#diff-find-count")?.textContent).toBe("1 of 2");
   await act(async () => rendered.root.unmount());
   rendered.host.remove();
 });
@@ -81,6 +83,18 @@ test("Enter, Shift+Enter, and Escape delegate to the controller", async () => {
   );
   await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(rendered.calls()).toEqual({ nextCalls: 1, previousCalls: 1, closeCalls: 1 });
+  await act(async () => rendered.root.unmount());
+  rendered.host.remove();
+});
+
+test("a refocus request keeps the direct find pill interactive", async () => {
+  const rendered = await renderBar();
+  const input = rendered.host.querySelector<HTMLInputElement>("#diff-find-input")!;
+  input.blur();
+  await act(async () =>
+    rendered.root.render(<FindBar controller={rendered.controller} label={label} query="needle" requestToken={2} />),
+  );
+  expect(document.activeElement).toBe(rendered.host.querySelector("#diff-find-input"));
   await act(async () => rendered.root.unmount());
   rendered.host.remove();
 });

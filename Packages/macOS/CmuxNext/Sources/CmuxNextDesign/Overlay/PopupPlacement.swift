@@ -9,8 +9,9 @@ public nonisolated struct PopupPlacement {
 
     /// The popup's frame on `screen` (its visible frame) for content of `size` at `anchor`.
     /// `preferred` is the side the page asked for; `trailing` aligns the popup's trailing edge
-    /// with the anchor's instead of its leading edge.
-    public static func frame(anchor: CGRect, size: CGSize, preferred: Side, trailing: Bool = false,
+    /// with the anchor's instead of its leading edge, and `centered` (over `trailing`) centers
+    /// it on the anchor, as an `NSPopover` sits under the control it opens from.
+    public static func frame(anchor: CGRect, size: CGSize, preferred: Side, trailing: Bool = false, centered: Bool = false,
                              screen: CGRect, gap: CGFloat = 4, margin: CGFloat = 6) -> (frame: CGRect, side: Side) {
         let roomBelow = anchor.minY - gap - (screen.minY + margin)
         let roomAbove = (screen.maxY - margin) - (anchor.maxY + gap)
@@ -20,7 +21,8 @@ public nonisolated struct PopupPlacement {
         let height = max(0, min(size.height, room(side)))
         let width = min(size.width, screen.width - 2 * margin)
         let y = side == .below ? anchor.minY - gap - height : anchor.maxY + gap
-        let leading = trailing ? anchor.maxX - width : anchor.minX
+        // A centered card starts on a whole point, so `integral` never widens it past its content.
+        let leading = centered ? (anchor.midX - width / 2).rounded() : trailing ? anchor.maxX - width : anchor.minX
         let x = min(max(screen.minX + margin, leading), screen.maxX - margin - width)
         return (CGRect(x: x, y: y, width: width, height: height).integral, side)
     }

@@ -4,6 +4,8 @@
 // `<base>__cmux_gallery/status` and pushes `cmux-gallery:status` when the commit or an error
 // changes, so the shell's SHA, its age and the error banner follow the checkout.
 import revision from "virtual:cmux-gallery/revision";
+// Bun's types also declare import.meta.hot (with argument-less listeners); these listeners are Vite's.
+import type { ViteHotContext } from "vite/types/hot.d.ts";
 
 /** A compile error the live server kept out of Vite's full-page overlay. */
 export type LiveError = {
@@ -55,7 +57,9 @@ export function ageText(seconds: number, now = Date.now()): string {
 }
 
 if (import.meta.hot) {
-  import.meta.hot.on("cmux-gallery:status", (next: Omit<LiveStatus, "live">) => set({ ...next, live: true }));
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-gallery:status", (next: Omit<LiveStatus, "live">) =>
+    set({ ...next, live: true }),
+  );
   void fetch(`${import.meta.env.BASE_URL}__cmux_gallery/status`, { cache: "no-store" })
     .then((response) => (response.ok ? (response.json() as Promise<Omit<LiveStatus, "live">>) : null))
     .then((next) => next && set({ ...next, live: true }))

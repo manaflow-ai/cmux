@@ -92,3 +92,23 @@ extension GlideMotion {
         return GlidePlan(samples: samples, arrivedTick: arrivedTick, dt: dt, origin: CGPoint(x: x0, y: y0))
     }
 }
+
+extension GlideMotion {
+    /// A straight segment at constant speed over `duration` seconds, with no
+    /// spring: the cursor tracing a streamed human path (the browser runtime
+    /// plays it at display rate, plans/cmux-next/human-mouse-DESIGN.md), one
+    /// sample at a time, so the overlay shows the path the page got. The
+    /// arrow keeps `heading` (a real pointer does not turn as it moves, and
+    /// the path's tremor would make it twitch).
+    public func follow(fromX x0: Double, fromY y0: Double, toX x1: Double, toY y1: Double,
+                       duration: Double, heading: Double) -> GlidePlan {
+        let ticks = max(1, Int((duration / dt).rounded()))
+        var samples: [GlideSample] = []
+        samples.reserveCapacity(ticks)
+        for tick in 1...ticks {
+            let u = Double(tick) / Double(ticks)
+            samples.append(GlideSample(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: heading))
+        }
+        return GlidePlan(samples: samples, arrivedTick: ticks, dt: dt, origin: CGPoint(x: x0, y: y0))
+    }
+}

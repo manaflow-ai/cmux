@@ -10,14 +10,14 @@ import CmuxNextActions
 /// link's text are left out.
 @MainActor
 enum TerminalLinkMenu {
-    /// Rows a terminal link cannot fill.
-    static let pageOnly: Set<ActionID> = ["browser.link.saveAs", "browser.link.copyText"]
+    /// Rows a terminal link cannot fill, and the ones ``LinkMenu`` shows (new tab, default browser, copy).
+    static let pageOnly: Set<ActionID> = ["browser.link.saveAs", "browser.link.copyText", "browser.link.openInNewTab", "openLinkInDefaultBrowser", "browser.link.copy"]
 
     static func items(for link: URL?, target: ActionTargetRef?, registry: ActionRegistry) -> [NSMenuItem] {
         guard let link, link.scheme == "http" || link.scheme == "https" else { return [] }
         let menu = registry.makeContextMenu(
             for: .browserLink, target: target,
-            entries: ContextMenuCatalog.shared.entries(for: .browserLink, removing: pageOnly),
+            entries: registry.contextMenuEntries(for: .browserLink, removing: pageOnly),
             arguments: ["url": .string(link.absoluteString)]
         )
         let rows = menu.items

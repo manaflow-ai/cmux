@@ -83,12 +83,15 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
-        self.publish_resource_event();
+        // Notify directly: publish_resource_event would retry pending
+        // directories, including this one, from inside its own publication.
+        self.publish_journal_event();
         self.emit_terminal_tabs_changed(id);
         Ok(true)
     }
 
     /// Close the startup race where the first prompt preceded runtime registration.
+    #[track_caller]
     pub(crate) fn publish_pending_terminal_directories(&self) {
         let terminals =
             self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();

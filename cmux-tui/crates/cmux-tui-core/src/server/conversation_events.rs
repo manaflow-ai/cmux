@@ -3,6 +3,7 @@
 //! id, revision: conversation rev}; the owner raises rev by exactly one per
 //! committed op, so a missed rev is detected and ends the stream with `gap`.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
 
@@ -46,8 +47,8 @@ pub(super) fn prepare(
     let reset = match fields.get("cursor") {
         None => Some("initial"),
         Some(requested) => {
-            let generation = requested["generation"].as_str().unwrap_or_default();
-            let revision = requested["revision"].as_str().and_then(|r| r.parse::<u64>().ok());
+            let generation = requested.field("generation").as_str().unwrap_or_default();
+            let revision = requested.field("revision").as_str().and_then(|r| r.parse::<u64>().ok());
             match revision {
                 _ if generation != conversation => {
                     return Err(invalid_cursor(
@@ -111,8 +112,8 @@ pub(super) fn prepare(
 
 fn invalid_cursor(requested: &Value, current: &Value, reason: &str) -> ResourceError {
     let requested = json!({
-        "generation": requested["generation"].as_str().unwrap_or_default(),
-        "revision": requested["revision"].as_str().unwrap_or("0"),
+        "generation": requested.field("generation").as_str().unwrap_or_default(),
+        "revision": requested.field("revision").as_str().unwrap_or("0"),
     });
     ResourceError::new(
         "cursor.invalid",
@@ -279,18 +280,18 @@ pub(super) fn step(conversation: &str, rev: &mut u64, event: &ConversationEvent)
                 Some(kind @ ("message" | "message-updated")) => {
                     let mut item =
                         base(if kind == "message" { "message" } else { "message_updated" });
-                    item["message"] = change["message"].clone();
+                    item.insert("message", change.field("message").clone());
                     Step::Item(item)
                 }
                 Some("read-cursor") => {
                     let mut item = base("read_cursor");
-                    item["participant"] = change["participant"].clone();
-                    item["seq"] = change["seq"].clone();
+                    item.insert("participant", change.field("participant").clone());
+                    item.insert("seq", change.field("seq").clone());
                     Step::Item(item)
                 }
                 Some("conversation") => {
                     let mut item = base("conversation");
-                    item["summary"] = change["conversation"].clone();
+                    item.insert("summary", change.field("conversation").clone());
                     Step::Item(item)
                 }
                 _ => Step::Skip,

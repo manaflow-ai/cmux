@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import class CmuxNextDaemon.PaneModel
 import CmuxNextHistory
 import Foundation
 
@@ -68,16 +69,25 @@ struct HistoryRestorer {
     /// its directory: in the tab's old pane when it still exists, else the
     /// focused pane when it is on that machine.
     func resume(_ session: AgentSession) {
+        // A session still running shows its terminal instead of a second resume.
+        if session.endedAt == nil, let harness = TerminalChatRoute.harness(of: session.provider),
+           services.revealAgentSession(harness: harness, session: session.sessionID) { return }
         guard let command = session.resumeCommand else { return services.registry.refuse(HistoryAppStrings.noResume) }
         guard services.machines.daemons.contains(where: { $0.machineID == session.machine }) else {
             return services.registry.refuse(HistoryAppStrings.machineOffline)
         }
-        let old = session.tab.flatMap { services.locateTab($0) }.flatMap { services.paneController(for: $0.1) }
+        let old = paneForResume(session).flatMap { services.paneController(for: $0) }
         let focused = services.windows.active?.focusedPane.flatMap { pane in
             services.daemon(for: pane.pane).machineID == session.machine ? pane : nil
         }
         guard let pane = old ?? focused else { return services.registry.refuse(HistoryAppStrings.noPane) }
         pane.newTerminalTab(cwd: session.cwd, typing: command + "\n")
+    }
+
+    /// Resolves the old pane for a history session on the session's machine.
+    /// A duplicate tab id on another machine must never redirect a resume.
+    func paneForResume(_ session: AgentSession) -> PaneModel? {
+        session.tab.flatMap { services.locateTab($0, onMachine: session.machine)?.1 }
     }
 
     /// Runs a command again in a new terminal tab, in its directory, on its

@@ -8,7 +8,7 @@ import type {
 
 import type { AppleSubscriptionStatus } from "../../../db/schema";
 import type { PersonalPlanId } from "../pro";
-import { APPLE_USD_LIST_PRICE, planIdForAppleProduct } from "./config";
+import { appleBillingPeriodForProduct, appleUsdListPrice, planIdForAppleProduct } from "./config";
 
 export type AppleSubscriptionState = {
   readonly originalTransactionId: string;
@@ -255,9 +255,10 @@ const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 export function appleRevenueEstimate(state: Pick<
   AppleSubscriptionState,
   "planId" | "currency" | "priceMilliunits" | "purchaseDate" | "originalPurchaseDate"
->): { price: number | null; priceUsd: number; netUsd: number; commission: number } {
+> & Partial<Pick<AppleSubscriptionState, "productId" | "bundleId">>): { price: number | null; priceUsd: number; netUsd: number; commission: number } {
   const price = state.priceMilliunits === null ? null : state.priceMilliunits / 1000;
-  const priceUsd = state.currency === "USD" && price !== null ? price : APPLE_USD_LIST_PRICE[state.planId];
+  const period = state.productId && state.bundleId ? appleBillingPeriodForProduct(state.productId, state.bundleId) : "monthly";
+  const priceUsd = state.currency === "USD" && price !== null ? price : appleUsdListPrice(state.planId, period);
   const tenure = state.purchaseDate && state.originalPurchaseDate
     ? state.purchaseDate.getTime() - state.originalPurchaseDate.getTime()
     : 0;

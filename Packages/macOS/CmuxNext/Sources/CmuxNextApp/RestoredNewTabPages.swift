@@ -7,22 +7,32 @@ import CmuxNextDaemon
 /// (cx-eqkt0). Read without making the page: the same rule as `view(for:)`.
 @MainActor
 enum RestoredNewTabPages {
-    /// Whether `tab` shows the New Tab page.
-    static func shows(_ tab: TabModel, in tabs: AgentTabStore) -> Bool {
+    /// Whether `tab` shows the New Tab page. `workspace`: the workspace that holds `tab`, when the
+    /// caller knows it (a pane's own); else it is looked up, only while a first chat is in flight.
+    ///
+    /// A pane snapshot runs this for each of its tabs, so it reads only the tab's own record and
+    /// per-key state: never the tab list or the workspace list of a store. A lookup by id there
+    /// (`AppServices.locateTab`) observes every tab add and close, and re-ran every pane holding a
+    /// restored page on each split or close in any pane (cx-8w027.20, I2).
+    static func shows(_ tab: TabModel, in tabs: AgentTabStore, workspace: WorkspaceHandle? = nil) -> Bool {
         let key = tabs.resolve(tab.id)
-        // Observed: the strip and Home follow the pages this run opens and closes.
-        if tabs.pageTabs.ids.contains(key) || tabs.newTabPages[key] != nil { return true }
-        // Cheap lookups first: a restored chat leaves here, before the host checks walk the tree.
+        // Observed per key: the strip and Home follow the pages this run opens and closes.
+        if tabs.pageTabs.contains(key) || tabs.newTabPages[key] != nil { return true }
+        // Cheap lookups first: a restored chat leaves here, before the host checks.
         guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
               (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(key),
               tabs.unsentDrafts.seed(for: key, session: nil) == nil,
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) != .remote,
-              tabs.daemonForTab(key)?.isLocal != false else { return false }
+              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
+                                listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
+        // The daemon whose tree lists this record, found by identity (no tab-list read).
+        let daemon = tabs.daemonListing(tab)
+        guard daemon?.isLocal != false else { return false }
         // A first chat in flight in its workspace (New Agent Chat) is that chat, never the page.
         guard !tabs.firstChats.isEmpty else { return true }
-        guard let (_, store) = tabs.lookup(key), let pane = store.pane(containing: tab.surface),
-              let workspace = store.workspace(containing: pane.handle) else { return true }
-        return tabs.firstChats[workspace.handle] == nil
+        let store = daemon?.store
+        guard let handle = workspace ?? store?.pane(containing: tab.surface).flatMap({ store?.workspace(containing: $0.handle) })?.handle
+        else { return true }
+        return tabs.firstChats[handle] == nil
     }
 
     /// The tabs of `store` that show the New Tab page, with the pages this run opened.

@@ -17,6 +17,11 @@ export interface ChildResult {
   stderr: string;
   /** Set when the child could not be spawned (e.g. ENOENT) or was killed by the timeout. */
   error?: Error;
+  /**
+   * With reapGroup: true when a process of the child's group was still alive
+   * after the child exited (an orphaned descendant); it was then killed.
+   */
+  orphans?: boolean;
 }
 
 export interface RunChildOptions {
@@ -29,6 +34,13 @@ export interface RunChildOptions {
   timeout?: number;
   /** First signal on timeout (default SIGTERM); SIGKILL follows after a grace period. */
   killSignal?: NodeJS.Signals;
+  /**
+   * After the child exits, report whether its process group still has a
+   * member (`orphans`) and SIGKILL it, so a descendant cannot keep writing
+   * into a temp dir the test deletes next. Off by default: some callers start
+   * a background process on purpose.
+   */
+  reapGroup?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -94,7 +106,17 @@ export function runChild(
     child.on("error", (error) => finish({ status: null, signal: null, stdout, stderr, error }));
     child.on("close", (status, signal) => {
       const error = timedOut ? timedOutError(signal) : undefined;
-      finish({ status, signal, stdout, stderr, ...(error ? { error } : {}) });
+      let orphans: boolean | undefined;
+      if (options.reapGroup && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 0);
+          orphans = true;
+          killGroup("SIGKILL");
+        } catch {
+          orphans = false;
+        }
+      }
+      finish({ status, signal, stdout, stderr, ...(error ? { error } : {}), ...(orphans === undefined ? {} : { orphans }) });
     });
     // A child that exits without reading its stdin closes the pipe; that is not a test failure.
     child.stdin.on("error", () => {});

@@ -1,0 +1,70 @@
+{
+ "scenario": "1337",
+ "build": "2e1369f0",
+ "sha": "2e1369f054",
+ "bundle": "dev.cmux.cnx.r2e1369f0",
+ "agent": "codexlike",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv9/reg-1337-2e1369f0-024215.mp4",
+ "time": "2026-10-15 02:43:24",
+ "load": 63.08,
+ "rows": {
+  "T-REG-1337-a": {
+   "red": false,
+   "evidence": {
+    "bottom": {
+     "frames": 711,
+     "black": 0,
+     "black_at": [],
+     "flashes": 0,
+     "flash_at": [],
+     "spont_moves": 0,
+     "spont_reversals": 0,
+     "reversal_at": [],
+     "spont_down_gt1": 0,
+     "down_at": []
+    },
+    "near": {
+     "frames": 801,
+     "black": 0,
+     "black_at": [],
+     "flashes": 0,
+     "flash_at": [],
+     "spont_moves": 0,
+     "spont_reversals": 0,
+     "reversal_at": [],
+     "spont_down_gt1": 0,
+     "down_at": []
+    }
+   }
+  },
+  "T-REG-1337-b": {
+   "red": false
+  },
+  "T-REG-1337-c": {
+   "red": false,
+   "note": "a jump of more than a row with no finger (a region other than the bottom)"
+  },
+  "T-REG-1337-d": {
+   "red": false,
+   "evidence": {
+    "at_bottom": [
+     [
+      1792057358.67,
+      false
+     ]
+    ],
+    "near": [
+     [
+      1792057372.55,
+      false
+     ]
+    ]
+   }
+  },
+  "T-REG-1337-e": {
+   "red": false,
+   "note": "continuous moves with no finger (more than 2 per second on average)"
+  }
+ },
+ "red": false
+}

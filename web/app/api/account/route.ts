@@ -75,14 +75,22 @@ import {
 import {
   invalidateCoderouterHandoffAuthority,
 } from "../../../services/coderouter/repository";
-import type { ProviderId } from "../../../services/vms/drivers";
+import type { ProviderCredential, ProviderId } from "../../../services/vms/drivers";
+import { gcpCredentialFromRequest } from "../../../services/vms/routeInput";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import {
+  publishVmOps,
+  publishVmRowsById,
+  vmSyncTeamId,
+  type VmSyncOp,
+} from "../../../services/vms/presencePublisher";
 import { authorizeCronRequest } from "../../../services/cronAuth";
 import { reportError } from "../../../services/observability/report";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
-import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
+import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY, type CloudVmRow } from "../../../services/vms/repository";
 import {
   destroyVm,
+  drainProviderCreateCleanups,
   listUserVms,
   deletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -207,6 +215,12 @@ type AccountDeletionContext = {
   readonly accessToken: string;
   readonly userId: string;
   readonly originalStackMetadata: DeletableStackUser["clientReadOnlyMetadata"];
+  /**
+   * A fresh copy of the user's short-lived GCP credential from the deletion
+   * request, one per provider workflow (each wipes its own). Absent on cron
+   * resumes, so GCP machines and retained GCP creates fail closed there.
+   */
+  readonly gcpCredential?: () => ProviderCredential | undefined;
 };
 
 export async function DELETE(request: Request): Promise<Response> {
@@ -232,6 +246,7 @@ export async function DELETE(request: Request): Promise<Response> {
     accessToken,
     userId: stackUser.id,
     originalStackMetadata: stackUser.clientReadOnlyMetadata,
+    gcpCredential: () => gcpCredentialFromRequest(request),
   };
   const progress = initialAccountDeletionProgress();
   try {
@@ -568,7 +583,7 @@ async function deleteAccount(
     },
   );
   progress.stage = "identity_publications_vms";
-  await deleteAccountIdentityLeasesPublicationsAndVms(userId, accountScope.teamIds, progress);
+  await deleteAccountIdentityLeasesPublicationsAndVms(userId, accountScope.teamIds, progress, context.gcpCredential);
   progress.stage = "networking_vault";
   await deleteAccountNetworkingAndVault(userId, progress);
   if (hostedSubrouterDeletionRequired) {
@@ -623,6 +638,7 @@ async function deleteAccountIdentityLeasesPublicationsAndVms(
   userId: string,
   teamIds: readonly string[],
   progress: AccountDeletionProgress,
+  gcpCredential?: () => ProviderCredential | undefined,
 ): Promise<void> {
   await refreshAccountDeletionTombstoneLease(userId);
   try {
@@ -657,6 +673,7 @@ async function deleteAccountIdentityLeasesPublicationsAndVms(
   await refreshAccountDeletionTombstoneLease(userId);
   try {
     progress.destroyedVms = await destroyPersonalCloudVms(userId, teamIds, {
+      gcpCredential,
       afterVmDestroy: async () => {
         await refreshAccountDeletionTombstoneLease(userId);
       },
@@ -1209,8 +1226,17 @@ async function revokeAccountDeletionIdentityLeases(
 async function destroyPersonalCloudVms(
   userId: string,
   accountTeamIds: readonly string[],
-  options: { readonly afterVmDestroy?: () => Promise<void> } = {},
+  options: {
+    readonly afterVmDestroy?: () => Promise<void>;
+    readonly gcpCredential?: () => ProviderCredential | undefined;
+  } = {},
 ): Promise<number> {
+  // A retained GCP create names an instance only the user's own credential
+  // can delete; the account stays undeletable until that delete is confirmed.
+  const drainCredential = options.gcpCredential?.();
+  if (drainCredential) {
+    await runVmWorkflow(drainProviderCreateCleanups({ userId, providerCredential: drainCredential }));
+  }
   const vms = await listAccountDeletionCloudVms(userId, accountTeamIds);
   const failures: unknown[] = [];
   let destroyedVms = 0;
@@ -1226,6 +1252,7 @@ async function destroyPersonalCloudVms(
         afterProviderDestroy: () => void;
         modelPlane: VmModelPlaneRevoker;
         source: "account_deletion";
+        providerCredential?: ProviderCredential;
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -1238,6 +1265,7 @@ async function destroyPersonalCloudVms(
         source: "account_deletion",
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
+      if (vm.provider === "gcp") destroyInput.providerCredential = options.gcpCredential?.();
       const destroyProgram = destroyVm(destroyInput);
       await runVmWorkflow(destroyProgram);
       destructiveCleanupStarted = true;
@@ -1791,7 +1819,7 @@ function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: r
 
 async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readonly string[]): Promise<void> {
   const db = cloudDb();
-  await db.transaction(async (tx) => {
+  const vmSync = await db.transaction(async (tx) => {
     const now = new Date();
     // Acquire the extra VM/team locks in a stable order. The handoff
     // authority helper below uses the same sorted-team rule; keeping this
@@ -1812,6 +1840,8 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     const userVmRows = await tx
       .select({
         id: cloudVms.id,
+        userId: cloudVms.userId,
+        ownerTeamId: cloudVms.ownerTeamId,
         billingTeamId: cloudVms.billingTeamId,
         provider: cloudVms.provider,
         providerVmId: cloudVms.providerVmId,
@@ -1838,6 +1868,17 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     if (unsafePersonalVmRows.length > 0) {
       throw new Error(
         `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
+      );
+    }
+    // A GCP machine lives in the user's own project and only the user's
+    // credential can delete it, so a shared-team row (or a retained create)
+    // cannot be handed to the team as deleted-account.
+    const unsafeSharedGcpRows = sharedTeamVmRows.filter((vm) =>
+      vm.provider === "gcp" && vm.status !== "destroyed" && !(vm.status === "failed" && !vm.providerVmId)
+    );
+    if (unsafeSharedGcpRows.length > 0) {
+      throw new Error(
+        `GCP machines in shared teams must be deleted with the user's credential first (${unsafeSharedGcpRows.length} row${unsafeSharedGcpRows.length === 1 ? "" : "s"})`,
       );
     }
     const pendingExternalCleanupRows = personalVmRows.flatMap((vm) => {
@@ -2006,7 +2047,38 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     await tx.delete(vaultCliAuthRequests).where(
       eq(vaultCliAuthRequests.userId, userId),
     );
+    return {
+      deletedRows: personalVmRows,
+      deletedAtMs: now.getTime(),
+      rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
+    };
   });
+  publishAccountDeletionVmSync(vmSync);
+}
+
+/** Best-effort machines-list publication after the deletion commits; a
+ * failure here must never fail the account deletion. */
+function publishAccountDeletionVmSync(vmSync: {
+  readonly deletedRows: readonly Pick<CloudVmRow, "providerVmId" | "ownerTeamId" | "billingTeamId" | "userId">[];
+  readonly deletedAtMs: number;
+  readonly rewrittenIds: readonly string[];
+}): void {
+  try {
+    // Hard-deleted personal rows: tombstone them at the deletion clock (the
+    // rows are gone, so there is nothing to re-read).
+    const byTeam = new Map<string, VmSyncOp[]>();
+    for (const vm of vmSync.deletedRows) {
+      if (!vm.providerVmId) continue;
+      const teamId = vmSyncTeamId(vm);
+      const op: VmSyncOp = { kind: "delete", id: vm.providerVmId, sourceUpdatedAtMs: vmSync.deletedAtMs };
+      byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), op]);
+    }
+    for (const [teamId, ops] of byTeam) void publishVmOps(teamId, ops);
+    // Shared-team rows keep living with a rewritten creator: re-read and republish.
+    void publishVmRowsById(vmSync.rewrittenIds);
+  } catch (error) {
+    console.error("[account] machines list publication skipped after deletion", error);
+  }
 }
 
 function observedDestroyCleanupFromMetadata(

@@ -1,0 +1,11 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownDraw.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownDraw.swift
+@@ -64,7 +64,7 @@
+         // colour threw an NSException on the render queue. Luminance after converting.
+         let darkBubble = MDPalette.luminance(text) > 0.5
+         func t(_ a: CGFloat) -> UIColor { text.withAlphaComponent(a) }
+-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
++        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
+         var tokens: [MDToken: UIColor] = [:]
+         if outgoing {
+             // On blue: tints of white and pale warm colours (contrast >= 4.5:1 on the deepest blue).

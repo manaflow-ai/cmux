@@ -526,3 +526,129 @@ fn notification_read_state_converges_under_random_operations() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `cmux notify --workspace ws_…` (and `--clear --workspace`): a notification
+/// scoped to a workspace names it (the row's `extra.workspace_id` and the
+/// app's `notification` event), and a workspace clear removes that
+/// workspace's rows and its terminals' rows, never another workspace's.
+#[test]
+fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-notification-workspace-{}", WorkspacePublicId::random().unwrap()));
+    let session = "notification-workspace";
+    let mux = open_persistent_test_mux(session, &root);
+    let first = mux.new_workspace(None, None).unwrap();
+    let second = mux.new_workspace(None, None).unwrap();
+    let workspace_of = |surface: SurfaceId| {
+        mux.with_state(|state| {
+            let id = Mux::workspace_for_surface_in_state(state, surface).unwrap();
+            state.workspaces.iter().find(|workspace| workspace.id == id).unwrap().public_id.clone()
+        })
+    };
+    let first_workspace = workspace_of(first.id);
+    let first_terminal = first.terminal_public_id().cloned().unwrap();
+    let second_terminal = second.terminal_public_id().cloned().unwrap();
+    let events = mux.subscribe();
+    let create = |key: &str, title: &str, scope: Value| {
+        let mut params = serde_json::json!({
+            "machine":"current", "session":"current", "title":title, "body":"",
+        });
+        params.as_object_mut().unwrap().extend(scope.as_object().unwrap().clone());
+        public_request(&mux, key, "notification.create", params, Some(key))
+    };
+
+    let scoped = create("n-ws", "ws", serde_json::json!({"workspace_id": first_workspace}));
+    let row = &scoped["result"]["value"];
+    assert_eq!(row["extra"]["workspace_id"], first_workspace.as_str(), "{scoped}");
+    assert!(row.get("terminal_id").is_none(), "{scoped}");
+    let event = events
+        .try_iter()
+        .find_map(|event| match event {
+            MuxEvent::Notification(note) if note.title == "ws" => Some(note),
+            _ => None,
+        })
+        .expect("the workspace notification is announced");
+    assert!(format!("{event:?}").contains(first_workspace.as_str()), "{event:?}");
+
+    create("n-first", "first", serde_json::json!({"terminal_id": first_terminal}));
+    create("n-second", "second", serde_json::json!({"terminal_id": second_terminal}));
+    let missing = create(
+        "n-missing",
+        "missing",
+        serde_json::json!({"workspace_id": WorkspacePublicId::random().unwrap()}),
+    );
+    assert!(missing.get("error").is_some(), "an unknown workspace is refused: {missing}");
+    let both = create(
+        "n-both",
+        "both",
+        serde_json::json!({"workspace_id": first_workspace, "terminal_id": first_terminal}),
+    );
+    assert!(
+        both.get("error").is_some(),
+        "terminal_id and workspace_id are one or the other: {both}"
+    );
+
+    let cleared = public_request(
+        &mux,
+        "clear-ws",
+        "notification.clear",
+        serde_json::json!({"machine":"current","session":"current","workspace_id":first_workspace}),
+        Some("clear-ws"),
+    );
+    assert_eq!(
+        cleared["result"]["value"]["cleared"].as_array().map(Vec::len),
+        Some(2),
+        "{cleared}"
+    );
+    let titles =
+        mux.resource_notifications(8).iter().map(|entry| entry.title.clone()).collect::<Vec<_>>();
+    assert_eq!(titles, vec!["second"], "another workspace's row stays");
+    drop(events);
+    drop(mux);
+    let mux = open_persistent_test_mux(session, &root);
+    let restored = crate::resource_api::public_session_snapshot(&mux).unwrap();
+    assert_eq!(restored["notifications"].as_array().map(Vec::len), Some(1), "{restored}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A ledger row names its `notification` event number and the program that
+/// held the terminal when it was posted (memory only), so a typed reply from
+/// cmux on iPhone reaches only that program (cmux-next-ios `mailbox_apply.rs`).
+#[test]
+fn a_posted_notification_remembers_its_event_number_and_poster() {
+    let mux = Mux::new("notification-poster", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let events = mux.subscribe();
+    mux.post_notification_as(
+        &Actor::Daemon,
+        "osc".into(),
+        "body".into(),
+        NotificationLevel::Info,
+        Some(surface.id),
+        NotificationSource::Terminal,
+    )
+    .unwrap();
+    let number = events
+        .try_iter()
+        .find_map(|event| match event {
+            MuxEvent::Notification(note) => Some(note.notification),
+            _ => None,
+        })
+        .unwrap();
+    let row = mux.resource_notifications(1).remove(0);
+    let post = mux.notification_post(&row.id).unwrap();
+    assert_eq!(post.notification, number);
+    // The poster is the terminal's foreground program when the platform can tell.
+    if let Some(pid) = surface.process_id()
+        && let Some(leader) = crate::platform::foreground_leader(pid)
+    {
+        let poster = post.poster.expect("a poster");
+        assert_eq!(poster.pid, leader);
+        assert_eq!(Some(poster.executable), crate::platform::foreground_process_name(pid));
+    }
+    // A notification with no terminal has no poster.
+    mux.post_notification("plain".into(), "".into(), NotificationLevel::Info, None).unwrap();
+    let plain = mux.resource_notifications(1).remove(0);
+    assert_eq!(mux.notification_post(&plain.id).unwrap().poster, None);
+    mux.shutdown();
+}

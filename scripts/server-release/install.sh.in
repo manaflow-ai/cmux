@@ -1,0 +1,85 @@
+#!/bin/sh
+# Generated release bootstrap. Archive hashes are pinned; Rust owns installation.
+@@KEYS@@
+main() {
+    set -eu
+    umask 077
+    fail() { printf '%s\n' "cmux-server-bootstrap: $1" >&2; exit 1; }
+    system=false
+    # Validate before download; forward each original argument without eval.
+    expect_value=false
+    for argument do
+        if [ "$expect_value" = true ]; then
+            case "$argument" in ''|-*) fail invalid_argument ;; esac
+            expect_value=false
+            continue
+        fi
+        case "$argument" in
+            --system) system=true ;;
+            --version|--channel) expect_value=true ;;
+            --json) ;;
+            *) fail invalid_argument ;;
+        esac
+    done
+    [ "$expect_value" = false ] || fail missing_argument
+    # Root is explicit. Do not inherit mode or app-layout overrides into Rust.
+    if [ "$(id -u)" = 0 ] && [ "$system" = false ]; then fail system_flag_required; fi
+    unset CMUX_SERVER_MODE CMUX_SERVER_APP_BUNDLE CMUX_SERVER_REEXEC
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64|Linux-amd64) target=x86_64-linux ;;
+        Linux-aarch64|Linux-arm64) target=aarch64-linux ;;
+        Darwin-arm64|Darwin-aarch64) target=aarch64-darwin ;;
+        Darwin-x86_64) target=x86_64-darwin ;;
+        *) fail unsupported_platform ;;
+    esac
+    case "$target" in
+@@UNIX_CASES@@
+        *) fail unsupported_platform ;;
+    esac
+    command -v curl >/dev/null 2>&1 || fail curl_required
+    command -v tar >/dev/null 2>&1 || fail tar_required
+    if command -v sha256sum >/dev/null 2>&1; then hash_tool=sha256sum
+    elif command -v shasum >/dev/null 2>&1; then hash_tool=shasum
+    elif command -v openssl >/dev/null 2>&1; then hash_tool=openssl
+    else fail sha256_required
+    fi
+    temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-server-bootstrap.XXXXXXXX") || fail temp_directory_failed
+    trap 'rm -rf "$temp_dir"' 0
+    trap 'exit 1' HUP INT TERM
+    archive="$temp_dir/bootstrap.tar.gz"
+    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+        --connect-timeout 15 --max-time 300 --max-filesize "$expected_size" \
+        --output "$archive" "$url" || fail download_failed
+    actual_size=$(wc -c < "$archive" | tr -d '[:space:]')
+    [ "$actual_size" = "$expected_size" ] || fail package_size_mismatch
+    case "$hash_tool" in
+        sha256sum) digest=$(sha256sum "$archive") ;;
+        shasum) digest=$(shasum -a 256 "$archive") ;;
+        openssl) digest=$(openssl dgst -sha256 "$archive"); digest=${digest##* } ;;
+    esac
+    digest=${digest%% *}
+    [ "$digest" = "$expected_hash" ] || fail package_digest_mismatch
+    # Release archives contain exactly one regular executable: bin/cmux.
+    # The digest is checked before tar sees the archive.
+    contents=$(tar -tzf "$archive") || fail archive_invalid
+    [ "$contents" = bin/cmux ] || fail archive_invalid
+    mkdir "$temp_dir/unpacked"
+    tar -xzf "$archive" -C "$temp_dir/unpacked" bin/cmux || fail archive_invalid
+    binary="$temp_dir/unpacked/bin/cmux"
+    [ -f "$binary" ] && [ ! -L "$binary" ] && [ ! -L "$temp_dir/unpacked/bin" ] || fail archive_invalid
+    case "$target" in
+        *-darwin)
+            codesign --verify --strict "$binary" || fail codesign_invalid
+            # A designated requirement checks the signing team, not printed text.
+            codesign --verify --strict -R='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "@@TEAM_ID@@"' \
+                "$binary" || fail codesign_publisher_mismatch ;;
+    esac
+    chmod 700 "$binary"
+    if [ "$system" = true ] && [ "$(id -u)" != 0 ]; then
+        sudo -- "$binary" server install "$@"
+    else
+        "$binary" server install "$@"
+    fi
+}
+# A partial final invocation must remain an incomplete compound command.
+if :; then main "$@"; fi

@@ -21,6 +21,27 @@ const caseIds = (file: string | undefined) =>
     file && existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { id: string }[]).map((c) => c.id) : [],
   );
 
+/** Refuses to compare a matrix directory captured from a different checkout. */
+export function assertRunRevision(dir: string, expected: string, label: string): void {
+  if (!expected) return;
+  const file = join(dir, "results.json");
+  if (!existsSync(file)) throw new Error(`${label} matrix has no results.json`);
+  const results = JSON.parse(readFileSync(file, "utf8")) as {
+    id?: string;
+    revision?: { sha?: string; source?: string };
+  }[];
+  const mismatches = results.filter(
+    (result) => result.revision?.sha !== expected || typeof result.revision.source !== "string" || !result.revision.source,
+  );
+  if (!results.length || mismatches.length)
+    throw new Error(
+      `${label} matrix provenance mismatch: expected ${expected}; got ${mismatches
+        .slice(0, 5)
+        .map((result) => `${result.id ?? "unknown"}:${result.revision?.sha ?? "missing"}`)
+        .join(", ") || "no results"}`,
+    );
+}
+
 if (import.meta.main) {
   const { values } = parseArgs({
     options: {
@@ -49,6 +70,11 @@ if (import.meta.main) {
   for (const name of required) if (!values[name]) throw new Error(`--${name} is required`);
   const out = values.out!;
   mkdirSync(out, { recursive: true });
+  if (!values.outcomes) {
+    assertRunRevision(values.base!, values["base-sha"]!, "base");
+    assertRunRevision(values.head!, values["head-sha"]!, "head");
+    if (values.repeat) assertRunRevision(values.repeat, values["head-sha"]!, "repeat");
+  }
   const outcomes: Outcome[] = values.outcomes
     ? JSON.parse(readFileSync(values.outcomes, "utf8"))
     : compareRuns({

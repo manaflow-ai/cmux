@@ -1,5 +1,6 @@
 import CmuxNextBrowserImport
 import Foundation
+import CmuxNextBrowser
 
 /// How many secrets a browser profile holds (the profile delete sheet). nil: the build cannot count them.
 nonisolated struct PasswordCounts: Sendable, Hashable {

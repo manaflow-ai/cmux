@@ -25,6 +25,10 @@ pub(crate) struct Slave(File);
 
 struct DescriptorCleanup {
     descriptor_limit: RawFd,
+    /// Room for the child's descriptor list, allocated before fork (no
+    /// allocation is allowed between fork and exec).
+    #[cfg(target_vendor = "apple")]
+    listed: Vec<libc::proc_fdinfo>,
 }
 
 #[cfg(target_os = "linux")]
@@ -32,8 +36,68 @@ const MAX_INDIVIDUAL_DESCRIPTOR_LIMIT: RawFd = 65_536;
 
 impl DescriptorCleanup {
     fn new(descriptor_limit: RawFd) -> Self {
-        Self { descriptor_limit }
+        Self {
+            descriptor_limit,
+            #[cfg(target_vendor = "apple")]
+            listed: descriptor_list_buffer(),
+        }
     }
+}
+
+/// A buffer for this process's descriptor list with headroom for the
+/// descriptors opened before fork; empty when the count is unknown.
+#[cfg(target_vendor = "apple")]
+fn descriptor_list_buffer() -> Vec<libc::proc_fdinfo> {
+    const HEADROOM: usize = 256;
+    // SAFETY: a null buffer asks only for the size the list needs now.
+    let bytes = unsafe {
+        libc::proc_pidinfo(libc::getpid(), libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
+    };
+    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
+    if bytes == 0 {
+        return Vec::new();
+    }
+    let entries = bytes / size_of::<libc::proc_fdinfo>() + HEADROOM;
+    vec![libc::proc_fdinfo { proc_fd: -1, proc_fdtype: 0 }; entries]
+}
+
+/// Mark the child's open descriptors (from `PROC_PIDLISTFDS`) close-on-exec.
+/// None when the list is unavailable or may be cut short by the buffer: the
+/// caller then examines every descriptor number.
+#[cfg(target_vendor = "apple")]
+fn mark_listed_descriptors_close_on_exec(
+    listed: &mut [libc::proc_fdinfo],
+) -> io::Result<Option<usize>> {
+    let entry = size_of::<libc::proc_fdinfo>();
+    let Ok(capacity) = libc::c_int::try_from(size_of_val(listed)) else { return Ok(None) };
+    if capacity == 0 {
+        return Ok(None);
+    }
+    // SAFETY: a raw proc_info syscall into memory allocated before fork; it
+    // takes no lock and allocates nothing, so it is safe between fork and exec.
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDLISTFDS,
+            0,
+            listed.as_mut_ptr().cast(),
+            capacity,
+        )
+    };
+    if filled <= 0 || filled >= capacity {
+        return Ok(None);
+    }
+    let count = usize::try_from(filled).unwrap_or(0) / entry;
+    for info in &listed[..count] {
+        if info.proc_fd < 3 {
+            continue;
+        }
+        match mark_descriptor_close_on_exec(info.proc_fd) {
+            Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+            result => result?,
+        }
+    }
+    Ok(Some(count))
 }
 
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
@@ -161,6 +225,11 @@ fn require_cloexec(file: &File, role: &str) -> anyhow::Result<()> {
 }
 
 fn set_window_size(slave: &File, size: PtySize) -> anyhow::Result<()> {
+    set_fd_window_size(slave.as_raw_fd(), size).context("failed to configure PTY window size")
+}
+
+/// TIOCSWINSZ on `fd`, retried on EINTR.
+fn set_fd_window_size(fd: RawFd, size: PtySize) -> io::Result<()> {
     let window_size = libc::winsize {
         ws_row: size.rows,
         ws_col: size.cols,
@@ -168,19 +237,14 @@ fn set_window_size(slave: &File, size: PtySize) -> anyhow::Result<()> {
         ws_ypixel: size.pixel_height,
     };
     loop {
-        if unsafe {
-            libc::ioctl(
-                slave.as_raw_fd(),
-                libc::TIOCSWINSZ as _,
-                &window_size as *const libc::winsize,
-            )
-        } == 0
+        if unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as _, &window_size as *const libc::winsize) }
+            == 0
         {
             return Ok(());
         }
         let error = io::Error::last_os_error();
         if error.raw_os_error() != Some(libc::EINTR) {
-            return Err(error).context("failed to configure PTY window size");
+            return Err(error);
         }
     }
 }
@@ -201,7 +265,12 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    // `SHELL` first, so a removal still wins over this backend's own override
+    // (`PtyCommand::env_remove` promises the child never sees the key).
     process.env("SHELL", shell);
+    for key in &command.removed_environment {
+        process.env_remove(key);
+    }
     let cwd_descriptor = command.cwd_descriptor;
 
     process
@@ -212,7 +281,7 @@ pub(crate) fn spawn(
     if descriptor_limit < 3 {
         bail!("failed to determine the process descriptor limit");
     }
-    let descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
+    let mut descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
     unsafe {
         process.pre_exec(move || {
             for signal in [
@@ -247,7 +316,7 @@ pub(crate) fn spawn(
                 return Err(io::Error::last_os_error());
             }
             crate::open_files::restore_open_file_limit_in_child()?;
-            mark_inherited_descriptors_close_on_exec(&descriptor_cleanup)?;
+            mark_inherited_descriptors_close_on_exec(&mut descriptor_cleanup)?;
             Ok(())
         });
     }
@@ -256,7 +325,10 @@ pub(crate) fn spawn(
     Ok(Box::new(child))
 }
 
-fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::Result<()> {
+/// Mark every inherited descriptor above stderr close-on-exec in a forked
+/// child. Returns how many descriptor numbers it examined one by one (0 when
+/// a kernel fast path did it).
+fn mark_inherited_descriptors_close_on_exec(cleanup: &mut DescriptorCleanup) -> io::Result<usize> {
     // `Command::spawn` installs a private CLOEXEC pipe so the child can
     // report pre-exec and exec failures. Closing every descriptor here would
     // close that pipe and make a failed exec look successful. Marking the
@@ -276,7 +348,7 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             )
         };
         if result == 0 {
-            return Ok(());
+            return Ok(0);
         }
         let error = io::Error::last_os_error();
         if !matches!(
@@ -291,7 +363,7 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             // through exec. Do not retry close after EINTR because the fd may
             // already have been reused.
             unsafe { libc::close(directory_fd) };
-            return result;
+            return result.map(|()| 0);
         }
         // Never turn an adversarial or unusually large descriptor limit into
         // hundreds of thousands of syscalls in the post-fork child. Returning
@@ -300,6 +372,10 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
         if cleanup.descriptor_limit > MAX_INDIVIDUAL_DESCRIPTOR_LIMIT {
             return Err(io::Error::from_raw_os_error(libc::EOVERFLOW));
         }
+    }
+    #[cfg(target_vendor = "apple")]
+    if let Some(examined) = mark_listed_descriptors_close_on_exec(&mut cleanup.listed)? {
+        return Ok(examined);
     }
     mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
 }
@@ -330,14 +406,14 @@ fn open_child_proc_descriptor_directory() -> io::Result<RawFd> {
     }
 }
 
-fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<()> {
+fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<usize> {
     for descriptor in 3..descriptor_limit {
         match mark_descriptor_close_on_exec(descriptor) {
             Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
             result => result?,
         }
     }
-    Ok(())
+    Ok(usize::try_from(descriptor_limit.saturating_sub(3)).unwrap_or(0))
 }
 
 fn mark_descriptor_close_on_exec(descriptor: RawFd) -> io::Result<()> {
@@ -447,19 +523,8 @@ struct MacOsMasterPty {
 
 impl MasterPty for MacOsMasterPty {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-        let window_size = libc::winsize {
-            ws_row: size.rows,
-            ws_col: size.cols,
-            ws_xpixel: size.pixel_width,
-            ws_ypixel: size.pixel_height,
-        };
-        if unsafe {
-            libc::ioctl(self.file.as_raw_fd(), libc::TIOCSWINSZ as _, &window_size as *const _)
-        } != 0
-        {
-            bail!("failed to resize PTY: {}", io::Error::last_os_error());
-        }
-        Ok(())
+        set_fd_window_size(self.file.as_raw_fd(), size)
+            .map_err(|error| anyhow::anyhow!("failed to resize PTY: {error}"))
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
@@ -527,6 +592,13 @@ struct MacOsMasterWriter {
 }
 
 impl Write for MacOsMasterWriter {
+    /// Never leaves the program's input queue ending right after an ESC (#22265).
+    #[cfg(target_vendor = "apple")]
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        crate::input_queue::write(&mut self.file, buffer)
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         self.file.write(buffer)
     }
@@ -553,6 +625,12 @@ impl Drop for MacOsMasterWriter {
 }
 
 fn resolved_shell(command: &PtyCommand) -> OsString {
+    // A removed `SHELL` is not recovered from this process's environment: the
+    // caller asked for the key gone, so the account shell is used instead.
+    if command.removed_environment.contains("SHELL") {
+        return account_shell(unsafe { libc::getuid() })
+            .unwrap_or_else(|| OsString::from("/bin/sh"));
+    }
     let configured = command
         .environment
         .get("SHELL")
@@ -677,8 +755,8 @@ mod linux_tests {
         let _inherited = unsafe { File::from_raw_fd(descriptor) };
         install_close_range_openat_and_fcntl_eperm_filter();
 
-        let cleanup = DescriptorCleanup::new(1_048_576);
-        let error = mark_inherited_descriptors_close_on_exec(&cleanup)
+        let mut cleanup = DescriptorCleanup::new(1_048_576);
+        let error = mark_inherited_descriptors_close_on_exec(&mut cleanup)
             .expect_err("oversized descriptor table should fail before an individual scan");
         assert_eq!(error.raw_os_error(), Some(libc::EOVERFLOW));
     }
@@ -710,7 +788,7 @@ mod linux_tests {
         let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
         assert!(descriptor >= 200);
         let inherited = unsafe { File::from_raw_fd(descriptor) };
-        let cleanup = DescriptorCleanup::new(unsafe { libc::getdtablesize() });
+        let mut cleanup = DescriptorCleanup::new(unsafe { libc::getdtablesize() });
         let mut child_ready = [-1; 2];
         let mut parent_ready = [-1; 2];
         assert_eq!(unsafe { libc::pipe2(child_ready.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
@@ -737,7 +815,7 @@ mod linux_tests {
                 }
             }
             let marked =
-                mark_inherited_descriptors_close_on_exec(&cleanup).is_ok_and(|()| unsafe {
+                mark_inherited_descriptors_close_on_exec(&mut cleanup).is_ok_and(|_| unsafe {
                     let flags = libc::fcntl(descriptor, libc::F_GETFD);
                     flags != -1 && flags & libc::FD_CLOEXEC != 0
                 });
@@ -874,6 +952,119 @@ mod linux_tests {
             0,
             "seccomp filter installation failed: {}",
             io::Error::last_os_error()
+        );
+    }
+}
+
+/// #22265: a mouse wheel over Codex typed `[<65;30;7M` into its composer. A macOS PTY holds at most
+/// 1,022 bytes of input; when the program reads slower than the wheel reports come, the kernel takes
+/// a write byte by byte until the queue is full and blocks the rest. A report cut right after its
+/// ESC leaves the queue ending in a lone ESC, and crossterm (Codex, and most Rust TUIs) reads that
+/// as the Esc key when its read comes back short, then types the rest of the report as text.
+#[cfg(all(test, target_vendor = "apple"))]
+mod input_queue_tests {
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+    use std::time::Duration;
+
+    use super::{PtySize, open};
+
+    const WHEEL_UP: &[u8] = b"\x1b[<65;30;7M";
+
+    fn raw(slave: &std::fs::File) {
+        let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
+        assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), termios.as_mut_ptr()) }, 0);
+        let mut termios = unsafe { termios.assume_init() };
+        unsafe { libc::cfmakeraw(&mut termios) };
+        assert_eq!(unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) }, 0);
+    }
+
+    #[test]
+    fn a_full_input_queue_never_ends_in_a_lone_escape() {
+        let (master, slave) =
+            open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut slave = slave.0;
+        raw(&slave);
+        let mut writer = master.take_writer().unwrap();
+        // The program is busy: the queue holds 1,021 bytes, one short of full.
+        writer.write_all(&[b'x'; 1021]).unwrap();
+        let reports = std::thread::spawn(move || {
+            writer.write_all(WHEEL_UP).unwrap();
+            writer
+        });
+        // Let the writer reach the full queue (the old writer blocks there, after the ESC).
+        std::thread::sleep(Duration::from_millis(200));
+
+        // crossterm reads 1,024 bytes at a time; a short read that ends in ESC is the Esc key.
+        let mut buffer = [0u8; 1024];
+        let first = slave.read(&mut buffer).unwrap();
+        assert!(
+            buffer[first - 1] != 0x1b,
+            "the program read {first} bytes ending in a lone ESC: the wheel report was cut after its ESC"
+        );
+        let _writer = reports.join().unwrap();
+        let mut got = buffer[..first].to_vec();
+        while got.len() < 1021 + WHEEL_UP.len() {
+            let n = slave.read(&mut buffer).unwrap();
+            got.extend_from_slice(&buffer[..n]);
+        }
+        assert_eq!(&got[1021..], WHEEL_UP, "the wheel report arrived changed");
+    }
+}
+
+/// A new terminal's post-fork descriptor cleanup costs what the process has
+/// open, not its descriptor limit (new-terminal-100x): the daemon and host
+/// raise the soft limit to 65,536, and one `fcntl` per possible descriptor
+/// took about 14 ms of every terminal's launch on a fleet M4 Pro.
+#[cfg(all(test, target_vendor = "apple"))]
+mod descriptor_cleanup_tests {
+    use std::fs::File;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    use super::{DescriptorCleanup, mark_inherited_descriptors_close_on_exec};
+
+    #[test]
+    fn cleanup_examines_the_open_descriptors_not_the_whole_limit() {
+        let source = File::open("/dev/null").unwrap();
+        let high = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
+        assert!(high >= 200);
+        let _inherited = unsafe { File::from_raw_fd(high) };
+        let mut cleanup = DescriptorCleanup::new(65_536);
+        let mut report = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(report.as_mut_ptr()) }, 0);
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0);
+        if child == 0 {
+            // Only raw syscalls from here: the parent may have other threads.
+            let code: u8 = match mark_inherited_descriptors_close_on_exec(&mut cleanup) {
+                Ok(examined) => {
+                    let flags = unsafe { libc::fcntl(high, libc::F_GETFD) };
+                    if flags == -1 || flags & libc::FD_CLOEXEC == 0 {
+                        2
+                    } else if examined > 1_000 {
+                        3
+                    } else {
+                        0
+                    }
+                }
+                Err(_) => 4,
+            };
+            unsafe {
+                libc::write(report[1], (&raw const code).cast(), 1);
+                libc::_exit(0);
+            }
+        }
+        unsafe { libc::close(report[1]) };
+        let mut code = 255_u8;
+        assert_eq!(unsafe { libc::read(report[0], (&raw mut code).cast(), 1) }, 1);
+        let mut status = 0;
+        assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+        unsafe { libc::close(report[0]) };
+        assert_ne!(code, 2, "the inherited descriptor {high} was left open across exec");
+        assert_ne!(code, 4, "the descriptor cleanup failed");
+        assert_eq!(
+            code, 0,
+            "the cleanup examined every descriptor number up to the 65,536 limit one by one"
         );
     }
 }

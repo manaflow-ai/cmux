@@ -1,3 +1,5 @@
+use cmux_json::JsonSet as _;
+
 mod creation_lookup;
 use super::resource_store::{
     apply_resource_patch, apply_resource_patch_timed, complete_terminal_close_patch,
@@ -78,6 +80,7 @@ pub(crate) struct ResourceCloseCommit {
 }
 
 pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    agent_cli_intents::create_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_effect_receipts (
            idempotency_key TEXT PRIMARY KEY NOT NULL,
@@ -123,6 +126,23 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
          CREATE INDEX IF NOT EXISTS resource_effect_receipts_by_operation_revision
            ON resource_effect_receipts(operation, committed_revision DESC)
            WHERE state = 'committed';
+         -- The open's recovery and invariants look up in-flight receipts
+         -- only. Without these they read every stored receipt (0.45 s cold
+         -- for 16,093 on a 41.6 GB registry); a receipt is in flight briefly,
+         -- so each index is nearly always empty.
+         CREATE INDEX IF NOT EXISTS resource_effect_receipts_executing
+           ON resource_effect_receipts(idempotency_key)
+           WHERE state = 'executing';
+         CREATE INDEX IF NOT EXISTS resource_creation_receipts_executing
+           ON resource_creation_receipts(execution_kind)
+           WHERE state = 'executing';
+         -- The notification ids of committed notification receipts: the local
+         -- feed's start trims its folded set against this list
+         -- (feed_local_store::trim_feed_local_folded) without reading any
+         -- receipt row (0.40 s -> 22 ms cold on a 41.6 GB registry).
+         CREATE INDEX IF NOT EXISTS resource_effect_receipts_notification_ids
+           ON resource_effect_receipts(json_extract(outcome_json, '$.value.id'))
+           WHERE operation = 'notification.create' AND state = 'committed';
          CREATE TABLE IF NOT EXISTS resource_input_receipt_completions (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
            idempotency_key TEXT UNIQUE NOT NULL,
@@ -133,18 +153,33 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
     Ok(())
 }
 
+/// The newest effect receipt rowid the backfill below has read.
+const INPUT_RECEIPTS_BACKFILLED_THROUGH_META_KEY: &str = "input_receipts_backfilled_through_rowid";
+
 /// Adds completion ordering for pre-retention databases and enforces the
 /// startup bound. `committed_revision` cannot provide this order because
 /// receipt-only interactions deliberately do not advance the public revision.
+///
+/// A commit records its own completion, so only receipts a build without
+/// retention wrote lack one, and those are newer than the last backfill: the
+/// backfill reads the rows above a watermark in `meta`, not every receipt
+/// (0.45 s cold for 16,093 on a 41.6 GB registry). The prune runs only when
+/// the completions are over their bound; the commit path prunes as well.
 pub(super) fn initialize_resource_input_receipt_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
+    let since = meta_value(transaction, INPUT_RECEIPTS_BACKFILLED_THROUGH_META_KEY)?
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    // `+effect.state`: the scan follows the rowid range, not the
+    // committed-receipts index, which holds nearly every row.
     transaction.execute(
         &format!(
             "INSERT INTO resource_input_receipt_completions(idempotency_key)
              SELECT effect.idempotency_key
              FROM resource_effect_receipts AS effect
-             WHERE effect.state = 'committed'
+             WHERE effect.rowid > ?1
+               AND +effect.state = 'committed'
                AND {TRANSIENT_INPUT_EFFECT_SQL}
                AND NOT EXISTS (
                  SELECT 1
@@ -153,9 +188,28 @@ pub(super) fn initialize_resource_input_receipt_retention(
                )
              ORDER BY effect.committed_revision ASC, effect.rowid ASC"
         ),
-        [],
+        [since],
     )?;
-    prune_resource_input_receipts(transaction)?;
+    let through: i64 = transaction.query_row(
+        "SELECT COALESCE(MAX(rowid), 0) FROM resource_effect_receipts",
+        [],
+        |row| row.get(0),
+    )?;
+    if through != since {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![INPUT_RECEIPTS_BACKFILLED_THROUGH_META_KEY, through.to_string()],
+        )?;
+    }
+    let completions: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM resource_input_receipt_completions",
+        [],
+        |row| row.get(0),
+    )?;
+    if usize::try_from(completions).unwrap_or(usize::MAX) > RESOURCE_INPUT_RECEIPT_CAPACITY {
+        prune_resource_input_receipts(transaction)?;
+    }
     Ok(())
 }
 
@@ -467,41 +521,50 @@ impl WorkspaceRegistry {
         });
         match stored.state.as_str() {
             "prepared" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_same_idempotency_key");
+                result.set("state", json!("not_applied"));
+                result.set("recovery", json!("retry_same_idempotency_key"));
             }
             "not_applied" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_new_idempotency_key");
+                result.set("state", json!("not_applied"));
+                result.set("recovery", json!("retry_new_idempotency_key"));
             }
             "executing"
                 if stored.execution_generation.as_deref() == Some(self.generation.as_str()) =>
             {
-                result["state"] = json!("pending");
-                result["recovery"] = json!("wait");
+                result.set("state", json!("pending"));
+                result.set("recovery", json!("wait"));
             }
             "executing" | "indeterminate" => {
-                result["state"] = json!("indeterminate");
-                result["recovery"] = json!("do_not_retry");
+                result.set("state", json!("indeterminate"));
+                result.set("recovery", json!("do_not_retry"));
             }
             "created" => {
-                result["state"] = json!("created");
-                result["recovery"] = json!("none");
-                result["created_path"] = serde_json::from_str(
-                    stored
-                        .created_path_json
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
-                )?;
-                result["generation"] = json!(stored.generation.ok_or_else(|| {
-                    anyhow::anyhow!("created resource omitted its generation")
-                })?);
-                result["revision"] = json!(
-                    u64::try_from(stored.committed_revision.ok_or_else(|| {
-                        anyhow::anyhow!("created resource omitted its revision")
-                    })?)
-                    .context("stored creation revision is negative")?
-                    .to_string()
+                result.set("state", json!("created"));
+                result.set("recovery", json!("none"));
+                result.set(
+                    "created_path",
+                    serde_json::from_str(
+                        stored
+                            .created_path_json
+                            .as_deref()
+                            .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
+                    )?,
+                );
+                result.set(
+                    "generation",
+                    json!(stored.generation.ok_or_else(|| {
+                        anyhow::anyhow!("created resource omitted its generation")
+                    })?),
+                );
+                result.set(
+                    "revision",
+                    json!(
+                        u64::try_from(stored.committed_revision.ok_or_else(|| {
+                            anyhow::anyhow!("created resource omitted its revision")
+                        })?)
+                        .context("stored creation revision is negative")?
+                        .to_string()
+                    ),
                 );
             }
             other => anyhow::bail!("invalid resource creation state {other:?}"),
@@ -680,6 +743,53 @@ impl WorkspaceRegistry {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
+        self.prepare_resource_effect_in(
+            mutation,
+            operation,
+            fingerprint,
+            intent,
+            expected_generation,
+            expected_revision,
+            false,
+        )
+        .map(|(preparation, _)| preparation)
+    }
+
+    /// [`Self::prepare_resource_effect_for`] that records a new intent
+    /// directly as `executing`, as [`Self::mark_resource_effect_executing`]
+    /// would, in the same transaction: one durable commit before the effect
+    /// instead of two. Returns `true` when it did; an existing receipt comes
+    /// back unchanged with `false` (a `pending` one still needs the mark).
+    pub fn prepare_resource_effect_executing_for(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
+        self.prepare_resource_effect_in(
+            mutation,
+            operation,
+            fingerprint,
+            intent,
+            None,
+            expected_revision,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_resource_effect_in(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        start: bool,
+    ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
         let (idempotency_key, actor) = (mutation.id.as_str(), &mutation.actor);
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
@@ -690,7 +800,7 @@ impl WorkspaceRegistry {
             read_effect_preparation(&tx, idempotency_key, operation, &fingerprint)?
         {
             tx.commit()?;
-            return Ok(preparation);
+            return Ok((preparation, false));
         }
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -710,11 +820,21 @@ impl WorkspaceRegistry {
             "INSERT INTO resource_effect_receipts(
                idempotency_key, operation, fingerprint, intent_json, state,
                outcome_json, committed_revision, actor
-             ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL, ?5)",
-            params![idempotency_key, operation, fingerprint, intent_json, actor.wire()],
+             ) VALUES(?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6)",
+            params![
+                idempotency_key,
+                operation,
+                fingerprint,
+                intent_json,
+                if start { "executing" } else { "pending" },
+                actor.wire()
+            ],
         )?;
+        if start {
+            start_correlated_creation(&tx, idempotency_key, &self.generation)?;
+        }
         tx.commit()?;
-        Ok(ResourceEffectPreparation::Execute { intent: intent.clone(), resumed: false })
+        Ok((ResourceEffectPreparation::Execute { intent: intent.clone(), resumed: false }, start))
     }
 
     pub fn mark_resource_effect_executing(
@@ -750,21 +870,7 @@ impl WorkspaceRegistry {
              WHERE idempotency_key = ?1 AND state = 'pending'",
             [idempotency_key],
         )?;
-        let correlated = tx.execute(
-            "UPDATE resource_creation_receipts
-             SET state = 'executing', execution_generation = ?2
-             WHERE idempotency_key = ?1 AND execution_kind = 'effect' AND state = 'prepared'",
-            params![idempotency_key, generation],
-        )?;
-        let creation_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
-            [idempotency_key],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            creation_count == 0 || correlated == 1,
-            "correlated resource effect could not enter executing state"
-        );
+        start_correlated_creation(&tx, idempotency_key, &generation)?;
         tx.commit()?;
         Ok(serde_json::from_str(&intent_json)?)
     }
@@ -900,6 +1006,7 @@ impl WorkspaceRegistry {
             &outcome_json,
             &deltas,
             &mut spans,
+            operation == "workspace.close",
         )?;
         tx.commit()?;
         drop(db);
@@ -970,6 +1077,7 @@ fn commit_resource_effect_patch_in_transaction(
     outcome_json: &str,
     deltas: &Value,
     spans: &mut CommitSpans,
+    report_closed: bool,
 ) -> anyhow::Result<ResourcePatchCommit> {
     let (stored_operation, stored_fingerprint, state, _) =
         read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
@@ -993,11 +1101,31 @@ fn commit_resource_effect_patch_in_transaction(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
     let sqlite_revision =
         i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+    let closed_before = report_closed
+        .then(|| crate::state::closed_history_store::closed_seq(transaction))
+        .transpose()?;
     let applying = std::time::Instant::now();
     let (patch, prune) = apply_resource_patch_timed(transaction, patch, sqlite_revision)?;
     (spans.prune, spans.apply, spans.written) =
         (prune, applying.elapsed().saturating_sub(prune), patch.changes.len());
     let patch = &patch;
+    // `workspace.close` answers `closed_ids`: the closed groups this commit
+    // stored, oldest first, so an Undo reopens exactly them.
+    let reported;
+    let (result, outcome, outcome_json) = match closed_before {
+        Some(before) => {
+            let ids = crate::state::closed_history_store::closed_ids_after(transaction, before)?;
+            let mut value = result.clone();
+            if let Some(fields) = value.as_object_mut() {
+                fields.insert("closed_ids".to_string(), json!(ids));
+            }
+            let outcome = serde_json::to_value(ResourceEffectOutcome::Success(value.clone()))?;
+            let outcome_json = canonical_json(&outcome)?;
+            reported = (value, outcome, outcome_json);
+            (&reported.0, &reported.1, reported.2.as_str())
+        }
+        None => (result, outcome, outcome_json),
+    };
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [revision.to_string()],
@@ -1091,6 +1219,32 @@ fn validate_correlation_key(correlation_key: &str) -> anyhow::Result<()> {
             "correlation_key must contain 1 to 128 UTF-8 bytes",
         )));
     }
+    Ok(())
+}
+
+/// Moves the creation receipt correlated with an effect that enters
+/// `executing` along with it; a creation receipt that cannot follow fails the
+/// transaction.
+fn start_correlated_creation(
+    tx: &Transaction<'_>,
+    idempotency_key: &str,
+    generation: &str,
+) -> anyhow::Result<()> {
+    let correlated = tx.execute(
+        "UPDATE resource_creation_receipts
+         SET state = 'executing', execution_generation = ?2
+         WHERE idempotency_key = ?1 AND execution_kind = 'effect' AND state = 'prepared'",
+        params![idempotency_key, generation],
+    )?;
+    let creation_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
+        [idempotency_key],
+        |row| row.get(0),
+    )?;
+    anyhow::ensure!(
+        creation_count == 0 || correlated == 1,
+        "correlated resource effect could not enter executing state"
+    );
     Ok(())
 }
 

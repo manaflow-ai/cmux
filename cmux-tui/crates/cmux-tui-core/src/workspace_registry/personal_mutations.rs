@@ -14,7 +14,8 @@ use super::personal_store::{
     read_groups, read_profile, read_profiles, read_session, read_snapshot, read_workspaces,
     require_icon_asset, subject, validate_appearance, validate_browser_profile_ref, validate_name,
     validate_personal_json, validate_personal_workspace_key, validate_profile_defaults,
-    validate_profile_id, validate_session_id, validate_theme, write_order,
+    validate_profile_id, validate_session_capabilities, validate_session_id, validate_theme,
+    write_order,
 };
 use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
@@ -25,6 +26,7 @@ mod mixed_order;
 #[cfg(test)]
 mod mixed_order_tests;
 pub(crate) mod room_archive;
+pub(crate) mod row_position;
 pub use inputs::{PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate};
 
 pub fn new_profile_id() -> String {
@@ -403,9 +405,7 @@ impl WorkspaceRegistry {
             }
         }
         let transport = validate_personal_json("transport", transport, true)?;
-        let capabilities = capabilities
-            .map(|value| validate_personal_json("capabilities", value, false))
-            .transpose()?;
+        let capabilities = capabilities.map(validate_session_capabilities).transpose()?;
         if let Some(room) = follow_with {
             validate_profile_id(room)?;
         }
@@ -718,33 +718,28 @@ impl WorkspaceRegistry {
 
     /// Move the existing personal row of a qualified workspace to `index` of
     /// the personal order (past the end: last). Groups keep their slot among
-    /// the other workspaces (mixed order). Writes no journal record: the
-    /// caller's commit states the change.
+    /// the other workspaces (mixed order). Only the moved row (and the group
+    /// slots at its old and new place) is written: positions have gaps
+    /// ([`row_position`]). Writes no journal record: the caller's commit
+    /// states the change.
     pub(crate) fn move_personal_row_in(
         tx: &Transaction<'_>,
         session: &str,
         key: &str,
         index: usize,
     ) -> anyhow::Result<()> {
-        let slots = mixed_order::group_slots(tx, Some((session, key)))?;
-        let rows = read_workspaces(tx)?;
-        let mut order = rows
-            .iter()
-            .map(|row| (row.session_id.clone(), row.workspace_key.clone()))
-            .collect::<Vec<_>>();
-        let Some(old) = order.iter().position(|(s, k)| s == session && k == key) else {
-            anyhow::bail!("no personal row for {session}/{key}");
-        };
-        let moved = order.remove(old);
-        order.insert(index.min(order.len()), moved);
-        for (position, (s, k)) in order.iter().enumerate() {
-            tx.execute(
-                "UPDATE personal_workspaces SET position = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
-                params![s, k, i64::try_from(position)?],
-            )?;
-        }
-        crate::state::sidebar_doc_sync::mark_moved(tx, session, key)?;
-        mixed_order::restore_group_slots(tx, &slots, Some((session, key)))
+        row_position::move_to_index(tx, session, key, index)
+    }
+
+    /// [`Self::move_personal_row_in`] right after the row `after` (None:
+    /// first), so a caller that knows the neighbor needs no ordinal.
+    pub(crate) fn move_personal_row_after(
+        tx: &Transaction<'_>,
+        session: &str,
+        key: &str,
+        after: Option<(&str, &str)>,
+    ) -> anyhow::Result<()> {
+        row_position::move_after(tx, session, key, after)
     }
 
     /// Create or update the personal row of a qualified workspace. `index`
@@ -775,6 +770,7 @@ impl WorkspaceRegistry {
             rows.iter().find(|row| row.session_id == session && row.workspace_key == key).cloned()
         };
         let before = find(&read_workspaces(tx)?);
+        let home_before = crate::state::home_store::home_first(tx)?;
         if before.is_none() {
             tx.execute(
                 "INSERT INTO personal_workspaces(session_id, workspace_key, position) VALUES(?1, ?2, ?3)",
@@ -797,7 +793,7 @@ impl WorkspaceRegistry {
         if let Some(index) = update.index {
             Self::move_personal_row_in(tx, session, key, index)?;
         }
-        crate::state::home_store::require_home_first(tx)?;
+        crate::state::home_store::require_home_first(tx, home_before)?;
         let after = find(&read_workspaces(tx)?)
             .ok_or_else(|| anyhow::anyhow!("personal workspace vanished"))?;
         let changed = before.as_ref() != Some(&after);

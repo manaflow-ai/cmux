@@ -180,7 +180,7 @@ who implements the consumer.
 | D28 | behavior | Default branch base | sidecar `status.base` `Native/DiffSidecar/src/server.rs:760-773`; per-repo memory in a ref `W/App.tsx:547` | hard | per-repo remembered base in the host store; `diff.defaultBase: string = ""` (auto) | no | S |
 | D29 | behavior | Split or unified | toggle, pref `layout` `W/viewer-prefs.ts:29`, default unified `W/App.tsx:1221`; lost on cmux-next `S/CmuxNextPages/PageWebView.swift:126` | dev | `diff.layout: "unified" \| "split" \| "auto" = "unified"` | yes | S |
 | D30 | behavior | Word wrap | pref `wordWrap` `W/viewer-prefs.ts:35` | dev | `diff.wordWrap: bool = false` | yes | S |
-| D31 | behavior | Word-level diffs | pref `wordDiffs` `W/App.tsx:252` | dev | `diff.wordDiffs: bool = false` | yes | S |
+| D31 | behavior | Word-level diffs | pref `wordDiffs` `W/App.tsx:252` | dev | `diff.wordDiffs: bool = true` (cmux NEXT; the classic viewer keeps `false`, `W/diff-viewer/state.ts` `defaultDiffViewerOptions`) | yes | S |
 | D32 | behavior | Line numbers | pref `lineNumbers` `W/App.tsx:250` | dev | `diff.lineNumbers: bool = true` | yes | S |
 | D33 | behavior | Add/remove backgrounds | pref `showBackgrounds` `W/App.tsx:251` | dev | `diff.backgrounds: bool = true` | yes | S |
 | D34 | behavior | Change indicators | pref `diffIndicators` `W/App.tsx:248` | dev | `diff.indicators: "bars" \| "classic" \| "none" = "bars"` | yes | S |

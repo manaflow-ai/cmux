@@ -1,0 +1,28 @@
+.nt-all-loading {
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nt-all-placeholder {
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  border-radius: var(--ds-radius-control);
+}
+
+.nt-all-placeholder.nt-all-title {
+  width: 42%;
+  height: var(--ds-space-3);
+}
+
+.nt-all-skeleton-row:nth-child(even) .nt-all-title {
+  width: 58%;
+}
+
+.nt-all-placeholder.nt-all-meta {
+  width: 3ch;
+  height: var(--ds-space-2);
+}
+
+.nt-all-placeholder-project {
+  width: 25%;
+  height: var(--ds-space-3);
+}

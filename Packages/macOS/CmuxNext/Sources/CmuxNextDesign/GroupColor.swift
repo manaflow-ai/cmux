@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// The nine group colors, shared by tab groups and workspace groups so
 /// both render identically. The raw value is the stable token the daemon
@@ -24,6 +25,38 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     /// such color is in use.
     public static func automatic(used: Set<String>) -> GroupColor? {
         automaticOrder.first { !used.contains($0.rawValue) }
+    }
+
+    /// The color a group with no stored color draws in: one of `automaticOrder`, picked from
+    /// the group's id, so it is the same on every launch and machine (Leo 2026-10-20: groups
+    /// made by agents and the CLI store none and all drew grey, as Chrome never does). A
+    /// group someone colored grey keeps grey; only a missing color takes this.
+    public static func unset(id: String) -> GroupColor {
+        // FNV-1a: `hashValue` is seeded per process, so it would change the color each launch.
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in id.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01B3
+        }
+        return automaticOrder[Int(hash % UInt64(automaticOrder.count))]
+    }
+
+    /// The group color closest to an sRGB `0xRRGGBB` color by hue (another
+    /// browser's profile color, so an imported profile keeps its look);
+    /// grey for colors with almost no saturation.
+    public static func nearest(rgb: UInt32) -> GroupColor {
+        let color = NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+                            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+        guard color.saturationComponent >= 0.15, color.brightnessComponent >= 0.12 else { return .grey }
+        let hue = color.hueComponent * 360
+        return allCases.filter { $0.hueAndChroma.chroma > 0 }.min { lhs, rhs in
+            Self.hueDistance(lhs.hueAndChroma.hue, hue) < Self.hueDistance(rhs.hueAndChroma.hue, hue)
+        } ?? .grey
+    }
+
+    private static func hueDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+        let distance = abs(lhs - rhs).truncatingRemainder(dividingBy: 360)
+        return min(distance, 360 - distance)
     }
 
     /// The color itself: swatches, group lines, sidebar rails.

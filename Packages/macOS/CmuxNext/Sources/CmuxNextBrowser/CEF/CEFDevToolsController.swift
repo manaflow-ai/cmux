@@ -24,6 +24,12 @@ final class CEFDevToolsController {
     var views: (host: CEFHostView, divider: CEFDevToolsDivider)?
     /// The window that holds `views.host` while DevTools is not docked.
     var window: CEFDevToolsWindow?
+    /// DevTools device mode (fork API 24): the device's screen area the
+    /// frontend asks for, DIPs from the DevTools view's top-left corner.
+    /// While set, docked DevTools cover the whole content view (device
+    /// toolbar, rulers, the panels) and the page sits in this area, as in
+    /// Chrome's docked DevTools.
+    private(set) var deviceModeBounds: CGRect?
 
     init(layout: CEFDevToolsLayout) {
         self.layout = layout
@@ -47,6 +53,8 @@ final class CEFDevToolsController {
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         case .dock(let dock):
             move(to: dock)
+        case .panel(let panel):
+            _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
     }
 
@@ -181,12 +189,23 @@ final class CEFDevToolsController {
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
+        // A docked DevTools is its own page window on its own host view: hosted in the window's layers
+        // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
+        // at the next open).
+        if docked {
+            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
+        }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
     }
 
     func closed(browser: Int32) {
         guard let tab, devToolsBrowserID == nil || devToolsBrowserID == browser else { return }
         opening = false
+        // The frontend's DevTools session ended with its emulation: cmux's own applies again.
+        if deviceModeBounds != nil {
+            deviceModeBounds = nil
+            tab.devToolsDeviceModeEnded()
+        }
         devToolsBrowserID = nil
         tab.devTools = BrowserDevToolsState(isOpen: false, dock: layout.dock)
         removeViews()
@@ -219,6 +238,29 @@ final class CEFDevToolsController {
         perform(.dock(dock))
     }
 
+    /// The frontend turned device mode on or off or moved the device's
+    /// screen area (`CMUX_DEVTOOLS_DEVICE_MODE`). The page follows it, and
+    /// cmux's own emulation of the tab yields to the frontend's until it ends.
+    func deviceModeChanged(on: Bool) {
+        guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
+        let bounds = on && shim.devToolsInspectedBounds(browserID, &x, &y, &width, &height) == 1
+            ? CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height)) : nil
+        let wasOn = deviceModeBounds != nil
+        guard bounds != deviceModeBounds else { return }
+        deviceModeBounds = bounds
+        if !wasOn, bounds != nil { tab.devToolsDeviceModeStarted() }
+        tab.container.layoutContent()
+        if wasOn, bounds == nil { tab.devToolsDeviceModeEnded() }
+    }
+
+    /// Whether the DevTools frontend's device mode owns the page's emulation:
+    /// docked or not, cmux's own emulation (a device or a fit) yields to it.
+    var deviceModeOn: Bool { deviceModeBounds != nil }
+
+    /// Whether the page is placed in the device's screen area (docked DevTools only).
+    var deviceModeActive: Bool { deviceModeBounds != nil && reservesRoom }
+
     // MARK: Layout
 
     /// Whether the content view reserves room for docked DevTools.
@@ -227,7 +269,18 @@ final class CEFDevToolsController {
     }
 
     func frames(in bounds: CGRect) -> CEFDevToolsLayout.Frames {
-        layout.frames(in: bounds, devToolsDocked: reservesRoom)
+        guard let area = deviceModeBounds, reservesRoom else { return layout.frames(in: bounds, devToolsDocked: reservesRoom) }
+        return Self.deviceModeFrames(in: bounds, area: area)
+    }
+
+    /// Device mode: DevTools take `bounds`, the page the frontend's area
+    /// (top-left origin) converted to the content view's bottom-left origin.
+    nonisolated static func deviceModeFrames(in bounds: CGRect, area: CGRect) -> CEFDevToolsLayout.Frames {
+        // The page keeps the device's full screen area, as in Chrome: its widget size is the
+        // emulated viewport (the frontend sets dontSetVisibleSize). A part past the pane is masked
+        // by the fork's clip, never cut from the page (cutting gave innerHeight 428 for 430).
+        let page = CGRect(x: bounds.minX + area.minX, y: bounds.maxY - area.minY - area.height, width: area.width, height: area.height)
+        return CEFDevToolsLayout.Frames(page: page, devTools: bounds, line: .zero, grab: .zero)
     }
 
     func dragDivider(to point: CGPoint) {
@@ -254,6 +307,7 @@ final class CEFDevToolsController {
         closeWindow()
         guard let views else { return }
         self.views = nil
+        views.host.layerHosting.stop()
         views.divider.removeFromSuperview()
         views.host.removeFromSuperview()
     }

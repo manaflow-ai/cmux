@@ -15,7 +15,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 src="$TMP/src"
 mkdir -p "$src"
 ln -s "$ROOT/ghostty-next" "$src/ghostty-next"
-for path in Resources/ghostty Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path; do
+for path in Resources/ghostty Resources/cmux-themes Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path; do
   if [[ -e "$ROOT/$path" ]]; then mkdir -p "$src/$(dirname "$path")"; ln -s "$ROOT/$path" "$src/$path"; fi
 done
 env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=app.app/Contents/Resources \
@@ -30,5 +30,10 @@ diff -r "$source_tree" "$bundled" >"$TMP/diff" 2>&1 || { cat "$TMP/diff" >&2; ec
 # The layers that keep the bundled `cmux` first on PATH (BundledCLIEnvironment).
 diff -r "$ROOT/Resources/cmux-cli-path" "$TMP/build/app.app/Contents/Resources/cmux-cli-path" >"$TMP/diff2" 2>&1 \
   || { cat "$TMP/diff2" >&2; echo "FAIL: bundled cmux-cli-path differs from Resources/cmux-cli-path" >&2; fail=1; }
+# cmux's own themes (Resources/cmux-themes) land next to Ghostty's.
+for theme in "$ROOT"/Resources/cmux-themes/*; do
+  cmp -s "$theme" "$TMP/build/app.app/Contents/Resources/ghostty/themes/$(basename "$theme")" \
+    || { echo "FAIL: $(basename "$theme") is not bundled in ghostty/themes" >&2; fail=1; }
+done
 [[ $fail -eq 0 ]] || exit 1
 echo "PASS: bundled shell integration equals ghostty-next/src/shell-integration"

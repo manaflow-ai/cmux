@@ -20,7 +20,7 @@ impl App {
     }
 
     pub(crate) fn horizontal_scrollbar_state(&self) -> Option<(u64, u16, u64)> {
-        let viewport_width = self.content_area.width;
+        let viewport_width = self.stage_area().width;
         if viewport_width == 0 || self.viewport_virtual_width <= u64::from(viewport_width) {
             return None;
         }
@@ -135,7 +135,7 @@ impl App {
         }
     }
 
-    pub fn workspace_drag(&self) -> Option<(WorkspaceId, Option<usize>)> {
+    pub fn workspace_drag(&self) -> Option<(WorkspaceId, Option<crate::app::WorkspaceDropSlot>)> {
         match self.drag {
             Some(Drag::Workspace { workspace, target }) => Some((workspace, target)),
             _ => None,

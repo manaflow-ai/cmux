@@ -33,6 +33,24 @@ enum HistoryPalettePages {
              symbol: "arrow.clockwise.circle", kinds: [.agent])
     }
 
+    /// Search's history (plans/cmux-next/sidebar-search.md), one contribution per kind so each reads
+    /// as its own section: browser pages, closed tabs and screens, terminal commands, agent sessions.
+    /// The trail's locations are left out; Search lists the open tabs themselves.
+    static func searchContributions(_ services: AppServices) -> [PaletteSearchContribution] {
+        let kinds: [(String, String, Int, HistoryEntry.Kind, String)] = [
+            ("history.pages", HistoryAppStrings.browserHistoryTitle, 40, .page, "globe"),
+            ("history.closed", HistoryAppStrings.closedTitle, 41, .closed, "clock.arrow.circlepath"),
+            ("history.commands", HistoryAppStrings.commandsTitle, 42, .command, "terminal"),
+            ("history.agents", HistoryAppStrings.agentsTitle, 43, .agent, "arrow.clockwise.circle"),
+        ]
+        return kinds.map { id, title, order, kind, symbol in
+            // Agent sessions also make up the Chats & agents scope.
+            PaletteSearchContribution(id: id, title: title, order: order, searchesChats: kind == .agent) { [weak services] in
+                services.map { page($0, id: id, title: title, placeholder: "", symbol: symbol, kinds: [kind]) }
+            }
+        }
+    }
+
     private static func page(_ services: AppServices, id: String, title: String, placeholder: String, symbol: String,
                              kinds: Set<HistoryEntry.Kind>) -> PalettePageSpec {
         let provider = AsyncPaletteProvider(id: id) { [weak services] in
@@ -45,8 +63,14 @@ enum HistoryPalettePages {
 
     /// The brand mark an agent session's row draws (its provider's), or nil.
     nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
-        guard case .agent(let session) = entry.payload else { return nil }
-        return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+        switch entry.payload {
+        case .agent(let session):
+            return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+        case .closed(let item):
+            return AgentBrandCatalog.brand(for: item.agentSession?.harness)?.rawValue
+        default:
+            return nil
+        }
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {

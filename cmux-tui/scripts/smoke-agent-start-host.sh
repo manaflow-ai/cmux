@@ -34,7 +34,7 @@ print(f"{label}: {got}")
 sys.exit(0 if got == sys.argv[4] else 1)
 PY
   run --session amp --json server stop --end-terminals >/dev/null 2>&1 || true
-  run acp daemon shutdown >/dev/null 2>&1 || true
+  run acp daemon shutdown --end-agents >/dev/null 2>&1 || true
   [ "$rc" = 0 ] || { echo "expected $want" >&2; exit 1; }
 }
 cleanup() { sudo rm -rf /srv/team /etc/cmux/image-stamp /etc/cmux/vm-kind; sudo chmod 0755 /etc/cmux 2>/dev/null || true; }

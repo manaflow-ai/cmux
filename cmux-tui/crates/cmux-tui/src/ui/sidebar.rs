@@ -71,6 +71,8 @@ fn workspace_unread_color(
 }
 
 pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
+    // Set again below only when the workspace rows are drawn.
+    app.workspace_drop_geometry = None;
     app.workspace_sidebar_area(frame.area().height)?;
     if app.config.sidebar.plugin.is_some() {
         draw_plugin(app, frame);
@@ -546,6 +548,14 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_footer,
         actions_position,
     );
+    app.workspace_drop_geometry = Some(crate::app::WorkspaceDropGeometry {
+        area,
+        body: viewport.body,
+        body_offset: viewport.body_offset,
+        stride: metrics.stride,
+        height: metrics.height,
+        len: app.tree.workspaces().len(),
+    });
     if let Some(usage) = app.machine_usage.as_ref() {
         let readout = messages.machine_usage_readout(usage.api_equivalent_usd, usage.period_days);
         rail::header_readout(frame, area, &readout, palette);
@@ -642,14 +652,27 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    if let Some((_, Some(index))) = workspace_drag {
-        let marker_row = index.saturating_mul(metrics.stride).saturating_sub(1);
+    if let Some((_, Some(slot))) = workspace_drag {
+        let marker_row = slot.index.saturating_mul(metrics.stride).saturating_sub(1);
         if let Some(marker_y) = viewport.body_y(rail::RowSpan::new(marker_row, 1)) {
             let buf = frame.buffer_mut();
-            for x in area.x..area.x + area.width.saturating_sub(1) {
+            let end = area.x + area.width.saturating_sub(1);
+            for x in area.x..end {
                 buf[(x, marker_y)]
                     .set_symbol("─")
                     .set_style(Style::default().fg(app.config.theme.border_active));
+            }
+            // On a section border the corner points at the section the drop
+            // joins: up for the section above, down for the one below.
+            let corner = match slot.border {
+                Some(true) => Some("┘"),
+                Some(false) => Some("┐"),
+                None => None,
+            };
+            if let Some(corner) = corner
+                && end > area.x
+            {
+                buf[(end - 1, marker_y)].set_symbol(corner);
             }
         }
     }

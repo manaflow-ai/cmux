@@ -83,7 +83,7 @@ const claudeModes = {
     { id: "default", name: "Ask before edits" },
     { id: "acceptEdits", name: "Accept edits" },
     { id: "plan", name: "Plan" },
-    { id: "bypassPermissions", name: "Full access" },
+    { id: "bypassPermissions", name: "Bypass permissions" },
   ],
   currentModeId: "bypassPermissions",
 };
@@ -95,6 +95,23 @@ const codexModes = {
   ],
   currentModeId: "auto",
 };
+/// Codex's collaboration option stays available to its command/mode paths; the composer leaves it
+/// out of the generic Options chip.
+const codexCollaboration = {
+  id: "collaboration_mode",
+  name: "Collaboration mode",
+  category: "collaboration_mode",
+  currentValue: "default",
+  options: [
+    { value: "default", name: "Default" },
+    { value: "plan", name: "Plan", description: "Write a plan before editing." },
+  ],
+};
+/// A session's config options: its effort level, and Codex's collaboration mode for /plan.
+const sessionOptions = (codex: boolean) => [
+  ...effort(codex ? "high" : "medium"),
+  ...(codex ? [codexCollaboration] : []),
+];
 const effort = (currentValue: string) => [
   {
     id: "effort",
@@ -413,11 +430,13 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     ...fields,
     preview,
     name: session.harness,
+    // acpmux runs the fixture's `claude` as Claude Code: Ctrl-B and subagent Stop.
+    backgroundsWork: session.harness === "claude",
     updatedAt: now - ago * 60_000,
     turnCount,
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
-    configOptions: effort(session.harness === "codex" ? "high" : "medium"),
+    configOptions: sessionOptions(session.harness === "codex"),
   };
 }
 
@@ -441,6 +460,9 @@ export function newSessionSummary(
     title: "New chat",
     name: harness,
     harness,
+    // acpmux names the harness family, which decides what the chat forks (Edit, versions).
+    family: harness,
+    backgroundsWork: !codex,
     model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,
@@ -450,7 +472,7 @@ export function newSessionSummary(
     updatedAt: now,
     turnCount: 0,
     modes: codex ? codexModes : claudeModes,
-    configOptions: effort(codex ? "high" : "medium"),
+    configOptions: sessionOptions(codex),
   };
 }
 
@@ -530,7 +552,8 @@ const MIN = 60_000;
 const START = 3 * MIN + 30_000;
 
 /// The worked session's history: one prompt and a full turn with a search, reads, a code
-/// block, edits to three files and a test run, ending a few minutes ago.
+/// block, edits to three files, a test run and the pull request it opened (so the pane's pull
+/// request dock shows in mock mode and captures), ending a few minutes ago.
 export const workedTurn: SeedStep[] = [
   {
     ago: START,
@@ -597,6 +620,14 @@ export const workedTurn: SeedStep[] = [
       ...output(
         "bun test v1.4.0\n\nSources/Fleet/upload.test.ts:\n✓ uploads the artifact [3.12ms]\n✓ retries a 503 and then succeeds [1504.40ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 file. [1.53s]",
       ),
+    }),
+  },
+  {
+    ago: START - 82_000,
+    update: tool("w-pr", "execute", 'Run gh pr create --title "fleet: retry artifact uploads with backoff" --fill', {
+      rawInput: { command: 'gh pr create --title "fleet: retry artifact uploads with backoff" --fill', cwd: CMUX },
+      rawOutput: { exit_code: 0 },
+      ...output("https://github.com/manaflow-ai/cmux/pull/18204\n"),
     }),
   },
   {

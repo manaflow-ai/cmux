@@ -6,6 +6,8 @@ import QuartzCore
 /// (an action id for the App's registry); the editor never edits state.
 final class TabGroupEditorController {
     var onCommand: ((TabGroupCommand) -> Void)?
+    /// The editor's More row: the group's full menu (the strip shows it under the chip).
+    var onMore: ((TabGroupID) -> Void)?
     private var panel: TabGroupEditorPanel?
     private(set) var shownGroupID: TabGroupID?
 
@@ -16,6 +18,7 @@ final class TabGroupEditorController {
         let panel = panel ?? TabGroupEditorPanel()
         self.panel = panel
         panel.onCommand = { [weak self] command in self?.onCommand?(command) }
+        panel.onMore = { [weak self] id in self?.onMore?(id) }
         panel.onClose = { [weak self] in self?.shownGroupID = nil }
         shownGroupID = group.id
         panel.configure(group)
@@ -38,6 +41,7 @@ final class TabGroupEditorController {
 /// Liquid Glass bubble: name field, color swatches, and group actions.
 final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onCommand: ((TabGroupCommand) -> Void)?
+    var onMore: ((TabGroupID) -> Void)?
     var onClose: (() -> Void)?
 
     private let nameField = NSTextField()
@@ -112,6 +116,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             row(Strings.editorClose) { .close($0.id) },
             row(Strings.editorMoveToNewWindow) { .moveToNewWindow($0.id) },
             save,
+            moreRow(),
         ]
         let stack = NSStackView(views: [field, swatchRow, separator] + rows)
         stack.orientation = .vertical
@@ -156,6 +161,18 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         return row
     }
 
+    /// The group's full menu (icon, moves, collapse, configured rows), one row away as in the sidebar editor.
+    private func moreRow() -> TabGroupEditorRow {
+        let row = TabGroupEditorRow(title: Strings.paneMore)
+        row.onPress = { [weak self] in
+            guard let self, let id = self.group?.id else { return }
+            self.commitName()
+            self.dismiss()
+            self.onMore?(id)
+        }
+        return row
+    }
+
     func configure(_ group: TabGroupItem) {
         let renamed = self.group?.id != group.id || nameField.currentEditor() == nil
         self.group = group
@@ -186,29 +203,25 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
-        let reopening = dismissing && isVisible
         dismissing = false
         ignoresMouseEvents = false
         self.anchor = anchor
         generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        showPopupAtOnce()
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
-        if let screen = parent.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
-            origin.y = max(origin.y, visible.minY + Metrics.space2)
-        }
-        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
-        if !reopening { alphaValue = 0 }
+        // Under the chip, on its leading edge (the one popup placement, `PopupAnchor`).
+        let card = PopupAnchor(rect: anchor, edge: .leading, gap: Metrics.space2)
+            .cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
+        setFrame(PopupStyle.standard.windowFrame(forCard: card), display: true)
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

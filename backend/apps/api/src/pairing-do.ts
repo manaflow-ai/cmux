@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { PAIRING_TTL_MS } from "./domains/pairing.ts"
+import { networkLocator, networkMatchesPairing, sameApproval, type PairingApproval, type ServerNetworkEnrollment } from "./server-pair-network.ts"
 
 export interface PairingRecord {
   readonly code: string
@@ -17,6 +18,7 @@ export interface PairingResult {
   readonly team: string
   readonly user: string
   readonly install: string
+  readonly network?: { readonly state: "reserved"; readonly tenant: string; readonly mesh: string; readonly device: string }
 }
 
 type Row = {
@@ -30,6 +32,8 @@ type Row = {
   expires_at: number
   result: string | null
   approver: string | null
+  approval: string | null
+  network_enrollment: string | null
 }
 
 const equal = (a: string, b: string): boolean => {
@@ -54,6 +58,9 @@ export class PairingDO extends DurableObject<Env> {
       `CREATE TABLE IF NOT EXISTS pairing (id INTEGER PRIMARY KEY CHECK (id = 1), code TEXT NOT NULL, public_jwk TEXT NOT NULL, thumbprint TEXT NOT NULL,
         wg_public_key TEXT NOT NULL, info TEXT NOT NULL, country TEXT, collect_hash TEXT NOT NULL, expires_at INTEGER NOT NULL, result TEXT, approver TEXT)`
     )
+    // Additive, private state on old PairingDOs. No secret enters an owner ledger or projection.
+    const columns = new Set(ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(pairing)").toArray().map((c) => c.name))
+    for (const column of ["approval", "network_enrollment"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
   }
 
   private row(now: number): Row | undefined {
@@ -97,12 +104,40 @@ export class PairingDO extends DurableObject<Env> {
    * approval); every other approver is refused. Single-threaded per object, so
    * two concurrent approvals cannot both pass.
    */
-  async claim(code: string, approver: string, now: number): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null } | { ok: false; reason: "unknown" | "claimed" }> {
+  async claim(code: string, approver: string, now: number, approval?: PairingApproval): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null; network: ServerNetworkEnrollment | null } | { ok: false; reason: "unknown" | "claimed" }> {
     const r = this.row(now)
     if (!r || r.code !== code) return { ok: false, reason: "unknown" }
     if (r.approver !== null && r.approver !== approver) return { ok: false, reason: "claimed" }
+    if (r.approval !== null && (!approval || !sameApproval(JSON.parse(r.approval), approval))) return { ok: false, reason: "claimed" }
+    // An older build already claimed this row without a network intent. It cannot be upgraded mid-approval.
+    if (r.approver !== null && r.approval === null && approval?.mesh !== null && approval?.mesh !== undefined) return { ok: false, reason: "claimed" }
+    if (approval && r.result !== null && (JSON.parse(r.result) as PairingResult).team !== approval.team) return { ok: false, reason: "claimed" }
     if (r.approver === null) this.ctx.storage.sql.exec(`UPDATE pairing SET approver = ? WHERE id = 1`, approver)
-    return { ok: true, record: this.record(r), result: r.result ? (JSON.parse(r.result) as PairingResult) : null }
+    if (approval && r.approval === null) this.ctx.storage.sql.exec(`UPDATE pairing SET approval = ? WHERE id = 1`, JSON.stringify(approval))
+    return { ok: true, record: this.record(r), result: r.result ? (JSON.parse(r.result) as PairingResult) : null, network: r.network_enrollment ? JSON.parse(r.network_enrollment) : null }
+  }
+
+  /** Pin the first valid secret before install/host writes. A lost RPC reply reuses the stored secret. */
+  async reserveNetwork(code: string, thumbprint: string, approver: string, approval: PairingApproval, grant: ServerNetworkEnrollment, now: number): Promise<{ ok: true; grant: ServerNetworkEnrollment } | { ok: false }> {
+    const row = this.row(now)
+    if (!row || row.code !== code || row.approver !== approver || !equal(row.thumbprint, thumbprint) || !row.approval || !sameApproval(JSON.parse(row.approval), approval) || row.result !== null) return { ok: false }
+    if (!networkMatchesPairing(grant, this.record(row), approval, now)) return { ok: false }
+    if (row.network_enrollment) {
+      const stored: ServerNetworkEnrollment = JSON.parse(row.network_enrollment)
+      if (stored.origin !== grant.origin || JSON.stringify(networkLocator(stored)) !== JSON.stringify(networkLocator(grant)) || !networkMatchesPairing(stored, this.record(row), approval, now)) return { ok: false }
+      return { ok: true, grant: stored }
+    }
+    this.ctx.storage.sql.exec(`UPDATE pairing SET network_enrollment = ? WHERE id = 1`, JSON.stringify(grant))
+    return { ok: true, grant }
+  }
+
+  private pairedFrame(row: Row, result: PairingResult, now = Date.now()): string | null {
+    const approval: PairingApproval | null = row.approval ? JSON.parse(row.approval) : null
+    const grant: ServerNetworkEnrollment | null = row.network_enrollment ? JSON.parse(row.network_enrollment) : null
+    if (approval && (approval.team !== result.team || (approval.mesh !== null && (!grant || !networkMatchesPairing(grant, this.record(row), approval, now) || JSON.stringify(result.network) !== JSON.stringify(networkLocator(grant)))))) return null
+    if (grant && (!approval?.mesh || !result.network)) return null
+    if (result.network && !grant) return null
+    return JSON.stringify({ t: "paired", ...result, ...(grant ? { network_enrollment: grant } : {}) })
   }
 
   /**
@@ -140,11 +175,13 @@ export class PairingDO extends DurableObject<Env> {
     if (!r || r.code !== code) return { ok: false, message: "pairing code expired or unknown" }
     if (!equal(r.thumbprint, thumbprint)) return { ok: false, message: "pairing key changed" }
     if (r.approver !== result.user) return { ok: false, message: "pairing code claimed by another approver" }
+    const frame = this.pairedFrame(r, result, now)
+    if (!frame) return { ok: false, message: "pairing network approval is incomplete or changed" }
     const json = JSON.stringify(result)
     if (r.result !== null) return r.result === json ? { ok: true } : { ok: false, message: "pairing code already used" }
     this.ctx.storage.sql.exec(`UPDATE pairing SET result = ? WHERE id = 1`, json)
     for (const ws of this.ctx.getWebSockets()) {
-      ws.send(JSON.stringify({ t: "paired", ...result }))
+      ws.send(frame)
       ws.close(1000, "paired")
     }
     return { ok: true }
@@ -155,11 +192,13 @@ export class PairingDO extends DurableObject<Env> {
     const r = this.row(Date.now())
     const presented = request.headers.get("x-cmux-collect-hash") ?? ""
     if (!r || !equal(r.collect_hash, presented)) return new Response("not found", { status: 404 })
+    const frame = r.result !== null ? this.pairedFrame(r, JSON.parse(r.result)) : null
+    if (r.result !== null && frame === null) return new Response("not found", { status: 404 })
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server)
     if (r.result !== null) {
-      server.send(JSON.stringify({ t: "paired", ...(JSON.parse(r.result) as PairingResult) }))
+      server.send(frame!)
       server.close(1000, "paired")
     } else {
       server.send(JSON.stringify({ t: "pending", expires_at: r.expires_at }))

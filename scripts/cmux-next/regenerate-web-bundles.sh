@@ -1,9 +1,10 @@
 #!/bin/sh
-# Rebuilds the generated files that are still committed and stages them, after
-# merging feat-cmux-next (or main) into a branch, or after editing their inputs:
-# the strings tables (webviews/src/**/generated/, from the xcstrings catalogs)
-# and the optchat memory inspector page. Build paths only check them
-# (build-web-bundles.sh fails on a stale copy and never writes one).
+# Rebuilds the generated file that is still committed and stages it, after
+# merging feat-cmux-next (or main) into a branch, or after editing its inputs:
+# the optchat memory inspector page. Build paths only check it
+# (build-web-bundles.sh fails on a stale copy and never writes one). It also
+# rewrites the pages' strings tables (webviews/src/**/generated/), which are
+# build output since #21946 and stay out of the index.
 #
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output since cx-vn5 and gitignored; every build path runs
@@ -32,7 +33,15 @@ Resources/markdown-viewer/webviews-app"
 
 cd "$ROOT"
 # shellcheck disable=SC2086 # FORMER is a newline-separated list of fixed paths.
-stale="$(git ls-files -- $FORMER | grep -v '/GENERATED\.md$' || true)"
+stale="$(
+  {
+    git ls-files -- $FORMER | grep -v '/GENERATED\.md$' || true
+    # The strings tables, committed before #21946.
+    git ls-files -- ':(glob)webviews/src/**/generated/strings.json' \
+      webviews/src/pages/home-channels/generated/pane-strings.json \
+      webviews/src/pages/diff/generated/locales webviews/src/pages/diff/generated/localeLoaders.ts
+  } | sed '/^$/d'
+)"
 if [ -n "$stale" ]; then
   printf '%s\n' "$stale" | git rm -q --cached --pathspec-from-file=-
   echo "removed $(printf '%s\n' "$stale" | wc -l | tr -d ' ') former build outputs from the index"
@@ -45,5 +54,5 @@ bun install --frozen-lockfile
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh"
-git add -A -- ":(glob)webviews/src/**/generated/**" "$INSPECTOR"
-git status --short -- ":(glob)webviews/src/**/generated/**" "$INSPECTOR"
+git add -A -- "$INSPECTOR"
+git status --short -- "$INSPECTOR"

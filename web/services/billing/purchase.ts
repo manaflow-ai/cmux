@@ -197,6 +197,8 @@ export type BillingPurchaseDependencies = {
   stripeClient?: () => StripeBillingClient;
   ownershipRepository?: BillingOwnershipRepository;
   magicLinkDelivery?: PurchaseMagicLinkDeliveryStore;
+  /** Queue Team membership reconciliation after an external quantity update. */
+  markTeamSeatsDirty?: false | ((stackTeamId: string) => Promise<void>);
   testflight?: {
     isAscConfigured?: () => boolean;
     enrollTester?: (
@@ -1956,6 +1958,7 @@ export async function applySubscriptionUpdate(
     if ("skipped" in lockedResult) return { skipped: true };
     const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
     await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription));
+    await markTeamSeatsDirtyIfConfigured(dependencies.markTeamSeatsDirty, teamScope.stackTeamId);
     return lockedResult;
   }
 
@@ -2040,6 +2043,13 @@ export async function applySubscriptionUpdate(
     },
   });
   return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
+}
+
+async function markTeamSeatsDirtyIfConfigured(
+  markDirty: BillingPurchaseDependencies["markTeamSeatsDirty"],
+  stackTeamId: string,
+): Promise<void> {
+  if (typeof markDirty === "function") await markDirty(stackTeamId);
 }
 
 function isAccountDeletionInProgress(user: StackBillingUser): boolean {

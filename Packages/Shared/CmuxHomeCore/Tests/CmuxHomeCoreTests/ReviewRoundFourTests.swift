@@ -134,6 +134,28 @@ private func frameCount(_ data: Data) -> Int {
         #expect(frameCount(bytes) == 2)
     }
 
+    /// File-backed location removal must stream an oversized RIFF chunk rather
+    /// than loading the source into one Data allocation. The chunk is kept in
+    /// the source but is absent from the cleaned result.
+    @MainActor @Test func fileBackedWebPMetadataRemovalStreamsChunks() async throws {
+        let root = try temporaryDirectory()
+        let source = root.appendingPathComponent("large.webp")
+        let cache = root.appendingPathComponent("cache")
+        var original = [UInt8](try makeWebPWithLocation(orientation: 1))
+        let junk = webPChunk("JUNK", Array(repeating: 0xA5, count: 8 * 1024 * 1024))
+        let bodySize = (0..<4).reduce(0) { $0 | Int(original[4 + $1]) << (8 * $1) } + junk.count
+        original.replaceSubrange(4..<8, with: le32(bodySize))
+        original.append(contentsOf: junk)
+        try Data(original).write(to: source)
+
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
+        let prepared = try await store.prepareAttachment(fileURL: source)
+        let clean = try Data(contentsOf: prepared.fileURL)
+        #expect(prepared.ref.mimeType == "image/webp")
+        #expect(try !imageHasLocation(clean))
+        #expect(webPChunkPayload("JUNK", in: clean) == Array(repeating: 0xA5, count: 8 * 1024 * 1024))
+    }
+
     /// Minor 3 end to end: a truncated WebP with location is never sent
     /// with its location (refused, or converted without it).
     @MainActor @Test func aTruncatedWebPNeverSendsItsLocation() async throws {

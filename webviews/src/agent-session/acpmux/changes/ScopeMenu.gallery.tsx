@@ -14,9 +14,12 @@ const open: Play = async (ctx) => {
 const keyboard: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Changes: Staged" });
   await ctx.press("ArrowDown");
+  // The menu opens on its first row and moves to the checked scope once its open transition ends
+  // (ScopeMenu's onOpenChangeComplete). Typing before then is undone by that move, so wait for the
+  // checked row to hold focus, not only its check (always there).
   await ctx.waitFor(() => {
     const selected = ctx.find({ role: "menuitemradio", name: "Staged" });
-    return selected.getAttribute("aria-checked") === "true";
+    return selected.getAttribute("aria-checked") === "true" && ctx.document.activeElement === selected;
   });
   await ctx.press("b");
   await ctx.waitFor(() => {

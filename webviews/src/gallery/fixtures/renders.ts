@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample render HTML), not shipped UI.
 // HTML an agent might pass the render tool (acpmux conversation/renderCall.ts): small pages in the
-// frame's theme variables (`var(--cmux-text)` and the rest, RenderCard.tsx), with no library.
+// frame's theme variables (`var(--cmux-text)` and the rest, renderBase.ts), with no library.
 // Pure data, as gallery files need.
 import type { AcpmuxActivity } from "../../agent-session/acpmux/model";
 import { tool } from "./acpmux";
@@ -33,6 +33,16 @@ export function latencyChart(): string {
     "<style>body{padding:14px 16px}svg{display:block;width:420px;max-width:100%;height:auto;font:12px var(--cmux-font)}" +
     ".l{fill:var(--cmux-muted)}.v{fill:var(--cmux-text)}.b{fill:#3b82f6}.m{fill:var(--cmux-border)}</style>" +
     `<svg viewBox="0 0 420 148" role="img" aria-label="Median keystroke-to-paint by layout">${rows}</svg>`
+  );
+}
+
+/** A report with no CSS of its own: the frame's base stylesheet draws it. */
+export function plainReport(): string {
+  return (
+    "<title>Build report</title><h1>Build times</h1>" +
+    '<p>Median <code>4.2 s</code> across <a href="#">12 runs</a>.</p>' +
+    "<table><tr><th>Lane</th><th>Median</th></tr><tr><td>fast</td><td>4.2 s</td></tr>" +
+    '<tr><td>full</td><td>11.8 s</td></tr></table><button>Rerun</button> <input placeholder="Filter">'
   );
 }
 

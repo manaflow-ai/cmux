@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sidebarSections.priority.noSuchChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد تلك الدردشة في عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "taj chat više nije u prikazu prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den chat er ikke længere i prioritetsvisningen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dieser Chat ist nicht mehr in der Prioritätsansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "that chat is no longer in the Priority view"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ese chat ya no está en la vista de prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette discussion n’est plus dans la vue Priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "quella chat non è più nella vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットはもう優先ビューにありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះលែងនៅក្នុងទិដ្ឋភាពអាទិភាពទៀតហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅은 더 이상 우선순위 보기에 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den chatten er ikke lenger i prioritetsvisningen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tego czatu nie ma już w widoku priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "essa conversa não está mais na visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "этого чата больше нет в виде «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นไม่อยู่ในมุมมองลำดับความสำคัญแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu sohbet artık öncelik görünümünde değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цього чату більше немає у вигляді «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cuộc trò chuyện đó không còn trong chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天已不在优先视图中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天已不在優先檢視中"
+          }
+        }
+      }
+    },
     "sidebarSections.rejected": {
       "extractionState": "manual",
       "localizations": {

@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Device push targets (identity spec section 2: a device holds its push
@@ -7,7 +8,7 @@ import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
  * owner-decided pushes (plans/cmux-next/feed.md 7.3).
  */
 
-export const PushToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32,200}$/)).annotate({
+export const PushToken = Schema.String.check(isPattern(/^[a-f0-9]{32,200}$/)).annotate({
   identifier: "PushToken",
   description: "An APNs device token (hex)."
 })
@@ -15,7 +16,7 @@ export const PushToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32,200}
 export const PushTarget = Schema.Struct({
   token: PushToken,
   /** The app's bundle id, used as the APNs topic. */
-  topic: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9.-]{3,200}$/)),
+  topic: Schema.String.check(isPattern(/^[A-Za-z0-9.-]{3,200}$/)),
   environment: Schema.Literals(["development", "production"]),
   install: Schema.String,
   device_name: Schema.String.check(Schema.isMaxLength(80)),
@@ -32,7 +33,7 @@ export const PushTargetRegister = def({
   principals: ["install"],
   params: Schema.Struct({
     token: PushToken,
-    topic: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9.-]{3,200}$/)),
+    topic: Schema.String.check(isPattern(/^[A-Za-z0-9.-]{3,200}$/)),
     environment: Schema.Literals(["development", "production"]),
     device_name: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(80)))
   }),

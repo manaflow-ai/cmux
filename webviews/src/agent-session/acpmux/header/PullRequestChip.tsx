@@ -67,7 +67,6 @@ export function PullRequestChip({
         data-state={pullRequest.state}
         data-checks={checks.state}
         aria-label={label}
-        title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...trigger}
@@ -107,14 +106,16 @@ export function PullRequestChip({
         ) : (
           <ul className="acpmux-pr-checks" aria-label={t("header.prChecks")}>
             {pullRequest.checkList.map((check, index) => (
-              <li key={`${check.name}\u0000${index}`} className="acpmux-pr-check" data-state={check.state}>
-                {check.url ? (
-                  <a href={check.url} title={check.name}>
-                    {check.name}
-                  </a>
-                ) : (
-                  <span title={check.name}>{check.name}</span>
-                )}
+              <li
+                key={`${check.name}\u0000${index}`}
+                className="acpmux-pr-check"
+                data-state={check.state}
+                // A failure the base branch's tip has too is nobody's to fix here, so its dot is a
+                // warning rather than a danger and the row says why.
+                data-on-base={check.onBase === true ? "" : undefined}
+              >
+                {check.url ? <a href={check.url}>{check.name}</a> : <span>{check.name}</span>}
+                {check.onBase === true && <span className="acpmux-pr-check__onBase">{t("header.prCheckOnBase")}</span>}
               </li>
             ))}
           </ul>

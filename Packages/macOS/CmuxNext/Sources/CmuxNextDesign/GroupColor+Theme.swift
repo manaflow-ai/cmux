@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// Where the group colors draw in a theme scope. Groups use Lawrence's fixed
 /// palette (`GroupColor.rgb(_:dark:)`, the Chrome tab group colors of #15516)

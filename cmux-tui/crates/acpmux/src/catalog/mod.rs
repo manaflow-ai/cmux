@@ -14,6 +14,8 @@
 //! valid, or of a newer major schema version never replaces the current
 //! copy. Every change is announced to every connection as `catalog.changed`.
 
+use cmux_json::JsonSet as _;
+
 pub mod fetch;
 pub mod schema;
 
@@ -106,10 +108,23 @@ fn bundled() -> Catalog {
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
-    std::fs::create_dir_all(dir)?;
+    // A refresh that ends after the home was lost never makes it again (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
+    // Owner-only whatever the umask, like the rest of the acpmux home.
+    let mut made = std::fs::DirBuilder::new();
+    made.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+    made.create(dir)?;
     let tmp = dir.join(format!(".{STORE_FILE}.{}.tmp", std::process::id()));
+    // A file a crashed process left under a reused pid keeps its mode: start anew.
+    let _ = std::fs::remove_file(&tmp);
     let result = (|| {
-        let mut file = std::fs::File::create(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         std::fs::rename(&tmp, path)?;
@@ -204,7 +219,7 @@ impl CatalogService {
         let state = self.state();
         let mut v = json!({"schemaVersion": state.catalog.schema_version, "generatedAt": state.catalog.generated_at, "source": state.catalog.source, "delivery": state.source});
         if let Some(at) = state.fetched_at_ms {
-            v["fetchedAt"] = json!(at);
+            v.set("fetchedAt", json!(at));
         }
         v
     }
@@ -212,7 +227,7 @@ impl CatalogService {
     /// `catalog.get`: the whole document in use and its summary.
     pub fn get(&self) -> Value {
         let mut v = self.summary();
-        v["catalog"] = serde_json::to_value(&*self.current()).unwrap_or(Value::Null);
+        v.set("catalog", serde_json::to_value(&*self.current()).unwrap_or(Value::Null));
         v
     }
 
@@ -260,9 +275,9 @@ impl CatalogService {
             Some(fetcher) => self.fetch_once(fetcher.as_ref()).await,
         };
         let mut reply = self.summary();
-        reply["changed"] = json!(changed);
+        reply.set("changed", json!(changed));
         if let Some(error) = error {
-            reply["error"] = json!(error);
+            reply.set("error", json!(error));
         }
         if changed {
             let _ = self.changed.send(self.summary());

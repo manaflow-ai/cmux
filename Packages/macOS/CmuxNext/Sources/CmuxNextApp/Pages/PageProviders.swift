@@ -212,18 +212,3 @@ final class PolicyGatedPageProvider: PageProvider {
         return try await inner.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
     }
 }
-
-/// A namespace whose owner is not running yet: every call answers `code` (the page shows "Not
-/// available yet" for it, never an error banner).
-@MainActor
-final class UnavailablePageProvider: PageProvider {
-    private let code: String
-
-    init(code: String) {
-        self.code = code
-    }
-
-    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
-        throw PageError(code: code, message: "\(op) is not available yet")
-    }
-}

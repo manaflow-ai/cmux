@@ -420,6 +420,9 @@ mod restored_end;
 #[path = "pty_custody.rs"]
 mod pty_custody;
 
+#[path = "host_link_recover.rs"]
+mod host_link_recover;
+
 #[path = "owner_idle_exit.rs"]
 mod owner_idle_exit;
 
@@ -434,6 +437,9 @@ mod dead_host_restart;
 
 #[path = "terminal_respawn.rs"]
 mod terminal_respawn;
+
+#[path = "output_store.rs"]
+mod output_store;
 
 #[path = "archive_on_close.rs"]
 mod archive_on_close;

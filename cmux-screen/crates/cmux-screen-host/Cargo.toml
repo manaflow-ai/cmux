@@ -1,0 +1,26 @@
+[package]
+name = "cmux-screen-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Streams this computer's screen to a cmux viewer over WebRTC and takes its input"
+
+[[bin]]
+name = "cmux-screen-host"
+path = "src/main.rs"
+
+[dependencies]
+cmux-screen-proto = { path = "../cmux-screen-proto" }
+libwebrtc = "0.3.52"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+ureq = "3"
+serde_json.workspace = true
+anyhow = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = "11"
+unicode-segmentation = "1"
+core-graphics = { version = "0.25", features = ["highsierra"] }

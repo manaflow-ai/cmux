@@ -13,7 +13,8 @@ const POLLED_OPERATIONS: ReadonlySet<CloudTelemetrySpan["operation"]> = new Set(
  * sampling convention. The trace predicate matches the Mac uploader, which
  * already keeps successful poll detail spans only when the last four hex digits
  * of the trace ID are divisible by 50. Using the same predicate keeps a sampled
- * trace whole and drops an unsampled trace whole, including for old clients.
+ * trace whole and drops an unsampled trace whole, including for old clients;
+ * the one exception is a span that reports client queue drops (see below).
  */
 export const CLOUD_POLL_SAMPLE_WEIGHT = Math.round(1 / DEFAULT_BASE_SAMPLE_RATIO);
 
@@ -28,7 +29,9 @@ export type SampledCloudTelemetryBatch = {
  * Keep every non-success span, every non-poll span, and every span of a trace
  * that has a non-success span in this batch. Successful poll spans of other
  * traces are kept with weight `CLOUD_POLL_SAMPLE_WEIGHT` when their trace is
- * sampled, and otherwise dropped. Development builds keep everything.
+ * sampled; otherwise only one that reports client queue drops is kept, unweighted,
+ * because it is the only record of that loss. Development builds keep everything.
+ * `droppedCount` is a raw count: never multiply it by the sample weight.
  *
  * Contract: the decision holds no state across batches. Whether a trace is kept is a
  * deterministic hash of its trace ID, shared with the Mac uploader, and every
@@ -42,9 +45,12 @@ export function sampleCloudTelemetryBatch(batch: CloudTelemetryBatch): SampledCl
   const eventfulTraces = new Set(batch.spans.filter((span) => span.outcome !== "success").map((span) => span.traceId));
   const spans = batch.spans.filter((span) => {
     if (span.outcome !== "success" || !POLLED_OPERATIONS.has(span.operation) || eventfulTraces.has(span.traceId)) return true;
-    if (!isSampledCloudPollTrace(span.traceId)) return false;
-    sampleWeights.set(span.eventId, CLOUD_POLL_SAMPLE_WEIGHT);
-    return true;
+    if (isSampledCloudPollTrace(span.traceId)) {
+      sampleWeights.set(span.eventId, CLOUD_POLL_SAMPLE_WEIGHT);
+      return true;
+    }
+    // The only record of a client-side queue drop rides on the next span; keep it, unweighted.
+    return (span.droppedCount ?? 0) > 0;
   });
   return { spans, sampleWeights };
 }

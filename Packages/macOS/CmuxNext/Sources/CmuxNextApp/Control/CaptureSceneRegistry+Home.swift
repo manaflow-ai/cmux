@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
@@ -11,6 +11,10 @@ import CmuxNextSettings
 /// and one terminal agent per status: waiting, failed, done and working.
 extension CaptureSceneRegistry {
     static let homeChiefScene = "home-chief"
+    /// `home-chief` with a long draft: the field grows up into the first-run panel.
+    static let homeChiefLongDraftScene = "home-chief-long-draft"
+    /// The long draft: enough lines to take most of the column.
+    static let longDraftText = (1...24).map { "Line \($0) of a long message to the Chief" }.joined(separator: "\n")
 
     /// Shows the Chief on the window's Home page after a hook reports a
     /// showcase terminal (opened if the window has none) as waiting for
@@ -18,7 +22,7 @@ extension CaptureSceneRegistry {
     /// failed, a done and a working agent, then waits until the app shows
     /// them all: each state reached the mirror, and the first-run panel shows
     /// a row for each status. An error names what never appeared.
-    func showHomeChief(windowID: String) async -> CmuxNextSettings.JSONValue {
+    func showHomeChief(windowID: String, longDraft: Bool = false) async -> CmuxNextSettings.JSONValue {
         guard let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
@@ -53,6 +57,8 @@ extension CaptureSceneRegistry {
             return .object(["error": .string("Home page did not open"), "chief": .string(chief)])
         }
         page.show(ConversationID(chief))
+        // An empty field: an earlier long-draft scene in this app leaves its draft there.
+        page.host.flatMap(HomePageTab.transcript(in:))?.debugSetDraft("")
         let statuses: Set<HomeAgentGlance.Status> = Set(agents.map(\.0.status)).union([.needsYou])
         let start = ContinuousClock.now
         frames.start()
@@ -81,6 +87,41 @@ extension CaptureSceneRegistry {
             report["error"] = .string("Home's first-run panel did not show every status before the deadline")
             clearShowcaseAgent(windowID: windowID)
             return .object(report)
+        }
+        if longDraft {
+            guard let transcript else {
+                report["error"] = .string("no Home transcript to put the long draft in")
+                clearShowcaseAgent(windowID: windowID)
+                return .object(report)
+            }
+            return await growField(transcript, report: report, windowID: windowID)
+        }
+        return .object(report)
+    }
+
+    /// `home-chief-long-draft`: puts a long draft in the field, waits until the field has grown
+    /// and the first-run panel has given way, and reports how far its lowest shown part sits
+    /// above the field (an error when anything it shows runs under the field).
+    private func growField(_ transcript: HomeNativeTranscriptView, report: [String: CmuxNextSettings.JSONValue],
+                           windowID: String) async -> CmuxNextSettings.JSONValue {
+        var report = report
+        let before = transcript.debugFieldTop
+        transcript.debugSetDraft(Self.longDraftText)
+        let start = ContinuousClock.now
+        frames.start()
+        let settled = await frames.settled(
+            until: { transcript.debugFieldTop < before - 200 && (transcript.debugFirstRunFieldGap ?? 0) >= 0 },
+            start: start,
+            window: 100,
+            deadline: 10_000,
+        )
+        report["draft_frames"] = frames.stop()
+        report["field_grew_by"] = .number(Double(before - transcript.debugFieldTop))
+        report["first_run_field_gap"] = transcript.debugFirstRunFieldGap.map { .number(Double($0)) } ?? .null
+        report["first_run_parts"] = .object(transcript.debugFirstRunParts.mapValues { .bool($0) })
+        if settled == nil {
+            report["error"] = .string("the field did not grow, or the first-run panel still runs under it")
+            clearShowcaseAgent(windowID: windowID)
         }
         return .object(report)
     }

@@ -30,7 +30,9 @@ jobs:
           ref: ${{ github.workflow_sha }}
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: scripts/ci/merge_receipt.py
+          sparse-checkout: |
+            scripts/ci/merge_receipt.py
+            scripts/ci/pr_status.py
           sparse-checkout-cone-mode: false
 
       - name: Post merge receipt

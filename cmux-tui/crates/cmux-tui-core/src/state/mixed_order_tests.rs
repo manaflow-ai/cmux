@@ -62,8 +62,9 @@ fn a_group_slot_between_loose_rows_orders_the_personal_workspace_list() {
     let groups = read(&mux, "workspace_group.list", json!({}));
     assert_eq!(groups[0]["top_index"], 1);
     assert_eq!(listed(&mux, Some("personal"), &ids), [a, d, b, c]);
-    // The default order stays the session order.
-    assert_eq!(listed(&mux, None, &ids), [a, b, c, d]);
+    // The default order is the sidebar order (one order with the sidebar
+    // document); `session` keeps the session order.
+    assert_eq!(listed(&mux, None, &ids), [a, d, b, c]);
     assert_eq!(listed(&mux, Some("session"), &ids), [a, b, c, d]);
 
     // c moves to the front: the group keeps its slot before b.

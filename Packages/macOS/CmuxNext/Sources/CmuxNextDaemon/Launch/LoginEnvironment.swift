@@ -86,6 +86,14 @@ public struct LoginEnvironment: Sendable {
         TerminalEnvironment.instance.daemon(login: login, base: base, overrides: overrides)
     }
 
+    /// The login `PATH` the app last captured (this launch's or a previous
+    /// one's, `LoginEnvironmentStore`), without running the shell; nil when
+    /// none was ever captured. The Chief owner gives it to the brains it
+    /// starts, so they and their acpmux find the harnesses a terminal finds.
+    public func rememberedPath() -> String? {
+        LoginEnvironmentStore.standard().load()?["PATH"]
+    }
+
     private func userShell() -> String? {
         guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else { return nil }
         let path = String(cString: shell)

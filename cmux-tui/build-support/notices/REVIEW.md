@@ -7,6 +7,8 @@ every row is a choice that the tool cannot make from crate metadata. No license 
 
 | Crate | File in the .crate | Source | SHA-256 | Reason |
 | --- | --- | --- | --- | --- |
+| crc-catalog 2.5.0 | `LICENSES/Apache-2.0.txt` | https://crates.io/api/v1/crates/crc-catalog/2.5.0/download | `d3cdb764b98283ee7c3a3cea8d374e2a2957322374378d1f3263f4d512741fc3` | The .crate keeps its MIT and Apache-2.0 texts in a REUSE-style LICENSES/ directory, not at the top level. |
+| crc-catalog 2.5.0 | `LICENSES/MIT.txt` | https://crates.io/api/v1/crates/crc-catalog/2.5.0/download | `5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5` | The .crate keeps its MIT and Apache-2.0 texts in a REUSE-style LICENSES/ directory, not at the top level. |
 | r-efi 5.3.0 | `AUTHORS` | https://crates.io/api/v1/crates/r-efi/5.3.0/download | `ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7` | AUTHORS holds the MIT text and the copyright holders; the README points there. |
 | r-efi 6.0.0 | `AUTHORS` | https://crates.io/api/v1/crates/r-efi/6.0.0/download | `d027e91dbc9cdbb2f1190068e498bd6b61cff022b6a032b191021ba658d96111` | AUTHORS holds the MIT text and the copyright holders; the README points there. |
 | regex-syntax 0.8.10 | `src/unicode_tables/LICENSE-UNICODE` | https://crates.io/api/v1/crates/regex-syntax/0.8.10/download | `74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3` | The Unicode tables are derived from Unicode data under the Unicode license. |
@@ -131,9 +133,13 @@ commit that the crate's `.cargo_vcs_info.json` records for the release (fetch_re
 | valuable 0.1.1 | `texts/tokio-rs-valuable-9efc29b6e58c/LICENSE` | https://raw.githubusercontent.com/tokio-rs/valuable/9efc29b6e58cef28f6566a47aa7e142a55fead77/LICENSE | `ed60d479b8fd1f64e9cbc3de449a16a53ac1b3d1b6aeb9bf9d190a8e93061b44` |
 | vsimd 0.8.0 | `texts/Nugine-simd-d74c030d9dc4/LICENSE` | https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE | `71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d` |
 | vtparse 0.6.2 | `texts/wez-wezterm-edeae72b5fc5/LICENSE.md` | https://raw.githubusercontent.com/wez/wezterm/edeae72b5fc55c7fa4aa1d08bbefd08c5493f757/LICENSE.md | `37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca` |
+| webrtc 0.17.2 | `texts/webrtc-rs-webrtc-1da3fe8ee84d/LICENSE-MIT` | https://raw.githubusercontent.com/webrtc-rs/webrtc/1da3fe8ee84db8d266322cbcfcb357c745959a8e/LICENSE-MIT | `56cc6c08157f4faf70d351b3a7ceac143399d5359a78c180e06dcd0390784f4d` |
+| webrtc 0.17.2 | `texts/webrtc-rs-webrtc-1da3fe8ee84d/LICENSE-APACHE` | https://raw.githubusercontent.com/webrtc-rs/webrtc/1da3fe8ee84db8d266322cbcfcb357c745959a8e/LICENSE-APACHE | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
 | wezterm-input-types 0.1.0 | `texts/wez-wezterm-d5ca5509b95e/LICENSE.md` | https://raw.githubusercontent.com/wez/wezterm/d5ca5509b95edc31291ba29bd1fcbf3f0b12c92d/LICENSE.md | `37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca` |
 | winapi-x86_64-pc-windows-gnu 0.4.0 | `texts/retep998-winapi-rs-9497609ef44c/LICENSE-APACHE` | https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-APACHE | `b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1` |
 | winapi-x86_64-pc-windows-gnu 0.4.0 | `texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT` | https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT | `5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219` |
+| yasna 0.5.2 | `texts/qnighy-yasna.rs-b7e65f9a4c31/LICENSE-MIT` | https://raw.githubusercontent.com/qnighy/yasna.rs/b7e65f9a4c317494cce2d18ea02b3d6eaaea7985/LICENSE-MIT | `2a7df90e60fd5512b8bca35d3ce90e068f21c52d962855053fd1d9e2e7ca0f16` |
+| yasna 0.5.2 | `texts/qnighy-yasna.rs-b7e65f9a4c31/LICENSE-APACHE` | https://raw.githubusercontent.com/qnighy/yasna.rs/b7e65f9a4c317494cce2d18ea02b3d6eaaea7985/LICENSE-APACHE | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
 
 ## Ghostty dependencies: pinned upstream texts (`ghostty/pinned-licenses/MANIFEST.json`)
 

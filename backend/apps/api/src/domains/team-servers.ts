@@ -1,6 +1,7 @@
 import type { ReduceContext } from "@cmux/ownership"
-import { ServerRevoke, type Host } from "@cmux/protocol"
-import { decodeParams, reject } from "./common.ts"
+import { ServerNetworkReservation, ServerRevoke, type Host } from "@cmux/protocol"
+import { Exit, Schema } from "effect"
+import { decodeParams, reject, ServerNetworkConfirmedParams } from "./common.ts"
 import { appendAudit } from "./team-audit.ts"
 import type { TeamState } from "./team.ts"
 import type { RowReader, RowWrite } from "@cmux/ownership"
@@ -60,7 +61,7 @@ const ENROLL_REFUSED = "only team owners and admins may add a server"
 
 export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   if (!state.team) return reject("validation.invalid", "team not initialized")
-  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string }
+  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown }
   // One host per install: a replayed or repeated approval of the same install keeps the host id.
   const existing = hostByInstall(state, ctx.rows, v.install)
   if (existing && existing.kind !== "server") return reject("validation.invalid", "this install is already a device host")
@@ -70,6 +71,14 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     return refuseEnrollment(state, ctx, v)
   }
   if (!memberOf(state, ctx.rows, v.owner_user)) return reject("auth.forbidden", "the server owner is not a member of this team")
+  let network: typeof ServerNetworkReservation.Type | undefined
+  if (v.network !== undefined) {
+    const decoded = Schema.decodeUnknownExit(ServerNetworkReservation)(v.network)
+    if (Exit.isFailure(decoded)) return reject("validation.invalid", "invalid network reservation")
+    network = decoded.value
+  }
+  if (existing?.network && (!network || !sameServerNetwork(network, existing.network) || existing.wg_public_key !== v.wg_public_key)) return reject("validation.invalid", "the existing server network binding cannot be retargeted")
+  const persistedNetwork = existing?.network ?? network
   const host: typeof Host.Type = {
     id: existing?.id ?? ctx.newId("host"),
     name: v.name,
@@ -79,7 +88,8 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     enrolled_at: existing?.enrolled_at ?? ctx.now,
     kind: "server",
     wg_public_key: v.wg_public_key,
-    tags: [SERVER_TAG]
+    tags: [SERVER_TAG],
+    ...(persistedNetwork ? { network: persistedNetwork } : {})
   }
   if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
   const next = { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
@@ -119,6 +129,25 @@ const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: st
 export const serverPlacementActive = (state: TeamState, rows: RowReader | undefined, host: string, install: string): boolean => {
   const h = hostOf(state, rows, host)
   return h?.kind === "server" && h.enrolled_by === install && !h.orphaned && !state.server_revocations?.[install]
+}
+
+export const sameServerNetwork = (a: { tenant: string; mesh: string; device: string }, b: typeof Host.Type["network"]): boolean =>
+  Boolean(b && a.tenant === b.tenant && a.mesh === b.mesh && a.device === b.device)
+
+/** Only the verified external path calls this; recheck the current host after its awaits. */
+export const reduceServerNetworkConfirmed = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
+  const decoded = Schema.decodeUnknownExit(ServerNetworkConfirmedParams)(params)
+  if (Exit.isFailure(decoded)) return reject("validation.invalid", "invalid network binding")
+  const v = decoded.value
+  const host = hostOf(state, ctx.rows, v.host)
+  if (!state.team || state.team.deleted_at !== undefined || !host?.network || !serverPlacementActive(state, ctx.rows, v.host, v.install)
+    || host.owner_user !== v.owner_user || !can(state, ctx.rows, v.owner_user, "team.resources") || host.wg_public_key !== v.wg_public_key || !sameServerNetwork(v.network, host.network)) return reject("auth.forbidden", "the approved server identity changed")
+  if (host.network.state === "confirmed") return { ok: true, state, value: { host: host.id, network: host.network }, changed: false }
+  const network = { ...v.network, state: "confirmed" as const, confirmed_at: ctx.now }
+  const next = { ...host, network }
+  return withWrites(audited(state, ctx, "server.network.confirm", { host: host.id, network },
+    { kind: "host.upsert", entity: host.id, payload: { ...next, team: state.team.id } }, `server ${host.name} network identity confirmed`,
+    { host: host.id, install: v.install, owner_user: v.owner_user, network }), hostUpsert(next))
 }
 
 /** Removes a server host; the Worker then revokes its install key in the owner's UserDO. */

@@ -7,21 +7,44 @@ extension ProviderDetector {
     /// The Codex home: `$CODEX_HOME`, else `~/.codex`.
     var codexHome: URL { environment.directory("CODEX_HOME", fallback: ".codex") }
 
+    /// Codex's sign-in (``detectCodexLogin()``), else the model provider its
+    /// config.toml selects when that provider does not use the OpenAI
+    /// sign-in (hq#2569 #2: sr on the capture minis, a router with an
+    /// `env_key`, a local server). Such a provider is signed in for Codex but
+    /// is not a sign-in CodeRouter can link (``DetectionSource/providerConfig(_:)``).
+    func detectCodex() -> ProviderDetection {
+        let login = detectCodexLogin()
+        if login.status == .signedIn { return login }
+        let config = codexHome.appendingPathComponent("config.toml")
+        guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return login }
+        let source = DetectionSource.providerConfig(environment.display(config))
+        switch CodexProviderConfig(text: text).auth(value: environment.value) {
+        case .openAILogin:
+            return login
+        case .configured(let name, let envKey):
+            return ProviderDetection(provider: .codex, status: .signedIn, detail: name,
+                                     sources: [source] + (envKey.map { [DetectionSource.environment($0)] } ?? []))
+        case .missing(let name):
+            return login.status == .missing ? ProviderDetection(provider: .codex, status: .unknown, detail: name, sources: [source]) : login
+        }
+    }
+
     /// `auth.json` in the Codex home: ChatGPT tokens (handle from the
     /// workspace and user id claims, display from the plan claim; see
     /// ``CodexAccountIdentity``) or an API key. When the CLI keeps
     /// credentials in the Keychain (`cli_auth_credentials_store = "keyring"`
     /// in config.toml), only the item's presence is checked.
-    func detectCodex() -> ProviderDetection {
+    func detectCodexLogin() -> ProviderDetection {
         let file = codexHome.appendingPathComponent("auth.json")
         let source = DetectionSource.file(environment.display(file))
+        // In keyring mode the Keychain item is the current sign-in, ahead of an `auth.json` left
+        // from file storage (Connect reads it first too).
+        let usesKeyring = codexUsesKeyring
+        if usesKeyring, environment.keychain.hasGenericPassword(service: Self.codexKeychainService) {
+            return ProviderDetection(provider: .codex, status: .signedIn, sources: [.keychain(Self.codexKeychainService)])
+        }
         guard environment.files.exists(file) else {
-            if codexUsesKeyring {
-                let found = environment.keychain.hasGenericPassword(service: Self.codexKeychainService)
-                return ProviderDetection(provider: .codex, status: found ? .signedIn : .missing,
-                                         sources: found ? [.keychain(Self.codexKeychainService)] : [])
-            }
-            return .missing(.codex)
+            return usesKeyring ? ProviderDetection(provider: .codex, status: .missing, sources: []) : .missing(.codex)
         }
         guard let root = environment.jsonObject(at: file) else {
             return ProviderDetection(provider: .codex, status: .unknown, sources: [source])
@@ -45,23 +68,35 @@ extension ProviderDetector {
 
     static let codexKeychainService = "Codex Auth"
 
-    /// Whether config.toml sets `cli_auth_credentials_store = "keyring"`.
+    /// Whether config.toml keeps credentials in the OS keychain (`keyring` or
+    /// Codex's `auto` mode when its platform store is selected).
     var codexUsesKeyring: Bool {
         let config = codexHome.appendingPathComponent("config.toml")
         guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return false }
         return text.split(whereSeparator: \.isNewline).contains { line in
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             return parts.count == 2 && parts[0] == "cli_auth_credentials_store"
-                && parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) == "keyring"
+                && ["keyring", "auto"].contains(parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")))
         }
     }
 
-    /// Claude Code: `$CLAUDE_CODE_OAUTH_TOKEN`, the `.credentials.json`
-    /// file (Linux layout, also used when the Keychain is unavailable),
-    /// or the macOS Keychain item `Claude Code-credentials`. The account
-    /// label comes from `oauthAccount.emailAddress` in `.claude.json`.
+    /// Claude Code: its own sign-in when that works; else a key, gateway
+    /// token or cloud switch Claude Code reads
+    /// (``detectClaudeConfigured(configDir:)``), so an empty or expired
+    /// `.credentials.json` does not hide a working gateway; else the
+    /// sign-in's own result (expired, unknown or missing).
     func detectClaudeCode() -> ProviderDetection {
         let configDir = environment.directory("CLAUDE_CONFIG_DIR", fallback: ".claude")
+        let login = detectClaudeLogin(configDir: configDir)
+        if let login, login.status == .signedIn { return login }
+        return detectClaudeConfigured(configDir: configDir) ?? login ?? .missing(.claude)
+    }
+
+    /// `$CLAUDE_CODE_OAUTH_TOKEN`, the `.credentials.json` file (Linux
+    /// layout, also used when the Keychain is unavailable), or the macOS
+    /// Keychain item `Claude Code-credentials`. The account label comes
+    /// from `oauthAccount.emailAddress` in `.claude.json`.
+    private func detectClaudeLogin(configDir: URL) -> ProviderDetection? {
         let identity = claudeIdentity(configDir: configDir)
         if environment.value("CLAUDE_CODE_OAUTH_TOKEN") != nil {
             return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
@@ -83,7 +118,7 @@ extension ProviderDetector {
             return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
                                      sources: [.keychain(Self.claudeKeychainService)])
         }
-        return .missing(.claude)
+        return nil
     }
 
     static let claudeKeychainService = "Claude Code-credentials"

@@ -78,7 +78,7 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
         # 8822e0897f27 (cx-034r) deleted the agent-chat unit tests; the step runs the behavior tests.
         "Run agent-chat tests",
     ]
-    assert all(step["if"] == "${{ matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
+    assert all(step["if"] == "${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
     assert chat_steps[0]["run"].splitlines() == [
         "bun install --frozen-lockfile",
         "./node_modules/.bin/tsc --noEmit",
@@ -97,7 +97,7 @@ def test_python_syntax_check_uses_the_cheap_quality_lane() -> None:
         for step in workflow["jobs"]["workflow-guard-tests"]["steps"]
         if step.get("name") == "Validate Python test harness syntax"
     )
-    assert step["if"] == "${{ matrix.group == 'quality-determinism' }}"
+    assert step["if"] == "${{ !cancelled() && matrix.group == 'quality-determinism' }}"
 def test_ci_group_has_one_authoritative_dag_owner() -> None:
     workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["workflow-guard-tests"]
@@ -118,6 +118,18 @@ def test_ci_group_has_one_authoritative_dag_owner() -> None:
     assert "fast-guards" in ci["jobs"]["ci-status"]["needs"]
     assert "fast-guards" in ci["jobs"]["ci-timing"]["needs"]
     assert ci["jobs"]["guards"]["permissions"] == {"contents": "read"}
+
+
+def test_a_red_guard_does_not_skip_the_rest_of_its_group() -> None:
+    # A step's default condition is success(): one red guard skipped every
+    # later guard of its group, so a run named one failure and hid the rest
+    # (cmux#22135: one release-notary failure hid 47 of its 65 guards).
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["workflow-guard-tests"]["steps"]
+    grouped = [step for step in steps if "matrix.group" in str(step.get("if", ""))]
+    assert len(grouped) > 100
+    stops = [step["name"] for step in grouped if not str(step["if"]).startswith("${{ !cancelled() && ")]
+    assert stops == [], f"these guard steps stop at the first red guard: {stops[:5]}"
 
 
 if __name__ == "__main__":

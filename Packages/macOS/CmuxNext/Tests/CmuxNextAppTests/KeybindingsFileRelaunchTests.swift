@@ -12,7 +12,10 @@ import Testing
 /// The shared conformance vectors (`schemas/keybindings/keybinding-vectors.json`,
 /// R59) run through keybindings.json: each vector's entries and removals
 /// are written to the file the daemon watches, and once the app loaded
-/// them its binding table resolves the vector's keys as the file says.
+/// them its binding table resolves the vector's keys as the file says. A
+/// vector that expects a refusal (a bare first key outside a bare-key page,
+/// K1) loads none of its entries: the daemon leaves them out of the file's
+/// entries and the app's loader refuses them too.
 ///
 /// A rebind the Keyboard Shortcuts page makes that cmux.json cannot hold
 /// (three keys) goes to keybindings.json through the real daemon
@@ -54,16 +57,16 @@ struct KeybindingsFileRelaunchTests {
             provider = KeybindingsPageProvider(services: services)
         }
 
-        /// Waits (up to 60 s) until `condition` holds; test-only poll.
-        func wait(_ condition: () -> Bool) async {
-            let deadline = ContinuousClock.now + .seconds(60)
+        /// Waits (up to `limit`) until `condition` holds; test-only poll.
+        func wait(within limit: Duration = .seconds(60), _ condition: () -> Bool) async {
+            let deadline = ContinuousClock.now + limit
             while !condition(), ContinuousClock.now < deadline, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
 
         var connected: Bool {
-            services.machines.local.connection != nil && services.machines.local.supports(DaemonCapabilities.shared.keybindings)
+            services.machines.local.connection != nil && services.machines.local.supports(DaemonCapability.keybindings.rawValue)
         }
 
         func entries(_ command: ActionID, keys: [Shortcut]) -> [KeyBinding] {
@@ -144,6 +147,9 @@ struct KeybindingsFileRelaunchTests {
         for (index, row) in rows.enumerated() {
             let name = row["name"] as? String ?? "?"
             let bindings = row["bindings"] as? [[String: Any]] ?? []
+            let expect = row["expect"] as? [String: Any] ?? [:]
+            let refused = expect["refused"] as? Bool == true
+            let loaded = refused ? 0 : bindings.count
             let removals = (row["removals"] as? [[String: Any]] ?? []).map { entry in
                 entry.merging(["command": "-" + (entry["command"] as? String ?? "")]) { $1 }
             }
@@ -151,10 +157,26 @@ struct KeybindingsFileRelaunchTests {
             let mark = "vectorIndex == v\(index)"
             let marker: [String: Any] = ["key": "cmd+ctrl+opt+shift+0", "command": "toggleSidebar", "when": mark]
             try JSONSerialization.data(withJSONObject: bindings + removals + [marker]).write(to: file, options: .atomic)
-            await launch.wait {
+            // The marker shows the file loaded; a file normally loads in well under a second.
+            await launch.wait(within: .seconds(10)) {
                 let layers = launch.services.registry.keyBindingLayers
-                return layers.user.count == bindings.count + 1 && layers.removals.count == removals.count
-                    && layers.user.last?.when?.text == (try? WhenClause.parse(mark))?.text
+                return layers.user.last?.when?.text == (try? WhenClause.parse(mark))?.text && layers.removals.count == removals.count
+            }
+            let user = launch.services.registry.keyBindingLayers.user.count - 1
+            if user != loaded { results.append("\(name): the table has \(user) of the vector's entries, expected \(loaded)") }
+            // The app's loader refuses nothing the daemon passed: both apply the same rules.
+            let issues = launch.services.keybindingsFile.issues
+            if !issues.isEmpty { results.append("\(name): the app's loader refused \(issues)") }
+            if refused {
+                // The app's own check refuses the entries too (a cmux.json or app entry has no daemon in front).
+                for entry in bindings {
+                    guard let keys = KeybindingReports.keys(from: entry["key"] as? String ?? "") else { continue }
+                    let when = (entry["when"] as? String).flatMap { try? WhenClause.parse($0) }
+                    let binding = KeyBinding(keys: keys, command: ActionID(rawValue: entry["command"] as? String ?? ""), when: when, source: .user)
+                    if case .success = KeyBindingLoader(launch.services.registry).validated(binding) {
+                        results.append("\(name): the app's loader accepts \(entry)")
+                    }
+                }
             }
             let context = (row["context"] as? [String: Any] ?? [:]).compactMapValues { any -> KeyContextValue? in
                 if let flag = any as? Bool, CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID() { return .bool(flag) }
@@ -167,7 +189,6 @@ struct KeybindingsFileRelaunchTests {
                 results.append("\(name): keys do not parse")
                 continue
             }
-            let expect = row["expect"] as? [String: Any] ?? [:]
             let winner = object["winner"]?.objectValue
             let actual: Outcome = switch object["outcome"]?.stringValue {
             case "run": .action(winner?["command"]?.stringValue ?? "?", winner?["args"])
@@ -189,10 +210,8 @@ struct KeybindingsFileRelaunchTests {
             }
             if actual != expected { results.append("\(name): \(actual), expected \(expected)") }
         }
-        let issues = launch.services.keybindingsFile.issues
         await launch.quit()
         #expect(results.isEmpty, "\(results.joined(separator: "\n"))")
-        #expect(issues.isEmpty, "\(issues)")
     }
 
     /// A hand-written entry whose `when` is not in canonical form, removed

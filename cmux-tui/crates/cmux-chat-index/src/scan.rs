@@ -114,7 +114,7 @@ pub(crate) fn is_person_chat(entry: &ChatEntry) -> bool {
 }
 
 /// acpmux's model probes run in `<acpmux home>/unattended` (`protected_folders::unattended_cwd`:
-/// `~/.acpmux/unattended`, `~/.acpmux/tags/<tag>/unattended`, or `<temp>/acpmux-unattended`), a
+/// `~/.acpmux/unattended`, `~/.acpmux/builds/<key>/unattended`, or `<temp>/acpmux-unattended`), a
 /// folder no person works in.
 fn is_probe_session(entry: &ChatEntry) -> bool {
     let Some(cwd) = entry.cwd.as_deref() else { return false };

@@ -20,6 +20,7 @@ use crate::resource::{
     AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
 use crate::{CursorShape, DefaultColors, Rgb};
+use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
@@ -41,6 +42,9 @@ pub struct RegistryNotificationProjection {
     /// `extra.browser_id`: the content of the non-terminal tab it was
     /// posted on (an agent chat).
     pub browser_id: Option<BrowserPublicId>,
+    /// `extra.workspace_id`: the workspace of a terminal-less notification
+    /// (`cmux notify --workspace ws_…`).
+    pub workspace_id: Option<WorkspacePublicId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +65,7 @@ pub struct RegistryAgentProjection {
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
     let mut extra = json!({"agent": agent});
     if let Some(agent_session_id) = agent_session_id {
-        extra["agent_session_id"] = json!(agent_session_id);
+        extra.set("agent_session_id", json!(agent_session_id));
     }
     extra
 }
@@ -266,7 +270,7 @@ impl WorkspaceRegistry {
         Ok(agents)
     }
 
-    pub(super) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+    pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT public_id
@@ -364,6 +368,12 @@ impl WorkspaceRegistry {
                 .and_then(|extra| extra.get("browser_id"))
                 .and_then(Value::as_str)
                 .and_then(|id| BrowserPublicId::parse(id).ok());
+            let workspace_id = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("workspace_id"))
+                .and_then(Value::as_str)
+                .and_then(|id| WorkspacePublicId::parse(id.to_owned()).ok());
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             // A closed terminal's notification has no ring to restore.
@@ -383,6 +393,7 @@ impl WorkspaceRegistry {
                 read_by,
                 source,
                 browser_id,
+                workspace_id,
             });
         }
         notifications.reverse();
@@ -664,8 +675,8 @@ impl WorkspaceRegistry {
                     "frontend projection {subject_key} has invalid revision {projection_revision}"
                 );
                 anyhow::ensure!(
-                    payload.len() <= MAX_PROJECTION_BYTES,
-                    "frontend projection {subject_key} exceeds {MAX_PROJECTION_BYTES} bytes"
+                    payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+                    "frontend projection {subject_key} exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
                 );
                 let projection = serde_json::from_str(&payload).with_context(|| {
                     format!("frontend projection {subject_key} contains invalid JSON")

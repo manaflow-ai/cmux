@@ -1,8 +1,9 @@
 import type { AcpmuxRow } from "../model";
 import { dataUrlsOverBudget, footnoteOrder, inlineImages, parseMarkdown, type MdBlock } from "./Markdown";
 
-/// An image a reply drew inline (a data URL, as Markdown.tsx draws one), for the image viewer.
-export type ChatImage = { src: string; alt: string };
+/// An image a reply drew inline (a data URL, as Markdown.tsx draws one), for the image viewer;
+/// `path` is the file it was read from, when a reply named one (chips/ReplyImage.tsx).
+export type ChatImage = { src: string; alt: string; path?: string };
 
 /// Every inline image of the chat's replies, oldest first, each source once: exactly the images
 /// Markdown.tsx draws, read with its own block parser and inline pattern, so code is never an image.

@@ -75,7 +75,7 @@ final class TerminalStatusBanner: NSView {
     private func beginReveal() {
         guard let layer else { return }
         layer.add(Motion.hold("opacity", at: 0), forKey: Self.revealHoldKey)
-        layer.add(Motion.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
+        layer.add(Motion.overlays.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
                   forKey: Self.revealFadeKey)
     }
 
@@ -155,8 +155,11 @@ final class TerminalStatusBanner: NSView {
         case .reconnecting:
             return strings.text("terminal.link.stall.reconnecting", defaultValue: "Reconnecting to the shell…")
         case .linkLost:
-            let reason = strings.text("terminal.link.stall.linkLost", defaultValue: "Terminal stopped: cmux lost its link to the shell")
-            return "\(reason) · \(close)"
+            // The shell may still run and the daemon keeps retrying; the
+            // Recover button above the label rehosts it at once.
+            let reason = strings.text("terminal.link.stall.linkLostRetrying", defaultValue: "cmux lost its link to the shell")
+            let retrying = strings.text("terminal.link.stall.retryingHint", defaultValue: "Still retrying")
+            return "\(reason) · \(retrying)"
         case .otherBuild:
             let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: another cmux build owns its shell")
             return "\(reason) · \(close)"

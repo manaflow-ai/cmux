@@ -9,6 +9,8 @@ final class TabGroupBandCell {
     let lineLayer = CALayer()
     var color: GroupTint { didSet { if oldValue != color { updateColors() } } }
     var themeScope: ThemeScope = .app { didSet { updateColors() } }
+    /// The dragged tab set the band's end at the last frame write (`TabStripView.applyGroupFrames`).
+    var endFollowsDrag = false
 
     init(color: GroupTint) {
         self.color = color
@@ -17,6 +19,9 @@ final class TabGroupBandCell {
         lineLayer.actions = none
         washLayer.cornerCurve = .continuous
         lineLayer.cornerCurve = .continuous
+        // Anchored at the leading edge: a move of the start alone keeps the end (`pinsEnd`).
+        washLayer.anchorPoint = .zero
+        lineLayer.anchorPoint = .zero
         washLayer.zPosition = -1
         // Above lifted (dragged) tabs so a dragged group keeps its underline.
         lineLayer.zPosition = 12

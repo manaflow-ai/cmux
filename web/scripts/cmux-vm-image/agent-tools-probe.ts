@@ -30,7 +30,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_UNIT, WORK_USER_CMUX_JSON } from "./agent-tools";
+import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { CURRENT_BIN, sq } from "./lock";
 
@@ -186,6 +186,8 @@ export function staticCheckCommand(): string {
     `test "$(readlink ${AGENT_TOOLS_BIN}/cmux)" = ${CURRENT_BIN}/cmux-tui && echo cmux-link=ok`,
     `grep -q 'systemctl start ${CUA_UNIT}' ${AGENT_TOOLS_BIN}/cmux-cua && echo cua-wrapper=ok`,
     `for u in ${DISPLAY_UNIT} ${CUA_UNIT}; do echo "unit-$u=$(systemctl is-active $u)"; done`,
+    `for u in ${DISPLAY_TEMPLATE_UNIT} ${A11Y_TEMPLATE_UNIT}; do systemctl cat $u >/dev/null 2>&1 && echo "template-$u=ok"; done`,
+    `for u in ${DISPLAY_TEMPLATE_UNIT.replace("@", "@1")} ${A11Y_TEMPLATE_UNIT.replace("@", "@1")}; do echo "unit-$u=$(systemctl is-active $u)"; done`,
     `echo "mcp-enabled=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mcp"]["enabled"])' ${WORK_USER_CMUX_JSON})"`,
     `p=$(pgrep -f 'cmux-tui server [s]tart' | head -1); tr '\\0' '\\n' < /proc/$p/environ | grep -E '^CMUX_(AGENT_TOOLS_BIN_DIR|BROWSER_HOST_BIN|BROWSER_HOST_CHROMIUM)=' | sort | sed 's/^/env-/'`,
     `for v in CMUX_BROWSER_HOST_BIN CMUX_BROWSER_HOST_CHROMIUM; do f=$(tr '\\0' '\\n' < /proc/$p/environ | sed -n "s/^$v=//p"); test -x "$f" && echo "exists-$v=ok"; done`,
@@ -193,7 +195,7 @@ export function staticCheckCommand(): string {
   ].join("; ");
 }
 
-const kv = (text: string) => Object.fromEntries(text.split("\n").filter((l) => /^[a-zA-Z0-9_.-]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+const kv = (text: string) => Object.fromEntries(text.split("\n").filter((l) => /^[a-zA-Z0-9_.@-]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 
 export type Check = { ok: boolean; detail: string; status?: "UNVERIFIED" };
 export type ProbeResult = { checks: Record<string, Check>; timings: Record<string, number>; files: string[] };
@@ -239,6 +241,12 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   const s = kv((await run(vm, staticCheckCommand())).stdout);
   check("tool-dir", s["cmux-link"] === "ok" && s["cua-wrapper"] === "ok", JSON.stringify({ cmux: s["cmux-link"], wrapper: s["cua-wrapper"] }));
   check("display-and-cua-off-until-asked", s[`unit-${DISPLAY_UNIT}`] === "inactive" && s[`unit-${CUA_UNIT}`] === "inactive", `${s[`unit-${DISPLAY_UNIT}`]} ${s[`unit-${CUA_UNIT}`]}`);
+  const instances = [DISPLAY_TEMPLATE_UNIT, A11Y_TEMPLATE_UNIT].map((u) => u.replace("@", "@1"));
+  check(
+    "per-display-templates-off",
+    s[`template-${DISPLAY_TEMPLATE_UNIT}`] === "ok" && s[`template-${A11Y_TEMPLATE_UNIT}`] === "ok" && instances.every((u) => s[`unit-${u}`] === "inactive"),
+    instances.map((u) => `${u}=${s[`unit-${u}`]}`).join(" "),
+  );
   check("mcp-enabled", s["mcp-enabled"] === "True", `cmux.json mcp.enabled=${s["mcp-enabled"]}`);
   check("daemon-env", s["env-CMUX_AGENT_TOOLS_BIN_DIR"] === AGENT_TOOLS_BIN && s["exists-CMUX_BROWSER_HOST_BIN"] === "ok" && s["exists-CMUX_BROWSER_HOST_CHROMIUM"] === "ok", JSON.stringify({ bin: s["env-CMUX_AGENT_TOOLS_BIN_DIR"], host: s["exists-CMUX_BROWSER_HOST_BIN"], chrome: s["exists-CMUX_BROWSER_HOST_CHROMIUM"] }));
   result.checks.version = { ok: true, detail: s.version ?? "" };
@@ -261,7 +269,7 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder PATH=${RECORDER_DIR}:$PATH`,
     `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n recorder --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/recorder-new.txt 2>&1`,
     `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send recorder hello; echo "exit $?"; } > ${PROBE_DIR}/recorder-send.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
+    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
   ].join("\n");
   result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180);
   let text = "";

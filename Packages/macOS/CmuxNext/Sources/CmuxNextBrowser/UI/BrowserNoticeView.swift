@@ -21,7 +21,7 @@ final class BrowserNoticeView: NSView {
     }()
     /// Set while the close animation runs; a new notice then gets a new view.
     var isDismissing = false
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private let density = DensityBinding()
     /// The card's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
@@ -32,7 +32,7 @@ final class BrowserNoticeView: NSView {
         label.lineBreakMode = .byTruncatingTail
         // The pill fits its text; only a narrow page truncates it (cx-whr7).
         label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let close = ChromeIconButton(icon: .actionClose, label: Strings.dismissNotice, action: #selector(close), target: self)
+        let close = ChromeIconButton(icon: .browserToolbarClose, label: Strings.dismissNotice, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [label, actionButton, close])
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -94,7 +94,7 @@ final class BrowserNoticeView: NSView {
     var layoutReport: [String] {
         var rows: [String] = []
         func visit(_ view: NSView, _ depth: Int) {
-            let text = (view as? NSTextField).map { " \"\($0.stringValue)\" intrinsic=\($0.intrinsicContentSize.width)" } ?? ""
+            let text = (view as? any ShownText).map { " \"\($0.stringValue)\" intrinsic=\($0.intrinsicContentSize.width)" } ?? ""
             rows.append(String(repeating: " ", count: depth) + "\(type(of: view)) \(view.frame)\(view.isHidden ? " hidden" : "")\(text)")
             view.subviews.forEach { visit($0, depth + 1) }
         }

@@ -18,6 +18,7 @@ Ends with quitEndSessions, then the scratch Chief's acpmux, router and owner.
 
 Exit: 0 all passed; 1 the brain did not start again; 2 no reply; 3 the CLI error.
 Usage: chief-brain-restart-live.py --tag TAG --app APP [--deadline 120] [--reply-wait 240] [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, shutil, socket, subprocess, sys, tempfile, time
 
@@ -28,6 +29,11 @@ ap.add_argument("--deadline", type=float, default=120)
 ap.add_argument("--reply-wait", type=float, default=240)
 ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = ap.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-brain-restart-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG, APP = opts.tag, opts.app
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -119,7 +125,7 @@ def end(app):
     acpmux_home = os.path.join(HOME_DIR, "acpmux")
     env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
     env.update({"ACPMUX_HOME": acpmux_home})
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env=env, capture_output=True, timeout=30)
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=env, capture_output=True, timeout=30)
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(5)

@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -51,6 +52,31 @@ struct WorkspaceLayoutRefs {
     /// bare id from an older prototype layout.
     func activationID(for ref: LayoutItemRef) -> String? {
         workspaceID(for: ref) ?? (Self.split(ref.value) == nil ? ref.value : nil)
+    }
+
+    /// Whether the workspace a layout ref `value` names belongs to a window
+    /// other than `windowID` (open or closed): that window's band leaves it
+    /// out (`SidebarLayoutDocument.scopedToWindow`). A closed workspace or
+    /// another device's belongs to no window here and stays.
+    func ownedElsewhere(_ value: String, window windowID: String, registry: WindowRegistry) -> Bool {
+        guard let id = workspaceID(for: .workspace(value)), let owner = registry.owner(of: id) else { return false }
+        return owner != windowID
+    }
+
+    /// Whether a window other than `windowID` lists the open workspace a document ref names
+    /// (`SidebarDocDrag.listedElsewhere`): not while its close runs, nor before a window owns it. Ownership and
+    /// closes are read at the call; the ref to id index is built once, at the first call (O(1) per member after it).
+    func listedElsewhere(window windowID: String, registry: WindowRegistryStore) -> (SidebarDocWorkspaceRef) -> Bool {
+        var index: [SidebarDocWorkspaceRef: String]?
+        let machines = machines
+        return { ref in
+            let ids = index ?? Dictionary(machines.daemons.flatMap { daemon in
+                daemon.store.workspaces.compactMap { w in SidebarDocSections.ref(of: w, session: daemon.store.registryID).map { ($0, w.id) } }
+            }, uniquingKeysWith: { first, _ in first })
+            index = ids
+            guard let id = ids[ref], !ClosingWorkspaces.shared.ids.contains(id), let owner = registry.value.owner(of: id) else { return false }
+            return owner != windowID
+        }
     }
 
     /// Sidebar ids of the workspaces the top region shows in `room` (tiles

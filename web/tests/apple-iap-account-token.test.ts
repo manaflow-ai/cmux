@@ -30,10 +30,22 @@ describe("account token eligibility", () => {
     const response = await appleAccountTokenResponse(user, app("com.cmux.app"), deps());
     expect(response).toMatchObject({ eligible: true, reason: null, currentPlan: { planId: "free", source: "none" } });
     expect(response.products).toEqual([
-      { productId: "com.cmux.app.go.monthly", planId: "go" },
-      { productId: "com.cmux.app.pro.monthly", planId: "pro" },
-      { productId: "com.cmux.app.max.monthly", planId: "max" },
+      { productId: "com.cmux.app.go.monthly", planId: "go", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.pro.monthly", planId: "pro", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.max.monthly", planId: "max", billingPeriod: "monthly" },
     ]);
+    // An app that sends `x-cmux-billing-periods: monthly,yearly` also gets the
+    // yearly Pro and Max products; Go stays monthly like the web.
+    const periods = accountToken.requestedBillingPeriods("monthly,yearly");
+    const both = await appleAccountTokenResponse(user, { ...app("com.cmux.app"), billingPeriods: periods }, deps());
+    expect(both.products).toEqual([
+      { productId: "com.cmux.app.go.monthly", planId: "go", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.pro.monthly", planId: "pro", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.pro.yearly", planId: "pro", billingPeriod: "yearly" },
+      { productId: "com.cmux.app.max.monthly", planId: "max", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.max.yearly", planId: "max", billingPeriod: "yearly" },
+    ]);
+    expect(accountToken.requestedBillingPeriods(null)).toEqual(["monthly"]);
     const noGo = await appleAccountTokenResponse(user, app("dev.cmux.app.beta"), deps({ goPlanEnabled: async () => false }));
     expect(noGo.products.map((product) => product.productId)).toEqual(["dev.cmux.app.beta.pro.monthly", "dev.cmux.app.beta.max.monthly"]);
   });
@@ -78,12 +90,22 @@ describe("account token eligibility", () => {
       expect(response.products).toHaveLength(3);
     });
 
-    test("the App Store app sells in Production and to App Review in the Sandbox", async () => {
+    test("the App Store app sells in Production, and in the Sandbox only to allowlisted accounts", async () => {
+      const env = { ...production, APPLE_IAP_SANDBOX_ACCOUNT_EMAILS: "review@example.com" };
+      const reviewer = { ...user, primaryEmail: "Review@example.com", primaryEmailVerified: true };
       for (const environment of ["Production", "Sandbox", null] as const) {
-        const response = await appleAccountTokenResponse(user, app("com.cmux.app", environment), deps({ env: production }));
+        const response = await appleAccountTokenResponse(reviewer, app("com.cmux.app", environment), deps({ env }));
         expect(response).toMatchObject({ eligible: true, reason: null });
         expect(response.products).toHaveLength(3);
       }
+      const tester = { ...user, primaryEmail: "tester@example.com", primaryEmailVerified: true };
+      expect(await appleAccountTokenResponse(tester, app("com.cmux.app", "Sandbox"), deps({ env })))
+        .toMatchObject(unavailable);
+      expect(await appleAccountTokenResponse(tester, app("com.cmux.app", "Production"), deps({ env })))
+        .toMatchObject({ eligible: true, reason: null });
+      // An unverified address could be anyone's.
+      expect(await appleAccountTokenResponse({ ...reviewer, primaryEmailVerified: false }, app("com.cmux.app", "Sandbox"), deps({ env })))
+        .toMatchObject(unavailable);
     });
 
     test("other deployments sell to every Sandbox build", async () => {

@@ -110,5 +110,54 @@ class ReplayTimes(unittest.TestCase):
         self.assertEqual(outside.stat().st_mtime_ns, BUILD_TIME_NS)
 
 
+class TrackedWorkspace(unittest.TestCase):
+    """In a git checkout only tracked files are inputs, and build trees are never walked."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.repo = self.root / "repo"
+        (self.repo / "Sources").mkdir(parents=True)
+        (self.repo / "Sources/App.swift").write_text("let app = 1\n")
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
+        # A restored build tree: untracked, and large on a real runner.
+        (self.repo / "Package/.build/debug").mkdir(parents=True)
+        (self.repo / "Package/.build/debug/App.o").write_text("object")
+
+    def test_untracked_build_trees_are_not_walked(self):
+        visited = []
+        real_walk = os.walk
+
+        def walk(top, *args, **kwargs):
+            for entry in real_walk(top, *args, **kwargs):
+                visited.append(Path(entry[0]).relative_to(self.repo).as_posix())
+                yield entry
+
+        warm.os.walk = walk
+        try:
+            recorded = warm.record(self.repo)
+            warm.replay(self.repo, recorded)
+        finally:
+            warm.os.walk = real_walk
+        self.assertIn("Sources/App.swift", recorded)
+        self.assertFalse([path for path in visited if path.startswith("Package")], visited)
+
+    def test_replay_refuses_a_workspace_it_cannot_list(self):
+        """Outside a git checkout every file would be an input, build products included:
+        the command line refuses rather than stamping old times onto them."""
+        plain = self.root / "plain"
+        (plain / ".build").mkdir(parents=True)
+        product = plain / ".build/App.o"
+        product.write_text("object")
+        os.utime(product, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        manifest = self.root / "manifest.json"
+        manifest.write_text('{".build/App.o": ["%s", 1]}' % warm.digest(product))
+        script = Path(__file__).resolve().parents[1] / "scripts/ci/e2e_warm_derived_data.py"
+        result = subprocess.run([sys.executable, "-I", str(script), "replay", str(plain), str(manifest)],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(product.stat().st_mtime_ns, BUILD_TIME_NS)
+
+
 if __name__ == "__main__":
     unittest.main()

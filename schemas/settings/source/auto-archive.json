@@ -1,0 +1,113 @@
+{
+  "$comment": "HAND-EDITED source of the Auto-Archive settings (plans/cmux-next/auto-archive-DESIGN.md): how idle workspaces leave the way. gen-settings-sources.py writes the Swift descriptors and parser constants (AutoArchiveSettings parses them). Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "autoArchive",
+      "section": "general",
+      "group": {
+        "key": "settings.group.autoArchive",
+        "text": "Auto-Archive"
+      },
+      "note": "Settings > General > Auto-Archive. AutoArchiveCoordinator (CmuxNextApp) reads both rows; a group's own rule (Auto-Archive in its right-click menu, extra.auto_archive) wins over idleDays.",
+      "rows": [
+        {
+          "key": "workspaces.autoArchive.style",
+          "name": "style",
+          "note": "suggest by default (Lawrence 12659 asked for variations; Chief picked suggest-first so nothing leaves the sidebar without a click). quiet archives on its own with an Undo toast; groups only archives in groups that set their own rule; manual only archives on Archive Idle Workspaces; off never.",
+          "title": {
+            "key": "settings.autoArchive.style",
+            "text": "Idle Workspaces"
+          },
+          "help": {
+            "key": "settings.autoArchive.style.help",
+            "text": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "suggest",
+              "title": {
+                "key": "settings.choice.autoArchiveSuggest",
+                "text": "Suggest Archiving"
+              },
+              "note": "A sidebar card lists the idle workspaces; Archive archives them, Not Now waits a day."
+            },
+            {
+              "value": "quiet",
+              "title": {
+                "key": "settings.choice.autoArchiveQuiet",
+                "text": "Archive Automatically"
+              },
+              "note": "Idle workspaces archive on their own; a toast says how many, with Undo."
+            },
+            {
+              "value": "groups",
+              "title": {
+                "key": "settings.choice.autoArchiveGroups",
+                "text": "Only in Groups With a Rule"
+              },
+              "note": "Only members of groups whose Auto-Archive is set archive on their own (with Undo); everything else stays."
+            },
+            {
+              "value": "manual",
+              "title": {
+                "key": "settings.choice.autoArchiveManual",
+                "text": "Only When I Tidy"
+              },
+              "note": "Nothing runs in the background; Archive Idle Workspaces (palette, sidebar menu) archives them at once."
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.autoArchiveOff",
+                "text": "Never"
+              },
+              "note": "No card, no automatic archive; group rules are ignored. Archive Idle Workspaces still works."
+            }
+          ],
+          "default": "suggest",
+          "keywords": [
+            "archive",
+            "auto archive",
+            "idle",
+            "old",
+            "stale",
+            "tidy",
+            "clean up",
+            "declutter",
+            "workspaces",
+            "sidebar"
+          ]
+        },
+        {
+          "key": "workspaces.autoArchive.idleDays",
+          "name": "idleDays",
+          "note": "Days since the workspace was last shown, typed in or printed output, or its agent spoke. 3 days: a long weekend away does not count as done. A group's own rule wins.",
+          "title": {
+            "key": "settings.autoArchive.idleDays",
+            "text": "Idle For"
+          },
+          "help": {
+            "key": "settings.autoArchive.idleDays.help",
+            "text": "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 365,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 3,
+          "keywords": [
+            "archive",
+            "idle",
+            "days",
+            "age",
+            "old"
+          ]
+        }
+      ]
+    }
+  ]
+}

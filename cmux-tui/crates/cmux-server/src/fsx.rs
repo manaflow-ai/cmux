@@ -2,7 +2,7 @@
 //! symlink swap behind every `current` flip, read-only package trees and
 //! their removal.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -11,6 +11,24 @@ use cmux_server_core::HostPath;
 
 use crate::error::{IoContext, Result};
 use crate::sys;
+
+/// An acquired exclusive lock. Explicitly unlock before closing: a concurrent
+/// fork can inherit the descriptor until exec, keeping a close-only lock alive.
+#[derive(Debug)]
+pub(crate) struct FileLock(File);
+
+impl FileLock {
+    pub(crate) fn try_acquire(file: File) -> std::result::Result<Self, TryLockError> {
+        file.try_lock()?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
 
 /// A core `HostPath` as a local path.
 pub fn local(path: &HostPath) -> PathBuf {

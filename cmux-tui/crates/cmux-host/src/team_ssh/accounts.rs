@@ -130,7 +130,8 @@ pub fn verify(view: &View) -> Result<(Vec<WantedUser>, Vec<String>), String> {
     let (mut good, mut refused) = (Vec::new(), Vec::new());
     for u in &view.users {
         let problem = row_problem(u).or_else(|| {
-            (names[u.user.as_str()] > 1 || uids[&u.uid] > 1)
+            let twice = |count: Option<&usize>| count.is_some_and(|&n| n > 1);
+            (twice(names.get(u.user.as_str())) || twice(uids.get(&u.uid)))
                 .then(|| format!("name or uid {} is listed twice", u.uid))
         });
         match problem {

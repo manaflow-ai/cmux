@@ -242,10 +242,10 @@ describe("the account-wide Freestyle TLS rule cap", () => {
   });
 
   test("FREESTYLE_TLS_RULE_LIMIT accepts only a positive whole number", () => {
-    expect(freestyleTlsRuleLimit({})).toBe(2000);
+    expect(freestyleTlsRuleLimit({})).toBe(200_000);
     expect(freestyleTlsRuleLimit({ FREESTYLE_TLS_RULE_LIMIT: "5000" })).toBe(5000);
     for (const value of ["2,000", "2000abc", "-5", "0", "1e3", "12.5"]) {
-      expect(freestyleTlsRuleLimit({ FREESTYLE_TLS_RULE_LIMIT: value })).toBe(2000);
+      expect(freestyleTlsRuleLimit({ FREESTYLE_TLS_RULE_LIMIT: value })).toBe(200_000);
     }
   });
 

@@ -31,7 +31,7 @@ extension BrowserPageService {
             if !args.isEmpty { params["args"] = .object(args) }
             let request = ControlRequest(id: call.request.id, method: call.method, params: params)
             let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
-                                                             deadline: call.deadline, progress: call.progress))
+                                                             deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             var result = Self.base(tab)
             for key in ["ran", "waited", "created"] { result.updateValue(run[key] ?? .null, forKey: key) }
             if let sequence = run["sequence"] { result["sequence"] = sequence }

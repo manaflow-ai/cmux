@@ -10,6 +10,7 @@ import {
   UNSUPPORTED,
   type Binding,
   type BindingListResult,
+  type ConflictsResult,
   type RecordedEvent,
   type RemoveParams,
   type ResetParams,
@@ -28,6 +29,8 @@ export interface MockLayers {
   base: Array<MockEntry & { source: "default" | "app" }>;
   user: MockEntry[];
   removals: Array<Pick<MockEntry, "command" | "key" | "when">>;
+  /** Commands cmux.json unbinds (`shortcuts.bindings.<id>: null`): no default keys, one unset row. */
+  unbound?: string[];
 }
 
 export interface MockCall {
@@ -92,6 +95,8 @@ export class MockKeybindingsProvider implements PageClient {
   private readonly handlers = new Map<string, PageHandler>();
   private seq = 0;
   private strokesSoFar: string[] = [];
+  /** A stroke was recorded and its keys are not all up yet. */
+  private awaitingRelease = false;
   private detachDom?: () => void;
 
   constructor(
@@ -113,11 +118,15 @@ export class MockKeybindingsProvider implements PageClient {
         this.write(() => this.set(params as SetParams));
         return {} as R;
       case KeybindingOps.remove:
+        // A keybindings.json remove goes through the home daemon: a test can make it wait.
+        if (this.removeGate) await this.removeGate;
         this.write(() => this.remove(params as RemoveParams));
         return {} as R;
       case KeybindingOps.reset:
         this.write(() => this.reset(params as ResetParams));
         return {} as R;
+      case KeybindingOps.conflicts:
+        return this.conflicts(params as { command: string; key: string; when?: string | null }) as R;
       case KeybindingOps.recordStart:
         this.startRecording();
         return {} as R;
@@ -158,6 +167,7 @@ export class MockKeybindingsProvider implements PageClient {
   press(stroke: string): void {
     if (!this.recording) return;
     this.strokesSoFar.push(stroke.toLowerCase());
+    this.awaitingRelease = true;
     const done = this.strokesSoFar.length >= MAX_STROKES;
     this.emitRecorded(done, false);
   }
@@ -177,9 +187,23 @@ export class MockKeybindingsProvider implements PageClient {
     for (const listener of this.changed) listener({}, ++this.seq);
   }
 
-  private emitRecorded(done: boolean, cancelled: boolean): void {
+  /** The dispatcher saw the held modifiers change ("⇧⌘"; "" when none are held). */
+  hold(held: string): void {
+    if (this.recording) this.emitRecorded(false, false, held);
+  }
+
+  /** The dispatcher saw every key of the last stroke go up. */
+  release(): void {
+    if (!this.recording || !this.awaitingRelease) return;
+    this.awaitingRelease = false;
+    this.emitRecorded(false, false, "", true);
+    // As the app: every key up ends the shortcut; the next stroke starts a new one.
+    this.strokesSoFar = [];
+  }
+
+  private emitRecorded(done: boolean, cancelled: boolean, held = "", released = false): void {
     const key = this.strokesSoFar.join(" ");
-    const event: RecordedEvent = { key, display: displayFor(key), done, cancelled };
+    const event: RecordedEvent = { key, display: displayFor(key), done, cancelled, held, released };
     if (done || cancelled) this.stopRecording();
     for (const listener of this.recorded) listener(event, ++this.seq);
   }
@@ -192,15 +216,25 @@ export class MockKeybindingsProvider implements PageClient {
       const onKey = (event: KeyboardEvent) => {
         event.preventDefault();
         event.stopPropagation();
-        if (event.key === "Escape") this.cancel();
+        if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) this.hold(heldFor(event));
+        else if (event.key === "Escape") this.cancel();
         else if (event.key === "Enter" && this.strokesSoFar.length) this.finish();
         else {
           const stroke = strokeFor(event);
           if (stroke) this.press(stroke);
         }
       };
+      const onKeyUp = (event: KeyboardEvent) => {
+        const held = heldFor(event);
+        if (!held) this.release();
+        else if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) this.hold(held);
+      };
       window.addEventListener("keydown", onKey, true);
-      this.detachDom = () => window.removeEventListener("keydown", onKey, true);
+      window.addEventListener("keyup", onKeyUp, true);
+      this.detachDom = () => {
+        window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("keyup", onKeyUp, true);
+      };
     }
   }
 
@@ -217,6 +251,16 @@ export class MockKeybindingsProvider implements PageClient {
   }
 
   private set(params: SetParams): void {
+    // As the app (KeybindingPageWrites.verdict): another action's keys in the same place are a
+    // refusal (Overwrite takes them from it first).
+    const taken = this.active().some(
+      (entry) =>
+        entry.command !== params.command &&
+        normalized(entry.key) === normalized(params.key) &&
+        (entry.when ?? null) === (params.when ?? null),
+    );
+    if (taken) throw pageError("cmux.keybindings.conflict", "another action has these keys");
+    // An unbound command stays unbound: its new key is a cmux.json override, the defaults stay out.
     if (params.replaces) {
       this.removeEntry({ command: params.command, key: params.replaces.key, when: params.replaces.when });
     }
@@ -225,8 +269,24 @@ export class MockKeybindingsProvider implements PageClient {
     this.layers.user.push(entry);
   }
 
+  /** The command's only active key: cmux.json unbinds the action (KeybindingPageWrites.remove). */
   private remove(params: RemoveParams): void {
-    this.removeEntry(params);
+    const others = this.active().filter((entry) => entry.command === params.command && !sameEntry(entry, params));
+    if (others.length > 0) {
+      this.removeEntry(params);
+      return;
+    }
+    this.layers.user = this.layers.user.filter((entry) => entry.command !== params.command);
+    this.layers.unbound = [...(this.layers.unbound ?? []), params.command];
+  }
+
+  /** The entries that run: defaults and app entries not removed or unbound, then user entries. */
+  private active(): MockEntry[] {
+    const unbound = new Set(this.layers.unbound);
+    const base = this.layers.base.filter(
+      (entry) => !unbound.has(entry.command) && !this.layers.removals.some((removal) => sameEntry(removal, entry)),
+    );
+    return [...base, ...this.layers.user];
   }
 
   /** A user entry is deleted; a default or app entry gets a removal. */
@@ -243,34 +303,75 @@ export class MockKeybindingsProvider implements PageClient {
   private reset(params: ResetParams): void {
     this.layers.user = this.layers.user.filter((entry) => entry.command !== params.command);
     this.layers.removals = this.layers.removals.filter((entry) => entry.command !== params.command);
+    this.layers.unbound = this.layers.unbound?.filter((command) => command !== params.command);
   }
 
   private list(): BindingListResult {
     const rows: Array<Omit<Binding, "id" | "conflicts">> = [];
+    const unbound = new Set(this.layers.unbound);
     for (const entry of this.layers.base) {
+      if (unbound.has(entry.command)) continue;
       const removed = this.layers.removals.some((removal) => sameEntry(removal, entry));
       rows.push({ ...this.row(entry), source: entry.source, ...(removed ? { removed: true } : {}) });
     }
     for (const entry of this.layers.user) rows.push({ ...this.row(entry), source: "user" });
+    for (const command of unbound) {
+      if (rows.some((row) => row.command === command && !row.removed)) continue;
+      const title = this.titles[command] ?? command;
+      rows.push({ key: "", display: "", command, title, when: null, source: "user", unset: true });
+    }
     const bindings: Binding[] = rows.map((row, id) => ({
       ...row,
       id,
       conflicts: [],
       ...(!row.removed && this.heldElsewhere.has(row.command) ? { heldElsewhere: true } : {}),
     }));
+    // As the app: two actions whose `when` can hold at once, one of them not a shipped default.
     for (const a of bindings) {
-      if (a.removed) continue;
+      if (a.removed || a.unset) continue;
       a.conflicts = bindings
         .filter(
           (b) =>
             b.id !== a.id &&
+            b.command !== a.command &&
+            !(a.source === "default" && b.source === "default") &&
             !b.removed &&
+            !b.unset &&
             normalized(b.key) === normalized(a.key) &&
-            (a.when === null || b.when === null || a.when === b.when),
+            whenOverlaps(a.when, b.when),
         )
         .map((b) => b.id);
     }
     return { bindings };
+  }
+
+  /** Set to hold every remove until it resolves (a slow keybindings.json write). */
+  removeGate?: Promise<void>;
+
+  /** Keys the mock refuses for any other action, as the app refuses a key another action always
+   *  runs (`refused`: key -> that action's title). */
+  refused = new Map<string, string>();
+
+  /** `cmux.keybindings.conflicts`: the active entries of other commands new keys would take, and
+   *  the refusal of the keys. */
+  private conflicts(params: { command: string; key: string; when?: string | null }): ConflictsResult {
+    const { bindings } = this.list();
+    const owner = this.refused.get(normalized(params.key));
+    const taken = bindings.filter(
+      (b) =>
+        !b.removed &&
+        !b.unset &&
+        b.command !== params.command &&
+        normalized(b.key) === normalized(params.key) &&
+        whenOverlaps(b.when, params.when ?? null),
+    );
+    return {
+      ...(owner
+        ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.`, owner }
+        : {}),
+      // As the app (`WhenClause.implies`): the new keys' `when` holds wherever the entry runs.
+      bindings: taken.map((b) => ({ ...b, takesAll: (params.when ?? null) === null || b.when === params.when })),
+    };
   }
 
   private row(entry: MockEntry): Omit<Binding, "id" | "conflicts" | "source"> {
@@ -284,6 +385,26 @@ export class MockKeybindingsProvider implements PageClient {
     if (entry.args) row.args = entry.args;
     return row;
   }
+}
+
+/** Whether two `when` texts can hold at once (the app's `WhenClause.canOverlap`, read simply: no
+ *  condition on either side, or the same one). */
+function whenOverlaps(a: string | null, b: string | null): boolean {
+  return a === null || b === null || a === b;
+}
+
+/** The held modifiers of a key event as glyphs (⌃⌥⇧⌘), for the dev loop's stand-in dispatcher. */
+function heldFor(event: KeyboardEvent): string {
+  const held: Array<[boolean, string]> = [
+    [event.ctrlKey, "⌃"],
+    [event.altKey, "⌥"],
+    [event.shiftKey, "⇧"],
+    [event.metaKey, "⌘"],
+  ];
+  return held
+    .filter(([down]) => down)
+    .map(([, glyph]) => glyph)
+    .join("");
 }
 
 /** A key event as one stroke, for the dev loop's stand-in dispatcher. */
@@ -323,7 +444,7 @@ export const SAMPLE_TITLES: Record<string, string> = {
 };
 
 /** Sample layers for the dev loop and tests: chords, an app entry, a user entry, a removed
- *  default, and two conflicts. */
+ *  default, an action whose keys were removed, and two conflicts. */
 export function sampleLayers(): MockLayers {
   return {
     base: [
@@ -347,5 +468,6 @@ export function sampleLayers(): MockLayers {
       { command: "split.down", key: "cmd+k cmd+d", when: null },
     ],
     removals: [{ command: "split.down", key: "cmd+shift+d", when: null }],
+    unbound: ["workspace.new"],
   };
 }

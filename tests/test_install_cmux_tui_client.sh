@@ -120,7 +120,7 @@ cat > "$SERVE/manifest.json" <<JSON
 JSON
 cat > "$FAKEBIN/curl" <<SH
 #!/bin/bash
-url=""; out=""
+url=""; out=""; args="\$*"
 while [ \$# -gt 0 ]; do
   case "\$1" in
     -o) out="\$2"; shift ;;
@@ -128,12 +128,50 @@ while [ \$# -gt 0 ]; do
   esac
   shift
 done
+# The published Sigstore bundle (cmux-tui-attestations/) is logged to its own
+# file, so the ordering checks below read only the manifest and slices. It is
+# served only when a case put it in \$SERVE; otherwise it answers like a 404.
+if [[ "\$url" == */cmux-tui-attestations/* ]]; then
+  printf 'bundle %s\n' "\$url" >> "$EVENTS.bundle"
+  [[ -f "$SERVE/\$(basename "\$url")" ]] || exit 22
+  cp "$SERVE/\$(basename "\$url")" "\$out"
+  exit 0
+fi
 printf 'curl %s\n' "\$url" >> "$EVENTS"
+if [[ -n "\${FAKE_CURL_ARGS_LOG:-}" ]]; then printf '%s\n' "\$args" >> "\$FAKE_CURL_ARGS_LOG"; fi
+if [[ "\${FAKE_CURL_FAIL_MANIFEST:-0}" == 1 && "\$url" == */manifest.json ]]; then
+  printf 'incomplete manifest\n' > "\$out"
+  exit 22
+fi
+if [[ "\${FAKE_CURL_RESUME_RESET:-0}" == 1 && "\$url" == */cmux-tui-aarch64-apple-darwin ]]; then
+  marker="\$out.resume-reset-seen"
+  if [[ ! -e "\$marker" ]]; then
+    printf 'stale partial\n' > "\$out"
+    : > "\$marker"
+    exit 33
+  fi
+  [[ "\$args" == *'--continue-at -'* ]] || { echo 'missing resume flag' >&2; exit 99; }
+  [[ ! -s "\$out" ]] || { echo 'rejected partial was not removed' >&2; exit 99; }
+fi
+if [[ "\${FAKE_CURL_TRANSIENT_503:-0}" == 1 && "\$url" == */cmux-tui-aarch64-apple-darwin ]]; then
+  marker="\$out.transient-503-seen"
+  if [[ ! -e "\$marker" ]]; then
+    head -c 4 "$SERVE/\$(basename "\$url")" > "\$out"
+    : > "\$marker"
+    printf '503'
+    exit 22
+  fi
+  [[ "\$args" == *'--continue-at -'* && -s "\$out" ]] || { echo 'transient HTTP failure did not resume its partial' >&2; exit 99; }
+  printf 'resume-preserved\n' >> "$EVENTS"
+fi
 cp "$SERVE/\$(basename "\$url")" "\$out"
 SH
 cat > "$FAKEBIN/gh" <<SH
 #!/bin/bash
 printf 'gh %s\n' "\$*" >> "$EVENTS"
+# A verify against a downloaded bundle (--bundle) is offline: it never meets the
+# API quota. FAKE_GH_BUNDLE_EXIT is its verdict.
+if [[ " \$* " == *" --bundle "* ]]; then exit "\${FAKE_GH_BUNDLE_EXIT:-0}"; fi
 # FAKE_GH_RATE_LIMITED_FILE holds how many more calls answer like an exhausted
 # GitHub API installation quota (nightly run 37526635018) before gh recovers.
 if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
@@ -175,12 +213,17 @@ install_remote() { # <app> [installer options]
   local app="$1"; shift
   mkdir -p "$app/Contents"
   : > "$EVENTS"
+  : > "$EVENTS.bundle"
   REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
-  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" /bin/bash \
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" \
+    CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }
 
+export FAKE_CURL_ARGS_LOG="$TEST_DIR/curl-args.log"
+DOWNLOAD_BUDGET=600
+: > "$FAKE_CURL_ARGS_LOG"
 ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   --require-capability wireguard-hub > "$TEST_DIR/attested.log" 2>&1
@@ -191,6 +234,65 @@ grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-wo
 [ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" = "gh attestation verify" ]
 [ "$(sed -n '3p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-aarch64-apple-darwin" ]
 echo "PASS: attested manifest is verified before slices are downloaded"
+# Manifest downloads are never resumed, while binary slices use range resumes
+# and inherit the total per-download deadline. A fast retry may receive less
+# than the full budget, but never exceeds it.
+awk -v budget="$DOWNLOAD_BUDGET" '
+  BEGIN { valid = 1 }
+  {
+    found = 0
+    for (i = 1; i < NF; i++) {
+      if ($i == "--max-time") {
+        found = 1
+        value = $(i + 1)
+        if (value !~ /^[1-9][0-9]*$/ || (value + 0) > budget) valid = 0
+      }
+    }
+    if (!found) valid = 0
+  }
+  END { exit !(valid && NR > 0) }
+' "$FAKE_CURL_ARGS_LOG"
+grep -q -- '--continue-at -' "$FAKE_CURL_ARGS_LOG"
+manifest_args="$(sed -n '1p' "$FAKE_CURL_ARGS_LOG")"
+[[ "$manifest_args" != *'--continue-at -'* ]]
+echo "PASS: manifest is atomic and slices are resumable within a bounded budget"
+
+# A rejected range must delete the stale partial before the final retry. The
+# fake server checks both the resume flag and that the second attempt starts
+# from an empty temporary file.
+RESUME_APP="$TEST_DIR/ResumeReset.app"
+FAKE_CURL_RESUME_RESET=1 install_remote "$RESUME_APP" --arch arm64 > "$TEST_DIR/resume-reset.log" 2>&1
+cmp "$CLIENT" "$RESUME_APP/Contents/Resources/bin/cmux-tui"
+echo "PASS: rejected ranges clear partial slices before retrying"
+
+# A transient HTTP error must preserve a valid partial so the next attempt can
+# resume it instead of restarting within the same bounded download budget.
+TRANSIENT_APP="$TEST_DIR/Transient503.app"
+FAKE_CURL_TRANSIENT_503=1 install_remote "$TRANSIENT_APP" --arch arm64 > "$TEST_DIR/transient-503.log" 2>&1
+cmp "$CLIENT" "$TRANSIENT_APP/Contents/Resources/bin/cmux-tui"
+grep -q '^resume-preserved$' "$EVENTS"
+echo "PASS: transient HTTP failures preserve resumable partial slices"
+
+# A manifest is published only after a complete successful download. A failed
+# manifest request must leave neither the final cache path nor a reusable temp.
+FAILED_MANIFEST_CACHE="$TEST_DIR/failed-manifest-cache"
+mkdir -p "$FAILED_MANIFEST_CACHE"
+mkdir -p "$TEST_DIR/FailedManifest.app/Contents"
+if FAKE_CURL_FAIL_MANIFEST=1 PATH="$FAKEBIN:$PATH" \
+    CMUX_TUI_CLIENT_CACHE="$FAILED_MANIFEST_CACHE" \
+    CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" \
+    /bin/bash "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/FailedManifest.app" \
+    --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" --allow-unattested \
+    > "$TEST_DIR/failed-manifest.log" 2>&1; then
+  echo "FAIL: installed after a failed manifest download" >&2
+  exit 1
+fi
+if find "$FAILED_MANIFEST_CACHE" -maxdepth 1 -name 'manifest.*' -print -quit | grep -q .; then
+  echo "FAIL: failed manifest was published" >&2
+  exit 1
+fi
+echo "PASS: failed manifest downloads are never published"
+
 
 UNATTESTED_APP="$TEST_DIR/Unattested.app"
 if FAKE_GH_EXIT=1 install_remote "$UNATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
@@ -256,6 +358,44 @@ FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/R
   }
 [ "$(grep -c '^gh attestation verify' "$EVENTS")" = 1 ]
 echo "PASS: a rejected attestation is not retried"
+
+# The publisher uploads the manifest's Sigstore bundle under its digest
+# (cmux-tui-artifacts.yml, "Publish the manifest's Sigstore bundle"). With it the
+# attestation is verified offline, so a spent API quota holds nothing: nightly
+# run 41150090913 (2026-10-31) waited 37 minutes for the quota in "Bundle the
+# cmux-tui client" with its app compiled.
+MANIFEST_DIGEST="$(slice_sha "$SERVE/manifest.json")"
+BUNDLE_NAME="sha256-$MANIFEST_DIGEST.sigstore.json"
+printf '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n' > "$SERVE/$BUNDLE_NAME"
+echo 1000 > "$TEST_DIR/bundle-rate-limited"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/bundle-rate-limited" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES=0 install_remote "$TEST_DIR/Bundled.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bundled.log" 2>&1 || {
+    echo "FAIL: a published bundle did not let the install through a spent API quota" >&2
+    cat "$TEST_DIR/bundled.log" >&2; exit 1; }
+cmp "$CLIENT" "$TEST_DIR/Bundled.app/Contents/Resources/bin/cmux"
+grep -q "^bundle https://files.example.test/cmux-tui-attestations/$BUNDLE_NAME\$" "$EVENTS.bundle"
+[ "$(grep -c '^gh ' "$EVENTS")" = 1 ] || { echo "FAIL: the bundled install also asked the API" >&2; cat "$EVENTS" >&2; exit 1; }
+grep -q "^gh attestation verify .*manifest.* --bundle .* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+# Verified before any slice is fetched.
+[ "$(grep -n '^gh attestation verify' "$EVENTS" | cut -d: -f1)" -lt "$(grep -n 'cmux-tui-aarch64-apple-darwin$' "$EVENTS" | head -1 | cut -d: -f1)" ]
+echo "PASS: a published Sigstore bundle verifies the manifest offline, through a spent API quota"
+
+# A bundle that does not verify admits nothing by itself: the API lookup decides.
+FAKE_GH_BUNDLE_EXIT=1 install_remote "$TEST_DIR/BadBundle.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-bundle.log" 2>&1
+cmp "$CLIENT" "$TEST_DIR/BadBundle.app/Contents/Resources/bin/cmux"
+[ "$(grep -c '^gh attestation verify .* --bundle ' "$EVENTS")" = 1 ]
+[ "$(grep '^gh attestation verify' "$EVENTS" | grep -vc -- ' --bundle ')" = 1 ]
+grep -q 'did not verify; asking the GitHub attestations API' "$TEST_DIR/bad-bundle.log"
+if FAKE_GH_BUNDLE_EXIT=1 FAKE_GH_EXIT=1 install_remote "$TEST_DIR/BadBoth.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-both.log" 2>&1; then
+  echo "FAIL: installed with a rejected bundle and a rejected API attestation" >&2; exit 1
+fi
+[ ! -e "$TEST_DIR/BadBoth.app/Contents/Resources/bin/cmux" ]
+grep -q 'no valid build-provenance attestation' "$TEST_DIR/bad-both.log"
+rm -f "$SERVE/$BUNDLE_NAME"
+echo "PASS: a bundle that does not verify falls back to the API lookup and never admits on its own"
 
 if install_remote "$TEST_DIR/Malformed.app" --attest-signer-workflow "cmux-tui-artifacts.yml" \
     > "$TEST_DIR/malformed.log" 2>&1; then

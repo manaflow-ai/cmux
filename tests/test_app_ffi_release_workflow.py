@@ -12,8 +12,9 @@ GITHUB_TOKEN may not create a cmux-app-ffi-* tag: ruleset 24624526 admits
 only admins and the FFI release App (manaflow-cmux-ffi-release). The create
 step therefore uses a token of that App, minted in the `ffi-release` environment
 (deployment policy: feat-cmux-next only) for this repository alone, with
-contents:write, plus workflows:write only when workflow files changed since
-the last FFI tag. No other step sees the App token.
+contents:write, plus workflows:write only when the tagged tree's
+.github/workflows differs from the default branch tip, the merge-base with it,
+or the last FFI tag. No other step sees the App token.
 
 The test runs the publish job's own shell steps in order, as the runner would,
 against a fake `gh` and `curl` that play each outcome.

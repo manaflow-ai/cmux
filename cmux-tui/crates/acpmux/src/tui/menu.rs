@@ -284,10 +284,8 @@ impl App {
         match action {
             MenuAction::Run(a) => self.run_action(a, &[]),
             MenuAction::Session(id, op) => {
-                if let Some(i) = self
-                    .sessions
-                    .iter()
-                    .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+                if let Some(i) =
+                    self.sessions.iter().position(|s| session_route_id(s).as_ref() == Some(&id))
                 {
                     self.select(i + self.drafts.len());
                 }

@@ -6,7 +6,7 @@ import base from "./vite.config";
 // `bun run dev:pages`: every page the app hosts from one dev server with hot reload, for a Debug or
 // tagged cmux-next launched with CMUX_NEXT_PAGES_DEV_URL=http://127.0.0.1:4190/ (PageDevServer).
 // The app serves each page under its own cmux-page://<id>/ origin and fetches the files from here:
-// /<page>/ for the React pages (dev-server/plugins.ts DEV_PAGES), /diff-page.html,
+// /<page>/ for the React pages (dev-server/plugins.ts, every src/pages/<page>/main.tsx), /diff-page.html,
 // /markdown-page.html and /editor-page.html for the viewers, and every module at its own path.
 // The page's origin is not this server, so the Vite client is told where its HMR socket is.
 const port = Number(process.env.CMUX_PAGES_DEV_PORT) || 4190;

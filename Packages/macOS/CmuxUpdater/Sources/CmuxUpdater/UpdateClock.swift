@@ -1,5 +1,5 @@
-/// An injectable clock for the updater's bounded, cancellable UI delays (minimum check
-/// display, "no updates" auto-dismiss, ready-timeout).
+/// An injectable clock for the updater's bounded, cancellable UI delays (check timeout,
+/// "no updates" auto-dismiss, ready-timeout).
 ///
 /// Production uses ``SystemUpdateClock`` (a real `Task.sleep`); tests inject a fake that
 /// returns immediately or coordinates timing, so delay-driven behavior is verified with no

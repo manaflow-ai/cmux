@@ -111,12 +111,16 @@ test("choosing another folder in a started chat starts a new chat there, never a
   const calls = await mount();
   await openFolder();
   const site = everywhere().find(
-    (element) => element.classList.contains("acpmux-menu-item") && element.textContent?.includes("/work/site"),
+    // The row names the folder; its path is the tooltip (hq#1957 composer location strip).
+    (element) =>
+      element.classList.contains("acpmux-menu-item") && element.querySelector('[title="/work/site"]') !== null,
   );
   expect(site, "the folder list is missing").toBeTruthy();
+  // A real press: the row picks on its mousedown and the click that follows (detail 1) does not
+  // pick again (ui/Combobox.tsx); a bare `click()` (detail 0) would be a second, separate pick.
   await act(async () => {
-    site!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true }));
-    site!.click();
+    site!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1 }));
+    site!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
   });
   expect(calls).toEqual([{ method: "newChat", cwd: "/work/site" }]);
 });

@@ -37,7 +37,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{MessageWriter, OutboundStream, Response, send_response};
-use crate::mux::Mux;
+use crate::{mux::Mux, panic_free::RecoverPoison};
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
 
@@ -331,16 +331,16 @@ impl OpenError {
 
 impl LoopbackForwarder {
     pub(crate) fn set_policy(&self, policy: LoopbackForwardPolicy) {
-        *self.policy.write().unwrap() = policy;
+        *self.policy.write().recover_poison() = policy;
     }
 
     /// Denies one more port (a listener the daemon opened after startup).
     pub(crate) fn deny_port(&self, port: u16) {
-        self.policy.write().unwrap_or_else(std::sync::PoisonError::into_inner).deny_port(port);
+        self.policy.write().recover_poison().deny_port(port);
     }
 
     pub(crate) fn set_diagnostics(&self, reporter: AuditReporter) {
-        *self.diagnostics.lock().unwrap() = Some(reporter);
+        *self.diagnostics.lock().recover_poison() = Some(reporter);
     }
 
     fn record(&self, record: AuditRecord) {
@@ -356,20 +356,20 @@ impl LoopbackForwarder {
             record.duration_ms
         );
         {
-            let mut audit = self.audit.lock().unwrap();
+            let mut audit = self.audit.lock().recover_poison();
             if audit.len() == AUDIT_CAPACITY {
                 audit.pop_front();
             }
             audit.push_back(record);
         }
-        let reporter = self.diagnostics.lock().unwrap().clone();
+        let reporter = self.diagnostics.lock().recover_poison().clone();
         if let Some(reporter) = reporter {
             reporter(line);
         }
     }
 
     fn reserve(&self, client: u64, stream: u64) -> Result<(), OpenError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.streams.contains_key(&(client, stream)) {
             return Err(OpenError::Duplicate);
         }
@@ -383,7 +383,7 @@ impl LoopbackForwarder {
     }
 
     fn release(&self, client: u64) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.total = state.total.saturating_sub(1);
         if let Some(used) = state.slots.get_mut(&client) {
             *used = used.saturating_sub(1);
@@ -394,13 +394,13 @@ impl LoopbackForwarder {
     }
 
     fn stream(&self, client: u64, stream: u64) -> Option<Arc<ForwardStream>> {
-        self.state.lock().unwrap().streams.get(&(client, stream)).cloned()
+        self.state.lock().recover_poison().streams.get(&(client, stream)).cloned()
     }
 
     /// Ends every stream of a client whose connection is gone.
     pub(crate) fn disconnect(&self, client: u64) {
         let streams: Vec<Arc<ForwardStream>> = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state
                 .streams
                 .iter()
@@ -415,7 +415,7 @@ impl LoopbackForwarder {
 
     fn remove(&self, stream: &ForwardStream) {
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             state
                 .streams
                 .get(&(stream.client, stream.id))
@@ -429,9 +429,8 @@ impl LoopbackForwarder {
     }
 
     fn status(&self, client: u64) -> Value {
-        let policy = self.policy.read().unwrap().clone();
-        let state = self.state.lock().unwrap();
-        let audit: Vec<Value> = self.audit.lock().unwrap().iter().map(AuditRecord::json).collect();
+        let policy = self.policy.read().recover_poison().clone();
+        let state = self.state.lock().recover_poison();
         json!({
             "enabled": policy.enabled,
             "open_streams": state.streams.len(),
@@ -444,7 +443,7 @@ impl LoopbackForwarder {
                 "frame_bytes": MAX_FRAME_BYTES,
                 "daemon_window": DAEMON_RECEIVE_WINDOW,
             },
-            "audit": audit,
+            "audit": self.audit.lock().recover_poison().iter().map(AuditRecord::json).collect::<Vec<_>>(),
         })
     }
 }
@@ -492,7 +491,7 @@ impl ForwardStream {
     /// Accepts one client data frame. A client that exceeds the daemon's
     /// window broke flow control; its stream ends.
     fn accept_data(&self, forwarder: &LoopbackForwarder, bytes: Vec<u8>) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         if inner.closed || inner.client_shutdown {
             drop(inner);
             self.fail(forwarder, "data-after-shutdown", true);
@@ -510,14 +509,14 @@ impl ForwardStream {
     }
 
     fn grant(&self, bytes: usize) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         inner.send_credit = inner.send_credit.saturating_add(bytes).min(MAX_CLIENT_WINDOW);
         drop(inner);
         self.changed.notify_all();
     }
 
     fn shutdown_from_client(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         inner.client_shutdown = true;
         drop(inner);
         self.changed.notify_all();
@@ -527,7 +526,7 @@ impl ForwardStream {
     /// (unless the connection itself is gone) and writes the audit record.
     fn fail(&self, forwarder: &LoopbackForwarder, reason: &str, notify: bool) {
         {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             if inner.closed {
                 return;
             }
@@ -551,7 +550,7 @@ impl ForwardStream {
     /// Both directions finished normally.
     fn complete_if_done(&self, forwarder: &LoopbackForwarder) {
         {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             if inner.closed || !(inner.reader_done && inner.writer_done) {
                 return;
             }
@@ -565,7 +564,7 @@ impl ForwardStream {
     fn finish(&self, forwarder: &LoopbackForwarder, outcome: &str) {
         forwarder.remove(self);
         let (up, down) = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             (inner.bytes_to_target, inner.bytes_from_target)
         };
         forwarder.record(AuditRecord {
@@ -593,16 +592,16 @@ fn run_reader(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
     let mut buffer = vec![0_u8; MAX_FRAME_BYTES];
     loop {
         let allowed = {
-            let mut inner = stream.inner.lock().unwrap();
+            let mut inner = stream.inner.lock().recover_poison();
             while inner.send_credit == 0 && !inner.closed {
-                inner = stream.changed.wait(inner).unwrap();
+                inner = stream.changed.wait(inner).recover_poison();
             }
             if inner.closed {
                 return;
             }
             inner.send_credit.min(MAX_FRAME_BYTES)
         };
-        let read = match socket.read(&mut buffer[..allowed]) {
+        let read = match socket.read(buffer.get_mut(..allowed).unwrap_or_default()) {
             Ok(read) => read,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => {
@@ -611,7 +610,7 @@ fn run_reader(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
             }
         };
         if read == 0 {
-            let closed = stream.inner.lock().unwrap().closed;
+            let closed = stream.inner.lock().recover_poison().closed;
             if closed {
                 return;
             }
@@ -619,16 +618,17 @@ fn run_reader(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
                 stream.fail(forwarder, "client-gone", false);
                 return;
             }
-            stream.inner.lock().unwrap().reader_done = true;
+            stream.inner.lock().recover_poison().reader_done = true;
             stream.complete_if_done(forwarder);
             return;
         }
         {
-            let mut inner = stream.inner.lock().unwrap();
+            let mut inner = stream.inner.lock().recover_poison();
             inner.send_credit = inner.send_credit.saturating_sub(read);
             inner.bytes_from_target += read as u64;
         }
-        let data = base64::engine::general_purpose::STANDARD.encode(&buffer[..read]);
+        let Some(read_bytes) = buffer.get(..read) else { return };
+        let data = base64::engine::general_purpose::STANDARD.encode(read_bytes);
         let event = json!({"event": "loopback-data", "stream": stream.id, "data": data});
         if stream.event(&event).is_err() {
             stream.fail(forwarder, "client-gone", false);
@@ -647,9 +647,9 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
     };
     loop {
         let chunk = {
-            let mut inner = stream.inner.lock().unwrap();
+            let mut inner = stream.inner.lock().recover_poison();
             while inner.queue.is_empty() && !inner.client_shutdown && !inner.closed {
-                inner = stream.changed.wait(inner).unwrap();
+                inner = stream.changed.wait(inner).recover_poison();
             }
             if inner.closed {
                 return;
@@ -660,7 +660,7 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
                     // Client half-closed and everything is written.
                     drop(inner);
                     let _ = socket.shutdown(Shutdown::Write);
-                    stream.inner.lock().unwrap().writer_done = true;
+                    stream.inner.lock().recover_poison().writer_done = true;
                     stream.complete_if_done(forwarder);
                     return;
                 }
@@ -671,7 +671,7 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
             return;
         }
         let credit = {
-            let mut inner = stream.inner.lock().unwrap();
+            let mut inner = stream.inner.lock().recover_poison();
             inner.bytes_to_target += chunk.len() as u64;
             inner.to_credit += chunk.len();
             if inner.to_credit >= DAEMON_RECEIVE_WINDOW / 4 || inner.queue.is_empty() {
@@ -807,7 +807,7 @@ fn open(
     writer: &MessageWriter,
 ) -> bool {
     let forwarder = &mux.control_clients.loopback;
-    let policy = forwarder.policy.read().unwrap().clone();
+    let policy = forwarder.policy.read().recover_poison().clone();
     let refusal = if !allowed {
         Some(OpenError::NotEnabled)
     } else if !policy.enabled {
@@ -824,7 +824,7 @@ fn open(
     let refusal = refusal.or_else(|| forwarder.reserve(client, stream).err());
     let audit_host: String = host.chars().take(MAX_HOST_BYTES).collect();
     if let Some(refusal) = refusal {
-        forwarder.state.lock().unwrap().refused += 1;
+        forwarder.state.lock().recover_poison().refused += 1;
         // Requests from clients that never opted in stay out of the log.
         if allowed {
             forwarder.record(AuditRecord {
@@ -841,7 +841,7 @@ fn open(
         }
         return open_error(writer, id, refusal);
     }
-    let target = target.expect("refusal covers a missing target");
+    let Some(target) = target else { return open_error(writer, id, OpenError::DeniedHost) };
     let window = window.unwrap_or(DEFAULT_CLIENT_WINDOW).min(MAX_CLIENT_WINDOW);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
@@ -904,7 +904,7 @@ fn connect_and_start(
     }
     let Some((socket, address)) = connected else {
         forwarder.release(client);
-        forwarder.state.lock().unwrap().refused += 1;
+        forwarder.state.lock().recover_poison().refused += 1;
         forwarder.record(AuditRecord {
             at_ms: now_ms(),
             client,
@@ -940,7 +940,7 @@ fn connect_and_start(
         changed: Condvar::new(),
     });
     {
-        let mut state = forwarder.state.lock().unwrap();
+        let mut state = forwarder.state.lock().recover_poison();
         // The connection ended while connecting: the slot is still ours.
         if !writer.is_open() {
             drop(state);
@@ -1053,11 +1053,11 @@ impl WindowProbe {
     /// Offers `bytes` from the client; false once the stream has ended.
     pub(super) fn push(&self, bytes: usize) -> bool {
         self.stream.accept_data(&self.forwarder, vec![0_u8; bytes]);
-        !self.stream.inner.lock().unwrap().closed
+        !self.stream.inner.lock().recover_poison().closed
     }
 
     pub(super) fn closed_reason(&self) -> Option<String> {
-        self.stream.inner.lock().unwrap().reason.clone()
+        self.stream.inner.lock().recover_poison().reason.clone()
     }
 }
 

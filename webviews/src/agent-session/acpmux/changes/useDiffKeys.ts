@@ -1,5 +1,6 @@
-// The changes view's own keys: j and k move between files, n and p between changes, and s (in
-// Unstaged) or u (in Staged) stages or unstages the hunk n/p stopped at. They are
+// The changes view's own keys: j and k move between files, n and p between changes, v marks the
+// picked file viewed (or not), and s (in Unstaged) or u (in Staged) stages or unstages the hunk
+// n/p stopped at. They are
 // the view's reading keys, like a list's arrows, so they are drawn as they are (DiffKeyHints)
 // rather than bound in Settings, and work only while focus is in the view and not in a field.
 import { useEffect, type RefObject } from "react";
@@ -51,6 +52,24 @@ export function useDiffKeys(
         [...file.querySelectorAll<HTMLButtonElement>(".acpmux-hunk-stage")]
           .find((button) => button.getBoundingClientRect().top > from)
           ?.click();
+        return;
+      }
+      if (event.key === "v" && !event.shiftKey) {
+        // The picked file while any of its edit sections shows, else the first section in view: a
+        // file edited more than once has a section (and header) per edit, and `fileSections` keeps
+        // only the first of them. The toggle is keyed by path, so any shown section's button does.
+        const sections = [...scroller.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
+        const box = scroller.getBoundingClientRect();
+        const shows = (section: HTMLElement) => {
+          const { top, bottom } = section.getBoundingClientRect();
+          return bottom > box.top && top < box.top + scroller.clientHeight;
+        };
+        const pickedPath = selectedFile();
+        const section =
+          sections.find((candidate) => candidate.dataset.path === pickedPath && shows(candidate)) ??
+          sections.find(shows);
+        event.preventDefault();
+        section?.querySelector<HTMLButtonElement>("[data-viewed-toggle]")?.click();
         return;
       }
       if (!["j", "k", "n", "p"].includes(event.key)) return;

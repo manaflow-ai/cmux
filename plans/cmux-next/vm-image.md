@@ -193,6 +193,7 @@ Budget for an idle machine (no client attached, no agent running): total under 0
   ```
 
   Then record the snapshot in `images/cmux-vm/channels/dev.json` and ask the backend lead to set the development Worker's `CLOUD_FREESTYLE_SNAPSHOT`.
+- CI bake (now that the workflow is registered on `main`): `gh workflow run cloud-vm-image-bake.yml --ref feat-cmux-next -f mode=bake -f clones=2 -f probes=true -f agent_tools=true -f keep_snapshot=true`. Add `-f team_vm=true` for the team VM image (`TEAM_VM_SNAPSHOT`): bake.ts and smoke.ts get `--team-vm` (the `/srv/team` root and its check), the names are `cmuxnp-dev-vmimg-ci-team-<run>-<attempt>`, and the `channel-dev.json` artifact is the `channels/dev.json` history entry with `var: TEAM_VM_SNAPSHOT` (promote with `--var TEAM_VM_SNAPSHOT`).
 
 ## 5. Team VM and servers
 

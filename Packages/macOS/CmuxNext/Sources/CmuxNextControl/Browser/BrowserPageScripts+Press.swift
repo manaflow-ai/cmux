@@ -8,7 +8,7 @@ extension BrowserPageScripts {
     /// Presses `key` on the focused element, after focusing `selector` when given.
     static func press(_ key: BrowserPressKey, selector: String?) -> String {
         let target = selector.map { find($0) + "if (typeof el.focus === 'function') { el.focus(); }\nconst target = el;" }
-            ?? "const target = document.activeElement || document.body || document.documentElement;\nif (!target) { return { error: 'No focused element' }; }"
+            ?? measure + "const target = document.activeElement || document.body || document.documentElement;\nif (!target) { return { error: 'No focused element' }; }"
         return wrap(target + """
 
         const key = \(literal(key.key)), code = \(literal(key.code)), keyCode = \(key.keyCode), location = \(key.location);
@@ -39,7 +39,8 @@ extension BrowserPageScripts {
             }
           }
         }
-        return { value: { key, default_prevented: !(down && press && up) } };
+        return { value: { key, default_prevented: !(down && press && up) },
+                 at: (target === document.body || target === document.documentElement) ? null : cmuxAt(target) };
         """)
     }
 }

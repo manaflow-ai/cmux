@@ -55,15 +55,13 @@ fn valid_ca_line(line: &str) -> bool {
 /// The version in an OpenSSH KRL header (format 1), `None` when `krl` is
 /// not a KRL.
 pub fn krl_header_version(krl: &[u8]) -> Option<u64> {
-    if krl.len() < 20 || &krl[..8] != KRL_MAGIC {
+    let (magic, rest) = krl.split_first_chunk::<8>()?;
+    let (format, rest) = rest.split_first_chunk::<4>()?;
+    let (version, _) = rest.split_first_chunk::<8>()?;
+    if magic != KRL_MAGIC || u32::from_be_bytes(*format) != KRL_FORMAT_VERSION {
         return None;
     }
-    if u32::from_be_bytes([krl[8], krl[9], krl[10], krl[11]]) != KRL_FORMAT_VERSION {
-        return None;
-    }
-    let mut version = [0u8; 8];
-    version.copy_from_slice(&krl[12..20]);
-    Some(u64::from_be_bytes(version))
+    Some(u64::from_be_bytes(*version))
 }
 
 /// Checks a snapshot: Ed25519 CA lines only, a decodable KRL whose header

@@ -32,7 +32,7 @@ const trees: Record<string, string[]> = {
 
 /// The positions of `query`'s characters in `path`, in order and case-insensitively, preferring
 /// a run inside the file's name; undefined when the path doesn't contain them all.
-function fuzzy(path: string, query: string): { matches: number[]; score: number } | undefined {
+export function fuzzy(path: string, query: string): { matches: number[]; score: number } | undefined {
   const lower = path.toLowerCase();
   const wanted = query.toLowerCase().replace(/\s+/g, "");
   const name = lower.lastIndexOf("/") + 1;

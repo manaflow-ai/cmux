@@ -13,8 +13,17 @@ loads, so polling is safe. Everything below names a field of that object.
 
 ## The write path in one paragraph
 
-Every durable write goes through SQLite in WAL mode with `synchronous=FULL`
-and `fullfsync`, about 20 ms per commit on an Apple SSD. Producers (agent
+Every durable write goes through SQLite in WAL mode with `synchronous=NORMAL`:
+a commit is in the WAL (the page cache, which a daemon crash keeps) when it
+returns, in well under a millisecond. One syncer thread
+(`workspace_registry/wal_durability.rs`) runs the WAL checkpoints off every
+request (SQLite syncs the WAL before each one) and flushes the drive cache
+once at close, so no request and no lock holder waits for the disk;
+`write_path.wal_commits` and `wal_synced_commits` show how many commits are
+known on disk. A sync after each reply was measured and rejected: the next
+request waited for it. A power loss or kernel panic can take back the tail of
+commits since the last checkpoint that the kernel had not yet written, and it
+also ends every terminal the tail described. Producers (agent
 hooks, frontends) enqueue into bounded lanes; one writer thread drains both
 lanes into a single transaction, commits, and hands each producer a receipt.
 The writer takes the workspace registry mutex for the commit. Request threads
@@ -26,8 +35,9 @@ the cmuxterm-hq journal write path plan.
 ## Reading `registry_lock`
 
 - `holder` names the `file:line` that holds the registry mutex right now and
-  for how long. Under a healthy daemon this is usually `null`; a holder older
-  than a few milliseconds is in an fsync.
+  for how long. Under a healthy daemon this is usually `null`; commits no
+  longer fsync under the lock, so a holder older than a few milliseconds is
+  a bug to report.
 - `hold_us` is the hold-time histogram. Its p50 near 20,000 means most holds
   are one fsync. `top_sites` says which code holds it longest in total; that is
   the list to shorten.

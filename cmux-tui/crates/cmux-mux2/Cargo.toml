@@ -1,0 +1,43 @@
+[package]
+name = "cmux-mux2"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "First-principles terminal multiplexer engine: one process, raw byte stream, exact VT state"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "mux2d"
+path = "src/bin/mux2d.rs"
+
+[[bin]]
+name = "mux2"
+path = "src/bin/mux2.rs"
+
+[[bin]]
+name = "mux2-verify"
+path = "src/bin/mux2-verify.rs"
+
+[[bin]]
+name = "mux2-parsebench"
+path = "src/bin/mux2-parsebench.rs"
+
+[[bin]]
+name = "mux2-spawnbench"
+path = "src/bin/mux2-spawnbench.rs"
+
+[[bin]]
+name = "mux2-ctty-probe"
+path = "src/bin/mux2-ctty-probe.rs"
+
+[[bin]]
+name = "mux2-wrapcheck"
+path = "src/bin/mux2-wrapcheck.rs"
+
+[dependencies]
+ghostty-vt.workspace = true
+libc.workspace = true

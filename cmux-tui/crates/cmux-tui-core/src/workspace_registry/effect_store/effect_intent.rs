@@ -157,6 +157,7 @@ impl EffectCommitIntent {
                         &self.outcome_json,
                         deltas,
                         &mut spans,
+                        false,
                     )
                 })?;
                 // The batch's shared fsync is not part of one intent's span.

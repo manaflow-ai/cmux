@@ -9,7 +9,7 @@ import Foundation
 public struct AddScreensToScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "add-screens-to-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public var screens: [ScreenID]
     public var index: Int?
@@ -24,7 +24,7 @@ public struct AddScreensToScreenGroupRequest: DaemonRequest {
 public struct RemoveScreensFromScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "remove-screens-from-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var screens: [ScreenID]
     public init(screens: [ScreenID]) { self.screens = screens }
 }
@@ -34,7 +34,7 @@ public struct RemoveScreensFromScreenGroupRequest: DaemonRequest {
 public struct MoveScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "move-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public var index: Int?
     public var workspace: WorkspaceHandle?

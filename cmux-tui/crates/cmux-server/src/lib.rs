@@ -13,10 +13,12 @@
 //!   `cmux-server` binary.
 //! - [`cloud_http`]: JSON POST for the Cloud machine agent (bind, auth, ops).
 //! - [`exec`]: the one re-exec into a newer staged `cmux` (decision SV-R2).
+//! - [`pairing`]: human-approved enrollment, private identity and resumable wait.
 //!
-//! No async runtime of its own: reqwest's blocking client (package
+//! Synchronous entrypoints run off the caller's async executor. reqwest's blocking client (package
 //! downloads and the Cloud agent's posts) runs a private one on its own thread. Nothing polls:
-//! health exposes a one-shot deadline, services start through the service
+//! Pairing owns a current-thread runtime for its deadline-bound WebSocket wait.
+//! Health exposes a one-shot deadline, services start through the service
 //! manager, and `pg_ctl -w` waits on Postgres's own readiness.
 
 pub mod access;
@@ -29,6 +31,7 @@ pub mod fsx;
 pub mod health;
 pub mod host;
 pub mod keys;
+pub mod pairing;
 pub mod pg;
 pub mod process;
 pub mod service;

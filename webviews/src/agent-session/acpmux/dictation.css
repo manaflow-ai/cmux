@@ -1,0 +1,113 @@
+/* Dictation while a session runs (DictationListening.tsx, DictationButton.tsx), as Claude's
+   composer draws it (Leo's reference, 2026-10-20): one row of a waveform, a finish key and the lit
+   mic before Send, and the prompt's placeholder reads "Listening…" in italic until words land.
+   Colors come from the theme: the accent (neutral in a theme without one, the no-blue rule) and
+   the composer's muted ink. The bars move only under the pane's motion gate: Reduce Motion, or
+   `ui.animationSpeed: off` (styles.css `data-agent-motion="off"`), sets each level at once. */
+.acpmux-shell,
+.ui-positioner {
+  --acpmux-dictation-accent: var(--cmux-accent, var(--agent-accent, var(--agent-text)));
+}
+
+/* The waveform: thin bars, dots at both ends. A bar's --level (0...1) is its height above a dot. */
+.acpmux-dictation-wave {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  margin-inline: 2px 4px;
+  color: var(--acpmux-composer-dim, var(--agent-muted));
+  pointer-events: none;
+}
+.acpmux-dictation-wave > span {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.acpmux-dictation-wave > [data-dot] {
+  opacity: 0.55;
+}
+.acpmux-dictation-wave > [data-bar] {
+  height: calc(2px + var(--level, 0) * 16px);
+}
+/* Starting has no level yet, and finalizing has stopped hearing: the wave rests quieter. */
+.acpmux-dictation-wave:is([data-state="starting"], [data-state="finalizing"]) {
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-dictation-wave > [data-bar] {
+    transition: height var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}
+
+/* The finish key: a quiet icon button like +, with the bar's hover pill. */
+.acpmux-dictation-finish {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--agent-muted);
+}
+/* The chat bar's mic slot is one inline-flex part (composerLocation.css .acpmux-fit-mic) with no gap
+   of its own: the finish key keeps the cluster's 4px from the mic. New Tab's row has its own gap. */
+.acpmux-fit-mic .acpmux-dictation-finish {
+  margin-inline-end: 4px;
+}
+.nt-pickers .acpmux-dictation-finish {
+  width: 24px;
+  height: 24px;
+}
+.acpmux-dictation-finish:disabled {
+  opacity: 0.45;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-dictation-finish:not(:disabled):hover {
+    background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+    color: var(--agent-text);
+  }
+}
+.acpmux-dictation-finish:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
+  outline-offset: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-dictation-finish {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}
+
+/* The lit mic: an accent-tinted rounded square with the accent glyph, while a session runs. */
+.acpmux-mic:is([data-state="starting"], [data-state="listening"], [data-state="finalizing"]) {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--acpmux-dictation-accent) 20%, transparent);
+  color: var(--acpmux-dictation-accent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-mic:is([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
+    background: color-mix(in srgb, var(--acpmux-dictation-accent) 28%, transparent);
+    color: var(--acpmux-dictation-accent);
+  }
+}
+
+/* "Listening…": the prompt's placeholder in italic while a session waits for words. */
+.acpmux-composer-prompt.is-dictating .acpmux-md-placeholder,
+.nt-field[data-dictation-listening]::placeholder {
+  font-style: italic;
+}
+
+/* A tight row (composerLocation.css's narrow step): the end dots go, the bars stay. */
+@container composer (max-width: 297px) {
+  .acpmux-dictation-wave > [data-dot] {
+    display: none;
+  }
+}

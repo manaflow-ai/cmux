@@ -137,9 +137,26 @@ fn ensure<'e>(
                 format!("at most {MAX_LISTENERS} port forwards and browser routes are open"),
             ));
         }
+        let proxy_credential = match &slot {
+            Slot::Forward(_) => None,
+            Slot::Proxy(_) => {
+                let mut bytes = [0u8; 32];
+                getrandom::fill(&mut bytes).map_err(|e| {
+                    CloudError::new(
+                        LISTEN_FAILED,
+                        format!("could not create a proxy credential: {e}"),
+                    )
+                })?;
+                Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+            }
+        };
         let handler = match &slot {
             Slot::Forward(_) => edge.forward_handler(carrier, "localhost", port),
-            Slot::Proxy(_) => proxy::handler(std::sync::Arc::clone(&edge.tunnel), carrier.clone()),
+            Slot::Proxy(_) => proxy::handler(
+                std::sync::Arc::clone(&edge.tunnel),
+                carrier.clone(),
+                proxy_credential.clone().expect("proxy slots have a credential"),
+            ),
         };
         let listener = Listener::bind(handler).map_err(|e| {
             CloudError::new(LISTEN_FAILED, format!("could not listen on 127.0.0.1: {e}"))
@@ -149,6 +166,7 @@ fn ensure<'e>(
             listener: Some(listener),
             generation: carrier.generation,
             down: None,
+            proxy_credential,
         };
         // Replacing a record drops (and closes) a down listener, if any.
         match &slot {
@@ -188,14 +206,26 @@ fn browser_open<C: ControlPlane>(
         return Err(CloudError::invalid("path must start with / and have no spaces"));
     }
     let carrier = link(server, &machine, origin, key)?;
+    let incarnation = server.incarnation();
     let (edge, links) = server.edge_parts();
     let route = ensure(edge, links, &carrier, Slot::Proxy(&machine), port)?;
+    let password = route
+        .proxy_credential
+        .as_deref()
+        .ok_or_else(|| CloudError::new(LISTEN_FAILED, "browser proxy route has no credential"))?;
     let authority =
         if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host };
     Ok(json!({
         "machine": machine,
-        "proxy": { "kind": "http", "host": "127.0.0.1", "port": route.local_port },
+        "proxy": {
+            "kind": "http",
+            "host": "127.0.0.1",
+            "port": route.local_port,
+            "username": "cmux",
+            "password": password,
+        },
         "url": format!("http://{authority}:{port}{path}"),
+        "incarnation": incarnation,
         "generation": route.generation,
     }))
 }

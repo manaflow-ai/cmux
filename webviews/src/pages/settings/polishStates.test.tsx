@@ -41,7 +41,7 @@ test("a theme search that matches nothing says so", async () => {
   expect(document.querySelector(".theme-popover")?.textContent).toContain("No themes match.");
 });
 
-test("a setting's summary and a folder's path carry their full text for when they are cut short", async () => {
+test("a setting's summary and a folder's path show their text with no tooltip repeating it", async () => {
   page = await renderPage({
     path: "/settings/general",
     mock: {
@@ -53,9 +53,11 @@ test("a setting's summary and a folder's path carry their full text for when the
     },
   });
   const summary = page.container.querySelector<HTMLElement>("[data-row-key] .row-help")!;
-  expect(summary.title).toBe(summary.textContent!);
+  // Leo, 2026-10-13: text that shows gets no tooltip, even cut short (test/tooltip-rules.ts).
+  expect(summary.title).toBe("");
   const roots = rowElement(page.container, "agents.chats.roots");
-  expect(roots.querySelector<HTMLElement>('[data-folder="/opt/user"] .folder-path')?.title).toBe("/opt/user");
+  expect(roots.querySelector<HTMLElement>('[data-folder="/opt/user"] .folder-path')?.textContent).toBe("/opt/user");
+  expect(roots.querySelector<HTMLElement>('[data-folder="/opt/user"] .folder-path')?.title).toBe("");
   // The refusal is its own line, not clipped inside the one-line path.
   expect(roots.querySelector(".folder-path .row-error")).toBeNull();
   expect(roots.textContent).toContain("This folder is protected.");

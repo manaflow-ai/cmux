@@ -42,7 +42,7 @@ enum PageInfoStyle {
 
     /// A label whose `color` is read inside its theme scope on every theme
     /// change (`ThemedLabel`), so pass a style color, not a resolved one.
-    static func label(_ text: String = "", font: NSFont, color: @escaping @autoclosure () -> NSColor, wraps: Bool = false) -> NSTextField {
+    static func label(_ text: String = "", font: NSFont, color: @escaping @autoclosure () -> NSColor, wraps: Bool = false) -> ThemedLabel {
         let label = wraps ? ThemedLabel(wrappingLabelWithString: text) : ThemedLabel(labelWithString: text)
         label.font = font
         label.themeColor = color

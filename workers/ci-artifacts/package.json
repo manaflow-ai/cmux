@@ -17,5 +17,9 @@
     "typescript": "7.0.2",
     "wrangler": "4.135.0",
     "yaml": "2.9.1"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.29.1"
   }
 }

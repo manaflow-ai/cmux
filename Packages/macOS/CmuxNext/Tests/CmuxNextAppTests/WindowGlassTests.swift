@@ -3,8 +3,7 @@ import Foundation
 import Testing
 
 /// Window Glass (cx-t2x.6): with the Clear Glass window material, the art turns translucent so the
-/// desktop and the windows behind read through it; the glass over it then assumes it could be
-/// anything, so text stays legible over whatever shows through.
+/// desktop and the windows behind read through it. The tint over it is the Opacity asked for.
 @MainActor @Suite struct WindowGlassTests {
     static let work = BackdropSelection.art(.vanGoghStarryNight)
 
@@ -14,14 +13,12 @@ import Testing
         return ThemeTokens.derive(from: input)
     }
 
-    @Test func clearGlassMakesTheArtTranslucentAndKeepsTextLegibleOverAnything() {
+    @Test func clearGlassMakesTheArtTranslucent() {
         let tokens = Self.tokens(blur: -2)
         let glass = WindowBackdrop(tokens, selection: Self.work)
         #expect(glass.artOpacity == WindowBackdrop.windowGlassArtOpacity)
         #expect(glass.artOpacity < 1)
-        // Whatever is behind the window shows through the art: the floor holds over any colors.
-        #expect(glass.legibleTintOpacity == tokens.legibleTintOpacity(over: .any, requested: 0))
-        #expect(glass.tintOpacity >= glass.legibleTintOpacity)
+        #expect(WindowBackdrop(tokens, selection: Self.work, tintOpacity: 0.2).tintOpacity == 0.2)
     }
 
     @Test func otherMaterialsAndPlainGlassKeepTheArtOpaque() {

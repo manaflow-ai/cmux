@@ -6,11 +6,16 @@
 //! still go through. Real binaries, real sockets, a temporary home.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -31,15 +36,17 @@ fn scratch(tag: &str) -> PathBuf {
 
 /// A daemon in `dir` with the local router on; returns after its readiness line.
 fn start_daemon(dir: &Path) -> Child {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    start_daemon_at(dir, dir)
+}
+
+/// A daemon with the acpmux home `home` and its socket in `dir`.
+fn start_daemon_at(dir: &Path, home: &Path) -> Child {
+    let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
-        .env("ACPMUX_HOME", dir)
+        .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("ACPMUX_LOCAL_ROUTER", "1")
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("ACPMUX_AGENT_HOSTS")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -59,10 +66,15 @@ fn start_daemon(dir: &Path) -> Child {
 
 /// `acpmux daemon shutdown` as the CLI runs it, against the daemon in `dir`.
 fn cli_shutdown(dir: &Path, extra: &[&str]) {
-    let out = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    cli_shutdown_at(dir, dir, extra);
+}
+
+/// `cli_shutdown` for a daemon with the acpmux home `home` and its socket in `dir`.
+fn cli_shutdown_at(dir: &Path, home: &Path, extra: &[&str]) {
+    let out = daemon_env::acpmux(dir)
         .args(["daemon", "shutdown"])
         .args(extra)
-        .env("ACPMUX_HOME", dir)
+        .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .stdin(Stdio::null())
         .output()
@@ -70,9 +82,41 @@ fn cli_shutdown(dir: &Path, extra: &[&str]) {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 }
 
+/// The router admin socket of the acpmux home `home`, by the rule the router,
+/// acpmux and the cmux app share (cmux-coderouter admin_socket.rs, Swift
+/// `LocalRouterClient.socketPath`): `<home>/router/router.sock` when it fits a
+/// Unix socket address (103 bytes), else `/tmp/acpmux-<uid>/<fnv1a64(home)>-router.sock`.
+fn router_socket(home: &Path) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let preferred = home.join("router").join("router.sock");
+    if preferred.as_os_str().len() <= 103 {
+        return preferred;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in home.as_os_str().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    PathBuf::from(format!("/tmp/acpmux-{uid}/{hash:016x}-router.sock"))
+}
+
+/// An acpmux home in `dir` whose `router/router.sock` is 140 bytes, past
+/// every platform's Unix socket limit (104 bytes with the NUL on macOS, 108 on
+/// Linux), with the stand-in agent config.
+fn long_home(dir: &Path) -> PathBuf {
+    let pad = 140 - "/router/router.sock".len() - dir.join("long-home-").as_os_str().len();
+    let home = dir.join(format!("long-home-{}", "h".repeat(pad)));
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::copy(dir.join("config.json"), home.join("config.json")).unwrap();
+    assert_eq!(home.join("router").join("router.sock").as_os_str().len(), 140);
+    home
+}
+
 /// One admin request to the router in `dir`.
 fn ask_router(dir: &Path, request: Value) -> Value {
-    let mut stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+    let mut stream = UnixStream::connect(router_socket(dir)).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     stream.write_all(format!("{request}\n").as_bytes()).unwrap();
     let mut line = String::new();
@@ -84,7 +128,7 @@ fn ask_router(dir: &Path, request: Value) -> Value {
 /// ready), and an idle admin connection that reads EOF when the router
 /// process is gone.
 fn router(dir: &Path) -> (i32, UnixStream) {
-    let socket = dir.join("router").join("router.sock");
+    let socket = router_socket(dir);
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         if let Ok(mut stream) = UnixStream::connect(&socket) {
@@ -184,7 +228,7 @@ fn daemon_shutdown_stops_its_router_before_it_exits() {
     let mut daemon = start_daemon(&dir);
     let (pid, _held) = router(&dir);
     assert!(alive(pid));
-    cli_shutdown(&dir, &[]);
+    cli_shutdown(&dir, &["--end-agents"]);
     wait_exit(&mut daemon, Duration::from_secs(15));
     // The daemon reaps the router it started before it exits: the pid is
     // gone now, with no wait (a leaked router would live on with parent pid 1).
@@ -209,6 +253,71 @@ fn router_exits_when_its_daemon_is_killed() {
         gone_within(pid, Duration::from_secs(5)),
         "router pid {pid} outlived its killed daemon"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A long acpmux home (cx-8iw6m: the cmux app trapped on a router socket path
+/// past `sun_path`): the router binds the short path of the shared rule, and the
+/// daemon reaches it there. A router started by hand answers at that path; the
+/// daemon finds it at the same path, stops it (another build: no
+/// CMUX_ROUTER_BUILD; no owner FIFO) and starts its own router, which answers
+/// there too.
+#[test]
+fn a_long_home_gets_a_router_that_the_daemon_and_clients_reach() {
+    let dir = scratch("rlng");
+    let home = long_home(&dir);
+    let socket = router_socket(&home);
+    assert!(socket.as_os_str().len() <= 103, "{}", socket.display());
+    // Ended on every path: a router started by hand has no owner to outlive.
+    struct Reaped(Child);
+    impl Drop for Reaped {
+        fn drop(&mut self) {
+            if self.0.try_wait().ok().flatten().is_none() {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+    }
+    let mut by_hand = Reaped(
+        daemon_env::acpmux(&dir)
+            .args(["router", "serve"])
+            .env("ACPMUX_HOME", &home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let first = loop {
+        if let Ok(stream) = UnixStream::connect(&socket) {
+            break stream;
+        }
+        if let Some(status) = by_hand.0.try_wait().unwrap() {
+            let mut stderr = String::new();
+            by_hand.0.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!(
+                "the router exited ({status}) and never answered at {}: {stderr}",
+                socket.display()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    drop(first);
+    let first_pid =
+        ask_router(&home, json!({"op": "status"}))["pid"].as_u64().expect("status names the pid");
+    assert_eq!(first_pid, u64::from(by_hand.0.id()));
+
+    let mut daemon = start_daemon_at(&dir, &home);
+    wait_exit(&mut by_hand.0, Duration::from_secs(15));
+    let (pid, _held) = router(&home);
+    assert_ne!(u64::try_from(pid).unwrap(), first_pid, "the daemon kept the hand-started router");
+    assert!(ask_router(&home, json!({"op": "status"}))["port"].as_u64().is_some());
+
+    cli_shutdown_at(&dir, &home, &["--end-agents"]);
+    wait_exit(&mut daemon, Duration::from_secs(15));
+    assert!(gone_within(pid, Duration::from_secs(10)), "the router outlived its daemon");
+    // The short socket is outside the scratch folder.
+    let _ = std::fs::remove_file(&socket);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -253,7 +362,7 @@ async fn a_kept_agent_keeps_its_router_and_the_next_daemon_adopts_it() {
     drop(rpc);
 
     // Ending every agent ends the router too.
-    cli_shutdown(&dir, &[]);
+    cli_shutdown(&dir, &["--end-agents"]);
     wait_exit(&mut second, Duration::from_secs(15));
     assert!(gone_within(host_pid, Duration::from_secs(10)), "the agent host outlived the shutdown");
     assert!(gone_within(router_pid, Duration::from_secs(10)), "the router outlived its last agent");

@@ -45,6 +45,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 
 STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>"
@@ -281,6 +282,10 @@ def main():
     parser.add_argument("--max-helper-cpu", type=float, default=1.0)
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an extra variable for the app (repeatable; for example a feature's DEV opt-in)")
+    parser.add_argument("--setting", action="append", default=[], metavar="DOTTED.KEY=JSON",
+                        help="a value written to the scratch cmux.json before launch (repeatable)")
     parser.add_argument("--fresh", action="store_true",
                         help="start from an empty daemon session for this tag (removes the tag's saved tabs)")
     args = parser.parse_args()
@@ -290,29 +295,40 @@ def main():
     binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
     if not os.path.exists(binary):
         raise SystemExit(f"bench-idle: no app at {bundle}")
-    if any(cmd.startswith(binary) for _, _, cmd in process_table()):
-        raise SystemExit(f"bench-idle: {bundle} is already running; quit it first")
     if args.fresh:
         # Saved tabs (a restored Chromium tab starts CEF) would change every scenario.
         shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
     scratch = tempfile.mkdtemp(prefix=f"bench-idle-{tag}-")
-    env = {
-        "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-    }
+    # The bench's own variables on top of bench_launch.py's defaults (--env adds or overrides them).
+    env = {}
+    for item in args.env:
+        name, _, value = item.partition("=")
+        env[name] = value
+    # --setting values go into the scratch cmux.json the launch writes.
+    config: dict = {}
+    for item in args.setting:
+        key, _, raw = item.partition("=")
+        node = config
+        parts = key.split(".")
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = json.loads(raw)
+    report_env = {"env": sorted(args.env), "settings": sorted(args.setting)}
     if not args.url:
         page = os.path.join(scratch, "static.html")
         with open(page, "w") as handle:
             handle.write(STATIC_PAGE_HTML)
         args.url = "file://" + page
-    app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    socket_path = f"/tmp/cmux-debug-{tag}.sock"
-    report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}}
+    # One launch path for GUI benches (bench_launch.py): the console-session check, a refusal when this app already
+    # runs, the tag's socket in the state folder, and the reason when the app does not come up.
+    bench = BenchApp(bundle, out=args.out or scratch, config=config, window=None, screen="last", env=env,
+                     log_name=f"app-{tag}-{args.label}.log")
+    bench.launch(timeout=120, ready="system.ping")
+    app = bench.process
+    report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}, **report_env}
     failures = []
     try:
-        control = wait_for_socket(socket_path)
+        control = wait_for_socket(bench.socket)
         identity = control.call("system.identify").get("result", {})
         app_pid = identity.get("pid", app.pid)
         report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups", timeout=30)
@@ -348,16 +364,9 @@ def main():
                 print(f"   active frame clients: {result['active_frame_clients']}")
     finally:
         if not args.keep_running:
-            app.send_signal(signal.SIGTERM)
-            try:
-                app.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                app.kill()
-            try:
-                teardown = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
-                report["teardown"] = teardown
-            except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-                print(f"bench-idle: daemon teardown: {error}", file=sys.stderr)
+            # The app's quit, then TERM and KILL of its own PID, then the tag's daemons (tag_teardown.py).
+            bench.stop()
+            report["teardown"] = "bench_launch"
     report["failures"] = failures
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)

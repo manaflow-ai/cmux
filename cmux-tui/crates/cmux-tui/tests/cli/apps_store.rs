@@ -1101,3 +1101,44 @@ fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
     let reloaded = entry_at("1.0.1");
     assert_eq!(reloaded["installed"], true, "still installed after the reload: {reloaded}");
 }
+
+/// The documented template (docs/cmux-next/sidebar-customization) is a valid
+/// customize folder: copied as is, it installs, sandboxed, with its read scope.
+#[test]
+fn the_documented_customize_template_installs_as_is() {
+    let apps = Apps::new("customize-template");
+    let template =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/cmux-next/sidebar-customization");
+    let target = apps.dir.join("customize");
+    std::fs::create_dir_all(&target).unwrap();
+    for name in ["cmux-app.json", "main.js"] {
+        std::fs::copy(template.join(name), target.join(name)).unwrap();
+    }
+    apps.start();
+    let mut client = apps.agent();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let entry = loop {
+        let list = client.rpc(json!({ "cmd": "apps-list" }));
+        if let Some(found) = list["data"]["apps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|app| app["id"] == "local/customize")
+        {
+            break found.clone();
+        }
+        let logs = client.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+        assert!(
+            Instant::now() < deadline,
+            "the template never listed: {list}\nsupervisor logs: {logs}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(entry["installed"], true, "{entry}");
+    assert_eq!(entry["enabled"], true, "{entry}");
+    assert_eq!(entry["sandboxed"], true, "{entry}");
+    assert!(
+        entry["grants"].as_array().is_some_and(|g| g.iter().any(|s| s == "workspace:read")),
+        "{entry}"
+    );
+}

@@ -42,3 +42,17 @@ function* documents(blocks: readonly MdBlock[]): Generator<Artifact> {
     } else if (block.type === "blockquote") yield* documents(block.children);
     else if (block.type === "list") for (const item of block.items) yield* documents(item.children);
 }
+
+/// The documents the chat's finished replies drew as fences the panel can open, oldest first, each
+/// text once (the Inspector's Outputs lists them).
+export function chatDocuments(replies: readonly string[]): Artifact[] {
+  const seen = new Set<string>();
+  const found: Artifact[] = [];
+  for (const reply of replies)
+    for (const document of replyDocuments(reply)) {
+      if (seen.has(document.code)) continue;
+      seen.add(document.code);
+      found.push(document);
+    }
+  return found;
+}

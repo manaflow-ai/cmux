@@ -1,0 +1,92 @@
+//! The texts of the scriptable `cmux chief` verbs (script.rs) and the chat's
+//! chat commands, in English and Japanese (crate::localization picks).
+
+pub(super) struct Text {
+    pub usage: &'static str,
+    pub chat_help: &'static str,
+    pub no_such_chat: &'static str,
+    pub ambiguous_chat: &'static str,
+    pub no_cloud_chats: &'static str,
+    pub cloud_app_lease: &'static str,
+    pub lease_failed: &'static str,
+    pub token_missing: &'static str,
+    pub cloud_auth: &'static str,
+    pub needs_message: &'static str,
+    pub bad_ref: &'static str,
+    pub no_seq: &'static str,
+    pub needs_text: &'static str,
+    pub needs_reaction: &'static str,
+    pub wait_timed_out: &'static str,
+    pub no_chats: &'static str,
+    pub opened: &'static str,
+    pub reacted: &'static str,
+    pub unreacted: &'static str,
+    pub sent: &'static str,
+    pub edited: &'static str,
+    pub retracted: &'static str,
+    pub marked: &'static str,
+    pub thread_empty: &'static str,
+    pub chief_no_chat: &'static str,
+}
+
+static ENGLISH: Text = Text {
+    usage: "usage: cmux chief chats [--cloud] [--json]\n       cmux chief read [--last N] [--before SEQ] [--thread MSG] [--json]\n       cmux chief send TEXT|- [--reply-to MSG[:PART]] [--attach FILE]... [--wait] [--no-wait-agents] [--timeout S] [--json]\n       cmux chief react MSG EMOJI|TAPBACK [--part N] [--remove]\n       cmux chief amend MSG TEXT | cmux chief retract MSG | cmux chief mark-read [SEQ]\n       cmux chief wait [--after SEQ] [--from chief|me|ID] [--text SUBSTR] [--idle] [--timeout S] [--json]\n       cmux chief events [--tail N] [--count N] [--timeout S]\n\n  Scriptable Chief/Home chats: the same chats and the same API as Home, with no terminal.\n  Every verb also takes:\n  --chat ID|TITLE      the chat (cmux chief chats); default: your Chief's chat\n  --cloud              a Cloud chat, through the daemon's cloud proxy\n  --cloud-api ORIGIN   set this daemon's cloud lease first (implies --cloud), with\n  --cloud-token-file F a bearer token file (or CMUX_CLOUD_ACCESS_TOKEN), or\n  --cloud-auth tailscale  a self-hosted server on the tailnet (no token)\n  --chief-home DIR     an isolated Chief, as for the chat\n  --json               one JSON value (events: one per line)\n\n  MSG is a message id (msg_...) or #SEQ. TAPBACK: love like dislike laugh emphasize question;\n  any other value is an emoji. `send --wait` prints the Chief's replies and exits when the\n  turn that answers ends. `wait` prints the first message after SEQ (default: the last one now)\n  from the author, or exits when the Chief is idle with --idle.\n  Exit codes: 0 ok, 1 refused, 2 bad arguments, 3 connection lost, 124 timeout.\n  Design and examples: plans/cmux-next/chief-tui.md.",
+    chat_help: "/chats              list chats (numbered)\n/open N|ID|TITLE    open that chat\n/reply #SEQ TEXT    reply to a message\n/react #SEQ EMOJI   react (love like dislike laugh emphasize question, or an emoji)\n/unreact #SEQ EMOJI remove your reaction\n/thread #SEQ        show a message's thread\n/attach PATH [TEXT] send a file\n/edit #SEQ TEXT     edit your message\n/retract #SEQ       remove your message\n/new NAME           create a Chief",
+    no_such_chat: "no chat {chat}; cmux chief chats lists the chats",
+    ambiguous_chat: "more than one chat is titled {chat}; give its id (cmux chief chats)",
+    no_cloud_chats: "this cloud account has no chats yet",
+    cloud_app_lease: "the cmux app holds this daemon's cloud lease, and only the app may use it. For a Cloud chat from the CLI, use a session the app does not lease (--session NAME) with --cloud-api and --cloud-token-file or --cloud-auth tailscale",
+    lease_failed: "the daemon refused the cloud lease: {reason}",
+    token_missing: "--cloud-api needs --cloud-token-file FILE, CMUX_CLOUD_ACCESS_TOKEN or --cloud-auth tailscale",
+    cloud_auth: "--cloud-auth takes token or tailscale",
+    needs_message: "name a message: a message id (msg_...) or #SEQ",
+    bad_ref: "{ref} is not a message id (msg_...) or #SEQ",
+    no_seq: "no message #{seq} in this chat",
+    needs_text: "nothing to send: give TEXT, - for stdin, or --attach FILE",
+    needs_reaction: "name a reaction: an emoji or love, like, dislike, laugh, emphasize, question",
+    wait_timed_out: "no matching message within {secs} s",
+    no_chats: "no chats",
+    opened: "opened {title} ({id}, {owner})",
+    reacted: "reacted {reaction} to #{seq}",
+    unreacted: "removed {reaction} from #{seq}",
+    sent: "sent #{seq} ({id})",
+    edited: "edited #{seq}",
+    retracted: "removed #{seq}",
+    marked: "read up to #{seq}",
+    thread_empty: "#{seq} has no replies",
+    chief_no_chat: "created Chief {name} ({id}); its chat appears after its first turn (/chats)",
+};
+
+static JAPANESE: Text = Text {
+    usage: "使い方: cmux chief chats [--cloud] [--json]\n       cmux chief read [--last N] [--before SEQ] [--thread MSG] [--json]\n       cmux chief send TEXT|- [--reply-to MSG[:PART]] [--attach FILE]... [--wait] [--no-wait-agents] [--timeout S] [--json]\n       cmux chief react MSG EMOJI|TAPBACK [--part N] [--remove]\n       cmux chief amend MSG TEXT | cmux chief retract MSG | cmux chief mark-read [SEQ]\n       cmux chief wait [--after SEQ] [--from chief|me|ID] [--text SUBSTR] [--idle] [--timeout S] [--json]\n       cmux chief events [--tail N] [--count N] [--timeout S]\n\n  スクリプトから使う Chief/Home のチャットです。Home と同じチャット、同じ API を端末なしで使います。\n  どの動詞も次を受け付けます:\n  --chat ID|TITLE      チャット (cmux chief chats)。既定: あなたの Chief のチャット\n  --cloud              Cloud のチャット (デーモンのクラウドプロキシ経由)\n  --cloud-api ORIGIN   先にこのデーモンのクラウドリースを設定 (--cloud を含む)。次のどれかと使用:\n  --cloud-token-file F ベアラートークンのファイル (または CMUX_CLOUD_ACCESS_TOKEN)\n  --cloud-auth tailscale  tailnet 上のセルフホストサーバー (トークン不要)\n  --chief-home DIR     独立した Chief (チャットと同じ)\n  --json               JSON の値を 1 つ出力 (events は 1 行に 1 つ)\n\n  MSG はメッセージ ID (msg_...) または #SEQ です。TAPBACK: love like dislike laugh emphasize question。\n  それ以外の値は絵文字です。`send --wait` は Chief の返信を表示し、答えたターンの終わりに終了します。\n  `wait` は SEQ (既定: 今の最後のメッセージ) より後の、その送信者の最初のメッセージを表示します。\n  --idle では Chief が作業していないときに終了します。\n  終了コード: 0 成功、1 拒否、2 引数の誤り、3 接続切れ、124 タイムアウト。\n  設計と例: plans/cmux-next/chief-tui.md",
+    chat_help: "/chats              チャットの一覧 (番号付き)\n/open N|ID|TITLE    そのチャットを開く\n/reply #SEQ TEXT    メッセージに返信\n/react #SEQ EMOJI   リアクション (love like dislike laugh emphasize question、または絵文字)\n/unreact #SEQ EMOJI 自分のリアクションを外す\n/thread #SEQ        メッセージのスレッドを表示\n/attach PATH [TEXT] ファイルを送信\n/edit #SEQ TEXT     自分のメッセージを編集\n/retract #SEQ       自分のメッセージを削除\n/new NAME           Chief を作成",
+    no_such_chat: "チャット {chat} はありません。cmux chief chats で一覧を確認してください",
+    ambiguous_chat: "{chat} という題名のチャットが複数あります。ID を指定してください (cmux chief chats)",
+    no_cloud_chats: "この Cloud アカウントにはまだチャットがありません",
+    cloud_app_lease: "このデーモンのクラウドリースは cmux アプリが持っていて、アプリだけが使えます。CLI から Cloud のチャットを使うには、アプリがリースしていないセッション (--session NAME) で --cloud-api と --cloud-token-file または --cloud-auth tailscale を指定してください",
+    lease_failed: "デーモンがクラウドリースを拒否しました: {reason}",
+    token_missing: "--cloud-api には --cloud-token-file FILE、CMUX_CLOUD_ACCESS_TOKEN、または --cloud-auth tailscale が必要です",
+    cloud_auth: "--cloud-auth には token または tailscale を指定します",
+    needs_message: "メッセージを指定してください: メッセージ ID (msg_...) または #SEQ",
+    bad_ref: "{ref} はメッセージ ID (msg_...) でも #SEQ でもありません",
+    no_seq: "このチャットにメッセージ #{seq} はありません",
+    needs_text: "送信する内容がありません: TEXT、標準入力の - 、または --attach FILE を指定してください",
+    needs_reaction: "リアクションを指定してください: 絵文字、または love、like、dislike、laugh、emphasize、question",
+    wait_timed_out: "{secs} 秒以内に条件に合うメッセージがありませんでした",
+    no_chats: "チャットはありません",
+    opened: "{title} を開きました ({id}、{owner})",
+    reacted: "#{seq} に {reaction} を付けました",
+    unreacted: "#{seq} から {reaction} を外しました",
+    sent: "#{seq} を送信しました ({id})",
+    edited: "#{seq} を編集しました",
+    retracted: "#{seq} を削除しました",
+    marked: "#{seq} まで既読にしました",
+    thread_empty: "#{seq} には返信がありません",
+    chief_no_chat: "Chief {name} を作成しました ({id})。チャットは最初のターンの後に表示されます (/chats)",
+};
+
+/// The texts for the CLI's language.
+pub(super) fn text() -> &'static Text {
+    let japanese = crate::localization::catalog_for_locale("ja");
+    if std::ptr::eq(crate::localization::catalog(), japanese) { &JAPANESE } else { &ENGLISH }
+}

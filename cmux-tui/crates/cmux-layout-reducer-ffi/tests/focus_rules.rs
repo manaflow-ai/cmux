@@ -1,4 +1,4 @@
-//! The window focus rules through the C ABI (`focus_reduce`), replayed
+//! The window focus rules (the machine behind `cmux_focus_*`), replayed
 //! against a corpus recorded from the macOS app's Swift `FocusReducer`
 //! before the rules moved to `cmux-focus-core`: every step's state (with
 //! its derived keyboard target and context) and effects must come back the
@@ -13,7 +13,15 @@
 //! topology the event carried). The corpus also holds every combination of
 //! the child-window key facts and seeded type-ahead queue sequences, each
 //! with the Swift rule's answers.
+//!
+//! Seeds 38, 44, 57, 81 and 88 were re-recorded from the Rust rules when a
+//! closed pane's column whose id changed (two columns collapsing into a
+//! split screen) started to map to its surviving panes: each now focuses
+//! the closed pane's column neighbor instead of the first pane.
 
+use cmux_focus_core::event::{FocusEffect, FocusEvent};
+use cmux_focus_core::reducer;
+use cmux_focus_core::state::FocusState;
 use cmux_layout_reducer_ffi::{ERR_BUFFER, OK, cmux_layout_reducer_json};
 use serde_json::{Map, Value, json};
 
@@ -83,10 +91,23 @@ fn the_rust_focus_rules_reproduce_every_recorded_swift_step() {
     for sequence in sequences {
         let seed = &sequence["seed"];
         let mut expected: Map<String, Value> = sequence["initial"].as_object().unwrap().clone();
-        let mut state = Value::Object(expected.clone());
+        let mut state =
+            FocusState::import(&serde_json::to_vec(&Value::Object(expected.clone())).unwrap())
+                .unwrap();
+        let mut effects: Vec<FocusEffect> = Vec::new();
         for (index, step) in sequence["steps"].as_array().unwrap().iter().enumerate() {
             let event = &step["event"];
-            let response = call(c"focus_reduce", &json!({"state": state, "event": event}));
+            let decoded: FocusEvent = serde_json::from_value(event.clone()).unwrap();
+            // The app sends a topology through `set_topology` (an equal one returns at once).
+            match decoded {
+                FocusEvent::Topology { topology } => {
+                    reducer::set_topology(&mut state, topology, &mut effects);
+                }
+                event => {
+                    reducer::reduce(&mut state, &event, &mut effects);
+                }
+            }
+            let response = json!({"state": state.export(), "effects": effects});
             for (key, value) in step["state"].as_object().unwrap() {
                 match value {
                     Value::Null => {
@@ -108,7 +129,6 @@ fn the_rust_focus_rules_reproduce_every_recorded_swift_step() {
                 normalize_effects(&step["effects"]),
                 "seed {seed} step {index}: effects of {event}"
             );
-            state = response["state"].clone();
             steps_checked += 1;
         }
     }
@@ -120,8 +140,8 @@ fn view_changing_events_are_the_ones_the_swift_rule_named() {
     let corpus = corpus();
     for sequence in corpus["sequences"].as_array().unwrap() {
         for step in sequence["steps"].as_array().unwrap() {
-            let response = call(c"focus_changes_view", &json!({"event": step["event"]}));
-            assert_eq!(response["changesView"], step["changesView"], "{}", step["event"]);
+            let event: FocusEvent = serde_json::from_value(step["event"].clone()).unwrap();
+            assert_eq!(json!(event.changes_view()), step["changesView"], "{}", step["event"]);
         }
     }
 }
@@ -167,4 +187,55 @@ fn a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did() {
         assert_eq!(response["decision"], json!({decision: {}}), "{}", case["facts"]);
         assert_eq!(response["shouldReclaim"], case["shouldReclaim"], "{}", case["facts"]);
     }
+}
+
+/// Cmd-W on the only pane of one of a screen's two columns leaves a plain
+/// split screen, whose one column takes the screen's id. The focus stays in
+/// the column that is left, never on a pane of another screen that was
+/// focused earlier.
+#[test]
+fn closing_one_of_two_columns_keeps_the_focus_on_its_screen() {
+    let topology = |panes: &[&str], screens: Value| -> FocusEvent {
+        let panes: Vec<Value> = panes
+            .iter()
+            .map(|pane| {
+                let tab = format!("{pane}-tab");
+                json!({"id": pane, "selected": tab, "tabs": [{"id": tab, "kind": "terminal"}]})
+            })
+            .collect();
+        serde_json::from_value(json!({"topology": {"_0": {
+            "workspace": "ws", "panes": panes, "screens": screens,
+        }}}))
+        .unwrap()
+    };
+    let mut state = FocusState::default();
+    let mut effects = Vec::new();
+    let FocusEvent::Topology { topology: before } = topology(
+        &["p1", "p2", "q1"],
+        json!([[{"id": "c1", "panes": ["p1"]}, {"id": "c2", "panes": ["p2"]}],
+               [{"id": "s2", "panes": ["q1"]}]]),
+    ) else {
+        unreachable!()
+    };
+    reducer::set_topology(&mut state, before, &mut effects);
+    for pane in ["p1", "q1", "p2"] {
+        let event: FocusEvent = serde_json::from_value(
+            json!({"focusPane": {"_0": pane, "source": "mouse", "workspace": "ws"}}),
+        )
+        .unwrap();
+        reducer::reduce(&mut state, &event, &mut effects);
+    }
+    assert_eq!(state.pane.as_deref(), Some("p2"));
+    let FocusEvent::Topology { topology: after } = topology(
+        &["p1", "q1"],
+        json!([[{"id": "s1", "panes": ["p1"]}], [{"id": "s2", "panes": ["q1"]}]]),
+    ) else {
+        unreachable!()
+    };
+    reducer::set_topology(&mut state, after, &mut effects);
+    assert_eq!(
+        state.pane.as_deref(),
+        Some("p1"),
+        "the focus left the screen for a pane of another screen"
+    );
 }

@@ -16,6 +16,8 @@ protocol UpdaterHandle: AnyObject {
     var automaticallyChecksForUpdates: Bool { get set }
     var automaticallyDownloadsUpdates: Bool { get }
     var updateCheckInterval: TimeInterval { get set }
+    /// When Sparkle last checked (`SULastCheckTime`), or nil.
+    var lastUpdateCheckDate: Date? { get }
     func start() throws
     func checkForUpdates()
     func checkForUpdateInformation()

@@ -3,7 +3,7 @@
 schemas/settings/chrome-styles.json (the language-neutral style table).
 
 Writes three files under Packages/macOS/CmuxNext/Sources:
-  CmuxNextDesign/ChromeStyle.swift                       the enum and what each style implies
+  CmuxNextDesignTokens/ChromeStyle.swift                       the enum and what each style implies
   CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift  one palette action per style
   CmuxNextSettings/ChromeStyleSetting+Choices.swift      the Settings picker titles
 
@@ -89,6 +89,9 @@ def design(doc):
         switch(doc, "step", "var borderlessStep: CGFloat?",
                lambda s: optional(s["implies"].get("chrome.mainPane.borderlessStep"), num),
                "Share of the separate shade a shared surface keeps with no line; nil keeps `SidebarSurface.borderlessStep`."),
+        switch(doc, "floating", "var floatingPanes: Bool",
+               lambda s: "true" if s["implies"].get("chrome.floatingPanes") else "false",
+               "Every pane is its own unshaded card on the shaded chrome, with one even gap (`Metrics.floatingPanes`)."),
     ]
     shade_lines = ["    /// The separate surface's shade; nil keeps the tunable's default.",
                    "    public func separateShade(isDark: Bool) -> CGFloat? {", "        switch self {"]
@@ -149,7 +152,7 @@ def main():
     doc = json.loads(TABLE.read_text())
     validate(doc)
     outputs = {
-        SOURCES / "CmuxNextDesign/ChromeStyle.swift": design(doc),
+        SOURCES / "CmuxNextDesignTokens/ChromeStyle.swift": design(doc),
         SOURCES / "CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift": catalog(doc),
         SOURCES / "CmuxNextSettings/ChromeStyleSetting+Choices.swift": choices(doc),
     }

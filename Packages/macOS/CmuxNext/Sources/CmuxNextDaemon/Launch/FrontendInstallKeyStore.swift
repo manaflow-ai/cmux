@@ -28,7 +28,15 @@ public struct FrontendInstallKeyStores {
 public struct CodeSigningTeam {
     public init() {}
 
-    public static func current() -> String? {
+    /// Read once per process: the signature of a running process does not change. Three
+    /// callers asked at launch on the main thread (the daemon prestart, CloudService and the
+    /// Chief's launcher), three SecCode reads each, which Security reports as main-thread
+    /// calls that "may lead to UI unresponsiveness".
+    public static func current() -> String? { cached }
+
+    private static let cached: String? = read()
+
+    private static func read() -> String? {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?

@@ -2,7 +2,7 @@ import Foundation
 
 /// Client-only presentation of the owner's feed. Filtering never marks an
 /// item read or changes the owner-confirmed selection.
-struct FeedInboxFilter: Equatable {
+nonisolated struct FeedInboxFilter: Equatable, Sendable {
     enum Connection: String, CaseIterable { case feed, github }
     enum Category: String, CaseIterable { case all, unread, needsYou, notices }
 

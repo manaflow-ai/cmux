@@ -6,6 +6,7 @@ import Foundation
 import Observation
 import os
 import SystemConfiguration
+import CmuxNextWakeups
 
 /// Paired servers in the sidebar (plans/cmux-next/server-reach.md): when the
 /// signed-in user has a chief placed on a paired server, that server's
@@ -27,6 +28,8 @@ final class ServerReachService {
     typealias Call = CloudChiefs.Call
 
     private let machines: MachineRegistry
+    /// The app's main-thread scheduler (from the composition root): every server's event batches run on it.
+    private let mainWork: MainWorkScheduler
     private let call: Call
     /// The signed-in user's id, or nil when signed out (observed).
     private let signedInUser: @MainActor () -> String?
@@ -54,7 +57,7 @@ final class ServerReachService {
     /// Set while an administrator turned remote hosts off: no server connects.
     private(set) var policyDisabled = false
 
-    init(machines: MachineRegistry, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
+    init(machines: MachineRegistry, mainWork: MainWorkScheduler, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
          linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
          linkSetupFile: String? = nil, makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
@@ -62,22 +65,13 @@ final class ServerReachService {
         self.makeWatcher = makeWatcher
         self.cli = cli
         self.machines = machines
+        self.mainWork = mainWork
         self.call = call
         self.signedInUser = signedInUser
         self.paths = paths
         self.binary = binary
         self.local = local
         self.linkPeers = linkPeers
-    }
-
-    /// The local Chief owner daemon's row (``ServerReach/localChief(homeID:socket:name:)``), nil
-    /// while it has no socket (AppServices). Shown signed in or not; a read keeps it.
-    var localChief: () -> ServerReach? = { nil }
-
-    /// Adds the local Chief owner's row when it is not shown yet.
-    func showLocalChief() {
-        guard let reach = localChief() else { return }
-        add(reach, connect: true)
     }
 
     func start() {
@@ -89,7 +83,6 @@ final class ServerReachService {
                 // Servers belong to the account: any change of user closes them.
                 if previous != nil, user != previous {
                     self.closeAll()
-                    self.showLocalChief()
                 }
                 previous = user
                 if user != nil {
@@ -181,7 +174,7 @@ final class ServerReachService {
             let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan
             for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
-            await apply(plan.desired + [localChief()].compactMap { $0 })
+            await apply(plan.desired)
         } catch {
             logger.error("server reach read failed: \(String(describing: error), privacy: .public)")
         }
@@ -243,7 +236,7 @@ final class ServerReachService {
     }
 
     /// Restores servers the registry holds that this run has not seen.
-    private func restore(_ records: [SessionRecord]) {
+    func restore(_ records: [SessionRecord]) {
         guard signedInUser() != nil else { return }
         for record in records {
             guard let fields = record.transport.flatMap(SSHService.fields), let reach = ServerReach(transportFields: fields),
@@ -257,8 +250,11 @@ final class ServerReachService {
     private func add(_ reach: ServerReach, connect: Bool) {
         guard machines.server(reach.machineID) == nil else { return }
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
-                                           localIdentity: { [machines] in machines.local.identity }, cli: cli)
+                                           localIdentity: { [machines] in machines.local.identity }, cli: cli,
+                                           mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // The overlay ended: re-read the link (`link show` checks its pid
         // and socket), so a crashed link with a stale link.json falls back.
         session.onOverlayEnded = { [weak self] in self?.refresh() }
@@ -285,7 +281,7 @@ final class ServerReachService {
         }
         session.close()
         logger.info("server \(session.reach.name, privacy: .public) removed")
-        guard let sessionID, sessionID != machines.local.identity?.sessionID, machines.local.supports(DaemonCapabilities.shared.profiles), let home = machines.local.connection else { return }
+        guard let sessionID, sessionID != machines.local.identity?.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue), let home = machines.local.connection else { return }
         do {
             _ = try await home.forgetSession(sessionID, force: true)
         } catch {
@@ -310,8 +306,11 @@ final class ServerReachService {
 
     /// This Mac as a possible placed server: every name it answers to
     /// (gethostname, LocalHostName, computer name) and the brain's daemon
-    /// socket, when one exists (a stat; nothing is read).
-    static func thisMac() -> ServerReachPlan.LocalServer? {
+    /// socket, when one exists (a stat; nothing is read). A run under PR capture
+    /// (`MacName.captureOverride`) is never the placed server and reads none of
+    /// this Mac's names: its slot is not the server a pairing named.
+    static func thisMac(captureOverride: String? = MacName.captureOverride) -> ServerReachPlan.LocalServer? {
+        guard captureOverride == nil else { return nil }
         let socket = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/brains/chief/daemon/cmux.sock").path
         guard FileManager.default.fileExists(atPath: socket) else { return nil }
         var names: [String] = []

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -12,6 +12,7 @@ use cmux_remote_protocol::{
 use tokio::sync::{mpsc, oneshot};
 
 use crate::link::{FrameLink, LinkError};
+use crate::per_lane::PerLane;
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -53,7 +54,7 @@ pub struct ReliableSession {
     shared: Arc<SharedState>,
     link: Arc<dyn FrameLink>,
     scheduler: ScheduledSender,
-    ack_senders: [mpsc::Sender<()>; 4],
+    ack_senders: PerLane<mpsc::Sender<()>>,
     closed: Arc<AtomicBool>,
     generation: u64,
 }
@@ -106,11 +107,11 @@ impl PreparedReconnect {
             close_uncommitted,
             original_generation,
         } = self;
-        let mut state = shared.state.lock().unwrap();
+        let mut state = shared.lock_state();
         state.require_generation(original_generation)?;
         *state = staged;
         drop(state);
-        for progress in &shared.outbound_progress {
+        for progress in shared.outbound_progress.iter() {
             progress.notify_waiters();
         }
         close_uncommitted.disarm();
@@ -136,8 +137,8 @@ impl ReliableSession {
             session,
             limits,
             transition: Arc::new(tokio::sync::RwLock::new(())),
-            lane_sends: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
-            outbound_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
+            lane_sends: PerLane::from_fn(|_| tokio::sync::Mutex::new(())),
+            outbound_progress: PerLane::from_fn(|_| tokio::sync::Notify::new()),
             state: Mutex::new(ReliabilityState::new()),
         });
         Self::from_parts(shared, link, 0)
@@ -145,7 +146,7 @@ impl ReliableSession {
 
     fn from_parts(shared: Arc<SharedState>, link: Arc<dyn FrameLink>, generation: u64) -> Self {
         let scheduler = ScheduledSender::spawn(link.clone(), shared.limits);
-        let ack_senders = Lane::ALL.map(|lane| {
+        let ack_senders = PerLane::from_fn(|lane| {
             let (sender, receiver) = mpsc::channel(1);
             tokio::spawn(run_ack_sender(
                 shared.clone(),
@@ -175,7 +176,7 @@ impl ReliableSession {
     }
 
     pub fn resume_cursors(&self) -> BTreeMap<Lane, u64> {
-        let state = self.shared.state.lock().unwrap();
+        let state = self.shared.lock_state();
         Lane::ALL
             .into_iter()
             .map(|lane| {
@@ -190,31 +191,31 @@ impl ReliableSession {
     }
 
     pub fn outstanding_reliable_frames(&self, lane: Lane) -> usize {
-        self.shared.state.lock().unwrap().outbound(lane).replay.len()
+        self.shared.lock_state().outbound(lane).replay.len()
     }
 
     pub fn next_outbound_sequence(&self, lane: Lane) -> u64 {
-        self.shared.state.lock().unwrap().outbound(lane).next_sequence
+        self.shared.lock_state().outbound(lane).next_sequence
     }
 
     /// Compatibility hook for callers that reserved a sequence before an
     /// unscheduled failure. `send` already performs this rollback for queue
     /// admission failures; reconnectable failures stay in replay.
     pub fn rollback_unscheduled(&self, lane: Lane, sequence: u64) -> bool {
-        let Ok(_lane_send) = self.shared.lane_sends[lane_index(lane)].try_lock() else {
+        let Ok(_lane_send) = self.shared.lane_sends.get(lane).try_lock() else {
             return false;
         };
         let Ok(_transition) = self.shared.transition.try_read() else {
             return false;
         };
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock_state();
         if state.generation != self.generation {
             return false;
         }
         let rolled_back = state.rollback_unscheduled(lane, sequence);
         drop(state);
         if rolled_back {
-            self.shared.outbound_progress[lane_index(lane)].notify_waiters();
+            self.shared.outbound_progress.get(lane).notify_waiters();
         }
         rolled_back
     }
@@ -232,13 +233,13 @@ impl ReliableSession {
         if payload.len() > MAX_FRAME_PAYLOAD {
             return Err(SessionError::PayloadTooLarge(payload.len()));
         }
-        let _lane_send = self.shared.lane_sends[lane_index(lane)].lock().await;
+        let _lane_send = self.shared.lane_sends.get(lane).lock().await;
         let _transition = self.shared.transition.read().await;
         if self.closed.load(Ordering::Acquire) {
             return Err(SessionError::Link(LinkError::Closed));
         }
         let (sequence, encoded) = {
-            let mut state = self.shared.state.lock().unwrap();
+            let mut state = self.shared.lock_state();
             state.require_generation(self.generation)?;
             let acknowledgement = state.inbound(lane).contiguous;
             let outbound = state.outbound_mut(lane);
@@ -264,13 +265,13 @@ impl ReliableSession {
             Ok(()) => Ok(sequence),
             Err(error) => {
                 if error.is_definitely_unscheduled() {
-                    let mut state = self.shared.state.lock().unwrap();
+                    let mut state = self.shared.lock_state();
                     if state.generation == self.generation {
                         let rolled_back = state.rollback_unscheduled(lane, sequence);
                         debug_assert!(rolled_back);
                         drop(state);
                         if rolled_back {
-                            self.shared.outbound_progress[lane_index(lane)].notify_waiters();
+                            self.shared.outbound_progress.get(lane).notify_waiters();
                         }
                     }
                 }
@@ -290,7 +291,7 @@ impl ReliableSession {
     ) -> Result<u64, SessionError> {
         let frame_overhead = MAX_WIRE_FRAME_BYTES - MAX_FRAME_PAYLOAD;
         loop {
-            let progress = self.shared.outbound_progress[lane_index(lane)].notified();
+            let progress = self.shared.outbound_progress.get(lane).notified();
             tokio::pin!(progress);
             progress.as_mut().enable();
             match self.send(lane, stream, payload.clone(), flags).await {
@@ -351,10 +352,10 @@ impl ReliableSession {
 
             let _transition = self.shared.transition.read().await;
             let deliver = {
-                let mut state = self.shared.state.lock().unwrap();
+                let mut state = self.shared.lock_state();
                 state.require_generation(self.generation)?;
                 if state.apply_ack(frame.lane, frame.acknowledgement)? {
-                    self.shared.outbound_progress[lane_index(frame.lane)].notify_waiters();
+                    self.shared.outbound_progress.get(frame.lane).notify_waiters();
                 }
                 if frame.flags.contains(FrameFlags::ACK_ONLY) {
                     false
@@ -412,7 +413,7 @@ impl ReliableSession {
             // ACK production is coalesced on a dedicated lane actor. Delivering
             // application bytes does not wait for the reverse socket write,
             // which keeps terminal input latency independent of ACK flushing.
-            let _ = self.ack_senders[lane_index(frame.lane)].try_send(());
+            let _ = self.ack_senders.get(frame.lane).try_send(());
             return Ok(Some(ReceivedFrame {
                 generation: frame.generation,
                 lane: frame.lane,
@@ -455,7 +456,7 @@ impl ReliableSession {
     ) -> Result<PreparedReconnect, SessionError> {
         let transition = self.shared.transition.clone().write_owned().await;
         let (staged, replay) = {
-            let state = self.shared.state.lock().unwrap();
+            let state = self.shared.lock_state();
             state.require_generation(self.generation)?;
             if generation <= self.generation {
                 return Err(SessionError::StaleGeneration {
@@ -517,7 +518,7 @@ impl ReliableSession {
 
     pub async fn close(&self) -> Result<(), SessionError> {
         self.closed.store(true, Ordering::Release);
-        for progress in &self.shared.outbound_progress {
+        for progress in self.shared.outbound_progress.iter() {
             progress.notify_waiters();
         }
         self.link.close().await.map_err(SessionError::Link)
@@ -526,7 +527,7 @@ impl ReliableSession {
 
 fn encode_ack(shared: &SharedState, generation: u64, lane: Lane) -> Result<Bytes, SessionError> {
     let acknowledgement = {
-        let state = shared.state.lock().unwrap();
+        let state = shared.lock_state();
         state.require_generation(generation)?;
         state.inbound(lane).contiguous
     };
@@ -563,25 +564,29 @@ struct SharedState {
     session: SessionId,
     limits: SessionLimits,
     transition: Arc<tokio::sync::RwLock<()>>,
-    lane_sends: [tokio::sync::Mutex<()>; 4],
-    outbound_progress: [tokio::sync::Notify; 4],
+    lane_sends: PerLane<tokio::sync::Mutex<()>>,
+    outbound_progress: PerLane<tokio::sync::Notify>,
     state: Mutex<ReliabilityState>,
+}
+
+impl SharedState {
+    /// The reliability state. A poisoned lock only means another thread
+    /// panicked while holding it; the state stays usable.
+    fn lock_state(&self) -> MutexGuard<'_, ReliabilityState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 #[derive(Clone)]
 struct ReliabilityState {
     generation: u64,
-    outbound: BTreeMap<Lane, OutboundLane>,
-    inbound: BTreeMap<Lane, InboundLane>,
+    outbound: PerLane<OutboundLane>,
+    inbound: PerLane<InboundLane>,
 }
 
 impl ReliabilityState {
     fn new() -> Self {
-        Self {
-            generation: 0,
-            outbound: Lane::ALL.into_iter().map(|lane| (lane, OutboundLane::default())).collect(),
-            inbound: Lane::ALL.into_iter().map(|lane| (lane, InboundLane::default())).collect(),
-        }
+        Self { generation: 0, outbound: PerLane::default(), inbound: PerLane::default() }
     }
 
     fn require_generation(&self, generation: u64) -> Result<(), SessionError> {
@@ -593,19 +598,19 @@ impl ReliabilityState {
     }
 
     fn outbound(&self, lane: Lane) -> &OutboundLane {
-        self.outbound.get(&lane).expect("all lanes initialized")
+        self.outbound.get(lane)
     }
 
     fn outbound_mut(&mut self, lane: Lane) -> &mut OutboundLane {
-        self.outbound.get_mut(&lane).expect("all lanes initialized")
+        self.outbound.get_mut(lane)
     }
 
     fn inbound(&self, lane: Lane) -> &InboundLane {
-        self.inbound.get(&lane).expect("all lanes initialized")
+        self.inbound.get(lane)
     }
 
     fn inbound_mut(&mut self, lane: Lane) -> &mut InboundLane {
-        self.inbound.get_mut(&lane).expect("all lanes initialized")
+        self.inbound.get_mut(lane)
     }
 
     fn apply_ack(&mut self, lane: Lane, acknowledgement: u64) -> Result<bool, SessionError> {
@@ -619,19 +624,19 @@ impl ReliabilityState {
         }
         let delivery_len = outbound.delivery.len();
         while outbound.delivery.front().is_some_and(|entry| entry.sequence <= acknowledgement) {
-            let entry = outbound.delivery.pop_front().unwrap();
+            let Some(entry) = outbound.delivery.pop_front() else { break };
             outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(entry.bytes);
         }
         while outbound.replay.front().is_some_and(|entry| entry.frame.sequence <= acknowledgement) {
-            let entry = outbound.replay.pop_front().unwrap();
+            let Some(entry) = outbound.replay.pop_front() else { break };
             outbound.replay_bytes = outbound.replay_bytes.saturating_sub(entry.bytes);
         }
         Ok(outbound.delivery.len() != delivery_len)
     }
 
     fn reset_lane_for_generation(&mut self, lane: Lane) {
-        self.outbound.insert(lane, OutboundLane::default());
-        self.inbound.insert(lane, InboundLane::default());
+        *self.outbound.get_mut(lane) = OutboundLane::default();
+        *self.inbound.get_mut(lane) = InboundLane::default();
     }
 
     fn rollback_unscheduled(&mut self, lane: Lane, sequence: u64) -> bool {
@@ -647,10 +652,13 @@ impl ReliabilityState {
         {
             return false;
         }
-        let delivery = outbound.delivery.pop_back().expect("back entry was checked");
-        outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(delivery.bytes);
-        if lane.replays_across_generations() {
-            let entry = outbound.replay.pop_back().expect("back entry was checked");
+        // Both back entries were checked above.
+        if let Some(delivery) = outbound.delivery.pop_back() {
+            outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(delivery.bytes);
+        }
+        if lane.replays_across_generations()
+            && let Some(entry) = outbound.replay.pop_back()
+        {
             outbound.replay_bytes = outbound.replay_bytes.saturating_sub(entry.bytes);
         }
         outbound.next_sequence = sequence;
@@ -733,7 +741,7 @@ struct DeliveryEntry {
 #[derive(Clone)]
 struct ScheduledSender {
     queues: Arc<QueueSenders>,
-    budgets: Arc<[AtomicUsize; 4]>,
+    budgets: Arc<PerLane<AtomicUsize>>,
     limits: SessionLimits,
 }
 
@@ -749,7 +757,7 @@ impl ScheduledSender {
             bulk: bulk_tx,
             tunnel: tunnel_tx,
         });
-        let budgets = Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
+        let budgets = Arc::new(PerLane::from_fn(|_| AtomicUsize::new(0)));
         let (failed_tx, failed_rx) = tokio::sync::watch::channel(false);
         // Each lane owns an independent physical send loop. LaneMuxLink can
         // therefore progress dedicated carriers concurrently; a FrameLink
@@ -773,7 +781,7 @@ impl ScheduledSender {
     }
 
     async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
-        let budget = &self.budgets[lane_index(lane)];
+        let budget = self.budgets.get(lane);
         budget
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
@@ -799,7 +807,7 @@ async fn run_lane_sender(
     link: Arc<dyn FrameLink>,
     lane: Lane,
     mut receiver: mpsc::Receiver<ScheduledFrame>,
-    budgets: Arc<[AtomicUsize; 4]>,
+    budgets: Arc<PerLane<AtomicUsize>>,
     failed_tx: tokio::sync::watch::Sender<bool>,
     mut failed_rx: tokio::sync::watch::Receiver<bool>,
 ) {
@@ -819,7 +827,7 @@ async fn run_lane_sender(
             }
         };
         debug_assert_eq!(scheduled.lane, lane);
-        budgets[lane_index(lane)].fetch_sub(scheduled.frame.len(), Ordering::AcqRel);
+        budgets.get(lane).fetch_sub(scheduled.frame.len(), Ordering::AcqRel);
         let result = link.send(scheduled.frame).await.map_err(|error| error.to_string());
         let failed = result.is_err();
         let _ = scheduled.completion.send(result);
@@ -833,11 +841,11 @@ async fn run_lane_sender(
 
 fn fail_pending(
     receiver: &mut mpsc::Receiver<ScheduledFrame>,
-    budgets: &[AtomicUsize; 4],
+    budgets: &PerLane<AtomicUsize>,
     message: &str,
 ) {
     while let Ok(frame) = receiver.try_recv() {
-        budgets[lane_index(frame.lane)].fetch_sub(frame.frame.len(), Ordering::AcqRel);
+        budgets.get(frame.lane).fetch_sub(frame.frame.len(), Ordering::AcqRel);
         let _ = frame.completion.send(Err(message.into()));
     }
 }
@@ -881,10 +889,6 @@ struct ScheduledFrame {
     lane: Lane,
     frame: Bytes,
     completion: oneshot::Sender<Result<(), String>>,
-}
-
-fn lane_index(lane: Lane) -> usize {
-    lane as usize
 }
 
 fn lane_priority_order() -> [Lane; 4] {

@@ -1,9 +1,9 @@
 import Foundation
 import Network
 import CmuxNextCompat
+import CmuxNextRemoteFetch
 import Testing
 @testable import CmuxNextAgentPane
-import CmuxNextPages
 
 /// cx-e9t, at the network boundary: a reply image URL whose name answers a public address when
 /// the fetch checks it, and a private one at any later lookup (a DNS rebinding), must never reach

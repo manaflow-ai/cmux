@@ -3,6 +3,7 @@
 // target `closed`). An item whose machine is not connected is drawn dimmed and disabled.
 import { useRef } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { pressToOpen } from "../../../ui/pressToOpen";
 import { useListMotion } from "./listMotion";
 import type { ClosedItem } from "./recentlyClosed";
 import { RowGlyph } from "./RowGlyph";
@@ -35,7 +36,7 @@ export function ClosedList({ items, onReopen }: { items: ClosedItem[]; onReopen(
             type="button"
             className="nt-row nt-open-tab"
             disabled={!item.available}
-            onClick={() => onReopen(item.id)}
+            {...pressToOpen(() => onReopen(item.id))}
           >
             {item.icon ? (
               <img className="nt-row-glyph nt-row-favicon" src={item.icon} alt="" draggable={false} />

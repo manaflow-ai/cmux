@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::adapter::{AGENT_MUX, DraftKind, Drafts, UiEvent};
 use super::editor::Editor;
 use super::messages::messages;
-use super::render::{author_name, clock, message_text, wrap};
+use super::render::{author_name, clock, message_text, reactions_line, wrap};
 
 /// Left margin of message bodies.
 const INDENT: &str = "  ";
@@ -40,6 +40,12 @@ pub(super) struct Chat {
     /// Links (subagent, Markdown web links, bare web URLs) show as their labels and print as
     /// terminal hyperlinks (`hyperlink`), each only in its own message's lines.
     pub hyperlinks: bool,
+    /// The chat's Chief (`backend::chief_of`).
+    pub chief: String,
+    /// The seq of each message shown, by id (a reply names its parent's seq).
+    pub seqs: std::collections::HashMap<String, u64>,
+    /// The chat ids `/chats` listed, in its order (`/open N`).
+    pub listed: Vec<String>,
 }
 
 impl Default for Chat {
@@ -52,6 +58,9 @@ impl Default for Chat {
             busy: false,
             show_thoughts: false,
             hyperlinks: false,
+            chief: AGENT_MUX.to_owned(),
+            seqs: std::collections::HashMap::new(),
+            listed: Vec::new(),
         }
     }
 }
@@ -65,14 +74,27 @@ impl Chat {
         }
         self.last_seq = self.last_seq.max(seq);
         self.drafts.on_message(message);
+        if let Some(id) = message.get("id").and_then(Value::as_str) {
+            self.seqs.insert(id.to_owned(), seq);
+        }
         let mut lines = vec![(Style::Plain, String::new())];
         let name = author_name(message, &self.participants);
         let time = clock(message);
-        let header = if time.is_empty() { name } else { format!("{name}  {time}") };
+        let mut header = if time.is_empty() { name } else { format!("{name}  {time}") };
+        if seq != 0 {
+            header.push_str(&format!("  #{seq}"));
+        }
         lines.push((Style::Header, header));
+        if let Some(parent) = message.pointer("/reply_to/message_id").and_then(Value::as_str) {
+            let parent =
+                self.seqs.get(parent).map_or_else(|| parent.to_owned(), |s| format!("#{s}"));
+            lines.push((Style::Dim, format!("{INDENT}↳ {parent}")));
+        }
         let text = message_text(message);
+        let reactions = reactions_line(message).map(|line| (Style::Dim, format!("{INDENT}{line}")));
         if !self.hyperlinks {
             lines.extend(self.body(&text, Style::Plain));
+            lines.extend(reactions);
             return lines;
         }
         let (shown, links) = super::hyperlink::split(&text);
@@ -85,7 +107,25 @@ impl Chat {
                     .map(|(_, line)| (Style::Linked, super::hyperlink::mark(&line, &links))),
             );
         }
+        lines.extend(reactions);
         lines
+    }
+
+    /// The note line of an edited, retracted or reacted message shown
+    /// earlier (scrollback is not redrawn): `#SEQ` and what it shows now.
+    pub(super) fn updated(&self, message: &Value) -> Vec<Line> {
+        let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
+        if seq == 0 || seq > self.last_seq {
+            return Vec::new();
+        }
+        let reactions = reactions_line(message).unwrap_or_default();
+        let text = message_text(message);
+        let first = text.lines().next().unwrap_or("");
+        let mut line = format!("#{seq} ✎ {first}");
+        if !reactions.is_empty() {
+            line = format!("#{seq} {reactions}  {first}");
+        }
+        self.note(&super::tui::clip(&line, self.width.saturating_sub(INDENT.len() + 1)))
     }
 
     fn body(&self, text: &str, style: Style) -> Vec<Line> {
@@ -109,18 +149,19 @@ impl Chat {
                 let lines = messages.iter().flat_map(|m| self.message(m)).collect();
                 (lines, None)
             }
+            UiEvent::Updated(message) => (self.updated(message), None),
             UiEvent::Summary(summary) => {
                 self.participants = participants(summary);
                 (Vec::new(), None)
             }
-            UiEvent::Typing { participant, on } if participant == AGENT_MUX => {
+            UiEvent::Typing { participant, on } if *participant == self.chief => {
                 self.busy = *on;
                 if !on {
                     self.drafts.on_typing_off(participant);
                 }
                 (Vec::new(), None)
             }
-            UiEvent::Draft(draft) if draft.participant == AGENT_MUX => {
+            UiEvent::Draft(draft) if draft.participant == self.chief => {
                 self.drafts.apply(draft);
                 (Vec::new(), None)
             }

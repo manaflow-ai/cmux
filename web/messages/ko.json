@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "필수: 이 머신은 팀과 공유됩니다" },
   "agentHarness": {
     "title": "감지된 하네스 구성",
     "selectionNotice": "제공자를 선택해도 이러한 하네스가 시작되거나 활성화되지는 않습니다.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 요청이 지연되었습니다",
+      "message": "Cloud VM 할당을 일시적으로 사용할 수 없습니다.",
+      "action": "1분 후 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "스냅샷 요청에 재시도 키가 필요합니다",
+      "message": "Cloud VM 스냅샷에는 멱등성 키가 필요합니다.",
+      "action": "128자 이하의 고정된 Idempotency-Key로 다시 시도하세요."
+    },
+    "snapshotInProgress": {
+      "title": "스냅샷이 아직 진행 중입니다",
+      "message": "이 Cloud VM에서 이 멱등성 키를 사용하는 스냅샷이 아직 실행 중입니다.",
+      "action": "첫 번째 스냅샷이 완료될 때까지 기다린 다음 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "스냅샷 재시도 키가 이미 사용되었습니다",
+      "message": "이 멱등성 키는 이 Cloud VM의 다른 스냅샷 요청에 이미 사용되었습니다.",
+      "action": "다른 이름의 스냅샷에는 새 멱등성 키를 사용하세요."
+    },
+    "snapshotQuota": {
+      "title": "스냅샷 한도에 도달했습니다",
+      "message": "이 Cloud VM이 스냅샷 한도에 도달했습니다.",
+      "action": "기존 스냅샷을 삭제한 다음 같은 멱등성 키로 다시 시도하세요."
+    },
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
       "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "이 머신을 다시 만드세요",
       "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
-      "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
+      "action": "새 머신을 만드세요. `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`로 SCP 엔드포인트를 준비한 다음, 이 머신을 삭제하기 전에 SCP로 파일을 복사하세요."
     },
     "guestUnresponsive": {
       "title": "머신이 응답하지 않음",
       "message": "이 머신이 제시간에 응답하지 않아 요청을 완료할 수 없습니다.",
-      "action": "머신을 일시 정지한 다음 재개하고 다시 시도하세요. Mac 앱에서는 “머신 일시 정지”를 선택한 다음 “머신 재개”를 선택하세요. 터미널에서는 cmux vm pause '<machine>'를 실행한 다음 cmux vm resume '<machine>'을 실행하세요."
+      "action": "새 머신을 만들기 전에 추적 ID를 첨부해 지원팀에 문의하세요."
     },
     "inProgress": {
       "title": "아직 진행 중",
       "message": "클라우드 제공업체가 아직 이 변경을 완료하지 않았습니다. 이후에 완료될 수 있습니다.",
-      "action": "다시 시도하기 전에 cmux vm ls 또는 머신 목록에서 머신 상태를 확인하세요."
+      "action": "다시 시도하기 전에 cmux cloud list-machines 또는 머신 목록에서 머신 상태를 확인하세요."
     },
     "providerTimeout": {
       "title": "클라우드 제공업체 응답 지연",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "머신이 사용 중임",
       "message": "이 머신이 시작 중이거나 일시 정지 중이거나 실행 중이 아니어서 지금은 이 작업을 할 수 없습니다.",
-      "action": "잠시 후 다시 시도하세요. cmux vm ls로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
+      "action": "잠시 후 다시 시도하세요. cmux cloud list-machines로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
     },
     "networkRuleCapacity": {
       "title": "네트워크 규칙 한도 도달",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
         "restore": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
-        "fork": "다시 시도하지 마세요. `cmux vm new`로 새 VM을 만드세요.",
-        "openPort": "다시 시도하지 마세요. 머신 내부에서 `cmux vm exec`로 서비스에 접속하거나 포트를 열 수 있는 머신 종류를 사용하세요.",
-        "default": "다시 시도하지 마세요. `cmux vm ls`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
+        "fork": "다시 시도하지 마세요. `cmux cloud new-machine`로 새 VM을 만드세요.",
+        "openPort": "다시 시도하지 마세요. 머신 내부에서 `cmux cloud exec --target machine:<id> --command <command>`로 서비스에 접속하거나 포트를 열 수 있는 머신 종류를 사용하세요.",
+        "default": "다시 시도하지 마세요. `cmux cloud list-machines`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro 필요",
-      "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
-      "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
+      "title": "cmux {plan} 필요",
+      "message": "Cloud VM을 사용하려면 cmux {plan} 플랜이 필요합니다.",
+      "action": "{upgradeUrl}에서 cmux {plan}로 업그레이드하면 Cloud VM을 만들 수 있습니다."
     },
     "displayName": {
       "title": "잘못된 머신 이름",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 머신에는 cmux {plan}이 필요합니다. 현재 요금제는 최대 {max} GiB를 지원합니다.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "원본 머신의 RAM 크기를 확인할 수 없습니다.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "현재 이 머신 크기를 사용할 수 없습니다. {max} GiB 이하를 선택하세요.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go는 한 번에 VM 한 대를 실행할 수 있습니다.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "이번 달 Go의 VM 사용 시간 40시간을 모두 사용했습니다. 저장된 VM은 다음 결제 기간에 다시 사용할 수 있습니다.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} 컴퓨팅 한도를 모두 사용했습니다",
+      "computeMessage": "{plan} 플랜이 이번 청구 기간의 {included} 컴퓨팅 시간을 모두 사용했습니다. 1 컴퓨팅 시간은 2 GB 메모리의 vCPU 1개를 1시간 실행한 양입니다. 머신은 {resetDate}부터 다시 시작할 수 있습니다.",
+      "computeAction": "일시 중지된 머신의 파일은 유지됩니다. {resetDate} 전에 더 많은 컴퓨팅이 필요하면 지원팀에 문의하세요.",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "{plan} 디스크 한도를 모두 사용했습니다",
+      "storageMessage": "{plan} 플랜에는 저장된 모든 머신을 합쳐 {included} GB의 디스크가 포함됩니다. 저장된 머신이 {used} GB를 사용 중이며 이 요청에는 {requested} GB가 필요합니다.",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM 리소스가 부족합니다",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
           "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "grantedNoCancel": "cmux에서 부여한 플랜이므로 취소할 항목이 없습니다.",
+          "paymentFailed": "플랜을 변경하기 전에 결제 수단을 업데이트하세요.",
+          "foundersLifetime": "Founder's Edition에는 Pro가 평생 포함됩니다.",
           "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "{plan}(으)로 전환할까요?",
         "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "upgradeBodyYearly": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매년 {price}을(를) 결제합니다.",
         "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
         "confirm": "{plan}(으)로 전환",
         "keep": "현재 요금제 유지",
@@ -568,6 +608,8 @@
         "title": "{plan}을(를) 해지할까요?",
         "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
         "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
+        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
         "reasonLabel": "해지하는 이유 (선택)",
         "otherPlaceholder": "자세히 알려 주세요 (선택)",
         "confirm": "요금제 해지",
@@ -2242,6 +2284,7 @@
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
         },
+        "actions": "명령 팔레트, 단축키, 탭 표시줄 버튼, 더하기 버튼 메뉴에서 사용하는 재사용 가능한 동작입니다. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, text를 지원합니다. text 동작은 줄바꿈을 유지하여 포커스된 터미널에 붙여넣으며, submit: true는 Enter를 누릅니다. 설정 동작에는 전역 구성이 필요합니다.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

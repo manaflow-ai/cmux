@@ -2,18 +2,13 @@
  * The live provider snapshot client (see src/upstream/snapshots.ts for the
  * interface). Imported only from src/upstream/, src/proofs/ and src/index.ts.
  */
+import { makeSnapshotCaptureClient } from "./snapshot-capture.ts";
 import { Effect, Layer, Redacted, Schema } from "effect";
-import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
-import { upstreamName } from "./naming.ts";
 import { type CreatedSnapshot, UpstreamSnapshot, UpstreamSnapshots, type UpstreamSnapshotsService } from "./snapshots.ts";
-
-const CREATE_TIMEOUT_MS = 120_000;
-
-const SnapshotCreated = Schema.Struct({ snapshotId: UpstreamId, snapshot: UpstreamSnapshot });
 
 const decodeAs =
   <A, I>(schema: Schema.Schema<A, I>, operation: string) =>
@@ -25,28 +20,7 @@ export function makeUpstreamSnapshots(config: UpstreamConfig): UpstreamSnapshots
   const created = new WeakSet<CreatedSnapshot>();
 
   return {
-    createSnapshot: (_vm, { owns }, options) =>
-      http
-        .json(
-          "createSnapshot",
-          "POST",
-          `/v5/vms/${proofSegment(owns)}/snapshot`,
-          {
-            displayName: upstreamName(config.environment, options.tenantId, options.snapshotId),
-            ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
-            ...(options.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: options.autoDeleteSeconds }),
-          },
-          // Capturing memory and disk can take far longer than a read.
-          { timeoutMs: CREATE_TIMEOUT_MS },
-        )
-        .pipe(
-          Effect.flatMap(decodeAs(SnapshotCreated, "createSnapshot")),
-          Effect.map((body) => {
-            const result: CreatedSnapshot = Object.freeze({ upstreamId: body.snapshotId, snapshot: body.snapshot });
-            created.add(result);
-            return result;
-          }),
-        ),
+    ...makeSnapshotCaptureClient(config, http, (result) => { created.add(result); return result; }),
     discardCreatedSnapshot: (result) =>
       created.has(result)
         ? http

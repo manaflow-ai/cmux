@@ -98,7 +98,7 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
     expect((await deliver("team_membership.deleted", { team_id: t.stackTeam, user_id: t.stackUser })).status).toBe(200)
     const token = await sessionToken(t.stackUser, "Aziz")
     const { worker } = await import("./team-ssh-support.ts")
-    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}, team.${t.team}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, team.${t.team}`, authorization: `Bearer ${token}` } })
     expect(res.status).toBe(403)
   })
 })

@@ -1,0 +1,8 @@
+<!doctype html><meta charset=utf-8><title>bu-login</title>
+<style>body{font:16px -apple-system;margin:0;background:#f4f5f7}form{width:340px;margin:80px auto;background:#fff;padding:28px;border-radius:12px;box-shadow:0 2px 12px #0002}
+label{display:block;margin:14px 0 4px}input{width:100%;box-sizing:border-box;padding:10px;font-size:16px;border:1px solid #ccd;border-radius:6px}
+button{margin-top:20px;width:100%;padding:12px;font-size:16px;background:#2563eb;color:#fff;border:0;border-radius:6px}#out{margin-top:16px;color:#16a34a}</style>
+<form id=f onsubmit="event.preventDefault();out.textContent='Signed in as '+email.value">
+<h2>Sign in</h2><label for=email>Email</label><input id=email type=email autocomplete=off>
+<label for=pw>Password</label><input id=pw type=password><label><input id=remember type=checkbox style="width:auto"> Remember me</label>
+<button id=submit>Sign in</button><div id=out></div></form>

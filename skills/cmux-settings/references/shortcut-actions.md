@@ -8,6 +8,7 @@ Values for `shortcuts.bindings.<action>`:
 
 - A string like `"cmd+b"` for a single shortcut.
 - A two-element array like `["ctrl+b","c"]` for a chord.
+- `{"any": ["ctrl+tab","cmd+]"]}` for several keys on one action, each item a single stroke or a chord. The first item is the one menus show; `{"any": []}` unbinds.
 - `null` or an empty string (`""`, `"none"`, `"clear"`, `"unbound"`, `"disabled"`) to unbind.
 
 ## App

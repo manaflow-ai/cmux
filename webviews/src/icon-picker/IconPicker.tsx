@@ -323,7 +323,7 @@ export function IconPicker({
         />
       )}
       <div className="icon-picker-bar">
-        <div className="icon-bar-pill icon-bar-item" aria-live="polite">
+        <div className="ui-glass icon-bar-pill icon-bar-item" aria-live="polite">
           {active ? (
             <>
               {active.emoji ? (
@@ -341,7 +341,7 @@ export function IconPicker({
             <span className="icon-bar-name icon-bar-title">{t("iconPicker.title")}</span>
           )}
         </div>
-        <div className="icon-bar-pill icon-bar-actions">
+        <div className="ui-glass icon-bar-pill icon-bar-actions">
           {active && (
             <>
               <button

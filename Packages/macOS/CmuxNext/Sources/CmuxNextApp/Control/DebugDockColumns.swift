@@ -28,7 +28,7 @@ enum DebugDockColumns {
             return .object(fields)
         }
         var result: [String: JSON] = [
-            "supported": .bool(services.activeDaemon.supports(DaemonCapabilities.shared.dockColumns)),
+            "supported": .bool(services.activeDaemon.supports(DaemonCapability.dockColumns.rawValue)),
             "windows": .array(windows),
             "docks": .array(docks),
         ]

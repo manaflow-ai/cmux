@@ -3,9 +3,11 @@
 //! pairing responses, machine usage and listening ports, and window titles.
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
 
+use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
+use super::daemon_build::{stamped_build_commit, stamped_build_time, stamped_ghostty_commit};
 use super::identify_capabilities;
 use crate::platform;
 
@@ -32,12 +34,17 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
-pub(super) fn identify(mux: &Arc<Mux>) -> anyhow::Result<Value> {
+pub(super) fn identify(
+    mux: &Arc<Mux>,
+    machine_metadata: bool,
+    revisions: bool,
+) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
-    Ok(json!({
+    let mut identity = json!({
         "app": "cmux-tui",
-        "version": env!("CARGO_PKG_VERSION"),
+        // The npm/PyPI release (the crate version in the app and local builds).
+        "version": crate::release::DISTRIBUTION_VERSION,
         "build_commit": stamped_build_commit(),
         "build_id": build_id,
         "cli_path": cli_path,
@@ -51,11 +58,33 @@ pub(super) fn identify(mux: &Arc<Mux>) -> anyhow::Result<Value> {
         "registry_id": registry_id,
         "generation": generation,
         "workspace_revision": mux.with_state(|state| state.workspace_revision),
-        "terminal_revision": mux.terminal_registry_snapshot()?.revision,
+        "terminal_revision": mux.terminal_registry_revision()?,
         "daemon_handoff": 1,
         "lifecycle_ready": mux.server_lifecycle_ready(),
         "launch_snapshot_path": mux.launch_snapshot_path(),
-    }))
+    });
+    // Opt-in like machine metadata: strict pre-revision SDKs decode the
+    // default reply with deny_unknown_fields (machine_identity_reader_tests.rs).
+    if revisions {
+        let (current, base) = super::api_revision_wire::identify_fields();
+        let channel = crate::release::InstallChannel::current();
+        identity.insert("api_revision", json!(current));
+        identity.insert("min_api_revision", json!(base));
+        identity.insert("crate_version", json!(env!("CARGO_PKG_VERSION")));
+        // How this daemon was installed and how to update it, for a client's refusal text.
+        identity.insert("install", json!(channel.as_str()));
+        identity.insert("update_command", json!(channel.update_command()));
+        // The source commit's time, so a client that updates this machine
+        // never moves it back to an older build (`link machine update --if-older`).
+        identity.insert("build_time", json!(stamped_build_time()));
+    }
+    if machine_metadata {
+        identity.insert("machine_id", json!(mux.machine_public_id));
+        identity.insert("session_resource_id", json!(mux.session_public_id));
+        identity.insert("machine_platform", crate::resource_api::machine_platform());
+        identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
+    }
+    Ok(identity)
 }
 
 pub(super) fn shutdown_daemon(
@@ -122,13 +151,34 @@ pub(super) fn set_client_info(
     device_kind: Option<String>,
     device_name: Option<String>,
     device_id: Option<String>,
+    api_revision: Option<u32>,
+    version: Option<String>,
+    install: Option<String>,
+    remote: bool,
 ) -> anyhow::Result<Value> {
+    // Refuse an unsupported revision before changing anything else; the
+    // refusal names the client's own update command.
+    if let Some(revision) = api_revision {
+        mux.control_clients.set_api_revision(client, revision).map_err(|error| {
+            anyhow::anyhow!(
+                "{}",
+                super::api_revision_wire::too_old_text(
+                    &error.to_string(),
+                    version.as_deref(),
+                    install.as_deref()
+                )
+            )
+        })?;
+    }
     let identity =
         ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
     let identity_changed = !identity.is_empty();
     let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
     if identity_changed {
         mux.control_clients.set_sizing_identity(client, identity);
+    }
+    if remote {
+        mux.control_clients.mark_remote_device(client);
     }
     mux.refresh_terminal_client_identity(client);
     mux.emit(MuxEvent::ClientChanged { client, name, kind });
@@ -267,14 +317,4 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-pub(super) fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-pub(super) fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
 }

@@ -15,7 +15,8 @@ nonisolated public final class UpdateLogBuffer: UpdateLogging {
     }
 
     public func append(_ message: String) {
-        logger.info("\(message, privacy: .public)")
+        // Notice, not info: info lines are not kept, so a slow install could not be traced (a583).
+        logger.notice("\(message, privacy: .public)")
         lines.withLock { lines in
             lines.append(message)
             if lines.count > capacity { lines.removeFirst(lines.count - capacity) }

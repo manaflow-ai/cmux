@@ -30,7 +30,8 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     private(set) var contentHeight: CGFloat = 0
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
-    private let provider: UpdateSurfaceProvider
+    var onDismiss: (() -> Void)?
+    let provider: UpdateSurfaceProvider
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
@@ -38,6 +39,7 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
         provider.onHeight = { [weak self] height in self?.setHeight(height) }
         provider.onAction = { [weak self] in self?.onAction?() }
+        provider.onDismiss = { [weak self] in self?.onDismiss?() }
     }
 
     func close() {
@@ -67,6 +69,9 @@ final class UpdateSurfaceProvider: PageProvider {
     var onHeight: ((CGFloat) -> Void)?
     /// The page ran an action (the popover closes).
     var onAction: (() -> Void)?
+    /// The card's x: the sidebar sends `.dismissUpdated` (SidebarCardFeed.handle), the one
+    /// card-dismiss path; the provider never dismisses on its own.
+    var onDismiss: (() -> Void)?
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         self.kind = kind
@@ -85,6 +90,10 @@ final class UpdateSurfaceProvider: PageProvider {
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        if op == "cmux.changelog.surface.dismiss" {
+            onDismiss?()
+            return .null
+        }
         guard let services else { throw PageError.unknownOp(op) }
         switch op {
         case "cmux.changelog.surface.get":
@@ -97,9 +106,6 @@ final class UpdateSurfaceProvider: PageProvider {
         case "cmux.changelog.surface.openChangelog":
             _ = kind == .ready ? services.updater.openStagedChangelog() : services.updater.openWhatsNewForLastUpdate()
             onAction?()
-            return .null
-        case "cmux.changelog.surface.dismiss":
-            services.updater.whatsNew.dismissUpdated()
             return .null
         default:
             throw PageError.unknownOp(op)
@@ -124,12 +130,20 @@ final class UpdateSurfaceProvider: PageProvider {
 
 extension PageFactory {
     /// One update surface: the changelog bundle on `#/surface/<kind>`, its
-    /// `cmux.changelog.surface.` ops to `provider`.
+    /// `cmux.changelog.surface.` ops to `provider`, and the other `cmux.changelog.` ops
+    /// (`list`, `get`, a PR chip's `pr.inspect`, `browser.list` and `browser.openIn`) to the
+    /// page's verified notes, so the Updated card sums up every build the update spans. The card shows no pictures: no media inlining.
     func updateSurfacePage(kind: SidebarUpdateSurfaceKind, provider: UpdateSurfaceProvider) -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .changelog)
-        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)")
+        // PageRouter tries the longest prefix first: the surface's own ops before the notes.
+        let notes = changelogNotes()
+        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
+        // The island floats over the window's backdrop: a Chromium page cannot be transparent.
+        // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
+        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
+                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true))
         native.anchor = { [weak page] in page }
+        notes.anchor = { [weak page] in page }
         return page
     }
 }

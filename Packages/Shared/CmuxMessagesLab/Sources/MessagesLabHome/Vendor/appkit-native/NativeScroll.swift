@@ -73,6 +73,36 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
 
+    /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
+    /// While a thread or reply view is open, every wheel is the view's (it scrolls when taller than its
+    /// space, MessagesWindowView.scrollThread) and the dimmed transcript under it never moves; with no
+    /// view open the transcript takes the wheel as before.
+    func routeThreadWheel(_ e: NSEvent) -> Bool {
+        guard let demo, demo.threadOpen else { return false }
+        let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * verticalLineScroll
+        demo.scrollThread(by: dy)
+        return true
+    }
+
+    /// cmux: the thread view's wheel route. A local monitor, not a scrollWheel(_:) override, so the
+    /// transcript keeps responsive scrolling; only wheels over this scroll view (not the field above it).
+    private var threadWheelMonitor: Any?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, let m = threadWheelMonitor { NSEvent.removeMonitor(m); threadWheelMonitor = nil }
+        guard window != nil, threadWheelMonitor == nil else { return }
+        threadWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+            guard let self, self.demo?.threadOpen == true, e.window === self.window, self.isUnderPointer(e) else { return e }
+            return self.routeThreadWheel(e) ? nil : e
+        }
+    }
+
+    /// cmux: the event's view is this scroll view or one of its subviews.
+    private func isUnderPointer(_ e: NSEvent) -> Bool {
+        guard let frameView = window?.contentView?.superview else { return false }
+        return frameView.hitTest(e.locationInWindow)?.isDescendant(of: self) ?? false
+    }
+
     func attach(_ demo: MessagesWindowView) {
         self.demo = demo
         // The window view stays the list's delegate through this bridge.
@@ -141,7 +171,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         cv.contentOffset = CGPoint(x: 0, y: y)
         // The list rounds to its pixel grid; anything more is a rebase inside the move (a page
         // evicted or landed above): its coordinates changed, so the move shows at once.
-        if abs(cv.contentOffset.y - Self.onGrid(y)) <= 0.01 { paceClipMove(from: before, to: cv.contentOffset.y) }
+        if abs(cv.contentOffset.y - onGrid(y)) <= 0.01 { paceClipMove(from: before, to: cv.contentOffset.y) }
         // The window view handles a scroll as the user's when the list is
         // tracking or decelerating (live scroll); scroller drags, keyboard
         // and accessibility scrolling are the user's too.
@@ -254,9 +284,9 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         updatePaceOverscan()
     }
 
-    /// The list's pixel grid (the shim rounds `contentOffset` with the same scale).
-    private static func onGrid(_ v: CGFloat) -> CGFloat {
-        let s = DisplayScale.current
+    /// The list's pixel grid (the shim rounds `contentOffset` with the same scale: its window view's, cx-3cb view-scale).
+    private func onGrid(_ v: CGFloat) -> CGFloat {
+        let s = max(1, demo?.renderScale ?? DisplayScale.current)
         return (v * s).rounded() / s
     }
 
@@ -418,13 +448,16 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// following click (or a scroll) shows first are ready when it comes.
     private func prerenderPage(beyond dir: Int) {
         guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
+        PaletteScope.with(PaletteScope.palette(of: r)) { prerenderPage(r, beyond: dir) } // cmux: in its view's palette
+    }
+    private func prerenderPage(_ r: RowRecycler, beyond dir: Int) {
         let b = r.bounds, h = b.height
         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
         let n = r.layout.model.count
         for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
             guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec else { continue } // checked
             switch spec.kind { case .receipt, .typing: continue; default: break }
-            if !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec) }
+            if !RowBitmaps.shared.has(spec, scale: r.labRenderScale) { RowBitmaps.shared.request(spec, scale: r.labRenderScale) }
         }
     }
 
@@ -531,7 +564,10 @@ final class TranscriptDocumentView: NSView {
         window?.firstResponder?.keyDown(with: event)
     }
     private func hostPoint(_ e: NSEvent) -> CGPoint { controller?.host.convert(e.locationInWindow, from: nil) ?? .zero }
-    override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: hostPoint(event), event) }
+    override func mouseDown(with event: NSEvent) {
+        PaletteScope.claimProcess(PaletteScope.palette(of: self)) // cmux: the chat clicked in gives the process palette
+        controller?.mouseDown(at: hostPoint(event), event)
+    }
     override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }

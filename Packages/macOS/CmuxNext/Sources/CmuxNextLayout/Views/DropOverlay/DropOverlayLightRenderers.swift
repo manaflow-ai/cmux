@@ -36,7 +36,7 @@ final class EdgeGlowRenderer: DropOverlayRenderer {
         let edges = Set(DropOverlayGeometry.glowEdges(frame.zone))
         let depth = CGFloat(DropOverlayTunables.glowWidth.value)
         let local = CGRect(origin: .zero, size: frame.target.size)
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             clip.frame = frame.target
             clipMask.frame = local
             clipMask.path = DropOverlayGeometry.roundedRect(local, frame.cornerRadius)
@@ -78,7 +78,7 @@ final class DimOthersRenderer: DropOverlayRenderer {
 
     func update(_ frame: DropOverlayFrame) {
         let pixel = 1 / max(view.window?.backingScaleFactor ?? 2, 1)
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             scrim.path = DropOverlayGeometry.spotlightPath(bounds: frame.bounds, hole: frame.target, cornerRadius: frame.cornerRadius)
             scrim.opacity = Float(DropOverlayTunables.dimAmount.value)
             outline.isHidden = !DropOverlayTunables.dimOutline.value

@@ -21,6 +21,10 @@ impl HostedReader {
             HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
             _ => unreachable!(),
         };
+        if crate::debug_spans::following() {
+            follow_marks(pty, &output);
+        }
+        cmux_flow_trace::hop("daemon.output.host", 0, pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -88,9 +92,14 @@ impl HostedReader {
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                let title = term.title().unwrap_or_default();
-                *pty.title.lock().unwrap() = title.clone();
-                title_update = Some(title);
+                // A program that rewrites the same title (a spinner's
+                // resting frame, a prompt redraw) announces nothing.
+                let title = crate::terminal_title::read(&term);
+                let mut stored = pty.title.lock().unwrap();
+                if *stored != title {
+                    *stored = title.clone();
+                    title_update = Some(title);
+                }
             }
             pty.record_directory(term.pwd());
             if before != after {
@@ -102,13 +111,15 @@ impl HostedReader {
             // cannot then pair this text with an old
             // revision.
             pty.stream_progress.notify();
+            let journal_output =
+                journal_output.map(|output| (output, crate::output_store::HistoryRows::of(&term)));
             (pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1, journal_output)
         };
         let (generation, journal_output) = generation;
-        if let (Some(journal_target), Some(journal_output)) =
+        if let (Some(journal_target), Some((journal_output, history))) =
             (journal_target.take(), journal_output)
         {
-            pty.journal_output_if_open(journal_target, journal_output);
+            pty.record_output(journal_target, &journal_output, history);
         }
         drop(journal_update.take());
         surface.publish_pending_directory();
@@ -137,5 +148,13 @@ impl HostedReader {
             mux.append_shell_commands(terminal.clone(), finished_commands);
         }
         Flow::Continue
+    }
+}
+
+/// The first host output, first printable output and first prompt mark of
+/// a terminal its create follows (`CMUX_TUI_DEBUG_SPANS`).
+fn follow_marks(pty: &PtySurface, output: &[u8]) {
+    if let Some(identity) = pty.host_identity.as_ref() {
+        crate::debug_spans::output_marks(&identity.terminal_id, output);
     }
 }

@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
+import { collectGeometry, parseSelectorMap, type GeometrySelection } from "./geometry-collector";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -31,6 +32,7 @@ export function settleSummary(samples: readonly unknown[]) {
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 const DEFAULT_DEVICE_SCALE = 2;
+const DEFAULT_CAPTURE_CONTEXT = 32;
 /** A VM pauses itself after this much network idleness (at most 300 s, coordinator rule
  * 2026-10-07); the run's own pause by exact id is the primary path. */
 const FREESTYLE_IDLE_SECONDS = 300;
@@ -193,6 +195,32 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
 }
 
+
+/** Capture the named gallery surface with a small context border. Gallery entries can opt into
+ * a tighter element using `data-gallery-capture`; the root remains the safe default for stages
+ * without a named surface. Coordinates are CSS pixels and Playwright applies the 2x scale. */
+export async function captureClip(page: Page): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
+  const selector = process.env.CMUX_GALLERY_CAPTURE_SELECTOR;
+  const measured = await page.evaluate(({ selector }) => {
+    const element = selector
+      ? document.querySelector(selector)
+      : document.querySelector("[data-gallery-capture]") ?? document.querySelector("#root");
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+  }, { selector });
+  if (!measured) return undefined;
+  const visibleLeft = Math.max(0, measured.left);
+  const visibleTop = Math.max(0, measured.top);
+  const visibleRight = Math.min(measured.viewportWidth, measured.right);
+  const visibleBottom = Math.min(measured.viewportHeight, measured.bottom);
+  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return undefined;
+  const left = Math.max(0, measured.left - DEFAULT_CAPTURE_CONTEXT);
+  const top = Math.max(0, measured.top - DEFAULT_CAPTURE_CONTEXT);
+  const right = Math.min(measured.viewportWidth, measured.right + DEFAULT_CAPTURE_CONTEXT);
+  const bottom = Math.min(measured.viewportHeight, measured.bottom + DEFAULT_CAPTURE_CONTEXT);
+  return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
+}
 async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
@@ -215,10 +243,25 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     });
     // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
     const stills: { index: number; step: string; screenshot: string }[] = [];
+    let stillsMs = 0;
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
+      const started = Date.now();
       const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
-      await page.screenshot({ path: join(outputDir, name), fullPage: true });
+      const clip = await captureClip(page);
+      await page.screenshot({ path: join(outputDir, name), ...(clip ? { clip } : { fullPage: true }) });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+      stillsMs += Date.now() - started;
+    });
+    // When the stage first says it is ready, from navigation start (mount, play and settle; the play
+    // waits for each step's still, and that time is taken out below): gallery health holds each state to a ready-time budget (health.ts). The script runs
+    // before <html> exists, so it watches the document.
+    await page.addInitScript(() => {
+      const stamp = window as unknown as { cmuxGalleryReadyMs?: number };
+      new MutationObserver((_records, observer) => {
+        if (document.documentElement?.dataset.galleryReady === undefined) return;
+        stamp.cmuxGalleryReadyMs = Math.round(performance.now());
+        observer.disconnect();
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-gallery-ready"] });
     });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
@@ -229,6 +272,16 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
+    const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
+    const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs);
+    const revision = await page.evaluate(() => {
+      const root = document.documentElement;
+      return {
+        sha: root.dataset.galleryRevision ?? "",
+        source: root.dataset.gallerySource ?? "",
+        entryVersion: root.dataset.galleryEntryVersion ?? "",
+      };
+    });
     // Long frames gate only on Chromium's Long Animation Frames; rAF timing in headless WebKit on a
     // CPU-only VM measures the VM's software rendering, so the stage reports it as a warning.
     const play = await page.evaluate(() => (window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null);
@@ -237,10 +290,15 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
-    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
+    const geometrySelections: GeometrySelection[] | undefined = process.env.CMUX_GEOMETRY_SELECTORS
+      ? parseSelectorMap(JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8")), process.env.CMUX_GEOMETRY_SELECTORS)[item.id] : undefined;
+    if (geometrySelections) await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
+    const clip = await captureClip(page);
+    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), ...(clip ? { clip } : { fullPage: true }) });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
+    if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
@@ -265,7 +323,7 @@ export function renderIndex(results: Record<string, unknown>[]): string {
     return latency.count ? { ...result, latency } : result;
   });
   const data = JSON.stringify(withLatency).replace(/</g, "\\u003c");
-  return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};function playCells(result){const p=result.play;if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const latency=result.latency;const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const latencyCell=latency?.count?cell('settle','pass',latency.p50.toFixed(1)+' / '+latency.p95.toFixed(1)+' / '+latency.max.toFixed(1)+' ms ('+latency.count+')'):'';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+(latencyCell?' '+latencyCell:'')+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre></details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r)+'</article>'}).join('')}render();</script>`;
+  return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.card video{width:100%;margin-top:8px}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};const esc=(s)=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));function playCells(result){const p=result.play;if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const latency=result.latency;const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const latencyCell=latency?.count?cell('settle','pass',latency.p50.toFixed(1)+' / '+latency.p95.toFixed(1)+' / '+latency.max.toFixed(1)+' ms ('+latency.count+')'):'';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+(latencyCell?' '+latencyCell:'')+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre></details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;const provenance=r.revision?'<small>head '+esc(r.revision.sha||'unknown').slice(0,12)+' · '+esc(r.revision.source||'')+'</small>':'';const video=r.video?'<video controls preload=\"metadata\" src=\"'+esc(r.video)+'\"></video>':'';return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+provenance+video+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r)+'</article>'}).join('')}render();</script>`;
 }
 
 export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number; caseTimeoutMs?: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
@@ -397,6 +455,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
     const failures: string[] = [];
     await Promise.allSettled(vms.map(async ({ vm, shard }) => {
       await vm.fs.writeTextFile(`${remoteRoot}/runner.ts`, source, { mode: 0o644 });
+      for (const module of ["geometry-collector.ts", "geometry.ts", "geometry-containers.ts"]) await vm.fs.writeTextFile(`${remoteRoot}/${module}`, await readFile(join(import.meta.dir, module), "utf8"), { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/package.json`, packageJson, { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/manifest.json`, manifest, { mode: 0o644 });
       for (const file of galleryFiles) {

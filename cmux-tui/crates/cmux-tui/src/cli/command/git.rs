@@ -7,7 +7,8 @@ use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value};
 
 use super::{
-    CommandPlan, Flags, Selectors, UsageError, insert_bounded_u32, request, usage, validate_one_of,
+    CommandPlan, Flags, Selectors, UsageError, insert_bounded_u32, insert_decimal, request, usage,
+    validate_one_of,
 };
 
 const SCOPES: &[&str] = &["uncommitted", "unstaged", "staged", "committed", "branch"];
@@ -56,6 +57,7 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
                 let field = "context_lines";
                 insert_bounded_u32(&mut params, field, "--context-lines", value, 0, 1_000_000)?;
             }
+            diff_pages(flags, &mut params)?;
             if !paths.is_empty() {
                 let paths = paths.iter().map(|path| Value::String((*path).to_string()));
                 params.insert("paths".into(), Value::Array(paths.collect()));
@@ -78,6 +80,31 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         _ => return usage("git action"),
     };
     request(operation, &selectors, flags, params)
+}
+
+/// The paging flags `git diff` and `git checkpoint diff` share: `--after-path`
+/// continues a long file listing from the previous reply's `next_path`;
+/// `--patch-offset` and `--patch-revision` read one file's raw patch in
+/// bounded pages (`patch_page`), the revision from the first page.
+fn diff_pages(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<(), UsageError> {
+    if let Some(path) = flags.take("after-path") {
+        if path.is_empty() {
+            return Err(UsageError::new("--after-path must not be empty"));
+        }
+        params.insert("after_path".into(), Value::String(path));
+    }
+    if let Some(offset) = flags.take("patch-offset") {
+        insert_decimal(params, "patch_offset", "--patch-offset", offset)?;
+    }
+    if let Some(revision) = flags.take("patch-revision") {
+        if revision.len() != 64 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(UsageError::new(
+                "--patch-revision must be the 64 hex digits of a patch_page revision",
+            ));
+        }
+        params.insert("patch_revision".into(), Value::String(revision));
+    }
+    Ok(())
 }
 
 /// The repository to read: one selector, `--path`, or the current directory.

@@ -58,7 +58,10 @@ export const latestRelease = (): string => execFileSync("gh", ["release", "view"
 
 export const inventoryHits = (root: string, tag: string, words: ReadonlyArray<string>): Array<string> => {
   // Forced: a release tag that moved on origin (v0.65.0 did) must not leave a stale local copy in charge.
-  spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", `+refs/tags/${tag}:refs/tags/${tag}`])
+  // Depth 1 only in a shallow checkout: in a full clone --depth writes .git/shallow and truncates
+  // history for every worktree sharing it.
+  const isShallow = spawnSync("git", ["-C", root, "rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).stdout?.trim() === "true"
+  spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", ...(isShallow ? ["--depth=1"] : []), "origin", `+refs/tags/${tag}:refs/tags/${tag}`])
   const hits: Array<string> = []
   for (const w of words) {
     const run = spawnSync("git", ["-C", root, "grep", "-l", "-F", w, tag, "--", ...SHIPPED], { encoding: "utf8" })

@@ -180,6 +180,13 @@ describe("inbox", () => {
     host = w.host();
     host.start();
     await host.ready;
+    const watches = w.acpmux.calls.filter((call) => call.method === "_acpmux/watch");
+    const attaches = w.acpmux.calls.filter((call) => call.method === "_acpmux/attach");
+    // The reconnect owns the subscription handoff: it watches before attaching
+    // and resumes from the durable event cursor instead of polling from zero.
+    expect(watches.length).toBeGreaterThanOrEqual(2);
+    expect(attaches.length).toBeGreaterThanOrEqual(2);
+    expect(attaches.at(-1)?.params.afterSeq).toBeGreaterThan(0);
     await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 2);
     // A third restart with nothing new changes nothing.
     await host.stop();

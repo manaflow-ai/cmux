@@ -3,7 +3,7 @@ import { FreestyleApiError, type Freestyle } from "freestyle";
 
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderTunnelNetworkOverlapError } from "../services/vms/drivers/types";
-import { VmProviderOperationError } from "../services/vms/errors";
+import { VmProviderOperationError, VmTunnelNotFoundError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 
 const TUNNEL_CLIENT_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -55,7 +55,7 @@ describe("a private network with no free addresses", () => {
       message: "This account's private network has no free addresses.",
     });
     expect(payload.retryAfterSeconds).toBeUndefined();
-    expect(String(payload.action)).toContain("cmux vm rm");
+    expect(String(payload.action)).toContain("cmux cloud kill-machine --target machine:<id> --confirm");
     expect(JSON.stringify(payload)).not.toMatch(/retrying is safe|temporarily unavailable/i);
   });
 
@@ -97,4 +97,12 @@ describe("a private network with no free addresses", () => {
     expect(response.status).toBe(409);
     expect((await response.json()).error).toBe("vm_network_full");
   });
+});
+
+test("a missing tunnel tells the person how to re-enroll this Mac", async () => {
+  const response = await vmWorkflowErrorResponse(new VmTunnelNotFoundError({ deviceFingerprint: "device-1" }));
+  expect(response?.status).toBe(404);
+  const payload = await response!.json() as { action?: string };
+  expect(payload.action).toContain("cmux cloud sign-out");
+  expect(payload.action).toContain("cmux cloud sign-in");
 });

@@ -1,0 +1,62 @@
+{
+  "claude": [
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "shortName": "Opus 5.5",
+      "family": "Opus",
+      "provider": "anthropic"
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "shortName": "Sonnet 5.5",
+      "family": "Sonnet",
+      "provider": "anthropic"
+    },
+    {
+      "id": "claude-haiku-5-5",
+      "name": "Claude Haiku 5.5",
+      "shortName": "Haiku 5.5",
+      "family": "Haiku",
+      "provider": "anthropic"
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "shortName": "Fable 5.1",
+      "family": "Fable",
+      "provider": "anthropic"
+    }
+  ],
+  "codex": [
+    {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "shortName": "GPT-6.1 Sol",
+      "family": "Sol",
+      "provider": "openai"
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "name": "GPT-6.1 Terra",
+      "shortName": "GPT-6.1 Terra",
+      "family": "Terra",
+      "provider": "openai"
+    },
+    {
+      "id": "gpt-6.1-luna",
+      "name": "GPT-6.1 Luna",
+      "shortName": "GPT-6.1 Luna",
+      "family": "Luna",
+      "provider": "openai"
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "shortName": "GPT-6 Astra",
+      "family": "Astra",
+      "provider": "openai"
+    }
+  ]
+}

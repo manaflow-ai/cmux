@@ -1,6 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AuthedUser } from "../services/vms/auth";
-import { ADMIN_ID, MEMBER_ID, MemoryInviteStore, noLock, OUTSIDER_ID, standardTeam, TEAM_ID, type FakeStack } from "./teams-fixture";
+import {
+  ADMIN_GRANTS,
+  ADMIN_ID,
+  MEMBER_GRANTS,
+  MEMBER_ID,
+  MemoryInviteStore,
+  noLock,
+  OTHER_TEAM_ID,
+  OUTSIDER_ID,
+  standardTeam,
+  TEAM_ID,
+  type FakeStack,
+} from "./teams-fixture";
 
 let stack: FakeStack = standardTeam();
 let store = new MemoryInviteStore();
@@ -177,5 +189,137 @@ describe("team routes", () => {
     expect(response.status).toBe(409);
     expect((await response.json() as { error: { code: string } }).error.code).toBe("team_has_active_subscription");
     expect(stack.teams.has(TEAM_ID)).toBe(true);
+  });
+});
+
+type TeamListBody = {
+  teams: { id: string; displayName: string; profileImageUrl: string | null; role: string; permissions: Record<string, boolean> }[];
+  selectedTeamId: string | null;
+};
+
+const ALL_PERMISSIONS = {
+  updateTeam: true,
+  deleteTeam: true,
+  inviteMembers: true,
+  readMembers: true,
+  removeMembers: true,
+  manageApiKeys: true,
+  manageBilling: true,
+};
+
+describe("GET /api/teams", () => {
+  test("lists an admin's teams with the admin role, every capability and the selected team", async () => {
+    stack.addTeam(OTHER_TEAM_ID, "Other").addMember(OTHER_TEAM_ID, ADMIN_ID, MEMBER_GRANTS);
+    stack.users.get(ADMIN_ID)!.selectedTeamId = TEAM_ID;
+    const response = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json() as TeamListBody).toEqual({
+      teams: [
+        { id: TEAM_ID, displayName: "Acme", profileImageUrl: null, role: "admin", permissions: ALL_PERMISSIONS },
+        {
+          id: OTHER_TEAM_ID,
+          displayName: "Other",
+          profileImageUrl: null,
+          role: "member",
+          permissions: { ...Object.fromEntries(Object.keys(ALL_PERMISSIONS).map((key) => [key, false])), readMembers: true },
+        },
+      ],
+      selectedTeamId: TEAM_ID,
+    });
+  });
+
+  test("gives a member the member role without rename or delete", async () => {
+    currentUserId = MEMBER_ID;
+    const response = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(response.status).toBe(200);
+    const body = await response.json() as TeamListBody;
+    expect(body.selectedTeamId).toBeNull();
+    expect(body.teams).toHaveLength(1);
+    expect(body.teams[0]!.role).toBe("member");
+    expect(body.teams[0]!.permissions.updateTeam).toBe(false);
+    expect(body.teams[0]!.permissions.deleteTeam).toBe(false);
+    expect(body.teams[0]!.permissions.manageBilling).toBe(false);
+  });
+
+  test("returns an empty list to a user in no team, and null selection for a team they left", async () => {
+    currentUserId = OUTSIDER_ID;
+    stack.users.get(OUTSIDER_ID)!.selectedTeamId = TEAM_ID;
+    const response = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(await response.json() as TeamListBody).toEqual({ teams: [], selectedTeamId: null });
+  });
+
+  test("returns 401 in the contract error shape without a session", async () => {
+    currentUserId = null;
+    const response = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(response.status).toBe(401);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe("unauthorized");
+  });
+
+  test("fails closed with a retryable 503 when Stack cannot list teams or read a team's grants", async () => {
+    stack.failListUserTeams = true;
+    const listing = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(listing.status).toBe(503);
+    expect(listing.headers.get("retry-after")).toBe("5");
+    expect((await listing.json() as { error: { code: string } }).error.code).toBe("service_unavailable");
+
+    stack.failListUserTeams = false;
+    stack.failPermissionsFor.add(TEAM_ID);
+    const grants = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(grants.status).toBe(503);
+    expect((await grants.json() as { error: { code: string } }).error.code).toBe("service_unavailable");
+  });
+
+  test("leaves out a team deleted while the listing ran", async () => {
+    stack.addTeam(OTHER_TEAM_ID, "Other").addMember(OTHER_TEAM_ID, ADMIN_ID, ADMIN_GRANTS);
+    stack.permissionsGoneFor.add(TEAM_ID);
+    stack.users.get(ADMIN_ID)!.selectedTeamId = TEAM_ID;
+    const response = await teamsRoute.GET(browserRequest("/api/teams"));
+    expect(response.status).toBe(200);
+    const body = await response.json() as TeamListBody;
+    expect(body.teams.map((team) => team.id)).toEqual([OTHER_TEAM_ID]);
+    expect(body.selectedTeamId).toBeNull();
+  });
+});
+
+describe("team rename and delete are admin only", () => {
+  test("PATCH renames for an admin and is forbidden to a member", async () => {
+    currentUserId = MEMBER_ID;
+    const refused = await teamRoute.PATCH(
+      browserRequest(`/api/teams/${TEAM_ID}`, { method: "PATCH", body: { displayName: "Renamed" } }),
+      params({ teamId: TEAM_ID }),
+    );
+    expect(refused.status).toBe(403);
+    expect((await refused.json() as { error: { code: string } }).error.code).toBe("forbidden");
+    expect(stack.teams.get(TEAM_ID)!.displayName).toBe("Acme");
+
+    currentUserId = ADMIN_ID;
+    const renamed = await teamRoute.PATCH(
+      browserRequest(`/api/teams/${TEAM_ID}`, { method: "PATCH", body: { displayName: "Renamed" } }),
+      params({ teamId: TEAM_ID }),
+    );
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toEqual({ team: { id: TEAM_ID, displayName: "Renamed", profileImageUrl: null } });
+    expect(stack.teams.get(TEAM_ID)!.displayName).toBe("Renamed");
+  });
+
+  test("DELETE removes the team for an admin and is forbidden to a member", async () => {
+    currentUserId = MEMBER_ID;
+    const refused = await teamRoute.DELETE(
+      browserRequest(`/api/teams/${TEAM_ID}`, { method: "DELETE" }),
+      params({ teamId: TEAM_ID }),
+    );
+    expect(refused.status).toBe(403);
+    expect((await refused.json() as { error: { code: string } }).error.code).toBe("forbidden");
+    expect(stack.teams.has(TEAM_ID)).toBe(true);
+
+    currentUserId = ADMIN_ID;
+    const deleted = await teamRoute.DELETE(
+      browserRequest(`/api/teams/${TEAM_ID}`, { method: "DELETE" }),
+      params({ teamId: TEAM_ID }),
+    );
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ ok: true });
+    expect(stack.teams.has(TEAM_ID)).toBe(false);
   });
 });

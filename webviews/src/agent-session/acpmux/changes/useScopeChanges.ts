@@ -11,32 +11,32 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
   // Each pick of a scope and each Retry is its own load, so a scope picked again never
   // shows the answer it had before.
   const [attempt, setAttempt] = useState(0);
-  const [picked, setPicked] = useState(scope);
-  if (picked !== scope) {
-    setPicked(scope);
+  const [picked, setPicked] = useState({ scope, attempt: 0 });
+  if (picked.scope !== scope) {
+    setPicked({ scope, attempt: attempt + 1 });
     setAttempt((count) => count + 1);
   }
   const key = `${scope}\u0000${attempt}`;
-  const [result, setResult] = useState<{ key: string; load: ChangesLoad }>();
-  const [named, setNamed] = useState<{ key: string; branch: ReturnType<typeof readBranch> }>();
-  const [reviewed, setReviewed] = useState<{ key: string; threads: ReviewThread[] }>();
+  const [result, setResult] = useState<{ key: string; attempt: number; load: ChangesLoad }>();
+  const [named, setNamed] = useState<{ key: string; attempt: number; branch: ReturnType<typeof readBranch> }>();
+  const [reviewed, setReviewed] = useState<{ key: string; attempt: number; threads: ReviewThread[] }>();
   useEffect(() => {
     if (scope === "lastTurn") return;
     let current = true;
     const settle = (load: ChangesLoad) => {
-      if (current) setResult({ key, load });
+      if (current) setResult({ key, attempt, load });
     };
     if (scope === "branch" && source?.status)
       source.status().then(
         (value) => {
-          if (current) setNamed({ key, branch: readBranch(value) });
+          if (current) setNamed({ key, attempt, branch: readBranch(value) });
         },
         () => undefined,
       );
     if (scope === "branch" && source?.reviewThreads)
       source.reviewThreads().then(
         (value) => {
-          if (current) setReviewed({ key, threads: readReviewThreads(value) });
+          if (current) setReviewed({ key, attempt, threads: readReviewThreads(value) });
         },
         () => undefined,
       );
@@ -52,10 +52,16 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
     return () => {
       current = false;
     };
-  }, [source, scope, key]);
+  }, [source, scope, key, attempt]);
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
-  const load: ChangesLoad = result?.key === key ? result.load : { state: "loading" };
-  const branch = named?.key === key ? named.branch : undefined;
-  const threads = reviewed?.key === key ? reviewed.threads : undefined;
+  // A reload of the scope on screen (Retry, a stage, unstage or commit) keeps its last answer until
+  // the new one lands, instead of the whole list turning to Loading (Leo 2026-10-19). A pick of a
+  // scope (again) still starts from Loading: an answer from before the pick is never shown.
+  const sincePick = (answer?: { key: string; attempt: number }) =>
+    answer !== undefined && answer.key.startsWith(`${scope}\u0000`) && answer.attempt >= picked.attempt;
+  const kept = result?.load.state === "loaded" && sincePick(result) ? result.load : undefined;
+  const load: ChangesLoad = result?.key === key ? result.load : (kept ?? { state: "loading" });
+  const branch = named?.key === key || sincePick(named) ? named?.branch : undefined;
+  const threads = reviewed?.key === key || sincePick(reviewed) ? reviewed?.threads : undefined;
   return { load, retry, branch, threads };
 }

@@ -15,6 +15,7 @@
  * phase is Lawrence's decision.
  */
 import { Context, Layer } from "effect";
+import { httpsOrigin } from "./network-origin.ts";
 import type { TenantId } from "./lib/ids.ts";
 import type { RateClass, RateRule } from "./limits/ledger.ts";
 
@@ -24,6 +25,8 @@ export const DEV_TEST_MAX_IDLE_SECONDS = 300;
 export const PRODUCT_DEFAULT_IDLE_SECONDS = -1;
 
 export interface TenantPolicyService {
+  /** Operator-approved proxy origins; an empty set disables HTTPS proxies. */
+  readonly httpsProxyOrigins: ReadonlySet<string>;
   readonly environment: Environment;
   readonly isDevTest: (tenantId: TenantId) => boolean;
   /** Listed in MANAFLOW_TEAM_TENANT_IDS: entitled without billing (the manaflow-team flag), still a product tenant. */
@@ -40,6 +43,7 @@ export interface TenantPolicyService {
 export class TenantPolicy extends Context.Tag("cmux-vm/TenantPolicy")<TenantPolicy, TenantPolicyService>() {}
 
 export interface PolicyConfig {
+  readonly httpsProxyOrigins?: ReadonlyArray<string>;
   readonly environment: Environment;
   readonly devTestTenantIds?: ReadonlyArray<string>;
   /** Stack team ids under the manaflow-team flag (MANAFLOW_TEAM_TENANT_IDS). */
@@ -72,6 +76,7 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
   const isDevTest = (tenantId: TenantId) => config.environment !== "production" || listed.has(tenantId);
   const manaflow = new Set(config.manaflowTenantIds ?? []);
   return {
+    httpsProxyOrigins: new Set((config.httpsProxyOrigins ?? []).flatMap((value) => { const origin = httpsOrigin(value); return origin === null ? [] : [origin]; })),
     environment: config.environment,
     isDevTest,
     isManaflowTeam: (tenantId) => manaflow.has(tenantId),

@@ -1,3 +1,4 @@
+public import CmuxChiefVoiceCore
 public import UIKit
 
 /// Entry points the app target's thin `@main` delegate calls.
@@ -14,6 +15,12 @@ public enum CmuxiOSApplication {
 
     public static func didRegisterForRemoteNotifications(deviceToken: Data) {
         Task { await container.push.didRegister(token: deviceToken) }
+    }
+
+    /// An App Intent (Action Button, Siri, Shortcuts, Control Center) asked
+    /// for a Chief call or voice note; it waits until Home is ready.
+    public static func handle(_ request: ChiefVoiceRequest) {
+        container.chiefCall.handle(request)
     }
 
     private static let container = AppContainer()

@@ -57,13 +57,33 @@ impl PublicTopologyFold {
                 .as_str()
                 .is_some_and(|resource| TRACKED_RESOURCES.contains(&resource))
             && match (change["resource"].as_str(), change["id"].as_str()) {
-                (Some(resource), Some(id)) => self
-                    .values
-                    .get(&(resource.to_string(), id.to_string()))
-                    .is_some_and(|value| value == &change["value"]),
+                (Some(resource), Some(id)) => {
+                    self.values.get(&(resource.to_string(), id.to_string())).is_some_and(|value| {
+                        value == &change["value"]
+                            || (resource == "workspace"
+                                && without_workspace_key(value) == change["value"])
+                    })
+                }
                 _ => false,
             }
     }
+}
+
+/// A folded workspace value without `extra.key` (and without `extra` when
+/// that was its only field). Every journaled workspace upsert carries its key
+/// (state/values.rs), a projection's raw upsert never does, and a
+/// workspace's key never changes, so the comparison leaves it out.
+fn without_workspace_key(value: &Value) -> Value {
+    let mut value = value.clone();
+    if let Some(object) = value.as_object_mut()
+        && let Some(extra) = object.get_mut("extra").and_then(Value::as_object_mut)
+    {
+        extra.remove("key");
+        if extra.is_empty() {
+            object.remove("extra");
+        }
+    }
+    value
 }
 
 impl WorkspaceRegistry {

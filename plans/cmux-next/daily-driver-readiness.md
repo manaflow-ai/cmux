@@ -63,7 +63,7 @@ through the submitter.
 | Settings | PARTIAL | Settings exists as a tab; the old missing-Settings verdict below is obsolete. Full Settings-window behavior is unverified. |
 | Config isolation | HAVE (source) | This nightly defaults to cmux-next.json, with one-time classic seeding. The old shared-config blocker below is obsolete for this nightly. |
 | Classic NIGHTLY coexistence | BROKEN | Both share com.cmuxterm.app.nightly and /tmp/cmux-nightly.sock. Classic owned the socket during capture. App exit cause is unproven. |
-| Long-run stability/resources | UNVERIFIED | 20-minute soak and 10-session CPU/memory measurements remain deferred to a dedicated host. |
+| Long-run stability/resources | ROUGH | Two 24 h soaks and one 20-minute soak on a reserved CI mini, with 0 crashes. The 24 h reports are FAIL on false hangs (cx-urd.70). WebKit growth is unexplained (cx-urd.72), and idle CPU is over budget (cx-urd.71). See [Soak receipts](#soak-receipts-cx-urd4). |
 
 The overnight BusyWatchdog crash was fixed and merged in
 [#17290](https://github.com/manaflow-ai/cmux/pull/17290), after an executed red
@@ -131,9 +131,9 @@ row is recorded as a missing evidence item rather than inferred from source.
 | Settings | MISSING | No Settings window; JSON/palette settings only; no screenshot. |
 | Update path | BROKEN | Development/tagged bundles disable Sparkle install; team update is manual artifact download. No screenshot. |
 | Keyboard shortcut parity | ROUGH | Action catalog has keyboard surfaces and defaults, but classic parity is not proven; no screenshot. |
-| Idle CPU/memory | UNVERIFIED | `scripts/cmux-next/bench-idle.sh` was not run because the tagged app could not acquire the host lock. |
-| CPU/memory with 10 sessions | UNVERIFIED | No capture. |
-| Crash-free 20-minute scripted session | UNVERIFIED | No capture. |
+| Idle CPU/memory | ROUGH | Soak quiet phase: app 80-140 MB (budget < 150 MB). Idle app CPU was 0.01% on build 97f72304 and 0.26% at 7.3 wakeups/s on 57c2d569951a; both are above the 0.0% budget (cx-urd.71). `bench-idle.sh` itself was not run. |
+| CPU/memory with 10 sessions | WORKS | 10 agents, 10 printing terminals and 4 browser tabs: app mean CPU 0.3-0.7%, daemon 1.7-2.1%; the daemon levels off at 0.64-1.03 GB within 2 h (architecture.md has no daemon budget). |
+| Crash-free 20-minute scripted session | WORKS | `readiness-soak.py` for 25 min on 57c2d569951a: PASS, 0 crashes, 0 hangs, 99/99 agent turns. |
 | Classic coexistence | ROUGH | Tagged app launched beside the existing classic app with its isolated bundle/socket/tui state. The pre-fix artifact still used classic `cmux.json`; PR #17198 separates it. Untagged release still collides. [Screenshot](evidence/layout-split-tabs.png) |
 
 ## Runtime receipts
@@ -181,9 +181,30 @@ Evidence files: `plans/cmux-next/evidence/terminal-after-cli-input.png`,
 9. **Shortcut and CLI parity are incomplete.** The old Swift CLI compatibility
    layer is superseded; static next action-surface tests do not establish the
    classic runtime contract.
-10. **Resource and stability budgets are unmeasured.** Idle, ten-session, and
-    crash-free twenty-minute receipts remain required before a replacement
-    recommendation.
+10. **Idle CPU is over budget.** The ten-session and crash-free receipts
+    pass (see [Soak receipts](#soak-receipts-cx-urd4)), but idle app CPU on
+    57c2d569951a, the first soaked build with Chromium tabs, is 0.26% against
+    0.0% (cx-urd.71).
+
+## Soak receipts (cx-urd.4)
+
+`scripts/cmux-next/readiness-soak.py` ran on cmux8s, a reserved CI mini.
+Capture-mini leases end after 10 minutes, so the soak cannot run there.
+Each run had 10 fake-agent sessions, 10 printing terminals and 4 browser tabs.
+The reports name only "build 108"; the commits come from the fleet build
+(57c2d569951a) and the cmux-next-dev release notes (97f72304).
+
+| Run | Build | Result | App CPU / memory | Daemon memory |
+| --- | --- | --- | --- | --- |
+| 20 min, 2026-10-14 | 57c2d569951a (feat-cmux-next, Chromium tabs) | PASS: 0 crashes, 0 hangs, 99/99 turns | 0.68% / 139 MB; idle 0.26%, 7.3 wakeups/s | 101 -> 270 MB through load, flat once quiet |
+| 24 h, 2026-10-13 | 97f72304 (cmux-next-dev, WebKit tabs) | 0 crashes, 2813/2813 turns | 0.34% / 77-88 MB; idle 0.01% | levels off at 636 MB |
+| 24 h, 2026-10-12 | cmux-next-dev of 2026-10-11 (WebKit tabs) | 0 crashes, 2815/2815 turns | 0.31% / 72-80 MB; idle 0.01% | levels off at 1035 MB |
+
+Both 24 h runs were marked FAIL only for over 1,000 false hangs. In each, the
+debug socket vanished at about 11:00Z while every turn kept completing
+(cx-urd.70). The 10-13 run also saw WebKit grow from 5 to 17 processes at
+22h41m, from 460 to 950 MB (167 MB at the start); the source is not yet known
+(cx-urd.72).
 
 ## Coexistence facts
 

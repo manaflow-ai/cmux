@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 
 /// Reads the GitHub repository named by a workspace's `origin` remote.
 ///
@@ -8,32 +9,10 @@ public nonisolated struct AgentPaneGitHubRepository {
     public init() {}
 
     public static func read(at path: String?) async -> String? {
-        await Task.detached(priority: .utility) {
-            readSync(at: path)
-        }.value
-    }
-
-    private static func readSync(at path: String?) -> String? {
-        guard let path else { return nil }
-        guard path.hasPrefix("/"), !path.contains("\0") else { return nil }
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", path, "remote", "get-url", "origin"]
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            // concurrency-allow: readSync runs only inside the detached utility task; git output is bounded.
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-        guard process.terminationStatus == 0,
-              // concurrency-allow: this read runs only inside the detached utility task after git exits.
-              let remote = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-        else { return nil }
-        return parse(remote)
+        guard let path, path.hasPrefix("/"), !path.contains("\0") else { return nil }
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/git"), ["-C", path, "remote", "get-url", "origin"])
+        guard let outcome = try? await AsyncProcess().run(request), outcome.succeeded else { return nil }
+        return parse(outcome.text)
     }
 
     public static func parse(_ remote: String) -> String? {

@@ -70,6 +70,13 @@ export const authenticationLayer = Layer.effect(
           scopes: scopeSetOf(record.value.scopes),
           resourceAllowlist: record.value.resourceAllowlist === null ? null : new Set(record.value.resourceAllowlist),
           credentialExpiresAt: record.value.expiresAt,
+          // An agent key reaches only VMs that carry its labels (cmux.agent=<id> and its issuer's), within its budget.
+          ...(record.value.agent === null
+            ? {}
+            : {
+                requiredLabels: record.value.agent.labels,
+                agent: { maxVms: record.value.agent.maxVms, maxUsdPerHour: record.value.agent.maxUsdPerHour },
+              }),
         };
         return principal;
       });

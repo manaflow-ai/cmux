@@ -14,7 +14,7 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     private let authorizer: any DictationAuthorizing
     private var active: (any SpeechTranscribing)?
     private var isFinishing = false
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     private var recordedInput: URL?
 
     /// Debug builds: hears a recorded clip instead of the microphone
@@ -34,7 +34,7 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     public func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
         if #available(macOS 26, *), !Self.forcesRecognizerEngine {
             let analyzer = SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter)
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             if let recordedInput { await analyzer.hear(recordedInput) }
             #endif
             active = analyzer
@@ -51,7 +51,7 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     /// The `SFSpeechRecognizer` engine: the only one before macOS 26, and the
     /// fallback for a language SpeechAnalyzer has no model for.
     private func transcribeWithRecognizer(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The fallback engine listens to the live microphone: a recorded
         // clip fails here instead of quietly dictating from the mic.
         if recordedInput != nil { throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier) }

@@ -204,3 +204,74 @@ fn agent_session_host_name_round_trips() {
     }
     mux.shutdown();
 }
+
+/// cx-w4bbw: the bind writes the harness the session runs, in the same
+/// commit. A new chat (New Agent Chat, New Tab page) is created with no
+/// harness and gets it at its first bind; an opened chat (Open Chat) is
+/// created with its session and gets the harness by a bind of that same
+/// session; a move to another session takes the new session's harness; a
+/// bind without a harness keeps the recorded one; a bad harness is refused.
+#[test]
+fn agent_session_bind_writes_the_harness() {
+    let mux = test_mux("agent-bind-harness");
+    let (_, pane) = terminal_pane(&mux);
+    let harness_of = |surface: SurfaceId| {
+        raw_tab(&mux, surface).unwrap()["conversation"]["agent_session"]["harness"].clone()
+    };
+    let bind_with = |surface: SurfaceId, session: &str, expected: Value, harness: Value| {
+        run(
+            &mux,
+            json!({"cmd":"bind-conversation-tab-session","surface":surface,"session":session,
+                   "expected_session":expected,"harness":harness}),
+        )
+    };
+    let create = |agent: Value| {
+        run(&mux, json!({"cmd":"new-conversation-tab","pane":pane,"agent_session":agent})).unwrap()
+            ["surface"]
+            .as_u64()
+            .unwrap()
+    };
+
+    // New chat: no harness at create, the first bind names it.
+    let new_chat = create(json!({"host":"install:mac-test"}));
+    assert_eq!(harness_of(new_chat), Value::Null);
+    let first = bind_with(new_chat, "n-1", Value::Null, json!("codex")).unwrap();
+    assert_eq!(first["replayed"], false, "{first}");
+    assert_eq!(first["conversation"]["agent_session"]["harness"], "codex", "{first}");
+    assert_eq!(harness_of(new_chat), "codex");
+    assert_eq!(session_of(&mux, new_chat), "n-1");
+
+    // Same session and harness again: a replay that commits nothing.
+    let before = revision(&mux);
+    let replay = bind_with(new_chat, "n-1", json!("n-1"), json!("codex")).unwrap();
+    assert_eq!(replay["replayed"], true, "{replay}");
+    assert_eq!(revision(&mux), before);
+
+    // Another session: its harness replaces the old one; none keeps it.
+    bind_with(new_chat, "n-2", json!("n-1"), json!("opencode")).unwrap();
+    assert_eq!(harness_of(new_chat), "opencode");
+    bind(&mux, new_chat, "n-3", json!("n-2")).unwrap();
+    assert_eq!(harness_of(new_chat), "opencode", "no harness keeps the recorded one");
+
+    // Opened chat: created with its session, the harness comes by a bind of
+    // that same session (whatever expected says), never a conflict.
+    let opened = create(json!({"host":"install:mac-test","session":"o-1"}));
+    assert_eq!(harness_of(opened), Value::Null);
+    let filled = bind_with(opened, "o-1", json!("o-1"), json!("claude")).unwrap();
+    assert_eq!(filled["replayed"], false, "{filled}");
+    assert_eq!(harness_of(opened), "claude");
+    assert_eq!(session_of(&mux, opened), "o-1");
+
+    // A stale expectation with another session still conflicts.
+    let error = bind_with(opened, "o-2", Value::Null, json!("codex")).unwrap_err().to_string();
+    assert!(error.starts_with("conversation_tab.session_conflict:"), "{error}");
+    assert_eq!(harness_of(opened), "claude");
+
+    for invalid in [json!(""), json!("a b"), json!("providers/deepseek"), json!("x".repeat(65))] {
+        let error =
+            bind_with(opened, "o-1", json!("o-1"), invalid.clone()).unwrap_err().to_string();
+        assert!(error.contains("bad request"), "{invalid}: {error}");
+    }
+    assert_eq!(harness_of(opened), "claude");
+    mux.shutdown();
+}

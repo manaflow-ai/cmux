@@ -64,6 +64,8 @@
       "name": "cmux-vm-staging",
       "workers_dev": false,
       "routes": [{ "pattern": "vm-staging.cmux.dev", "custom_domain": true }],
+      // The agent reaper (src/agents/reaper.ts): expired and revoked agent keys' VMs, orphaned client sessions.
+      "triggers": { "crons": ["*/5 * * * *"] },
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
@@ -83,6 +85,7 @@
       "name": "cmux-vm-production",
       "workers_dev": false,
       "routes": [{ "pattern": "vm.cmux.dev", "custom_domain": true }],
+      "triggers": { "crons": ["*/5 * * * *"] },
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {

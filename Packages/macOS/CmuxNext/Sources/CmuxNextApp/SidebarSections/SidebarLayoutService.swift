@@ -28,6 +28,9 @@ final class SidebarLayoutService {
     static let capability = "sidebar-layout-v1"
 
     private(set) var document: SidebarLayoutDocument = .defaults
+    /// The sidebar document's bands (`sidebar-doc-v1`, SidebarDocWiring):
+    /// when set, the base the pending intents apply over, and no migration runs.
+    @ObservationIgnored var docLayout: SidebarLayoutDocument? { didSet { recompute() } }
     /// The owner's confirmed layout.
     @ObservationIgnored private(set) var mirror: SidebarLayoutDocument = .defaults
     /// Ops to send in order, each with its idempotency key; at most the first is in flight.
@@ -188,7 +191,7 @@ final class SidebarLayoutService {
     /// it reads the owner's layout rather than one with the user's edits in
     /// flight.
     func migrateIfNeeded() {
-        guard fetched, usesOwner, pending.isEmpty else { return }
+        guard fetched, usesOwner, pending.isEmpty, docLayout == nil else { return }
         migrateSections()
         if pending.isEmpty { migrateLegacyPins() }
     }
@@ -219,7 +222,7 @@ final class SidebarLayoutService {
     /// Visible = mirror + pending intents (a pending op the mirror now
     /// rejects shows nothing until its own reply settles it).
     private func recompute() {
-        var visible = mirror
+        var visible = docLayout ?? mirror
         for entry in pending {
             if case .success(let next) = SidebarLayoutReducer.reduce(visible, entry.op) { visible = next }
         }

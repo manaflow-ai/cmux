@@ -11,7 +11,8 @@ import type {
 } from "@apple/app-store-server-library";
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
-import { isSignedAppleEnvironment } from "./config";
+import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
+import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
 import {
   appleRevenueEstimate,
@@ -42,6 +43,11 @@ export type AppleIapDependencies = {
   /** Re-derives the user's `cmuxPlan` mirror from Stripe and Apple. */
   readonly applyEntitlement: (userId: string) => Promise<void>;
   readonly captureEvent: (input: ServerEventInput) => Promise<void>;
+  /**
+   * The user's granting Apple subscription after a write, used to report
+   * `subscription_entitlement_granted`. Without it no grant event is sent.
+   */
+  readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
   readonly now: () => Date;
 };
 
@@ -84,6 +90,7 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
       await applyPersonalPlanEntitlement(userId);
     },
     captureEvent: (input) => captureServerEvent(input),
+    activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
     now: () => new Date(),
   };
   return defaultDependencies;
@@ -202,6 +209,7 @@ export async function recordClientAppleTransaction(
     await deps.store.recordTransaction(appleTransactionRowFrom(fresh.transaction, input.userId));
   }
   await applyEntitlements(write, deps);
+  await captureEntitlementGranted(written, deps);
   return {
     planId: written.planId,
     status: written.status,
@@ -298,7 +306,12 @@ export async function receiveAppleNotification(
 
 type NotificationApplication =
   | { readonly kind: "skip"; readonly reason: string }
-  | { readonly kind: "applied"; readonly userId: string; readonly state: AppleSubscriptionState };
+  | {
+    readonly kind: "applied";
+    readonly userId: string;
+    readonly state: AppleSubscriptionState;
+    readonly written: AppleSubscriptionRow;
+  };
 
 async function applyNotification(
   row: AppleNotificationRow,
@@ -346,7 +359,7 @@ async function applyNotification(
     await deps.store.recordTransaction(appleTransactionRowFrom(current.transaction, userId));
   }
   await applyEntitlements(write, deps);
-  return { kind: "applied", userId, state };
+  return { kind: "applied", userId, state, written: write.current };
 }
 
 /**
@@ -398,7 +411,47 @@ export async function processAppleNotification(
   }
   await deps.store.markNotificationProcessed(row.notificationUuid, deps.now());
   await captureLifecycleEvent(row, application.userId, application.state, deps);
+  await captureEntitlementGranted(application.written, deps);
   return "processed";
+}
+
+/**
+ * `subscription_entitlement_granted` once the written subscription is the
+ * plan the user now holds through Apple. Sent from both the app-posted
+ * transaction and the notification for the same transaction; the shared
+ * insert ID keeps one event per transaction (a purchase, then each renewal).
+ * Best effort: analytics never fails a purchase.
+ */
+async function captureEntitlementGranted(
+  written: AppleSubscriptionRow,
+  deps: AppleIapDependencies,
+): Promise<void> {
+  if (!deps.activeEntitlement) return;
+  try {
+    const granting = await deps.activeEntitlement(written.userId);
+    if (granting?.originalTransactionId !== written.originalTransactionId) return;
+    await deps.captureEvent({
+      event: "subscription_entitlement_granted",
+      distinctId: written.userId,
+      insertId: `apple_entitlement:${written.lastTransactionId ?? written.originalTransactionId}`,
+      properties: {
+        source: "apple",
+        plan_id: written.planId,
+        product_id: written.productId,
+        billing_period: appleBillingPeriodForProduct(written.productId, written.bundleId),
+        environment: written.environment,
+        original_transaction_id: written.originalTransactionId,
+        transaction_id: written.lastTransactionId,
+        status: written.status,
+        expires_at: written.expiresAt?.toISOString() ?? null,
+      },
+    });
+  } catch (error) {
+    console.warn("Apple entitlement analytics failed", {
+      originalTransactionId: written.originalTransactionId,
+      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+    });
+  }
 }
 
 async function captureLifecycleEvent(
@@ -420,6 +473,7 @@ async function captureLifecycleEvent(
       source: "apple",
       plan_id: state.planId,
       product_id: state.productId,
+      billing_period: appleBillingPeriodForProduct(state.productId, state.bundleId),
       storefront: state.storefront,
       currency: state.currency,
       price: revenue.price,

@@ -1,7 +1,7 @@
 import CmuxNextActions
 import CmuxNextPalette
 
-/// Search Tabs (`tab.search`, Cmd-Shift-A; `palette.goToTab` is an alias):
+/// Search Tabs (`tab.search`, Cmd-Shift-P; `palette.goToTab` is an alias; Cmd-Shift-A is now Search, `search.chats`):
 /// the palette page over every tab with recently closed tabs below.
 /// - With a tab target (Go to Tab from a script, an app's `tab.focus`) it
 ///   focuses that tab: the action's purpose is focus.

@@ -170,7 +170,7 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 
 	select {
 	case <-d.ctx.Done():
-		return d.ctx.Err()
+		return d.connectionError()
 	case d.ptyAttachSlots <- struct{}{}:
 	default:
 		return d.server.frameWriter.writeResponse(rpcResponse{
@@ -217,8 +217,18 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 	case <-reservationReady:
 		return nil
 	case <-d.ctx.Done():
-		return d.ctx.Err()
+		return d.connectionError()
 	}
+}
+
+// connectionError reports the async failure that cancelled the connection
+// (queued on asyncErrors before cancelConnection) rather than the bare
+// cancellation, which a select can observe first.
+func (d *rpcRequestDispatcher) connectionError() error {
+	if err := d.takeAsyncError(); err != nil {
+		return err
+	}
+	return d.ctx.Err()
 }
 
 func (d *rpcRequestDispatcher) registerPTYAttach(req rpcRequest) (context.Context, *rpcPTYAttachRequest, bool) {

@@ -1,4 +1,5 @@
 import { FreestyleProvider } from "./freestyle";
+import { GcpProvider } from "./gcp";
 import {
   isProviderId,
   type AttachTransport,
@@ -8,13 +9,14 @@ import {
 } from "./types";
 
 export * from "./types";
-export { FreestyleProvider };
+export { FreestyleProvider, GcpProvider };
 
 let registry: Map<ProviderId, VMProvider> | null = null;
 
 function buildRegistry(): Map<ProviderId, VMProvider> {
   const map = new Map<ProviderId, VMProvider>();
   map.set("freestyle", new FreestyleProvider());
+  map.set("gcp", new GcpProvider());
   return map;
 }
 
@@ -42,8 +44,7 @@ export function volumeCapableProviderId(): ProviderId | null {
 export function defaultProviderId(): ProviderId {
   const configured = process.env.CMUX_VM_DEFAULT_PROVIDER;
   if (isProviderId(configured)) return configured;
-  // Freestyle (the public platform) is the only provider; the env override
-  // survives so an operator can still pin it explicitly.
+  // Freestyle remains the default; GCP is an explicit Labs choice.
   return "freestyle";
 }
 
@@ -73,6 +74,7 @@ export function vmCapabilitiesOf(provider: VMProvider): VmCapabilities {
     fork: declared.fork ?? typeof provider.fork === "function",
     exec: declared.exec ?? true,
     stats: declared.stats ?? typeof provider.getStats === "function",
+    restart: declared.restart ?? typeof provider.restart === "function",
     ports: declared.ports ?? typeof provider.openPort === "function",
     desktop: declared.desktop ?? false,
     sizing: declared.sizing ?? false,

@@ -7,9 +7,10 @@ struct FeedRoot: View {
     let model: FeedModel
     let appearance: FeedAppearance
     var layoutOverride: FeedLayout?
+    var onReportsReply: (@MainActor (ReportReply) async -> Bool)?
 
     var body: some View {
-        FeedView(model: model, layout: layoutOverride ?? FeedTunables.layout.value)
+        FeedView(model: model, layout: layoutOverride ?? FeedTunables.layout.value, onReportsReply: onReportsReply)
             .environment(\.feedColors, appearance.colors)
             .tint(appearance.colors.primary)
     }
@@ -20,6 +21,7 @@ struct FeedRoot: View {
 struct FeedView: View {
     let model: FeedModel
     let layout: FeedLayout
+    var onReportsReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
 
     var body: some View {
@@ -30,6 +32,7 @@ struct FeedView: View {
             switch layout {
             case .list: FeedListView(model: model)
             case .inbox: FeedInboxView(model: model)
+            case .reportsBasket: ReportsBasketHost(model: model, onReply: onReportsReply)
             }
         }
         .background(colors.background)

@@ -12,8 +12,14 @@ mod colors;
 mod hosted;
 mod input;
 mod lifecycle;
+#[cfg(unix)]
+mod local_resize_order;
 mod lock_order;
 mod render_geometry;
+#[cfg(unix)]
+mod resize_audit;
+#[cfg(unix)]
+mod resize_conformance;
 mod stream_progress;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;

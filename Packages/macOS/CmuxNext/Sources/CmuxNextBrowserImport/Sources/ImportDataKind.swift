@@ -8,6 +8,9 @@ public enum ImportDataKind: String, Sendable, Codable, CaseIterable, Hashable {
     case extensions
     case passwords
     case cookies
+    /// The profile's default search engine (Chromium), which becomes
+    /// `browser.searchEngine`.
+    case searchEngines
 }
 
 /// Whether one kind of data can be imported from one profile.

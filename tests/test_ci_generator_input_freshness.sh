@@ -11,12 +11,14 @@ trap 'rm -rf "$repo"' EXIT
 git -C "$repo" init -q -b base
 git -C "$repo" config user.name fixture
 git -C "$repo" config user.email fixture@example.invalid
-mkdir -p "$repo/schemas/settings" "$repo/schemas/defaults" "$repo/plans/cmux-next" "$repo/Packages/macOS/CmuxNext/Sources" "$repo/scripts/ci"
+mkdir -p "$repo/schemas/settings" "$repo/schemas/defaults" "$repo/plans/cmux-next" "$repo/Packages/macOS/CmuxNext/Sources" "$repo/scripts/ci" "$repo/web/data" "$repo/web/scripts"
 printf '{"rows":[]}\n' > "$repo/schemas/settings/settings-schema.json"
 printf '{"defaults":{}}\n' > "$repo/schemas/defaults/cmux-next.json"
 printf '{}\n' > "$repo/plans/cmux-next/action-surfaces.json"
 printf '// source\n' > "$repo/Packages/macOS/CmuxNext/Sources/Defaults.swift"
 printf '# guard\n' > "$repo/scripts/ci/defaults_guard.py"
+printf '{"sections":[]}\n' > "$repo/web/data/cmux-shortcuts.generated.json"
+printf '// exporter\n' > "$repo/web/scripts/export-docs-shortcuts.ts"
 git -C "$repo" add .
 git -C "$repo" commit -q -m initial
 
@@ -66,3 +68,28 @@ if (cd "$repo" && "$checker" --base-ref "$base" --merge-ref "$stale") >"$repo/re
 fi
 grep -q 'merge snapshot is stale' "$repo/red.log"
 printf '%s\n' 'red: stale merge resolution refused'
+
+# The docs shortcuts exporter is a generator input too: a merge resolution
+# that keeps the PR's older exporter over the base's is refused.
+for path in web/scripts/export-docs-shortcuts.ts; do
+  git -C "$repo" checkout -q base
+  git -C "$repo" checkout -qb "base-$path" base
+  printf 'base: newer exporter\n' > "$repo/$path"
+  git -C "$repo" commit -qam "base updates $path"
+  newer_base="$(git -C "$repo" rev-parse HEAD)"
+  git -C "$repo" checkout -qb "kept-$path" "$pr"
+  printf 'pr: older copy\n' > "$repo/$path"
+  git -C "$repo" commit -qam "pr carries an older $path"
+  git -C "$repo" merge -q --no-edit "base-$path" >/dev/null 2>&1 && { echo "expected a conflict on $path" >&2; exit 1; }
+  git -C "$repo" checkout -q --ours "$path"
+  git -C "$repo" add "$path"
+  git -C "$repo" commit -q -m "keep the PR's $path"
+  kept="$(git -C "$repo" rev-parse HEAD)"
+  if (cd "$repo" && "$checker" --base-ref "$newer_base" --merge-ref "$kept") >"$repo/red.log" 2>&1; then
+    cat "$repo/red.log" >&2
+    echo "expected a merge snapshot that kept the PR's $path to be rejected" >&2
+    exit 1
+  fi
+  grep -qF "$path (merge snapshot kept the PR side)" "$repo/red.log"
+  printf '%s\n' "red: stale $path refused"
+done

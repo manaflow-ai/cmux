@@ -4,8 +4,8 @@
   align-items: center;
   gap: 4px;
 }
+/* The menu row's own gap (.acpmux-quick-item) spaces the icon from its name. */
 .acpmux-open-in__icon {
-  margin-right: 8px;
   flex: none;
   border-radius: 3px;
 }

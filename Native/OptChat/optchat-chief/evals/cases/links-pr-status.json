@@ -1,0 +1,30 @@
+{
+  "id": "links-pr-status",
+  "owner": "a672",
+  "about": "a PR named by number is a #N link to its page",
+  "stubs": [
+    {
+      "cmd": "gh",
+      "match": "pr view",
+      "stdout": "{\"number\": 25233, \"title\": \"fix(next): end agent-message previews on whole lines\", \"state\": \"MERGED\", \"url\": \"https://github.com/manaflow-ai/cmux/pull/25233\", \"mergedAt\": \"2026-10-25T20:11:00Z\"}"
+    }
+  ],
+  "turns": [
+    {
+      "text": "did 25233 merge?",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "\\[#?25233\\]\\(https://github\\.com/manaflow-ai/cmux/pull/25233\\)"
+        },
+        {
+          "type": "no_raw_ids"
+        },
+        {
+          "type": "max_words",
+          "n": 50
+        }
+      ]
+    }
+  ]
+}

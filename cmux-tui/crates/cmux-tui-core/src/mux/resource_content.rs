@@ -19,6 +19,7 @@ use crate::workspace_registry::{
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
 use published_screens::PublishedScreens;
+pub(crate) use split_ids::ensure_screen_split_public_ids;
 use split_ids::ensure_split_public_ids;
 
 mod full_projection;
@@ -40,6 +41,9 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        // Reopen Closed of a tab whose terminal still runs: the new view is
+        // that same tab again, under its retired id (durable-links-DESIGN.md).
+        let reopen_tab = super::tab_strip::reopen_identity::take();
         let fingerprint = json!({
             "operation": "terminal.project",
             "selectors": selectors,
@@ -96,7 +100,21 @@ impl Mux {
                     None => mux.resource_terminal_host_identity(&terminal).context("no host")?,
                 };
                 let host_id = host.terminal_id;
-                let tab_id = TabPublicId::random()?;
+                let retired = reopen_tab
+                    .as_deref()
+                    .and_then(|tab| TabPublicId::parse(tab.to_string()).ok())
+                    .filter(|tab| !state.resource_indexes.tabs.contains_key(tab));
+                let tab_id = match retired {
+                    Some(tab)
+                        if super::tab_strip::reopen_identity::is_retired_tab(
+                            &registry.connection.get(),
+                            tab.as_str(),
+                        )? =>
+                    {
+                        tab
+                    }
+                    _ => TabPublicId::random()?,
+                };
                 let surface_id = mux.next_id();
                 let content_id = ContentPublicId::Terminal(terminal_id.clone());
                 let projected = terminal.project_terminal(

@@ -1,5 +1,5 @@
 import type { Env } from "../env.ts"
-import { admitRequest, serveChat } from "./route.ts"
+import { admitRequest, PROVIDER_PIN_HEADER, serveChat } from "./route.ts"
 
 /**
  * The Messages API shape on top of the model router (cx-dna4.5): POST /v1/inference/v1/messages
@@ -208,7 +208,7 @@ export const handleMessages = async (env: Env, request: Request, ctx: ExecutionC
   const chat = toChat(admitted.body)
   if (typeof chat === "string") return fail(400, "invalid_request_error", chat)
   const bytes = Math.max(admitted.bytes, new TextEncoder().encode(JSON.stringify(chat)).length)
-  const r = await serveChat(env, ctx, admitted.caller, chat, bytes)
+  const r = await serveChat(env, ctx, admitted.caller, chat, bytes, request.headers.get(PROVIDER_PIN_HEADER))
   if (!r.ok) return fromChatError(r)
   const headers = { "x-cmux-request-id": r.headers.get("x-cmux-request-id") ?? "" }
   if (chat.stream === true) return new Response(r.body!.pipeThrough(sseTranslator(admitted.body.model)), { headers: { ...headers, "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } })

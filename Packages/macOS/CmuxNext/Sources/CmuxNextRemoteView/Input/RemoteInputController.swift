@@ -31,6 +31,8 @@ final class RemoteInputController {
 
     private(set) var keyboard = RemoteKeyboardState()
     private var scroll = RemoteScrollAccumulator()
+    /// Keys the system shortcut tap took (`RemoteSystemShortcutTap`).
+    private var systemShortcuts = RemoteSystemShortcuts()
     /// Keys whose down went to the input method: their ups are not sent.
     private var textRoutedKeys: Set<UInt16> = []
 
@@ -59,6 +61,8 @@ final class RemoteInputController {
     }
 
     func keyUp(_ event: NSEvent) {
+        // An up the tap did not see (it was removed while the key was down).
+        systemShortcuts.keyWentUp(event.keyCode)
         if textRoutedKeys.remove(event.keyCode) != nil { return }
         emit(keyboard.keyUp(keyCode: event.keyCode))
     }
@@ -106,9 +110,22 @@ final class RemoteInputController {
         }
     }
 
+    /// A key the system shortcut tap saw before macOS: sends it and returns
+    /// true when the tap takes it (a system chord, or the up of one it took),
+    /// else false and the key goes on to macOS and AppKit. The tap's keys
+    /// never reach `keyDown`, so nothing is sent twice.
+    func takeSystemKey(_ key: RemoteTapKey) -> Bool {
+        guard isActive else { return false }
+        systemShortcuts.releaseChord = releaseChord
+        guard let events = systemShortcuts.route(key, keyboard: &keyboard) else { return false }
+        emit(events)
+        return true
+    }
+
     /// Ups for everything held; called on focus loss, mode change, release chord.
     func releaseAll() {
         textRoutedKeys.removeAll()
+        systemShortcuts.reset()
         emit(keyboard.releaseAll())
     }
 

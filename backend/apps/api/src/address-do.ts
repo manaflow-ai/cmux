@@ -1,5 +1,5 @@
 import type { Domain, Principal } from "@cmux/ownership"
-import { address } from "@cmux/home-core"
+import { address, address as addressDomain } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { sendInvite } from "./home-send.ts"
@@ -45,6 +45,37 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
     this.sqlStore.exec(`INSERT INTO address_secrets (invite, secret, expires_at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, invite, secret, expiresAt)
     if (inviter) this.sqlStore.exec(`INSERT INTO address_inviters (invite, user, email, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT (invite) DO NOTHING`, invite, inviter.user, inviter.email, expiresAt)
     this.scheduleAlarm()
+  }
+
+  /**
+   * RPC from the Worker after `user.ensure` with a Stack-verified email (http.ts): this address
+   * belongs to `user`, so `dm.open` by this email can reach their account (DESIGN 2.1). Only the
+   * Worker calls it, for the session's own verified address.
+   */
+  async linkOwner(address: string, user: string, channel: "email" | "sms", value: string): Promise<void> {
+    this.bind(address)
+    this.submitSystem("address.ensure", { id: address, channel, value }, `ensure:${address}`)
+    this.submitSystem("address.link", { user }, `link:${address}:${user}:${Date.now()}`)
+  }
+
+  /** RPC: the account this address is linked to, or null (nothing else about the address). */
+  async linkedUser(address: string): Promise<string | null> {
+    if (!this.isBound(address)) return null
+    return this.bind(address).currentState.linked_user
+  }
+
+  /** RPC for the address's verified owner (the Worker checks): its open message requests (DESIGN 2.3). */
+  async requests(address: string): Promise<ReadonlyArray<addressDomain.AddressRequest>> {
+    if (!this.isBound(address)) return []
+    return addressDomain.openRequests(this.bind(address).currentState, Date.now())
+  }
+
+  /** RPC for the address's verified owner (the Worker checks): hides one request, and with `block` its sender's later invites. */
+  async dismissRequest(address: string, invite: string, block: boolean): Promise<{ ok: boolean; code?: string }> {
+    this.bind(address)
+    const res = this.submitSystem("address.request.dismiss", { invite, block }, `dismiss:${invite}:${block ? "block" : "hide"}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    return reply?.t === "reject" ? { ok: false, code: reply.code } : { ok: true }
   }
 
   /** The stashed secret of an invite, if still there. */

@@ -1,4 +1,4 @@
-FROM alpine:3.20
+FROM alpine:3.22
 
 RUN apk add --no-cache openssh python3 iproute2 net-tools ncurses
 

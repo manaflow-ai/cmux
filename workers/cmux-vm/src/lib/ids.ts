@@ -31,6 +31,12 @@ export type VmId = typeof VmId.Type;
 export const SnapshotId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.snapshot)), Schema.brand("SnapshotId"));
 export type SnapshotId = typeof SnapshotId.Type;
 
+/** Server-issued VM creation recovery handle. It is public, never an authentication credential. */
+export const VmCreationKey = Schema.String.pipe(Schema.pattern(opaque("vcr_")), Schema.brand("VmCreationKey")).annotations({ identifier: "VmCreationKey", description: "Server-issued recovery handle; use as Idempotency-Key. Not an authentication credential." });
+export type VmCreationKey = typeof VmCreationKey.Type;
+export const newVmCreationKey = (): VmCreationKey => VmCreationKey.make("vcr_" + randomIdBody());
+export const parseVmCreationKey = Schema.decodeUnknownOption(VmCreationKey);
+
 /** A mesh (experiment, cx-0op): one private network per tenant. */
 export const MeshId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.mesh)), Schema.brand("MeshId"));
 export type MeshId = typeof MeshId.Type;
@@ -49,6 +55,10 @@ export type ResourceId = VmId | SnapshotId | MeshId | DeviceId | TunnelId;
 /** API key ids are public (shown in key listings and audit logs); the secret is not. */
 export const ApiKeyId = Schema.String.pipe(Schema.pattern(opaque("vmk_")), Schema.brand("ApiKeyId"));
 export type ApiKeyId = typeof ApiKeyId.Type;
+
+/** A client session: one provider identity token for one VM. The id is public; the token is shown once. */
+export const ClientSessionId = Schema.String.pipe(Schema.pattern(opaque("vcs_")), Schema.brand("ClientSessionId"));
+export type ClientSessionId = typeof ClientSessionId.Type;
 
 /** A tenant is a Stack Auth team id. */
 export const TenantId = Schema.String.pipe(
@@ -97,6 +107,8 @@ export const newMeshId = (): MeshId => MeshId.make(RESOURCE_PREFIXES.mesh + rand
 export const newDeviceId = (): DeviceId => DeviceId.make(RESOURCE_PREFIXES.device + randomIdBody());
 export const newTunnelId = (): TunnelId => TunnelId.make(RESOURCE_PREFIXES.tunnel + randomIdBody());
 export const newApiKeyId = (): ApiKeyId => ApiKeyId.make("vmk_" + randomIdBody());
+export const newClientSessionId = (): ClientSessionId => ClientSessionId.make("vcs_" + randomIdBody());
+export const parseClientSessionId = Schema.decodeUnknownOption(ClientSessionId);
 
 /** Decodes a public VM id; any malformed input is simply "no such VM". */
 export const parseVmId = Schema.decodeUnknownOption(VmId);

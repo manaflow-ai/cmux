@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every managed machine session uses the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Freestyle provider API keys stay server-side. Freestyle managed sessions use the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
 
 ## Layout
 
@@ -29,11 +29,73 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
+- `/api/vm/:id/idle-pause`, authenticated `PUT {minutes}`: the machine's idle auto-pause
+  (15, 30, 60 or 120 minutes, or `0`/`"off"`; see [Idle auto-pause](#idle-auto-pause)).
+- `/api/vm/:id/huge-blue-inspection`, authenticated read-only `GET` (see
+  [Huge Blue inspection](#huge-blue-inspection)).
 - `/api/vm/tunnel`, authenticated `POST` WireGuard tunnel enrollment for the calling
   computer, `GET` tunnel/list state, `DELETE` unenrollment. Not Pro-gated: a lapsed
   subscription must still be able to reach machines it already owns.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
+
+## GCP Labs provider
+
+GCP is an explicit, off-by-default Labs provider. Enable it with
+`CMUX_VM_GCP_LABS_ENABLED=1` and `CMUX_VM_GCP_ENABLED=1`, and configure a cmux
+Linux image with `CMUX_VM_GCP_IMAGE`. The local client sends a short-lived OAuth
+access token in `X-Cmux-Gcp-Access-Token` and its Unix expiry in
+`X-Cmux-Gcp-Access-Token-Expires-At`; the backend uses it for the current
+Compute Engine request and wipes it before answering. It never writes the token
+or an SSH private key to `cloud_vms.provider_metadata`. Placement headers such
+as `X-Cmux-Gcp-Project` and `X-Cmux-Gcp-Zone` are non-secret and may select the
+user's project (the default development project is `manaflow-437420`).
+The first Labs VPC is project-scoped as `cmux-vms`; this is the user's own
+project boundary. Tailnet tunnel enrollment is not enabled yet.
+
+The first driver supports create, status, start, stop, delete, and a short-lived
+SSH attach handoff. The selected image must already contain acpmux, cmux-tui,
+and the agent tools; the provider does not bootstrap guest software after boot.
+
+## Huge Blue inspection
+
+`GET /api/vm/:id/huge-blue-inspection[?deviceFingerprint=<fp>]` reports whether one of
+the caller's machines can be observed by the Huge Blue app server (#21332). It never
+creates a Run, mints an attach token, writes a lease, or returns a route, credential,
+invitation or command. The machine is resolved through the caller's own registry
+(owner or billing team), so an unknown or foreign id is `404` in every mode.
+
+`CMUX_HUGE_BLUE_INSPECTION` selects the mode: `enabled` probes, `disabled` is an explicit
+policy refusal, and anything else (including unset) means the adapter is not configured.
+Only a running machine is probed, so inspection never wakes a paused one; the probe is
+the read-only half of the cmux-tui attach bundle (daemon build, enrolled devices,
+trusted-carrier listener).
+
+A `200` body is:
+
+```json
+{
+  "host": "<machine id>",
+  "session": "cloud",
+  "state": "disabled | unavailable | unenrolled | admitted",
+  "reasonCode": "inspection_disabled | adapter_not_configured | target_not_running | probe_failed | daemon_probe_unreadable | device_not_enrolled | trusted_carrier | device_enrolled",
+  "retryable": false,
+  "checkedAt": "2026-10-17T00:00:00.000Z",
+  "capabilities": { "readOnlyInspection": true, "daemonProtocol": 12, "trustedCarrier": true, "enrolled": false }
+}
+```
+
+| state | reasonCode | retryable |
+| --- | --- | --- |
+| `disabled` | `inspection_disabled` | no |
+| `unavailable` | `adapter_not_configured` | no |
+| `unavailable` | `target_not_running`, `probe_failed`, `daemon_probe_unreadable` | yes |
+| `unenrolled` | `device_not_enrolled` | no |
+| `admitted` | `trusted_carrier`, `device_enrolled` | no |
+
+The mapper (`hugeBlueInspection.ts`) fails closed: a probe without a readable positive
+daemon protocol is `unavailable` and reports no carrier or enrollment evidence, and an
+enrolled device only counts when the caller named its fingerprint.
 
 ## Authentication model
 
@@ -284,6 +346,11 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_DESKTOP_TRANSPORT`, which desktop a port open serves. Unset (the default) or any value
+  but `screen` keeps noVNC on 6901. `screen` makes 4180 the desktop (the cmux-screen host's
+  signaling WebSocket, opened as a `cmux://remote-view` tab) and 6901 an ordinary port. Leave it
+  unset: the image does not run the cmux-screen host yet (plans/cmux-next/remote-desktop-DESIGN.md,
+  migration steps M1 and M2).
 - `CMUX_CODEROUTER_EDGE_ORIGIN`, optional bare https origin guests dial for coderouter
   (`https://coderouter.dev` in production, the branch URL on a Vercel preview). Any other
   deployment without it (a dev backend, a local checkout) creates machines with no edge rule:
@@ -437,6 +504,23 @@ Each environment needs:
 
 Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.
 
+### Cloud VM image production environment
+
+The production image bake and promote workflows use the protected GitHub environment
+`cmux-next-vm-image-prod`. Create it with a custom deployment branch policy allowing only
+`feat-cmux-next`, then add the production `FREESTYLE_API_KEY`. The production compat gate also
+needs the team-owned production Stack test profile, `CMUX_UITEST_STACK_EMAIL` and
+`CMUX_UITEST_STACK_PASSWORD`; these are separate from Leo's Freestyle key and must not be
+copied from the staging cloud-capture account.
+
+Every production run must resolve a trusted production snapshot from the repository's channel
+records to its recorded id. A missing production record fails closed: a key that cannot resolve
+the dev snapshot might belong to a third account, or to the dev account after that snapshot was
+deleted. There is no automatic trust-on-first-use bootstrap and no `FREESTYLE_PROD_ANCHOR`
+environment variable. Before the first copy, the team must independently verify a production
+snapshot and record its name and id in the production channel data through review. Until that
+prerequisite and the team-owned Stack test profile are available, production stays off.
+
 ## Local database development
 
 Use `CMUX_PORT` to run multiple isolated web and database environments on one machine:
@@ -462,16 +546,23 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --detach` | yes |
 | `cmux vm attach <id>` | yes |
 | `cmux vm ssh <id>` | yes (cmux-remote alias) |
-| `cmux vm ssh-info <id>` | no (managed API has no SSH credential endpoint) |
+| `cmux vm ssh-info <id>` | no (no web route; agents use the cmux-vm Worker's client sessions) |
 | `cmux vm exec <id> -- ...` | yes |
 | `cmux vm ls / rm` | yes |
 | snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
-session protocol, but the managed API does not mint or expose its scoped identities. This keeps
-workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
-`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
+session protocol. The Freestyle driver can mint a scoped identity for it (`openSSH`): a new
+Freestyle identity granted only that VM as the work user `cmux`, with one access token
+(freestyle.sh/docs/vms/client-sessions), never the team key. The identity id is the opaque
+`identityHandle`; destroy, lease revocation and sign-out delete it through
+`revokeSSHIdentity`. SSH is still not an advertised transport (`attachTransports` is
+`cmux-remote` only), so workspace, tab, terminal, and revision state stay on one authoritative
+cmux-tui path, and `cmux vm ssh-info <id>` / `POST /api/vm/:id/ssh-endpoint` have no web route.
+Cloud agents get per-VM provider tokens from the cmux-vm Worker instead
+(`POST /v1/vms/{vmId}/client-session`, workers/cmux-vm/README.md "Agent keys and client
+sessions").
 
 ## Capabilities: the client-visible provider contract
 
@@ -490,6 +581,18 @@ client update. `openAttach`/`openSSH`/`revokeSSHIdentity` are optional interface
 the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 501).
 `MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
 double for provider-contract tests.
+
+## Auto-sizing: a handed-off task's machine
+
+`POST /api/vm` with `autosize: {taskKind: chat|build|test, repo?: {sizeMb, rootFiles}, gpu?}` and
+no `memoryMb` picks the machine for the task (`services/vms/autosize.ts`): the smallest shape on
+the ladder (`images/sizes.ts`) that the plan allows and that covers the task's memory, cores and
+disk, with the fleet's grants (`TASK_NEEDS`) until the repo has measured runs, then p95 of their
+peaks plus 20%. The answer carries `sizePick: {vcpus, memoryGb, pick, reason}`, the hand-off's
+size fields (`backend/apps/api/src/handoffs`), e.g. reason "8 vCPU · 16 GB, picked for a Swift
+build". `memoryMb` and `image` stay the override (an image boots at its own snapshot's size); a provider
+without `sizing` gets no pick; `gpu` is refused
+(`vm_gpu_unavailable`) until a provider has one.
 
 ## TLS edge: port previews and credential injection
 
@@ -515,6 +618,14 @@ one Rust facade (`cmux-tui/crates/cmux-cloud-cli`). The facade forwards the comp
 CodeRouter argument list to the official Rust core and local/peer commands to the
 guest adapter, which uses the machine's cmux-tui daemon. `cmux coderouter` and
 `cmux cr` use the same CodeRouter implementation as the top-level aliases.
+
+`cmux sandbox create|list|exec|token|delete|whoami` (`guestSandboxCli.ts`) runs a cloud
+agent's own throwaway VMs through the cmux VM API with the agent key it was given
+(`CMUX_AGENT_KEY`, else `CMUX_AGENT_CONFIG` or `~/.config/cmux/agent.json`, which must be
+mode 0600). The key reaches only the VMs it created, within its VM count and USD/h
+budget; the service deletes them when the key expires or is revoked. The same verbs ship
+as the standalone `cmux-sandbox` script (`GUEST_SANDBOX_STANDALONE`) for agent hosts
+without this adapter; the hq cloud-subagents pool tool installs it with each key.
 
 The facade and CodeRouter core are one checksum-pinned archive described by
 `guestCliDistribution.json`. Create and attach heal this distribution separately
@@ -549,21 +660,80 @@ TLS rule inline); a size-less image also gets the grow-only resize. Nothing is w
 the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
 daemon with a fresh identity
 within a second of resume (the snapshot is a memory image, so the identity is keyed on
-the platform instance id). Attach heals a daemon that is not listening, reinstalling only
-when the binary is missing or behind the manifest pin. The daemon runs as root with
-`HOME=/root`; the build and its digest come from the artifacts manifest published by
-`.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new pin
-reaches new machines through a rebake. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
-`FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
-at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
-commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
-`latest`.
+the platform instance id). Neither create nor attach installs, heals or upgrades cmux-tui:
+a new machine runs the build its image baked (the manifest entry's `cmuxTuiCommit`), and a
+running machine changes build only through `web/scripts/upgrade-fleet-cmux-tui.ts`
+(docs/cloud-guest-upgrades.md). The build and its digest come from the artifacts manifest
+published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new
+build reaches new machines through a rebake and promotion. Config: `FREESTYLE_API_KEY` (or
+`FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
+at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL` is read only by the bake, verify,
+reachability-check and BusyBox-probe scripts, to pin one commit's
+`https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling `latest`; a
+deployment ignores it.
 
 Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
 persistent boxes rather than provider-idle workers. A user-open operation probes the live
 provider state even when the control-plane row still says `running`, resumes a paused/stopped
 machine, and only then mints its attach or port endpoint. Machines created before this policy
 are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
+
+### Idle auto-pause
+
+Freestyle's idle timer stays off (it counts only network and exec traffic, so it would pause
+a machine whose agent is mid-turn and quiet). The server can pause idle machines instead
+(`services/vms/idlePause.ts`, `idlePauseJob.ts`), but it is off: Leo, 2026-10-30, "we're
+saying no auto pausing of the freestyle vms for now". Unless the deployment sets
+`CMUX_VM_IDLE_AUTO_PAUSE=on`, the cron probes and pauses no machine, not even one that chose a
+timeout. Pause Machine and Resume are unchanged.
+
+- The `vm-idle-pause` cron runs every 5 minutes. On each running Freestyle machine it runs one
+  read-only probe as root through the provider exec: the session daemon's `subscribe-activity`
+  snapshot, acpmux's session list (read as the daemon user, only when its daemon already runs),
+  and `/proc` (each pseudo-terminal's foreground process group, sshd session processes,
+  established TCP connections into the machine's private address or into sshd, and the busy CPU
+  time in `/proc/stat`). A run checks at most 500 machines, least recently checked first
+  (`cmuxIdleProbedAt`), so a large fleet rotates. With more running machines than about two
+  runs can check, a machine is checked less often than every 12 minutes, its idle stretch never
+  carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
+- A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
+  app's link into it would be invisible, so it is unknown.
+- A machine is idle only when nobody typed through an attached client for the whole timeout (an
+  app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
+  a turn or a pending permission, no terminal running a command (anything but a shell at its
+  prompt is a command: a build, a hand-started server, vim, an agent CLI, and a shell that is
+  itself running one, `bash -c ...` or `sh script.sh`; a login or interactive shell such as
+  `-bash`, `zsh -l` or `bash -i` is a prompt), no ssh session, no
+  inbound connection on its private address, and CPU use since the previous probe below
+  `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
+  is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
+  stored observation without a CPU sample gives no CPU verdict. A `/proc/<pid>/stat`, `cmdline`
+  or daemon `fd` entry that cannot be read or parsed makes terminals, ssh or inbound connections
+  unknown; only a process that exited mid-read is skipped. Anything the probe cannot read is
+  unknown, and unknown never pauses.
+- Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
+  paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
+  through exec outside acpmux. Run such work in a terminal (a foreground command keeps the
+  machine awake) or set the machine's idle pause to Off.
+- A person's exec, files or attach call (`execVm`, the file workflows, `openAttachEndpoint`,
+  `openVmCmuxRemote`) records its time on the row (`cmuxLastApiActivityAt`, at most once a minute,
+  without touching `updated_at`). The cron's own probe and the resource sampler call the provider
+  directly and record nothing.
+- It pauses once every probe for the whole timeout said idle and the activity times (a person's
+  input, an agent action, an acpmux session change, the last API call) are as old, through the
+  same `pauseVm` path as the Pause Machine action, with `pauseReason: "idle"`. Just before the
+  pause the cron re-reads the row and skips the pause if it changed (an attach, a resume, an
+  exec) since it was read.
+- Every pause, resume or other status write drops the stored idle observation, so a resumed
+  machine starts a new stretch and gets the whole timeout again.
+- The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
+  detail): 15, 30, 60 or 120 minutes, or 0 for Off. A create may set it too (`POST /api/vm`
+  `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`). It is
+  stored by the row's insert, before any provider call, so a same-key retry keeps the first
+  create's value; the answer carries it. A machine that never chose one gets
+  `VM_IDLE_PAUSE_DEFAULT_MINUTES` (0, Off; it was 30 until 2026-10-30).
+- `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
+  null. Opening a paused machine resumes it, as above.
 
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.
@@ -676,6 +846,8 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 ### The free limit is the paywall moment
 
 `vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — with the default zero allowance it is the subscribe gate ("Cloud VMs require a cmux Pro subscription") with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans see it at the plan allowance (5 active machines, times paid seats on Team) or at an operator incident brake; then the message is operational "delete one" guidance, not a paywall.
+
+Running out of create credits is the same moment: every `402 vm_create_credits_insufficient` (create, fork, restore, Base open and reset) carries `upgradeRequired: true`, `upgradePlanId` (the next plan up: Pro for Free/Go, Max for Pro/Team/Founder's, null on Max) and `upgradeUrl` (that plan's cmux checkout with `cmux_source=vm_create_credits`, or `/pricing` on Max), built once by `vmCreateCreditsCheckoutExtra`. `tests/vm-create-credits-checkout.test.ts` pins it.
 
 ### Pricing is flat
 

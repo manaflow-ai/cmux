@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 wait-timeout.workspace = true
+sha2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

@@ -1,8 +1,8 @@
 public import AppKit
 
 // The bookmark star (plans/cmux-next/bookmarks.md section 3): shown at the
-// trailing end of the omnibar while the page can be bookmarked and the field
-// is not being edited (it hides while you type).
+// trailing end of the omnibar while the page can be bookmarked and the user
+// is not typing in the field (it hides while you type, as in Chrome).
 extension AddressBarView {
     /// Sets the star for the page on screen. The host recomputes it when the
     /// URL or the bookmarks change.
@@ -23,8 +23,12 @@ extension AddressBarView {
     /// command (nil while hidden).
     public var bookmarkStarAnchor: NSView? { starButton.isHidden ? nil : starButton }
 
+    /// The star hides while the user types, not on focus (Chromium
+    /// `LocationBarView::IsEditingOrEmpty`): a focusing click keeps the
+    /// field's width, so the press relays nothing and the caret lands where
+    /// the pointer is.
     func updateStarVisibility() {
-        let hidden = starButton.state == .hidden || state.hasFocus
+        let hidden = starButton.state == .hidden || state.phase == .editing
         guard starButton.isHidden != hidden else { return }
         starButton.isHidden = hidden
         updateBadgeSpace()

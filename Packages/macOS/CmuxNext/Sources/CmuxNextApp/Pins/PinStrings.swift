@@ -21,6 +21,12 @@ enum PinStrings {
     static var removeFromTop: String {
         String(localized: "pins.removeFromTop", defaultValue: "Remove from Top", table: "Handlers", bundle: .module)
     }
+    static var pinConversation: String {
+        String(localized: "pins.pinConversation", defaultValue: "Pin Conversation", table: "Handlers", bundle: .module)
+    }
+    static var unpinConversation: String {
+        String(localized: "pins.unpinConversation", defaultValue: "Unpin Conversation", table: "Handlers", bundle: .module)
+    }
     // The undo toast of each pin change (RECOVERABLE-BY-DEFAULT).
     static var tabPinned: String { String(localized: "pins.toast.tabPinned", defaultValue: "Tab pinned", table: "Handlers", bundle: .module) }
     static var tabUnpinned: String { String(localized: "pins.toast.tabUnpinned", defaultValue: "Tab unpinned", table: "Handlers", bundle: .module) }

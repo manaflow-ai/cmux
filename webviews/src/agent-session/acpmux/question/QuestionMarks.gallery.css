@@ -1,0 +1,10 @@
+/* Gallery only: the other two looks of inline code in a question card, beside the shipped one
+   (styles.css .acpmux-question-code, a tint behind the mono face). */
+.acpmux-question-marks-gallery[data-code-look="mono"] .acpmux-question-code {
+  padding: 0;
+  background: none;
+}
+.acpmux-question-marks-gallery[data-code-look="ring"] .acpmux-question-code {
+  background: none;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 35%, transparent);
+}

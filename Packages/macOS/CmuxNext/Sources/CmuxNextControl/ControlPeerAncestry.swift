@@ -25,7 +25,12 @@ struct ControlPeerAncestry: Sendable {
             if current == ancestor { return true }
             if current <= 1 { return false }
             guard let process = lookup(current) else { return false }
-            if let path = process.executable, executables.contains(path) { return true }
+            // A caller does not become trusted merely by executing the public
+            // bundled CLI itself. Only an earlier process in its ancestry can
+            // establish that the caller was started inside this cmux.
+            if current != pid, let path = process.executable, executables.contains(path) {
+                return true
+            }
             if process.parent == current || process.parent < 0 { return false }
             current = process.parent
         }

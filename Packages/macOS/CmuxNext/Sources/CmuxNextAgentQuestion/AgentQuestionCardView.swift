@@ -27,20 +27,20 @@ public final class AgentQuestionCardView: NSView {
     private var cardWidth: CGFloat = 0
     private let strings = AgentQuestionStrings()
 
-    private let chip = NSTextField(labelWithString: "")
-    private let meta = NSTextField(labelWithString: "")
-    private let prompt = NSTextField(wrappingLabelWithString: "")
+    private let chip = ChromeLabel(labelWithString: "")
+    private let meta = ChromeLabel(labelWithString: "")
+    private let prompt = ChromeLabel(wrappingLabelWithString: "")
     private var rowViews: [AgentQuestionOptionRowView] = []
     let otherField = AgentQuestionOtherField()
     private let previewBox = NSView()
-    private let previewText = NSTextField(wrappingLabelWithString: "")
-    private let hint = NSTextField(labelWithString: "")
+    private let previewText = ChromeLabel(wrappingLabelWithString: "")
+    private let hint = ChromeLabel(labelWithString: "")
     private let skipButton = AgentQuestionPillButton()
     private let submitButton = AgentQuestionPillButton()
     private let check = NSImageView()
-    private var summaryLabels: [NSTextField] = []
+    private var summaryLabels: [ChromeLabel] = []
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { cardState?.question.isPending == true }
 
     public override init(frame: NSRect) {
@@ -213,7 +213,7 @@ public final class AgentQuestionCardView: NSView {
         case .cancelled: texts = ["\(strings.cancelled) · \(state.question.summary)"]
         }
         while summaryLabels.count < texts.count {
-            let label = NSTextField(wrappingLabelWithString: "")
+            let label = ChromeLabel(wrappingLabelWithString: "")
             label.isSelectable = false
             addSubview(label)
             summaryLabels.append(label)

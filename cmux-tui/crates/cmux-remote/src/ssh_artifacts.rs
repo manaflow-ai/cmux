@@ -305,12 +305,15 @@ const PUBLISHED_BASE_URL: &str = "https://files.cmux.com/cmux-tui";
 /// cx-rppd.13). `Ok(None)` when this build ships no manifest (dev and source
 /// builds); a payload that does not match its pin is an error, never an
 /// unverified file.
-pub async fn pinned_linux_payload(arch: &str) -> Result<Option<(PathBuf, String)>, BootstrapError> {
+/// `identity` is the binary's `cmux_build_identity::BUILD_IDENTITY`.
+pub async fn pinned_linux_payload(
+    arch: &str,
+    identity: &str,
+) -> Result<Option<(PathBuf, String)>, BootstrapError> {
     let executable = std::env::current_exe().map_err(BootstrapError::Io)?;
     let cache = default_payload_cache();
     let source =
         PayloadSource { base_url: PUBLISHED_BASE_URL, cache: cache.as_deref(), proxy_pac: None };
-    let identity = crate::ssh_bootstrap::BUILD_IDENTITY;
     match payload(&executable, identity, "linux", arch, &source)? {
         None => Ok(None),
         Some(Payload::Bundled(path)) => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "../icons";
+import { FindPill, type FindPillIconRole } from "../ui/FindPill";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { DiffFindController } from "./useDiffFind";
 
@@ -11,8 +12,16 @@ type FindBarProps = {
   requestToken: number;
 };
 
+/** The native pill's roles in the viewer's icon set. */
+const ICONS = {
+  search: "search",
+  previous: "chevronUp",
+  next: "chevronDown",
+  close: "close",
+} as const satisfies Record<FindPillIconRole, string>;
+
 /**
- * The diff viewer's find-in-page bar. Rendered inside the `#viewer` scroll
+ * The diff viewer's find-in-page bar: the shared find pill (ui/FindPill.tsx). Rendered inside the `#viewer` scroll
  * container as a sticky overlay; mounting it installs the highlight painter
  * through `controller.findBarRef`.
  */
@@ -31,75 +40,34 @@ export function FindBar({ controller, label, query, requestToken }: FindBarProps
   const hasQuery = query !== "";
   const total = controller.matches.length;
   const current = total === 0 ? 0 : controller.activeIndex + 1;
-
-  const onInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (event.shiftKey) {
-        controller.goToPrevious();
-      } else {
-        controller.goToNext();
-      }
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      controller.closeFind();
-    }
-  };
+  const status = !hasQuery
+    ? ""
+    : total === 0
+      ? label("findNoMatches")
+      : label("findCount").replace("{current}", String(current)).replace("{total}", String(total));
 
   return (
     <div id="diff-find-anchor" ref={controller.findBarRef}>
-      <search id="diff-find-bar" aria-label={label("findInDiff")}>
-        <input
-          ref={inputRef}
-          id="diff-find-input"
-          type="text"
-          value={query}
-          placeholder={label("findInDiff")}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          aria-label={label("findInDiff")}
-          onChange={(event) => controller.setQuery(event.target.value)}
-          onKeyDown={onInputKeyDown}
-        />
-        {hasQuery ? (
-          <span id="diff-find-count" aria-live="polite">
-            {current}/{total}
-          </span>
-        ) : null}
-        <button
-          type="button"
-          className="toolbar-icon"
-          aria-label={label("findPreviousMatch")}
-          title={label("findPreviousMatch")}
-          disabled={total === 0}
-          onClick={controller.goToPrevious}
-        >
-          <Icon name="chevronUp" />
-        </button>
-        <button
-          type="button"
-          className="toolbar-icon"
-          aria-label={label("findNextMatch")}
-          title={label("findNextMatch")}
-          disabled={total === 0}
-          onClick={controller.goToNext}
-        >
-          <Icon name="chevronDown" />
-        </button>
-        <button
-          type="button"
-          className="toolbar-icon"
-          aria-label={label("findClose")}
-          title={label("findClose")}
-          onClick={controller.closeFind}
-        >
-          <Icon name="close" />
-        </button>
-      </search>
+      <FindPill
+        query={query}
+        onQueryChange={controller.setQuery}
+        status={status}
+        noMatches={hasQuery && total === 0}
+        canStep={total > 0}
+        onNext={controller.goToNext}
+        onPrevious={controller.goToPrevious}
+        onClose={controller.closeFind}
+        inputRef={inputRef}
+        commandGSteps={false}
+        ids={{ root: "diff-find-bar", field: "diff-find-input", count: "diff-find-count" }}
+        labels={{
+          placeholder: label("findInDiff"),
+          previous: label("findPreviousMatch"),
+          next: label("findNextMatch"),
+          close: label("findClose"),
+        }}
+        icon={(role) => <Icon name={ICONS[role]} />}
+      />
     </div>
   );
 }

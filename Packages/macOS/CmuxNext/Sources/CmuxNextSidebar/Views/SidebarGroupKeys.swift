@@ -134,7 +134,7 @@ import AppKit
         // Only a header the keyboard focused (ring shown): a click focuses
         // without a ring and already toggled.
         guard let id = list.focusedGroup, list.showsFocusRing else { return false }
-        if let group = model.group(id), group.isPinned, group.workspaces.isEmpty {
+        if let group = model.group(id), group.isPinned, group.workspaces.isEmpty, group.items.isEmpty {
             model.send(.openGroup(id))
             list.reload(animated: true)
         } else {
@@ -144,8 +144,9 @@ import AppKit
     }
 
     private func toggle(_ group: GroupID) {
+        // The fold draws itself on the group's rows (`SidebarListView.foldGroup`): no list reload.
+        model.noteUserIntent()
         model.send(.toggleCollapse(.group(group)))
-        list.reload(animated: true)
     }
 
     private func group(containing id: WorkspaceID) -> GroupID? {

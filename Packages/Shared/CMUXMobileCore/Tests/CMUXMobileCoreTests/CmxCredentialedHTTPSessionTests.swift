@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import CMUXMobileCore
 
@@ -19,6 +22,22 @@ import Testing
         ))
         let session = URLSession(configuration: .ephemeral)
         let task = session.dataTask(with: source)
+        #if canImport(FoundationNetworking)
+        // FoundationNetworking's redirect callback takes a `@Sendable` handler.
+        let recorder = RedirectCompletionRecorder(forwardedRequest: redirected)
+
+        CmxCredentialedHTTPRedirectDelegate().urlSession(
+            session,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: redirected
+        ) { request in
+            recorder.record(request)
+        }
+
+        #expect(recorder.completionCalled)
+        #expect(recorder.forwardedRequest == nil)
+        #else
         var completionCalled = false
         var forwardedRequest: URLRequest? = redirected
 
@@ -34,6 +53,7 @@ import Testing
 
         #expect(completionCalled)
         #expect(forwardedRequest == nil)
+        #endif
     }
 
     @Test func rejectsDeclaredOversizedResponseBeforeBufferingIt() async throws {
@@ -61,6 +81,22 @@ import Testing
         }
     }
 }
+
+#if canImport(FoundationNetworking)
+private final class RedirectCompletionRecorder: @unchecked Sendable {
+    private(set) var completionCalled = false
+    private(set) var forwardedRequest: URLRequest?
+
+    init(forwardedRequest: URLRequest) {
+        self.forwardedRequest = forwardedRequest
+    }
+
+    func record(_ request: URLRequest?) {
+        completionCalled = true
+        forwardedRequest = request
+    }
+}
+#endif
 
 private final class OversizedCredentialedHTTPURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with _: URLRequest) -> Bool { true }

@@ -1,5 +1,6 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
+import { USER_TEAMS_LIST_MAX } from "@cmux/protocol"
 import { HOME_REACH_MAX_TARGETS } from "./domains/team-members.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { CHIEF_AGENT_CLASS } from "./domains/user-chief.ts"
@@ -11,9 +12,11 @@ import type { Env } from "./env.ts"
  * by user id, participants.add) the Worker asks each fact's owner and passes the answers to the
  * ConversationDO in `principal.home_reach`, so the reducer stays pure:
  *
- * - shared team: TeamDO `homeCoMembers` for the caller's teams (the principal's team and SSO
- *   team) and the target's personal team. A user's other teams need a membership index in
- *   UserDO (section 16.7, not built), so only those teams are checked.
+ * - shared team: TeamDO `homeCoMembers` for the caller's teams (the principal's team, SSO team
+ *   and every team of the caller's UserDO team index, section 16.7) and the target's personal
+ *   team. A session acts in its personal team unless it names another, and Home chats are not
+ *   team-scoped, so two members of one shared team reach each other from any team. The index is
+ *   a hint; each TeamDO confirms both memberships, so a team the target left gives no reach.
  * - connected: until relationships exist (16.7), a DM between the two where both are current
  *   participants and both gave consent (16.8: both sent a message, or one accepted the other's
  *   invite), found through the caller's inbox `peer` index and asked of that DM's owner.
@@ -44,6 +47,7 @@ interface UserReachStub {
   readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<{ ok: boolean; value?: { conversation?: string | null } }>
   homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom>
   homeChiefDms(entity: string, agent: string, agentClass: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null>
+  homeTeamsOf(entity: string): Promise<Array<{ team: string }>>
 }
 interface ConversationReachStub {
   homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null>
@@ -93,6 +97,13 @@ const ownDmIds = (env: Env, principal: Principal, adder: string, targets: Readon
     })
   )
 
+/**
+ * The teams of `user`'s UserDO team index (section 16.7), a hint each TeamDO confirms in
+ * `homeCoMembers`; the first USER_TEAMS_LIST_MAX, the teams a session can pick (user-teams.ts).
+ */
+const indexedTeams = async (env: Env, user: string): Promise<Array<string>> =>
+  (await userStub(env, user).homeTeamsOf(user)).slice(0, USER_TEAMS_LIST_MAX).map((e) => e.team)
+
 /** Whether the caller is a current participant of `conversation` (participants.add resolves reach only then). */
 export const isParticipant = (env: Env, conversation: string, principal: Principal): Promise<boolean> => conversationStub(env, conversation).mayInvite(conversation, principal)
 
@@ -112,12 +123,12 @@ export const resolveHumanReach = async (env: Env, principal: Principal, targets:
     if (dms === null) return none
     adder = owner
     dmIds = dms
-    ownTeams = [personalTeamIdFor(owner), principal.team, principal.sso_team].filter((t): t is string => typeof t === "string")
+    ownTeams = [personalTeamIdFor(owner), principal.team, principal.sso_team, ...(targets.length === 0 ? [] : await indexedTeams(env, owner))].filter((t): t is string => typeof t === "string")
   } else {
     if (!actor.startsWith("user_")) return { principal, dms: new Map() }
     adder = actor
     dmIds = targets.length === 0 ? [] : await ownDmIds(env, principal, adder, targets)
-    ownTeams = [principal.team, principal.sso_team].filter((t): t is string => typeof t === "string")
+    ownTeams = [principal.team, principal.sso_team, ...(targets.length === 0 ? [] : await indexedTeams(env, adder))].filter((t): t is string => typeof t === "string")
   }
   if (targets.length === 0) return none
   const teams = [...new Set(ownTeams)]

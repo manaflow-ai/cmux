@@ -8,6 +8,8 @@ import {
   type ChangelogDesign,
   type IndexEntry,
   type ListResult,
+  type NewsLayout,
+  type ReelResult,
   type ReleaseNotes,
 } from "./types";
 
@@ -28,6 +30,9 @@ export interface ChangelogSnapshot {
   loaded: Record<string, ReleaseNotes>;
   /** Builds whose notes could not be loaded (offline, unsigned). */
   unavailable: Record<string, true>;
+  /** The span's nightly reels by build (https links only), asked after the notes: the first
+      screen never waits for them. */
+  reels: Record<string, string>;
 }
 
 export interface UpdateSpan {
@@ -49,7 +54,14 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const design = new URLSearchParams(query).get("design");
-  return design === "rail" || design === "digest" ? design : "journal";
+  return design === "journal" || design === "rail" || design === "digest" ? design : "ledger";
+}
+
+/** The update's news layout the route names (`news=alternate|stack|lead`); grid by default. */
+export function parseNewsLayout(hash: string): NewsLayout {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const news = new URLSearchParams(query).get("news");
+  return news === "alternate" || news === "stack" || news === "lead" ? news : "grid";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
@@ -93,12 +105,23 @@ export class ChangelogStore {
   private readonly cache = new Map<string, ReleaseNotes>();
   private readonly pending = new Map<string, Promise<ReleaseNotes | undefined>>();
   private generation = 0;
+  private readonly askedReels = new Set<string>();
   private listed = false;
   /** The latest span the route named; applied once the list has loaded. */
   private latestSpan?: UpdateSpan;
+  /** ``start``'s load (the list, then the span's or the selected build's notes). */
+  private started: Promise<void> = Promise.resolve();
 
   constructor(private readonly client: PageClient | null) {
-    this.snapshot = { builds: [], loading: client !== null, missing: false, inSpan: [], loaded: {}, unavailable: {} };
+    this.snapshot = {
+      builds: [],
+      loading: client !== null,
+      missing: false,
+      inSpan: [],
+      loaded: {},
+      unavailable: {},
+      reels: {},
+    };
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -114,7 +137,24 @@ export class ChangelogStore {
   }
 
   /** Loads the list, then the span's newest notes, else the running build's (or the newest listed). */
-  async start(span?: UpdateSpan): Promise<void> {
+  start(span?: UpdateSpan): Promise<void> {
+    this.started = this.load(span);
+    return this.started;
+  }
+
+  /** Settles once the first screen's data has: the list, the selected build's notes and the notes
+      of every section in view (the journal asks for them as it renders), loaded or unavailable. */
+  async firstScreen(): Promise<void> {
+    await this.started;
+    // Each load renders the page again, and a section that moved into view asks for its builds then.
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (this.pending.size === 0) return;
+      await Promise.allSettled(this.pending.values());
+    }
+  }
+
+  private async load(span?: UpdateSpan): Promise<void> {
     if (!this.client) return;
     this.latestSpan = span;
     try {
@@ -139,6 +179,7 @@ export class ChangelogStore {
     this.set({ span, inSpan: inSpan.map((b) => b.build) });
     // The update's section reads every build of the span at once (the index keeps at most 50).
     for (const b of inSpan) void this.ensure(b.build);
+    for (const b of inSpan) void this.ensureReel(b.build);
     await this.select(newest?.build ?? (this.snapshot.current || this.snapshot.builds[0]?.build));
   }
 
@@ -174,6 +215,18 @@ export class ChangelogStore {
       .finally(() => this.pending.delete(build));
     this.pending.set(build, load);
     return load;
+  }
+
+  /** Asks for one build's reel once; an older host without the op, or no reel, shows no card. */
+  private async ensureReel(build: string): Promise<void> {
+    if (!this.client || build in this.snapshot.reels || this.askedReels.has(build)) return;
+    this.askedReels.add(build);
+    try {
+      const { url } = await this.client.call<ReelResult>(ChangelogOps.reel, { build });
+      if (url?.startsWith("https://")) this.set({ reels: { ...this.snapshot.reels, [build]: url } });
+    } catch {
+      // No reel: the page shows what it has.
+    }
   }
 
   /** "Try it": the host runs the action only when it is on the allow-list. */

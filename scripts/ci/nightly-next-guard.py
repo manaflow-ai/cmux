@@ -7,7 +7,8 @@ updates from and where each one publishes. nightly.yml calls this before it
 bakes a feed URL into the app and before every object it uploads:
 
   feed-url URL           the SUFeedURL baked into the app
-  appcast FILE           every download URL and item channel in an appcast
+  appcast FILE           every download URL (the nightly-next release or the feed's R2 base)
+                         and item channel (one ring tag) in an appcast
   r2-key BUCKET KEY      every object it writes
 
 The allowed values come from the workflow environment
@@ -33,10 +34,13 @@ MAIN_FEED_PREFIXES = (
 MAIN_OBJECT_PREFIXES = ("nightly/", "rc/", "stable/")
 NEXT_DOWNLOAD_PREFIX = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
-# Every cmux-next item carries this sparkle:channel. Sparkle offers a
-# channel-tagged item only to an updater that allows the channel, and only the
-# cmux-next build does (UpdateFeedResolver.Channel.allowedSparkleChannels).
-NEXT_SPARKLE_CHANNEL = "cmux-next"
+# Every cmux-next item carries exactly one of these sparkle:channel tags, one
+# per release ring (UpdateRing.sparkleChannel; scripts/ci/nightly_next_ring.py
+# says which). Sparkle offers a channel-tagged item only to an updater that
+# allows the channel; only a cmux-next build allows any of them
+# (UpdateFeedResolver.Channel.allowedSparkleChannels), so main's builds ignore
+# every item, and an untagged item is what this guard must never let through.
+NEXT_SPARKLE_CHANNELS = ("cmux-next-stable", "cmux-next", "cmux-next-canary", "cmux-next-dev")
 
 
 class Refused(Exception):
@@ -75,12 +79,22 @@ def check_appcast(path):
     items = list(root.iter("item"))
     for item in items:
         channels = [c.text for c in item.findall(f"{{{SPARKLE_NS}}}channel")]
-        if channels != [NEXT_SPARKLE_CHANNEL]:
-            raise Refused(f"{path} item channel {channels} is not [{NEXT_SPARKLE_CHANNEL!r}]")
+        if len(channels) != 1 or channels[0] not in NEXT_SPARKLE_CHANNELS:
+            raise Refused(f"{path} item channel {channels} is not one of {list(NEXT_SPARKLE_CHANNELS)}")
+    # The nightly-next release on GitHub, or the feed's own R2 base (files-next.cmux.com),
+    # where publish-nightly-next-r2.py puts each build's DMG before the feed names it.
+    # Without NIGHTLY_NEXT_FEED_BASE only the release is allowed.
+    prefixes = [NEXT_DOWNLOAD_PREFIX]
+    if os.environ.get("NIGHTLY_NEXT_FEED_BASE", "").strip():
+        r2_prefix = env("NIGHTLY_NEXT_FEED_BASE").rstrip("/") + "/"
+        if r2_prefix.startswith(MAIN_FEED_PREFIXES) or not r2_prefix.startswith("https://"):
+            raise Refused(f"NIGHTLY_NEXT_FEED_BASE {r2_prefix} is not a separate https feed")
+        prefixes.append(r2_prefix)
     for url in urls:
-        if not url.startswith(NEXT_DOWNLOAD_PREFIX):
+        prefix = next((p for p in prefixes if url.startswith(p)), None)
+        if prefix is None:
             raise Refused(f"{path} enclosure {url} is not a nightly-next download")
-        name = url[len(NEXT_DOWNLOAD_PREFIX):]
+        name = url[len(prefix):]
         if "/" in name or not name.startswith("cmux-nightly-next-macos-"):
             raise Refused(f"{path} enclosure {url} is not a cmux-nightly-next DMG or delta")
 

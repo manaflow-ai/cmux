@@ -7,8 +7,8 @@ nonisolated extension ControlRouter {
     /// Runs one control method in process for a Mac-side app op (the
     /// CodeRouter app's and page's ops, `action.*`): validation, targets, the
     /// work queue and the origin rule are the control socket's.
-    func appControl(_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue {
-        switch await handle(ControlRequest(method: method, params: params), connection: .inProcess) {
+    func appControl(_ method: String, _ params: [String: JSONValue], callerApp: String? = nil) async throws(AppHostCapabilityError) -> JSONValue {
+        switch await handle(ControlRequest(method: method, params: params, callerApp: callerApp), connection: .inProcess) {
         case .success(let value): return value
         case .failure(let error):
             throw AppHostCapabilityError(code: error.code, message: error.message, details: error.data.map(AppJSON.init))
@@ -20,8 +20,10 @@ nonisolated extension ControlRouter {
 /// control methods with the app call's origin (`user` inside a gesture, else
 /// `script`). The supervisor already checked the scope, the action's agent
 /// surface and the view-state token before it routed the call here.
+/// The original mutation key reaches the shared action router unchanged;
+/// operation params cannot replace it or the supervisor's origin.
 nonisolated struct ActionAppOps: AppHostCapabilityHandler {
-    let control: @Sendable (_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue
+    let control: @Sendable (_ method: String, _ params: [String: JSONValue], _ callerApp: String) async throws(AppHostCapabilityError) -> JSONValue
 
     var families: Set<String> { ["action"] }
 
@@ -29,13 +31,12 @@ nonisolated struct ActionAppOps: AppHostCapabilityHandler {
         let origin = JSONValue.string(request.origin)
         switch request.op {
         case "action.run":
-            guard let id = request.params["id"]?.stringValue else {
-                throw AppHostCapabilityError(code: "invalid_params", message: "action.run needs id")
-            }
-            return AppJSON(try await control("action.run", ["action": .string(id), "args": (request.params["args"] ?? .object([:])).settingsValue,
-                                                            "origin": origin]))
+            guard let id = request.params["id"]?.stringValue else { throw AppHostCapabilityError(code: "invalid_params", message: "action.run needs id") }
+            var params: [String: JSONValue] = ["action": .string(id), "args": (request.params["args"] ?? .object([:])).settingsValue, "origin": origin]
+            params["idempotency_key"] = request.idempotencyKey.map(JSONValue.string)
+            return AppJSON(try await control("action.run", params, request.app))
         case "action.list":
-            return AppJSON(try await control("action.list", ["origin": origin]))
+            return AppJSON(try await control("action.list", ["origin": origin], request.app))
         default:
             throw .unsupported(request.op)
         }

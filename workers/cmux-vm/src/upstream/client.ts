@@ -1,3 +1,5 @@
+import type { PendingVmCreation, CancellingVmCreation } from "../proofs/vm-creation.ts";
+import type { VmCreationProbe } from "../domain/vm-creation.ts";
 /**
  * The upstream VM provider, as handlers see it: the service tag, its
  * proof-demanding interface and the provider shapes handlers read. The
@@ -14,8 +16,11 @@
 import type { Named } from "@gdp-ts/core";
 import { Context, Data, Effect, Schema } from "effect";
 import type { Principal } from "../domain/principal.ts";
+import type { VmNetworkAllowed } from "../proofs/vm-network.ts";
+import type { VmImageAllowed } from "../proofs/vm-image.ts";
 import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
@@ -32,6 +37,7 @@ export const UpstreamVm = Schema.Struct({
   idleTimeoutSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   maxRunSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   autoDeleteSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
+  maxRunTotalSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
@@ -51,7 +57,22 @@ export interface SizeRequest {
   readonly diskMib?: number | undefined;
 }
 
+/** Provider-confirmed resources must satisfy every requested floor. */
+export const resourceFloorsReached = (vm: UpstreamVm, size: SizeRequest): boolean =>
+  (size.vcpus === undefined || vm.resources.cpu >= size.vcpus)
+  && (size.memoryMib === undefined || vm.resources.memory >= size.memoryMib)
+  && (size.diskMib === undefined || vm.resources.storage >= size.diskMib);
+
 export interface CreateVmSpec {
+  readonly createdBy?: string;
+  /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
+  readonly journal: {
+    readonly context: string | null;
+    readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
+    readonly beginSend: () => Effect.Effect<string, UpstreamError>;
+    readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;
+    readonly active: Effect.Effect<void, UpstreamError>;
+  };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;
   readonly maxRunSeconds?: number;
@@ -83,10 +104,58 @@ export interface FileEntryRecord {
   readonly kind: string;
 }
 
+export interface FileStatRecord {
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  readonly size: number;
+  readonly mode: number;
+  readonly mtime: number | null;
+  readonly owner: string;
+  readonly group: string;
+}
+
+/** A per-VM client session the provider issued: shown to the caller once, never stored except the identity id. */
+export interface ClientSessionGrant {
+  /** The provider identity holding the grant and the token; internal, kept to revoke it. */
+  readonly upstreamIdentityId: UpstreamId;
+  /** The provider access token, scoped to this VM and Linux user. */
+  readonly token: string;
+  /** The provider's id of the VM: the token is used with it directly. */
+  readonly providerVmId: UpstreamId;
+  readonly apiBaseUrl: string;
+  readonly sshHost: string;
+}
+
 export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /**
+   * Mints a provider identity granted only this owned VM as `linuxUser`, and
+   * one access token for it. A failure leaves no identity behind.
+   */
+  readonly openClientSession: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:exec"> },
+    linuxUser: string,
+  ) => Effect.Effect<ClientSessionGrant, UpstreamError>;
+  /** Deletes a provider identity this service minted, with its tokens and grants; "gone" when it no longer existed. */
+  readonly deleteIdentity: (identityId: UpstreamId) => Effect.Effect<"deleted" | "gone", UpstreamError>;
+  /** Identifies this exact canonical allocation, without exposing its private provider ID. */
+  readonly instanceFingerprint: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> }) => Effect.Effect<string>;
+  /** Reads saved-disk metadata without running guest code, including when retired. */
+  readonly statFile: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:files"> }, path: string) => Effect.Effect<FileStatRecord, UpstreamError>;
+  /** Irreversibly fences this owned VM; success requires a confirmed zero budget and no running compute. */
+  readonly retireVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<UpstreamVm, UpstreamError>;
+  /** Ensure resource floors on exactly this owned VM; never deletes it on failure. */
+  readonly resizeVm: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C>; readonly mayGrow: TenantMayGrow<C> },
+    size: SizeRequest,
+  ) => Effect.Effect<UpstreamVm, UpstreamError>;
+  readonly replaceVmHttpsProxy: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network">; readonly network: VmNetworkAllowed<C> },
+  ) => Effect.Effect<"updated" | "missing" | "ambiguous", UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
@@ -98,15 +167,20 @@ export interface UpstreamClientService {
   ) => Effect.Effect<UpstreamVm, UpstreamError>;
   /**
    * Boots a new VM for the caller's tenant. Its upstream name and metadata
-   * carry the tenant id and the cmux id. With `source`, it boots from that
+   * carry the tenant id and the cmux id; the tenant id is also its upstream customer. With `source`, it boots from that
    * snapshot of the tenant's.
    */
+  readonly inspectCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
+  readonly deleteCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V>; readonly owns: Owns<C, V> }) => Effect.Effect<void, UpstreamError>;
+  readonly recoverCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly pending: PendingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
   readonly createVm: <C, S = never>(
     caller: Named<C, Principal>,
     spec: CreateVmSpec,
     proofs: {
       readonly mayCreate: TenantMayCreate<C, "vm">;
       readonly scope: Write<C>;
+      readonly network?: VmNetworkAllowed<C>;
+      readonly image?: VmImageAllowed<C>;
       readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: Owns<C, S> };
     },
   ) => Effect.Effect<
@@ -126,13 +200,6 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> },
   ) => Effect.Effect<"deleted" | "gone", UpstreamError>;
-  /** Snapshots a VM for a fork. The snapshot's upstream name carries the tenant id and its cmux id. */
-  readonly snapshotForFork: <C, R>(
-    caller: Named<C, Principal>,
-    vm: Named<R, VmId>,
-    spec: { readonly cmuxId: SnapshotId },
-    proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C>; readonly mayCreate: TenantMayCreate<C, "vm"> },
-  ) => Effect.Effect<CreatedResource, UpstreamError>;
   /** Deletes a snapshot; "gone" when the provider no longer had it. */
   readonly deleteSnapshot: <C, S>(
     snapshot: Named<S, SnapshotId>,

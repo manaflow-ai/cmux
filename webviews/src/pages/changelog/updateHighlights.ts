@@ -13,6 +13,17 @@ export interface UpdateHighlightItem {
   category: WhatsNewCategory;
   /** An SF Symbol name when the source names one; the web views do not draw it. */
   symbol?: string | null;
+  /** Optional GitHub PR URL from the structured entry. */
+  pr?: string | null;
+  /** The change's picture, inlined and checked by the host (`data:` URLs only); absent without one. */
+  media?: UpdateHighlightMedia | null;
+}
+
+export interface UpdateHighlightMedia {
+  light: string;
+  dark: string;
+  /** Already localized. */
+  alt: string;
 }
 
 export interface UpdateHighlights {
@@ -22,12 +33,21 @@ export interface UpdateHighlights {
   fromVersion: string;
   fromBuild: string;
   date?: string | null;
+  /** When the build was made, an ISO instant ("2026-10-26T19:38:52Z"); absent from an older host or
+      notes, and then only `date` is known. */
+  builtAt?: string | null;
+  /** The commit the build was cut from (the notes' `head`); absent from older notes. */
+  head?: string | null;
+  /** Builds taken off the feed (its pulled.json): never counted as newer. Absent from an older host. */
+  pulled?: string[] | null;
   source: "whatsNew" | "highlights" | "summary" | "appcast" | "none";
   language: string;
   /** At most 3, in display order. */
   items: UpdateHighlightItem[];
   /** Items not shown. */
   moreCount: number;
+  /** Every change after `items` (the popover scrolls to the whole list); absent from an older host. */
+  rest?: UpdateHighlightItem[] | null;
   changelog: { from: string; to: string };
 }
 

@@ -1,0 +1,35 @@
+{
+  "description": "Ghostty's macOS default split keys that cmux-next keeps (plans/cmux-next/terminal-shortcuts.md, 'Ghostty-default shortcuts'). In every pane focus listed in `contexts`, each reserved key runs its `command`, and no other default binding may claim the key there. Read by GhosttyReservedKeysTests (CmuxNextActionsTests, the shipped binding table) and scripts/cmux-next/check-ghostty-reserved-keys.py (the exported default keymap, pre-push gate and CI). Changing or removing an entry needs the user's explicit OK (Lawrence 2026-10-20: Cmd-Opt-arrows were rebound to sidebar switching by 2f3e1f95983; 'We need to ensure this never happens again'). Keys use keybindings.json syntax.",
+  "reserved": [
+    {"key": "cmd+opt+left", "command": "focusLeft", "ghostty": "goto_split:left"},
+    {"key": "cmd+opt+right", "command": "focusRight", "ghostty": "goto_split:right"},
+    {"key": "cmd+opt+up", "command": "focusUp", "ghostty": "goto_split:up"},
+    {"key": "cmd+opt+down", "command": "focusDown", "ghostty": "goto_split:down"},
+    {"key": "cmd+d", "command": "splitRight", "ghostty": "new_split:right"},
+    {"key": "cmd+shift+d", "command": "splitDown", "ghostty": "new_split:down"},
+    {"key": "ctrl+cmd+left", "command": "resizePaneLeft", "ghostty": "resize_split:left,10"},
+    {"key": "ctrl+cmd+right", "command": "resizePaneRight", "ghostty": "resize_split:right,10"},
+    {"key": "ctrl+cmd+up", "command": "resizePaneUp", "ghostty": "resize_split:up,10"},
+    {"key": "ctrl+cmd+down", "command": "resizePaneDown", "ghostty": "resize_split:down,10"},
+    {"key": "cmd+shift+enter", "command": "toggleSplitZoom", "ghostty": "toggle_split_zoom"}
+  ],
+  "contexts": [
+    {"name": "terminal", "values": {"surfaceKind": "terminal", "terminalFocused": true}},
+    {"name": "web page", "values": {"surfaceKind": "page", "browserFocused": true}},
+    {"name": "agent chat", "values": {"surfaceKind": "agent", "agentPaneFocused": true}},
+    {"name": "markdown viewer", "values": {"surfaceKind": "markdown", "markdownFocused": true}},
+    {"name": "diff viewer", "values": {"surfaceKind": "diff", "diffViewerFocused": true}},
+    {"name": "home", "values": {"surfaceKind": "home"}},
+    {"name": "empty pane", "values": {"surfaceKind": "empty"}},
+    {"name": "sidebar", "values": {"listFocus": true}}
+  ],
+  "scopedOwners": {
+    "description": "Focus keys where a reserved key may run something else: text fields and editors that use the key for editing. A binding on a reserved key that is not the reserved command must have a `when` that is false in every context above.",
+    "keys": ["codeEditorFocused", "paletteOpen", "omnibarFocused"]
+  },
+  "scopedActions": ["omnibar.openInForegroundTab"],
+  "approvedDeviations": [
+    {"key": "cmd+[", "ghostty": "goto_split:previous", "cmux": "focusHistoryBack", "why": "chief decision cx-442: focus history Back as in the shipping cmux"},
+    {"key": "cmd+]", "ghostty": "goto_split:next", "cmux": "focusHistoryForward", "why": "chief decision cx-442: focus history Forward as in the shipping cmux"}
+  ]
+}

@@ -9,15 +9,10 @@
 //! delivery and journal retention catch theirs and recover; a caught panic
 //! is still a bug). It never aborts, so those recoveries keep working. The
 //! cmux-next app reads new lines and sends them to Sentry under the user's
-//! telemetry choice.
+//! telemetry choice. The line format and hook live in `cmux-panic-log`,
+//! which the acpmux daemon uses too.
 
-use std::io::Write;
 use std::path::PathBuf;
-
-/// Largest backtrace kept per line.
-const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
-/// The log stops growing at this size; the app reads it from its own offset.
-const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook is
 /// installed (tests/owner_panic.rs). Its line carries `"test": true`.
@@ -50,69 +45,32 @@ pub(super) fn log_path(session: &str) -> Option<PathBuf> {
 
 /// Install the owner's panic hook. Call once, in the headless owner only.
 pub(super) fn install(session: &str) {
-    let session = session.to_string();
-    let path = log_path(&session);
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        if let Some(path) = &path {
-            append(path, &session, info);
-        }
-        previous(info);
-    }));
+    if let Some(path) = log_path(session) {
+        let mut fields = cmux_panic_log::Fields::new();
+        fields.insert("session".into(), session.into());
+        fields.insert("owner_pid".into(), std::process::id().into());
+        // The release and build a tester runs, so crash reports group by
+        // release and platform (plans/cmux-next/tui-tester-rollout.md).
+        fields.insert("version".into(), crate::version_report::DISTRIBUTION_VERSION.into());
+        fields.insert("build_identity".into(), build_identity().into());
+        fields.insert("os".into(), std::env::consts::OS.into());
+        fields.insert("arch".into(), std::env::consts::ARCH.into());
+        cmux_panic_log::install(path, fields, is_test_thread);
+    }
     #[cfg(debug_assertions)]
     panic_for_test();
 }
 
-fn append(path: &std::path::Path, session: &str, info: &std::panic::PanicHookInfo<'_>) {
-    let message = info
-        .payload()
-        .downcast_ref::<&str>()
-        .map(|text| (*text).to_string())
-        .or_else(|| info.payload().downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "non-text panic payload".to_string());
-    let location = info.location().map(ToString::to_string).unwrap_or_default();
-    let mut backtrace = std::backtrace::Backtrace::force_capture().to_string();
-    if backtrace.len() > MAX_BACKTRACE_BYTES {
-        let mut end = MAX_BACKTRACE_BYTES;
-        while !backtrace.is_char_boundary(end) {
-            end -= 1;
-        }
-        backtrace.truncate(end);
-    }
-    let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
-    let at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or_default();
+/// The debug test trigger's thread; its line carries `"test": true`.
+fn is_test_thread(thread: &str) -> bool {
     #[cfg(debug_assertions)]
-    let test = thread == TEST_PANIC_THREAD;
-    #[cfg(not(debug_assertions))]
-    let test = false;
-    let record = serde_json::json!({
-        "session": session,
-        "message": message,
-        "location": location,
-        "thread": thread,
-        "owner_pid": std::process::id(),
-        "version": env!("CARGO_PKG_VERSION"),
-        "at_ms": at_ms,
-        "test": test,
-        "backtrace": backtrace,
-    });
-    if std::fs::metadata(path).is_ok_and(|meta| meta.len() >= MAX_LOG_BYTES) {
-        return;
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
-        // Backtraces and messages may hold paths: owner-only, never through a planted link.
-        options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        thread == TEST_PANIC_THREAD
     }
-    if let Ok(mut file) = options.open(path) {
-        // One write per line, so concurrent panics never interleave a line.
-        let _ = file.write_all(format!("{record}\n").as_bytes());
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = thread;
+        false
     }
 }
 
@@ -126,4 +84,14 @@ fn panic_for_test() {
         .name(TEST_PANIC_THREAD.into())
         // crash-allow: debug-only test trigger for the owner panic log
         .spawn(|| panic!("cmux-tui test owner panic"));
+}
+
+#[cfg(unix)]
+fn build_identity() -> Option<&'static str> {
+    Some(cmux_build_identity::BUILD_IDENTITY)
+}
+
+#[cfg(not(unix))]
+fn build_identity() -> Option<&'static str> {
+    None
 }

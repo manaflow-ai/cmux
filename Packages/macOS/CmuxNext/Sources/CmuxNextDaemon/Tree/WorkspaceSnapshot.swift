@@ -7,6 +7,10 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var resourceID: ResourceID?
     public var shortID: String?
     public var name: String
+    /// Who supplied `name`; missing on older daemons and conservatively user-owned.
+    public var nameSource: WorkspaceNameSource
+    /// The workspace-local name revision; missing on older daemons and treated as zero.
+    public var nameRevision: UInt64
     /// Shared compatibility default, not user focus. Keep focus client-local.
     public var active: Bool
     public var screens: [ScreenSnapshot]
@@ -46,6 +50,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         resourceID: ResourceID? = nil,
         shortID: String? = nil,
         name: String,
+        nameSource: WorkspaceNameSource = .user,
+        nameRevision: UInt64 = 0,
         active: Bool = false,
         screens: [ScreenSnapshot] = [],
         group: WorkspaceGroupID? = nil,
@@ -61,6 +67,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         self.resourceID = resourceID
         self.shortID = shortID
         self.name = name
+        self.nameSource = nameSource
+        self.nameRevision = nameRevision
         self.active = active
         self.screens = screens
         self.group = group
@@ -74,6 +82,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, key, name, active, screens, group, color, icon, title, pinned, kind, app
+        case nameSource = "name_source"
+        case nameRevision = "name_revision"
         case markedUnread = "marked_unread"
         case resourceID = "resource_id"
         case shortID = "short_id"
@@ -88,6 +98,12 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         resourceID = try c.decodeIfPresent(ResourceID.self, forKey: .resourceID)
         shortID = try c.decodeIfPresent(String.self, forKey: .shortID)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        nameSource = try c.decodeIfPresent(WorkspaceNameSource.self, forKey: .nameSource) ?? .user
+        if let revision = try? c.decode(String.self, forKey: .nameRevision) {
+            nameRevision = UInt64(revision) ?? 0
+        } else {
+            nameRevision = (try? c.decode(UInt64.self, forKey: .nameRevision)) ?? 0
+        }
         active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
         screens = try c.decodeIfPresent([ScreenSnapshot].self, forKey: .screens) ?? []
         group = try c.decodeIfPresent(WorkspaceGroupID.self, forKey: .group)

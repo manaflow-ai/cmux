@@ -70,14 +70,22 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// column's vertical offset moves.
     public var rowColumnOfPane: [PaneID: ColumnID] = [:]
     public var rowColumnOfSplit: [SplitID: ColumnID] = [:]
+    /// Horizontal scroll areas (plans/cmux-next/scroll-areas-DESIGN.md G5), keyed by their
+    /// root split, and the area holding each pane and split divider. Empty while
+    /// `LayoutStyle.scrollAreasEnabled` is off.
+    public var scrollAreas: [SplitID: ScrollAreaGeometry] = [:]
+    public var scrollAreaOfPane: [PaneID: SplitID] = [:]
+    public var scrollAreaOfSplit: [SplitID: SplitID] = [:]
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
         switch layout {
         case let .splits(root):
-            let result = SplitGeometry.layout(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
-            return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false,
-                                  stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
-                                  uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
+            var geometry = ScreenGeometry(viewport: viewport, contentWidth: viewport.width, isColumns: false,
+                                          stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
+                                          uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
+            let result = geometry.layoutTree(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
+            (geometry.panes, geometry.dividers) = (result.panes, result.dividers)
+            return geometry
         case let .columns(all):
             if style.prototype.model != .off,
                let prototype = LayoutModelPrototype.geometry(all, viewport: viewport, style: style, scale: scale) {
@@ -85,8 +93,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             }
             let gap = style.stripGap
             let parts = DockStripGeometry.docks(all)
-            func minimum(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).width }
-            func minimumHeight(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).height }
+            func minimum(_ column: LayoutColumn) -> CGFloat { column.minimumSize(style: style).width }
+            func minimumHeight(_ column: LayoutColumn) -> CGFloat { column.minimumSize(style: style).height }
             let placement = DockStripGeometry.place(
                 left: parts.left.map { ($0, minimum($0)) }, right: parts.right.map { ($0, minimum($0)) },
                 top: parts.top.map { ($0, minimumHeight($0)) }, bottom: parts.bottom.map { ($0, minimumHeight($0)) },
@@ -123,7 +131,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                 geometry.columnEdges.append(ColumnEdgeGeometry(
                     column: column.id,
                     columnFrame: frame,
-                    hitFrame: CGRect(x: gapMid - edgeHit / 2, y: stripY, width: edgeHit, height: stripH)
+                    hitFrame: DividerBand(axis: .horizontal, center: gapMid, lineThickness: style.columnEdgeLineThickness,
+                                          hitThickness: edgeHit, crossStart: stripY, crossLength: stripH, scale: scale).hit
                 ))
                 geometry.gapZones.append(ColumnGapZone(after: column.id, frame: CGRect(x: gapMid - dropWidth / 2, y: stripY, width: dropWidth, height: stripH)))
             }
@@ -151,26 +160,26 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         fixedPanes.formUnion(result.panes.keys)
         dividers.append(contentsOf: result.dividers)
         fixedSplits.formUnion(result.dividers.map(\.id))
-        let edgeHit = style.columnEdgeHitThickness
-        // A top or bottom dock's handle is a horizontal line on its inner
-        // edge, dragged up and down (layout-model.md, dock resize).
-        if entry.dock.edge.isBand {
-            let y = entry.dock.edge == .top ? entry.frame.maxY - edgeHit + 1 : entry.frame.minY - 1
-            columnEdges.append(ColumnEdgeGeometry(
-                column: column.id, columnFrame: entry.frame,
-                hitFrame: CGRect(x: entry.frame.minX, y: y, width: entry.frame.width, height: edgeHit),
-                dockEdge: entry.dock.edge, axis: .vertical
-            ))
-            return
+        // The handle is centered on the strip gap beside the dock's inner
+        // edge (`DockStripGeometry.place` leaves one `stripGap` there), like
+        // every other handle: its line draws in the middle of the space
+        // between the dock's panes and the strip's (u2345). Where the strip's
+        // last column sits flush with a right dock, its own edge handle lies
+        // under this one and the dock takes that gap's drag (`rank`).
+        let gap = style.stripGap
+        let axis: SplitAxis = entry.dock.edge.isBand ? .vertical : .horizontal
+        let center = switch entry.dock.edge {
+        case .left: entry.frame.maxX + gap / 2
+        case .right: entry.frame.minX - gap / 2
+        case .top: entry.frame.maxY + gap / 2
+        case .bottom: entry.frame.minY - gap / 2
         }
-        // The handle sits on the column's own inner edge, so the gap beside
-        // it stays with the neighboring strip column's handle (both resize).
-        let x = entry.dock.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
-        columnEdges.append(ColumnEdgeGeometry(
-            column: column.id, columnFrame: entry.frame,
-            hitFrame: CGRect(x: x, y: entry.frame.minY, width: edgeHit, height: entry.frame.height),
-            dockEdge: entry.dock.edge
-        ))
+        let band = DividerBand(axis: axis, center: center, lineThickness: style.columnEdgeLineThickness,
+                               hitThickness: style.columnEdgeHitThickness,
+                               crossStart: axis == .horizontal ? entry.frame.minY : entry.frame.minX,
+                               crossLength: axis == .horizontal ? entry.frame.height : entry.frame.width, scale: scale)
+        columnEdges.append(ColumnEdgeGeometry(column: column.id, columnFrame: entry.frame, hitFrame: band.hit,
+                                              dockEdge: entry.dock.edge, axis: axis))
     }
 
     /// A column's panes and dividers in `frame`: its split tree, or its rows
@@ -178,15 +187,15 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// Rows turned off (`style.rowsEnabled`) fit the column and never
     /// scroll (O3).
     mutating func layoutContent(of column: LayoutColumn, in frame: CGRect, style: LayoutStyle, scale: CGFloat) -> SplitLayoutResult {
-        guard column.hasRows else { return SplitGeometry.layout(column.root, in: frame, style: style, scale: scale) }
+        guard column.hasRows else { return layoutTree(column.root, in: frame, style: style, scale: scale) }
         let stack = RowStackGeometry.compute(column: column.id, rows: column.rows,
                                              minimumHeights: column.rows.map { SplitGeometry.minimumSize(of: $0.root, style: style).height },
                                              in: frame, gap: style.stripGap, fits: !style.rowsEnabled, scale: scale)
         rowStacks[column.id] = stack
-        rowEdges.append(contentsOf: stack.edges(thickness: style.columnEdgeHitThickness))
+        rowEdges.append(contentsOf: stack.edges(lineThickness: style.dividerThickness, hitThickness: style.columnEdgeHitThickness, scale: scale))
         var result = SplitLayoutResult()
         for (row, placed) in zip(column.rows, stack.rows) {
-            let inner = SplitGeometry.layout(row.root, in: placed.frame, style: style, scale: scale)
+            let inner = layoutTree(row.root, in: placed.frame, style: style, scale: scale)
             result.panes.merge(inner.panes) { _, new in new }
             result.dividers.append(contentsOf: inner.dividers)
         }
@@ -231,7 +240,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
 
     /// The docked column holding `pane`, if any.
     public func dockFrame(containing pane: PaneID) -> DockColumnFrame? {
-        guard fixedPanes.contains(pane), let rect = panes[pane] else { return nil }
+        // A pane in a scroll area may sit past the dock's edge: its area's window does not.
+        guard fixedPanes.contains(pane), let rect = scrollAreaWindow(of: pane) ?? panes[pane] else { return nil }
         return dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 

@@ -35,7 +35,7 @@ import Testing
         // which the stub answers with 503.
         let client = Self.client(tokenStore: .explicit(accessToken: Self.freshAccessToken(), refreshToken: "refresh"))
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: UserNotSignedInError.self) {
             _ = try await client.listTeams()
         }
         #expect(StackUnavailableURLProtocol.requestedPaths.contains { $0.hasSuffix("/users/me") })

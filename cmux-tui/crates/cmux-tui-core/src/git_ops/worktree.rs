@@ -29,6 +29,7 @@ use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.create";
 pub(super) const BRANCH_PREFIX: &str = "cmux/";
@@ -123,7 +124,11 @@ fn plan(
         let message = "the session host has no home folder for worktrees";
         return Err(refused(OPERATION, "no_home", message, Value::Null));
     };
-    let folder = home.join(".cmux").join("worktrees").join(project(common_dir));
+    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
+        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
+        refused(OPERATION, "no_worktree_root", message, Value::Null)
+    })?;
+    let folder = root.join(project(common_dir));
     let name = fields
         .get("name")
         .and_then(Value::as_str)
@@ -220,7 +225,7 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
         "base_commit": attempt.base_commit,
     });
     if let Some(main) = main_root(common_dir) {
-        value["main_root"] = json!(main.to_string_lossy());
+        value.set("main_root", json!(main.to_string_lossy()));
     }
     value
 }

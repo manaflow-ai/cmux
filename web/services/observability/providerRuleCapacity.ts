@@ -5,9 +5,9 @@ import type { AlertInput } from "./alerts";
  * (the CodeRouter and reflection aliases), allowlist domains add one each, and
  * any other workload sharing the account draws from the same pool. At the cap
  * a network policy save cannot add a rule, so operators need to hear about it
- * before users do.
+ * before users do. Freestyle raised the account cap from 2,000 to 200,000.
  */
-export const DEFAULT_FREESTYLE_TLS_RULE_LIMIT = 2000;
+export const DEFAULT_FREESTYLE_TLS_RULE_LIMIT = 200_000;
 export const TLS_RULE_CAPACITY_ALERT_KEY = "provider-tls-rule-capacity";
 const WARNING_FRACTION = 0.85;
 /** The capacity read runs inside the alert cron; a slow provider must not stall the other checks. */

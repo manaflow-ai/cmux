@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
@@ -36,10 +36,23 @@ final class EventGate: Sendable {
 /// order. Sequences grow across reconnects: the transport serial sits in the
 /// high bits, the per-transport event index in the low 40.
 public struct DaemonEventEnvelope: Sendable, Hashable {
+    /// The emitting connection instance, absent for legacy or manually constructed envelopes.
+    public let sourceID: UUID?
+    /// The emitting control connection's serial, scoped to its ``DaemonConnection`` instance.
+    ///
+    /// This is source metadata, not a route or permission grant. Compare it
+    /// only with a serial captured from the same connection instance.
+    public var connectionSerial: UInt64 { sequence >> 40 }
     public let sequence: UInt64
     public let event: DaemonEvent
 
-    public init(sequence: UInt64, event: DaemonEvent) {
+    /// Preserves an event's original ordering and source identity.
+    /// - Parameters:
+    ///   - sequence: The connection serial and event index encoded by the transport.
+    ///   - event: The decoded native event.
+    ///   - sourceID: The emitting connection instance; nil for legacy or synthetic events.
+    public init(sequence: UInt64, event: DaemonEvent, sourceID: UUID? = nil) {
+        self.sourceID = sourceID
         self.sequence = sequence
         self.event = event
     }

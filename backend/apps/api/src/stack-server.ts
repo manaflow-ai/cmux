@@ -1,3 +1,4 @@
+import { PERSONAL_TENANT_METADATA_KEY } from "./team-vm-api-personal-stack.ts"
 import type { Env } from "./env.ts"
 
 /**
@@ -16,17 +17,22 @@ export interface StackServer {
   findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
   createUser(email: string, displayName: string | undefined): Promise<{ id: string }>
   createSession(userId: string, expiresInMillis: number | undefined): Promise<{ access_token: string; refresh_token: string }>
+  /** When the user's session (a token's refresh_token_id) was created, ms; null when Stack lists no such session. */
+  sessionCreatedAt(userId: string, sessionId: string): Promise<number | null>
   /**
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
-   * inference-plans.ts), null when absent or not a string.
+   * inference-plans.ts), null when absent or not a string. `vm_plan` is its operator Cloud grant
+   * (client_read_only_metadata.cmuxVmPlan, cloud-plan.ts cloudPlanId), read for Cloud machine limits only.
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean } | null>
   /**
    * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
    */
   getUserPlan(userId: string): Promise<string | null | "user_gone">
+  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan, as metadata text), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
+  getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
@@ -40,6 +46,8 @@ export interface StackServer {
    * 2026-10-08), "team_gone" for TEAM_NOT_FOUND. A member who holds no permission has an empty list.
    */
   getTeamMember(teamId: string, userId: string): Promise<StackMember | null | "team_gone">
+  /** The Stack team ids the user is a member of now (GET /teams?user_id); empty for USER_NOT_FOUND. user.teams.list repairs a team its webhook never synced from it. */
+  listUserTeams(userId: string): Promise<ReadonlyArray<string>>
   /** Removes the membership in Stack (DELETE /team-memberships/{team}/{user}); "absent" when it was not there. */
   removeTeamMember(teamId: string, userId: string): Promise<"removed" | "absent" | "team_gone">
 }
@@ -48,6 +56,11 @@ export interface StackMember {
   readonly display_name: string | null
   /** Team permission ids, `$` system ones included (team-roles.ts stackRole maps them to a role). */
   readonly permissions: ReadonlyArray<string>
+  /**
+   * The member is a Stack anonymous user (profile user.is_anonymous). The Hexclave browser SDK signs every
+   * cmux.com visitor up anonymously, and Stack gives each one a personal team; the sync mirrors none of them.
+   */
+  readonly anonymous?: boolean
 }
 
 const API = "https://api.stack-auth.com/api/v1"
@@ -60,6 +73,20 @@ const readOnlyPlan = (metadata: unknown): string | null => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
   const plan = (metadata as Record<string, unknown>).cmuxPlan
   return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
+}
+
+/**
+ * The operator's `cmuxVmPlan` from client_read_only_metadata only (cloud-plan.ts cloudPlanId), for
+ * Cloud machine limits. Classic Cloud lets any present value win over `cmuxPlan` (`cmuxVmPlan ??
+ * cmuxPlan`), and one that is not a usable plan id (blank, not a string) then restricts the record to
+ * free. So absent or null is null, a string up to 64 characters is kept as written (blank included),
+ * and any other present value is "" (a restriction).
+ */
+export const readVmPlanOverride = (metadata: unknown): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>).cmuxVmPlan
+  if (value === undefined || value === null) return null
+  return typeof value === "string" && value.length <= 64 ? value : ""
 }
 
 /**
@@ -143,19 +170,27 @@ export const stackServer = (
   }
   return {
     getTeam: async (teamId) => {
-      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
-      return isGone(r) ? null : { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata) }
+      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown; server_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
+      if (isGone(r)) return null
+      // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
+      const meta = r.server_metadata
+      const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readVmPlanOverride(r.client_read_only_metadata), vm_personal_tenant }
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
       return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata)
     },
+    getUserVmPlan: async (userId) => {
+      const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
+      return isGone(r) ? { gone: true as const } : { vm_plan: readVmPlanOverride(r.client_read_only_metadata) }
+    },
     listTeamMembers: async (teamId) => {
-      const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string> }> = []
+      const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []
       let cursor: string | undefined
       // Stack answers {is_paginated: false, items}; a cursor is followed if it ever pages (checked live 2026-10-09).
       for (let page = 0; page < 1000; page++) {
-        const r = await lookup<{ items?: Array<{ user_id?: unknown; display_name?: unknown; user?: { display_name?: unknown } }>; pagination?: { next_cursor?: unknown } | null }>(`/team-member-profiles?team_id=${encodeURIComponent(teamId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "team members", ["TEAM_NOT_FOUND"])
+        const r = await lookup<{ items?: Array<{ user_id?: unknown; display_name?: unknown; user?: { display_name?: unknown; is_anonymous?: unknown } }>; pagination?: { next_cursor?: unknown } | null }>(`/team-member-profiles?team_id=${encodeURIComponent(teamId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "team members", ["TEAM_NOT_FOUND"])
         if (isGone(r)) return "team_gone"
         // A team event removes every member this list leaves out, so an answer we cannot read fails the
         // delivery (Svix retries) and changes nothing: no items array, or an item without its user_id.
@@ -163,7 +198,7 @@ export const stackServer = (
         for (const m of r.items) {
           if (typeof m !== "object" || m === null || typeof m.user_id !== "string" || !m.user_id) throw new Error("stack GET team members: malformed item")
           const name = typeof m.display_name === "string" && m.display_name ? m.display_name : typeof m.user?.display_name === "string" ? m.user.display_name : null
-          out.push({ user_id: m.user_id, display_name: name, permissions: [] })
+          out.push({ user_id: m.user_id, display_name: name, permissions: [], anonymous: m.user?.is_anonymous === true })
         }
         const next = r.pagination?.next_cursor
         if (typeof next !== "string" || !next) {
@@ -190,13 +225,18 @@ export const stackServer = (
       throw new Error("stack GET team members: too many pages")
     },
     getTeamMember: async (teamId, userId) => {
-      const r = await lookup<{ display_name?: unknown; user?: { display_name?: unknown } }>(`/team-member-profiles/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, "team member", ["TEAM_NOT_FOUND", "TEAM_MEMBERSHIP_NOT_FOUND", "USER_NOT_FOUND"])
+      const r = await lookup<{ display_name?: unknown; user?: { display_name?: unknown; is_anonymous?: unknown } }>(`/team-member-profiles/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, "team member", ["TEAM_NOT_FOUND", "TEAM_MEMBERSHIP_NOT_FOUND", "USER_NOT_FOUND"])
       if (isGone(r)) return r.gone === "TEAM_NOT_FOUND" ? "team_gone" : null
       const name = typeof r.display_name === "string" && r.display_name ? r.display_name : typeof r.user?.display_name === "string" ? r.user.display_name : null
       const perms = await permissions(teamId, userId)
       if (perms === "team_gone") return "team_gone"
       // This read names the member, so an answer without entries means they hold no permission: role member (cx-6wc8).
-      return { display_name: name, permissions: perms.get(normal(userId)) ?? [] }
+      return { display_name: name, permissions: perms.get(normal(userId)) ?? [], anonymous: r.user?.is_anonymous === true }
+    },
+    listUserTeams: async (userId) => {
+      const r = await lookup<{ items?: Array<{ id?: unknown }> }>(`/teams?user_id=${encodeURIComponent(userId)}`, "user teams", ["USER_NOT_FOUND"])
+      if (isGone(r)) return []
+      return (r.items ?? []).flatMap((t) => (typeof t.id === "string" && t.id ? [normal(t.id)] : []))
     },
     removeTeamMember: async (teamId, userId) => {
       const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))
@@ -215,7 +255,12 @@ export const stackServer = (
     createUser: async (email, displayName) =>
       call<{ id: string }>("POST", "/users", { primary_email: email, primary_email_verified: true, ...(displayName ? { display_name: displayName } : {}) }),
     createSession: async (userId, expiresInMillis) =>
-      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) })
+      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) }),
+    sessionCreatedAt: async (userId, sessionId) => {
+      const r = await call<{ items?: Array<{ id?: string; created_at?: number }> }>("GET", `/auth/sessions?user_id=${encodeURIComponent(userId)}`)
+      const hit = (r.items ?? []).find((s) => s.id === sessionId)
+      return typeof hit?.created_at === "number" ? hit.created_at : null
+    }
   }
 }
 
@@ -229,3 +274,12 @@ export const stackServer = (
  */
 export const stackReadPace = (env: Env): Promise<boolean> =>
   env.STACK_READ_LIMIT ? env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)
+
+/**
+ * The low lane of the shared Stack read pace (STACK_READ_LOW_LIMIT, 2 a minute in production): a sync of a team
+ * cmux never mirrored that no person waits on (in production mostly cmux.com visitors' anonymous sign-up teams,
+ * about 7 a minute) takes a token here as well as one of stackReadPace, so such syncs use at most half the pace
+ * and a join in a known team is never starved (prod 2026-10-29: a join waited 70 s). No binding: no low cap.
+ */
+export const stackLowReadPace = (env: Env): Promise<boolean> =>
+  env.STACK_READ_LOW_LIMIT ? env.STACK_READ_LOW_LIMIT.limit({ key: `stack-reads-low:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)

@@ -46,6 +46,10 @@ public protocol AutomationTabProvider: AnyObject {
     /// trusted input, animation frames, focus and snapshots work. Nothing is
     /// shown and no focus moves. True when the tab moved into a window now.
     func keepRendering(_ tab: WebKitTab) async -> Bool
+    /// Restores tab `targetID` when it hibernated (its WebKit page was closed
+    /// to free memory) and waits for the page, bounded, so a call on it finds
+    /// a live page instead of no tab. Nothing is shown and no focus moves.
+    func wakeIfHibernated(_ targetID: String) async
     /// Whether agents may drive tab `targetID` (either engine).
     func isDrivable(_ targetID: String) -> Bool
     /// The cookie store of a persistent WebKit profile (`cookies.restore`),
@@ -56,6 +60,8 @@ public protocol AutomationTabProvider: AnyObject {
 public extension AutomationTabProvider {
     /// An App with no render window: hidden tabs stay as they are.
     func keepRendering(_ tab: WebKitTab) async -> Bool { false }
+    /// An App whose tabs never hibernate.
+    func wakeIfHibernated(_ targetID: String) async {}
     /// An App that lists only WebKit tabs.
     func isDrivable(_ targetID: String) -> Bool { automationTabs(all: true).contains { $0.tab.id.rawValue == targetID } }
     /// An App that knows only its tabs: the store of an open tab of the profile.

@@ -46,7 +46,7 @@ public import AppKit
     func update() {
         guard let pane, let bar = view else { return }
         if !shows, let window = pane.window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: bar) {
-            window.makeFirstResponder(pane.webView)
+            pane.focusChat()
         }
         bar.isHidden = !shows
         bar.autoresizingMask = [.width, pane.isFlipped ? .maxYMargin : .minYMargin]

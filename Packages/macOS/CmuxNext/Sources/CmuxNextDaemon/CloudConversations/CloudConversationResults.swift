@@ -5,18 +5,50 @@ public struct CloudSessionState: Decodable, Sendable, Equatable {
     /// `signed_out`, `active` or `expired`.
     public var state: String
     public var apiBaseURL: String?
+    /// Nil for a self-hosted server's lease, which never expires.
     public var expiresAt: UInt64?
+    /// `tailscale` for a self-hosted server's lease; nil for a bearer token.
+    public var auth: String?
 
-    public init(state: String, apiBaseURL: String? = nil, expiresAt: UInt64? = nil) {
+    public init(state: String, apiBaseURL: String? = nil, expiresAt: UInt64? = nil, auth: String? = nil) {
         self.state = state
         self.apiBaseURL = apiBaseURL
         self.expiresAt = expiresAt
+        self.auth = auth
     }
 
     enum CodingKeys: String, CodingKey {
-        case state
+        case state, auth
         case apiBaseURL = "api_base_url"
         case expiresAt = "expires_at"
+    }
+}
+
+/// A self-hosted chat server's answer to `cloud-selfhost-info`: the
+/// person's user id on it (`user_ts_...`, the same for a login on every
+/// server), their Tailscale login and names.
+public struct CloudSelfHostInfo: Decodable, Sendable, Equatable {
+    /// `selfhost`.
+    public var kind: String
+    public var userID: String
+    /// The Tailscale login (`person@example.com`, `person@github`).
+    public var login: String
+    public var displayName: String?
+    public var serverName: String?
+
+    public init(kind: String = "selfhost", userID: String, login: String, displayName: String? = nil, serverName: String? = nil) {
+        self.kind = kind
+        self.userID = userID
+        self.login = login
+        self.displayName = displayName
+        self.serverName = serverName
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind, login
+        case userID = "user_id"
+        case displayName = "display_name"
+        case serverName = "server_name"
     }
 }
 

@@ -48,6 +48,12 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ios-testflight.yml",
         "upload",
     ),
+    # The nightly signing admission takes each variant's digest from this job.
+    (
+        "scripts/ci/nightly_sign_admit.py",
+        ".github/workflows/nightly.yml",
+        "prepare-nightly-variant",
+    ),
     # The persistent-pool rescue waits for the job that runs the pool picker.
     (
         "scripts/ci/owned_pool_rescue.py",

@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 optchat-core = { path = "../optchat-core" }
+chief-kernel = { path = "../chief-kernel" }
 wasm-bindgen = "=0.2.129"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -37,6 +37,8 @@ if name == "completion-windows.json" and os.environ.get("FAKE_WINDOWS") != "1":
     sys.exit(22)
 if os.environ.get("FAKE_PUBLISHED") != "1":
     sys.exit(22)
+if name == "daemon-tests.json" and os.environ.get("FAKE_MARKER") != "1":
+    sys.exit(22)
 if "/tree/" not in url:
     sys.exit(0 if os.environ.get("FAKE_COMMIT") != "0" else 22)
 key = url.split("/tree/")[1].split("/")[0]
@@ -71,6 +73,23 @@ def _check(cond, msg):
 def inspect_script():
     steps = yaml.safe_load(open(WORKFLOW, encoding="utf-8"))["jobs"]["tree-preflight"]["steps"]
     return next(s["run"] for s in steps if s.get("id") == "inspect")
+
+
+def daemon_tests_run(outputs, takeover="true", unmarked="false", ref="refs/heads/cmux-tui-pin-0123456789ab"):
+    """Evaluates cmux-next-daemon-tests' `if` for these tree-preflight outputs (daemon_tests true, as on a pin)."""
+    import re
+    expr = str(yaml.safe_load(open(WORKFLOW, encoding="utf-8"))["jobs"]["cmux-next-daemon-tests"]["if"]).strip()
+    expr = expr.removeprefix("${{").removesuffix("}}")
+    values = dict(outputs, daemon_tests="true")
+    expr = re.sub(r"needs\.tree-preflight\.outputs\.(\w+)", lambda m: repr(values.get(m.group(1), "")), expr)
+    expr = expr.replace("needs.tree-owner-wait.outputs.takeover", repr(takeover))
+    expr = expr.replace("needs.tree-owner-wait.outputs.unmarked", repr(unmarked))
+    expr = expr.replace("needs.tree-preflight.result", repr("success"))
+    expr = expr.replace("needs.tree-owner-wait.result", repr("success"))
+    expr = expr.replace("cancelled()", "False")
+    expr = expr.replace("github.ref", repr(ref)).replace("&&", " and ").replace("||", " or ")
+    expr = re.sub(r"!(?!=)", " not ", expr)
+    return eval(" ".join(expr.split()), {"__builtins__": {}})
 
 
 def preflight(ref, event="push", **fake):
@@ -117,6 +136,26 @@ def main():
     result, out = preflight("refs/heads/main", FAKE_PUBLISHED="1", FAKE_WINDOWS="1")
     _check(result.returncode == 0 and out.get("run_macos") == "true",
            f"main still builds a published tree for latest/ ({out.get('run_macos')})")
+
+    # A pin push of a published tree that is not a full duplicate builds its commit's binaries (takeover),
+    # but it does not test the tree again when tree/<key>/daemon-tests.json, which only a passing run of the
+    # same key writes, already exists (2026-10-21).
+    result, out = preflight(pin, FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_COMMIT="0", FAKE_MARKER="1")
+    _check(result.returncode == 0 and out.get("daemon_marker") == "true" and not daemon_tests_run(out),
+           f"a pin build of a ready tree with its daemon-tests marker does not test it again ({out.get('daemon_marker')}, {result.stderr.strip()[-300:]})")
+    result, out = preflight(pin, FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_COMMIT="0")
+    _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out),
+           f"a pin build of a ready tree without the marker tests it ({out.get('daemon_marker')})")
+    result, out = preflight(pin)
+    _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out),
+           f"a pin build of a new tree tests it ({out.get('daemon_marker')})")
+    # Only a pin push: main and a dispatch still test a tree they build, marker or not.
+    result, out = preflight("refs/heads/main", FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_MARKER="1")
+    _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out, ref="refs/heads/main"),
+           f"a main build of a tested tree still tests it ({out.get('daemon_marker')})")
+    result, out = preflight(pin, event="workflow_dispatch", FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_MARKER="1")
+    _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out),
+           f"a dispatch on a pin ref of a tested tree still tests it ({out.get('daemon_marker')})")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

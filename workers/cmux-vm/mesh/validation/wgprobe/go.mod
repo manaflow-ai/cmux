@@ -2,8 +2,10 @@ module cmux.dev/wgprobe
 
 go 1.27.1
 
+toolchain go1.27.3
+
 require (
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c
 )

@@ -69,6 +69,10 @@ pub struct Entry {
     /// this shortcut ("cmd shift p", "⇧⌘P") ranks the row first.
     #[serde(default, deserialize_with = "null_as_default")]
     pub keycaps: Vec<String>,
+    /// Short ids the row is known by (a Chief subagent's workspace: `a612`). A query that is one
+    /// of them, or its digits (`612`), ranks the row first, above every text match.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub handles: Vec<String>,
 }
 
 /// One frecency record.

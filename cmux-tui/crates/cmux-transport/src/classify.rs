@@ -36,10 +36,10 @@ pub fn classify(datagram: &[u8]) -> DatagramClass {
     if is_stun(datagram) {
         return DatagramClass::Stun;
     }
-    if datagram.len() < 4 || datagram[1..4] != [0, 0, 0] {
+    let Some(([kind, 0, 0, 0], _)) = datagram.split_first_chunk::<4>() else {
         return DatagramClass::Unknown;
-    }
-    match (datagram[0], datagram.len()) {
+    };
+    match (*kind, datagram.len()) {
         (1, WG_INITIATION_LEN) => DatagramClass::WireGuardInitiation,
         (2, WG_RESPONSE_LEN) => DatagramClass::WireGuardResponse,
         (3, WG_COOKIE_REPLY_LEN) => DatagramClass::WireGuardCookieReply,
@@ -49,12 +49,18 @@ pub fn classify(datagram: &[u8]) -> DatagramClass {
 }
 
 fn is_stun(datagram: &[u8]) -> bool {
-    if datagram.len() < STUN_HEADER_LEN || datagram[0] & 0xC0 != 0 {
+    let Some(([kind0, _, len0, len1, c0, c1, c2, c3], _)) = datagram.split_first_chunk::<8>()
+    else {
+        return false;
+    };
+    if datagram.len() < STUN_HEADER_LEN || kind0 & 0xC0 != 0 {
         return false;
     }
-    let cookie = u32::from_be_bytes([datagram[4], datagram[5], datagram[6], datagram[7]]);
-    let body_len = usize::from(u16::from_be_bytes([datagram[2], datagram[3]]));
-    cookie == STUN_MAGIC_COOKIE && body_len % 4 == 0 && STUN_HEADER_LEN + body_len == datagram.len()
+    let cookie = u32::from_be_bytes([*c0, *c1, *c2, *c3]);
+    let body_len = usize::from(u16::from_be_bytes([*len0, *len1]));
+    cookie == STUN_MAGIC_COOKIE
+        && body_len % 4 == 0
+        && STUN_HEADER_LEN.checked_add(body_len) == Some(datagram.len())
 }
 
 #[cfg(test)]

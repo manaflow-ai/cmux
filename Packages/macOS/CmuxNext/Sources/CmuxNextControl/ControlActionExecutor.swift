@@ -10,6 +10,17 @@ public protocol ControlActionExecutor: Sendable {
     /// Like `performAction`, plus the daemon work the handler started, so
     /// a caller can answer after the effect exists (cmux CLI compat).
     @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun
+    /// The index of the first of `requests` that would be refused as not available in the
+    /// current context, its target's live facts included; nil when all are available. Checked
+    /// before any of them runs, so `action.batch` refuses a transaction whole instead of after
+    /// applying the ops before it (the router leaves a pane or tab target's chat and canvas
+    /// facts to the App, `ControlCatalog.deferredToRegistry`).
+    @MainActor func firstUnavailable(_ requests: [ControlActionRequest]) -> Int?
+}
+
+extension ControlActionExecutor {
+    /// An executor with no context of its own refuses nothing up front.
+    @MainActor public func firstUnavailable(_ requests: [ControlActionRequest]) -> Int? { nil }
 }
 
 /// `settings.get` / `settings.set` storage. `CmuxConfigFile` conforms, so

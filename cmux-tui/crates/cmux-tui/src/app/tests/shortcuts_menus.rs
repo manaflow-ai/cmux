@@ -799,7 +799,7 @@ fn repeated_split_then_ctrl_d_is_receipt_ordered_without_prefix_leaks() {
     let mut exited = HashSet::new();
     while exited.len() < created.len() {
         match mux_events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(MuxEvent::SurfaceExited(surface)) if created.contains(&surface) => {
+            Ok(MuxEvent::SurfaceExited(surface, _)) if created.contains(&surface) => {
                 exited.insert(surface);
             }
             Ok(_) => {}

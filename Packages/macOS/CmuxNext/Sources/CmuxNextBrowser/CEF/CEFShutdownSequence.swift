@@ -34,6 +34,13 @@ nonisolated struct CEFShutdownSequence: Equatable, Sendable {
         advance()
     }
 
+    /// The windows open now: a browser made after `begin()` (one still being made at quit) opens
+    /// a window the count from `begin()` lacks. -1 (stock CEF) keeps the wait skipped.
+    mutating func windowsOpen(_ count: Int) {
+        guard windows >= 0 else { return }
+        windows = count
+    }
+
     mutating func windowDestroyed(remaining: Int) {
         windows = remaining
         advance()

@@ -1,5 +1,8 @@
 //! `cmux open <path|url>...` and `cmux open -`: paths, folders and URLs the
 //! app opens (`file.open`, `action.run newTab`, `browser.open_split`).
+//! `cmux open --link` opens URLs the way a terminal program's browser does
+//! (`browser.open_link`, the bundled `cmux-open-url`): where the app's
+//! `terminal.linkOpener` setting says (open_link.rs).
 
 use std::io::{IsTerminal, Read};
 use std::time::Duration;
@@ -7,6 +10,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{AppCommand, UsageError, WAITING_RUN_TIMEOUT, action_origin, caller_path};
+use cmux_json::JsonSet as _;
 
 #[derive(Debug, PartialEq)]
 pub(in crate::cli) struct OpenRequest {
@@ -45,6 +49,9 @@ pub(super) fn parse_open_with(
     let messages = &crate::localization::catalog().app_control;
     let mut explicit_focus = None;
     let mut workspace = None;
+    let mut link = false;
+    let mut callers: Vec<String> = Vec::new();
+    let mut forced_target: Option<String> = None;
     let mut from_stdin = false;
     let mut targets = Vec::new();
     let mut index = 0;
@@ -102,6 +109,38 @@ pub(super) fn parse_open_with(
                 }
                 workspace = Some(value);
             }
+            "--link" => {
+                if inline.is_some() {
+                    return Err(UsageError::new("--link does not take a value"));
+                }
+                link = true;
+            }
+            "--caller" | "--target" => {
+                let value = match inline {
+                    Some(value) => value.to_owned(),
+                    None => {
+                        index += 1;
+                        args.get(index)
+                            .cloned()
+                            .ok_or_else(|| UsageError::new(format!("{name} needs a value")))?
+                    }
+                };
+                if name == "--caller" {
+                    callers.extend(
+                        value
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|v| !v.is_empty())
+                            .map(str::to_owned),
+                    );
+                } else if value.trim().is_empty() {
+                    return Err(UsageError::new(
+                        "--target needs a target (cmux, system, chrome, app:<name>)",
+                    ));
+                } else {
+                    forced_target = Some(value.trim().to_owned());
+                }
+            }
             "-" => from_stdin = true,
             _ if name.starts_with('-') => {
                 return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
@@ -121,6 +160,9 @@ pub(super) fn parse_open_with(
     if targets.is_empty() {
         return Err(UsageError::new("open requires at least one path or URL"));
     }
+    if !link && (!callers.is_empty() || forced_target.is_some()) {
+        return Err(UsageError::new("--caller and --target apply only with --link"));
+    }
     // A named workspace is a placement, often a background one: the view
     // stays unless --focus asks for it.
     let focus = explicit_focus.unwrap_or_else(|| {
@@ -131,13 +173,46 @@ pub(super) fn parse_open_with(
     let url_params = |url: &str| {
         let mut params = json!({"url": url, "focus": focus, "origin": action_origin()});
         if let Some(workspace) = &workspace {
-            params["workspace_id"] = json!(workspace);
+            params.set("workspace_id", json!(workspace));
         }
         if let Some(terminal) = &terminal {
-            params["terminal_id"] = json!(terminal);
+            params.set("terminal_id", json!(terminal));
         }
         params
     };
+    if link {
+        if workspace.is_some() {
+            return Err(UsageError::new(
+                "--link opens where terminal.linkOpener says; drop --workspace",
+            ));
+        }
+        if let Some(position) = targets.iter().position(|target| !is_web_url(target)) {
+            // Never echo the text: it may carry a token.
+            return Err(UsageError::new(format!(
+                "open --link: argument {} is not an absolute http or https URL; nothing was opened",
+                position + 1
+            )));
+        }
+        let requests = targets
+            .iter()
+            .map(|url| {
+                let mut params = json!({
+                    "url": url,
+                    "focus": focus,
+                    "callers": callers,
+                    "origin": action_origin(),
+                });
+                if let Some(terminal) = &terminal {
+                    params.set("terminal_id", json!(terminal));
+                }
+                if let Some(target) = &forced_target {
+                    params.set("target", json!(target));
+                }
+                OpenRequest { method: "browser.open_link", params }
+            })
+            .collect();
+        return Ok(AppCommand::Open { requests, stop_on_failure: from_stdin });
+    }
     if from_stdin {
         let requests = targets
             .iter()
@@ -156,7 +231,7 @@ pub(super) fn parse_open_with(
         // caller's terminal pane through the `file.open` action.
         let mut params = json!({"paths": paths, "focus": focus, "origin": action_origin()});
         if let Some(terminal) = &terminal {
-            params["terminal_id"] = json!(terminal);
+            params.set("terminal_id", json!(terminal));
         }
         requests.push(OpenRequest { method: "file.open", params });
     };

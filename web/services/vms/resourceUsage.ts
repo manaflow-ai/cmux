@@ -4,6 +4,13 @@ import type { VMStats } from "./drivers/types";
 export const VM_RESOURCE_USAGE_KEY = "cmuxResourceUsage";
 export const VM_RESOURCE_USAGE_MAX_AGE_MS = 90_000;
 export const VM_RESOURCE_USAGE_MIN_INTERVAL_MS = 15_000;
+/**
+ * The VM's peaks since its provider VM started, beside the latest sample:
+ * `{providerVmId, memoryUsedMb, diskUsedMb, cpuPercentSum, cpuSamples}`
+ * (maxima, and the CPU sum and count for a mean). Auto-sizing reads them as
+ * what a run used (autosize.ts measuredRunFromMetadata).
+ */
+export const VM_RESOURCE_PEAK_KEY = "cmuxResourcePeak";
 
 export type VmResourceUsage = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "diskUsedMb">;
 

@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "обов’язково: ця машина використовується спільно командою" },
   "agentHarness": {
     "title": "Виявлено конфігурацію harness",
     "selectionNotice": "Вибір постачальника не запускає і не вмикає ці harness.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Планування, TDD, субагенти та перевірка"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Запит Cloud VM затримано",
+      "message": "Виділення Cloud VM тимчасово недоступне.",
+      "action": "Зачекайте хвилину й повторіть спробу з тим самим ключем ідемпотентності."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Для запиту знімка потрібен ключ повтору",
+      "message": "Для знімків Cloud VM потрібен ключ ідемпотентності.",
+      "action": "Повторіть спробу зі сталим Idempotency-Key довжиною не більше 128 символів."
+    },
+    "snapshotInProgress": {
+      "title": "Знімок усе ще створюється",
+      "message": "Знімок із цим ключем ідемпотентності все ще створюється для цієї Cloud VM.",
+      "action": "Дочекайтеся завершення першого знімка й повторіть запит із тим самим ключем ідемпотентності."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Ключ повтору знімка вже використано",
+      "message": "Цей ключ ідемпотентності вже використано для іншого запиту знімка на цій Cloud VM.",
+      "action": "Використайте новий ключ ідемпотентності для знімка з іншою назвою."
+    },
+    "snapshotQuota": {
+      "title": "Досягнуто ліміт знімків",
+      "message": "Ця Cloud VM досягла ліміту знімків.",
+      "action": "Видаліть наявний знімок і повторіть спробу з тим самим ключем ідемпотентності."
+    },
     "guestInstall": {
       "title": "Налаштування Cloud VM не завершено",
       "reason": "Налаштування гостьового середовища Cloud VM не завершено.",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "Створіть цю машину заново",
       "message": "Цю машину створено до оновлення Cloud, і до неї не можна підключитися.",
-      "action": "Створіть нову машину, перенесіть файли за допомогою cmux vm pull і cmux vm push, а потім видаліть цю."
+      "action": "Створіть нову машину. Підготуйте підключення SCP командою `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, а потім скопіюйте файли через SCP перед видаленням цієї машини."
     },
     "guestUnresponsive": {
       "title": "Машина не відповідає",
       "message": "Ця машина не відповіла вчасно, тому запит не вдалося виконати.",
-      "action": "Призупиніть машину, потім відновіть її та спробуйте ще раз. У застосунку для Mac виберіть «Призупинити машину», потім «Відновити машину». У терміналі виконайте cmux vm pause '<machine>', потім cmux vm resume '<machine>'."
+      "action": "Зверніться до служби підтримки, вказавши ідентифікатор трасування, перш ніж створювати нову машину."
     },
     "inProgress": {
       "title": "Ще виконується",
       "message": "Хмарний провайдер ще не завершив цю зміну. Вона може завершитися пізніше.",
-      "action": "Перш ніж повторити спробу, перевірте стан машини за допомогою cmux vm ls або у списку машин."
+      "action": "Перш ніж повторити спробу, перевірте стан машини за допомогою cmux cloud list-machines або у списку машин."
     },
     "providerTimeout": {
       "title": "Хмарний провайдер відповідає повільно",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "Машина зайнята",
       "message": "Ця машина запускається, призупиняється або не працює, тому зараз не може цього зробити.",
-      "action": "Зачекайте трохи й спробуйте ще раз. Перевірте стан машини за допомогою cmux vm ls і спершу відновіть її, якщо вона призупинена."
+      "action": "Зачекайте трохи й спробуйте ще раз. Перевірте стан машини за допомогою cmux cloud list-machines і спершу відновіть її, якщо вона призупинена."
     },
     "networkRuleCapacity": {
       "title": "Досягнуто ліміту мережевих правил",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "Не повторюйте спробу. Робота на цьому типі машини зберігається на постійному домашньому томі.",
         "restore": "Не повторюйте спробу. Робота на цьому типі машини зберігається на постійному домашньому томі.",
-        "fork": "Не повторюйте спробу. Створіть нову VM за допомогою `cmux vm new`.",
-        "openPort": "Не повторюйте спробу. Отримайте доступ до сервісу зсередини машини за допомогою `cmux vm exec` або використовуйте тип машини, що може відкривати порти.",
-        "default": "Не повторюйте спробу. Виконайте `cmux vm ls` або зверніться до підтримки, якщо вважаєте це помилкою."
+        "fork": "Не повторюйте спробу. Створіть нову VM за допомогою `cmux cloud new-machine`.",
+        "openPort": "Не повторюйте спробу. Отримайте доступ до сервісу зсередини машини за допомогою `cmux cloud exec --target machine:<id> --command <command>` або використовуйте тип машини, що може відкривати порти.",
+        "default": "Не повторюйте спробу. Виконайте `cmux cloud list-machines` або зверніться до підтримки, якщо вважаєте це помилкою."
       }
     },
     "requiresPro": {
-      "title": "Потрібен cmux Pro",
-      "message": "Для Cloud VM потрібен план cmux Pro.",
-      "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
+      "title": "Потрібен cmux {plan}",
+      "message": "Для Cloud VM потрібен план cmux {plan}.",
+      "action": "Перейдіть на cmux {plan} на {upgradeUrl}, щоб створювати Cloud VM."
     },
     "displayName": {
       "title": "Неприпустима назва машини",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Для машин із {memory} ГіБ потрібен cmux {plan}. Ваш тариф підтримує до {max} ГіБ.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Не вдалося перевірити обсяг RAM вихідної машини.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Цей розмір машини недоступний. Виберіть до {max} ГіБ.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go включає дві збережені ВМ, зокрема запущену.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go дозволяє запускати одну ВМ одночасно.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "40 годин ВМ у Go на цей місяць вичерпано. Збережені ВМ будуть доступні в наступному розрахунковому періоді.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "Обчислювальний ліміт {plan} вичерпано",
+      "computeMessage": "Тариф {plan} використав {included} обчислювальних годин за цей розрахунковий період. Обчислювальна година — це 1 vCPU з 2 ГБ пам'яті протягом однієї години. Машини знову можна буде запустити {resetDate}.",
+      "computeAction": "Призупинені машини зберігають свої файли. Зверніться до підтримки, якщо вам потрібно більше обчислень до {resetDate}.",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "Ліміт диска {plan} вичерпано",
+      "storageMessage": "Тариф {plan} включає {included} ГБ диска на всі збережені машини. Збережені машини займають {used} ГБ, а цьому запиту потрібно {requested} ГБ.",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Недостатньо ресурсів Cloud VM",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "Щоб змінити тариф, спочатку відновіть його.",
           "granted": "Надано cmux. Змінювати нічого.",
+          "grantedNoCancel": "Надано cmux, тож скасовувати нічого.",
+          "paymentFailed": "Оновіть спосіб оплати, перш ніж змінювати план.",
+          "foundersLifetime": "Founder's Edition включає Pro назавжди.",
           "adminOnly": "Змінити тариф можуть лише адміністратори команди."
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "Змінити на {plan}?",
         "upgradeBody": "{plan} починає діяти зараз. Сьогодні ви сплачуєте {amount} за решту цього розрахункового періоду. З {date} ви сплачуєте {price} на місяць.",
+        "upgradeBodyYearly": "{plan} починає діяти зараз. Сьогодні ви сплачуєте {amount} за решту цього розрахункового періоду. З {date} ви сплачуєте {price} на рік.",
         "downgradeBody": "{plan} починає діяти зараз. Невикористана частина поточного тарифу, {credit}, буде зарахована в наступні рахунки. Наступний рахунок, {date}, становитиме {amount}.",
         "confirm": "Змінити на {plan}",
         "keep": "Залишити поточний тариф",
@@ -568,6 +608,8 @@
         "title": "Скасувати {plan}?",
         "body": "{plan} залишиться у вас до {date}. Після цього ви втратите:",
         "bodyNoDate": "{plan} залишиться у вас до кінця цього розрахункового періоду. Після цього ви втратите:",
+        "foundersBody": "Ваша підписка {plan} закінчиться {date}. Після цього у вас буде Pro, який Founder's Edition включає назавжди.",
+        "foundersBodyNoDate": "Ваша підписка {plan} закінчиться наприкінці цього розрахункового періоду. Після цього у вас буде Pro, який Founder's Edition включає назавжди.",
         "reasonLabel": "Чому ви скасовуєте? (необов'язково)",
         "otherPlaceholder": "Розкажіть докладніше (необов'язково)",
         "confirm": "Скасувати тариф",
@@ -2222,6 +2264,7 @@
           "currentLineHighlight": "Підсвічує рядок, у якому стоїть курсор, коли нічого не виділено.",
           "tabWidth": "Скільки стовпців займає одна позиція табуляції. Напрямні відступів використовують той самий інтервал."
         },
+        "actions": "Повторно використовувані дії для палітри команд, сполучень клавіш, кнопок панелі вкладок і меню кнопки плюса. Підтримуються builtin, command, agent, workspaceCommand, workspace, setting, settingPreset і text. Текстові дії вставляють текст в активний термінал, зберігаючи переноси рядків; submit: true натискає Enter. Дії з налаштуваннями потребують глобальної конфігурації.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

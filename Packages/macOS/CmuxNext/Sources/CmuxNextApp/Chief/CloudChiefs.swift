@@ -1,35 +1,6 @@
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
-
-/// One of the user's cloud chiefs (`chief.list`, `HomeChief`), the fields the
-/// app reads. `brainPlace` names the paired server whose install answers as
-/// this chief (G8, brains/DESIGN-cmux-lawrence.md); nil means no machine is
-/// placed (an older backend leaves the key out, which reads the same).
-nonisolated struct CloudChief: Sendable, Equatable {
-    nonisolated struct BrainPlace: Sendable, Equatable {
-        var host: String
-        var install: String
-    }
-
-    var id: String
-    var displayName: String
-    var isDefault: Bool
-    var mainConversation: String?
-    var rev: Int
-    var brainPlace: BrainPlace?
-
-    /// One `HomeChief` value; nil when a required field is missing.
-    static func parse(_ value: Any?) -> CloudChief? {
-        guard let value = value as? [String: Any], let id = value["id"] as? String,
-              let rev = (value["rev"] as? NSNumber)?.intValue else { return nil }
-        var place: BrainPlace?
-        if let raw = value["brain_place"] as? [String: Any], let host = raw["host"] as? String, let install = raw["install"] as? String {
-            place = BrainPlace(host: host, install: install)
-        }
-        return CloudChief(id: id, displayName: value["display_name"] as? String ?? "", isDefault: value["is_default"] as? Bool ?? false,
-                          mainConversation: value["main_conversation"] as? String, rev: rev, brainPlace: place)
-    }
-}
 
 /// The user's chiefs through the API Worker as the signed-in user: list
 /// them, find the one a server answers as, and place a chief on a server
@@ -47,35 +18,33 @@ enum CloudChiefs {
         return chiefs.compactMap(CloudChief.parse)
     }
 
-    /// The chief whose brain runs on a server: the default one when it is
-    /// placed, else the first placed one; nil when no chief is placed.
-    nonisolated static func placed(in chiefs: [CloudChief]) -> CloudChief? {
-        let placed = chiefs.filter { $0.brainPlace != nil }
-        return placed.first(where: \.isDefault) ?? placed.first
-    }
-
     static func list(call: Call) async throws -> [CloudChief] {
         parseList(try CloudPairingSource.okValue(try await call("v1/read", ["op": "chief.list", "params": [String: Any]()])))
     }
 
-    /// Places the user's default chief on `place` (a server paired a moment
-    /// ago): `chief.update {brain_place}` on the default chief, or
-    /// `chief.create` when the user has none. Keys derive from `key` (the
+    /// Places the user's Chief on `place` (a server paired a moment ago):
+    /// `chief.update {brain_place}` on the chief already placed on a server,
+    /// else `chief.create` of a placed "Chief (Mac mini)" next to the user's
+    /// chiefs (a chief with no place is the Hosted Chief and stays hosted), or
+    /// the default Chief when the user has none. Keys derive from `key` (the
     /// approve intent's), so a retry replays instead of writing twice. One
     /// revision conflict (another device edited the chief) re-reads once.
     static func place(_ place: CloudChief.BrainPlace, key: String, call: Call) async throws -> CloudChief {
         for attempt in 0..<2 {
             let chiefs = try await list(call: call)
-            let target = chiefs.first(where: \.isDefault) ?? chiefs.first
+            let target = HomeCloudChiefs.placed(in: chiefs)
             if let target, target.brainPlace == place { return target }
             let placeParams: [String: Any] = ["host": place.host, "install": place.install]
             let body: [String: Any]
             if let target {
                 body = ["op": "chief.update", "origin": "user", "idempotency_key": "\(key)-chief-place-\(target.rev)",
                         "params": ["chief": target.id, "expected_rev": target.rev, "brain_place": placeParams]]
-            } else {
+            } else if chiefs.isEmpty {
                 body = ["op": "chief.create", "origin": "user", "idempotency_key": "\(key)-chief-create",
                         "params": ["display_name": HomeStrings.chiefName, "is_default": true, "brain_place": placeParams]]
+            } else {
+                body = ["op": "chief.create", "origin": "user", "idempotency_key": "\(key)-chief-create-placed",
+                        "params": ["display_name": HomeCloudChiefs.placedName, "is_default": false, "brain_place": placeParams]]
             }
             do {
                 guard let chief = CloudChief.parse(try CloudPairingSource.okValue(try await call("v1/ops", body))) else {

@@ -150,7 +150,8 @@ export const summary = (head: ConversationHead, lastMessage: Message | null | un
     ...(head.state === undefined ? {} : { state: head.state }),
     ...(head.settings === undefined ? {} : { settings: head.settings }),
     ...(invites === undefined ? {} : { invites }),
-    ...(head.retention_days === undefined ? {} : { retention_days: head.retention_days })
+    ...(head.retention_days === undefined ? {} : { retention_days: head.retention_days }),
+    ...(head.tier === "large" ? { member_count: head.member_count ?? head.participants.length } : {})
   }
 }
 

@@ -1,42 +1,46 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
 
-/// Drives spring animations from the window's ``FrameScheduler`` (up to
-/// 120 Hz on ProMotion). Goes idle whenever `onFrame` reports nothing is
-/// moving, so the window's display link stops with the last animation.
-final class DisplayLinkDriver {
+/// Steps the layout's springs (panes, dividers, columns, screens, drop
+/// zones) on the window's one `MotionClock`, the clock the tab strip and the
+/// sidebar rows also step on (up to 120 Hz on ProMotion). Goes idle whenever
+/// `onFrame` reports nothing is moving, so the window's display link stops
+/// with the last animation.
+final class DisplayLinkDriver: MotionAnimating {
     /// Called once per frame with the elapsed seconds. Return true to keep ticking.
     var onFrame: ((Double) -> Bool)?
     /// Tests are the clock: `start` asks for no display-link frames, and the test steps
     /// `LayoutRootView.advanceFrame` at a fixed dt instead.
     var isManual = false
 
-    private var client: FrameClient?
+    private weak var view: NSView?
+    private weak var clock: MotionClock?
 
-    var isAttached: Bool { client != nil }
+    var isAttached: Bool { view != nil }
     /// An animation is in flight.
-    var isRunning: Bool { client?.isActive ?? false }
+    var isRunning: Bool { clock?.isRunning(self) ?? false }
 
     func attach(to view: NSView) {
         detach()
-        client = FrameClient(owner: "Layout.animation", view: view) { [weak self] tick in
-            let keepGoing = MotionTrace.measure("layout") { self?.onFrame?(tick.elapsed) ?? false }
-            if !keepGoing { MotionTrace.end("layout") }
-            return keepGoing
-        }
+        self.view = view
     }
 
     /// Stops ticking; call when leaving the window.
     func detach() {
-        if client?.isActive == true { MotionTrace.end("layout") }
-        client?.deactivate()
-        client = nil
+        clock?.stop(self)
+        clock = nil
+        view = nil
     }
 
     func start() {
-        guard let client, !client.isActive, !isManual else { return }
-        MotionTrace.begin("layout")
-        client.activate()
+        guard let view, !isManual else { return }
+        let target = MotionClock.forView(view)
+        if let clock, clock !== target { clock.stop(self) }
+        clock = target
+        target.run(self, trace: "layout")
+    }
+
+    func motionStep(_ dt: Double) -> Bool {
+        onFrame?(dt) ?? false
     }
 }

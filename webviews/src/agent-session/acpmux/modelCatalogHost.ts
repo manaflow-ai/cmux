@@ -85,6 +85,8 @@ export function usePickerCatalog(
   acpmux: AcpmuxSnapshot["catalog"],
   session?: {
     harness?: string;
+    /** The model the session reports running (summary.model). */
+    model?: string;
     configOptions?: NonNullable<AcpmuxSnapshot["summary"]>["configOptions"];
   },
   /** acpmux's chats: a provider's pick starts the profile its chats last completed a turn on. */

@@ -59,11 +59,11 @@ describe("team sign-in policy (P17-4)", { timeout: 60_000 }, () => {
     expect(old.json).toMatchObject({ code: "client.too_old", minimum_version: "2.4.0" })
     expect((await mint()).json.code).toBe("client.too_old")
     expect((await mint("2.4.1")).status).toBe(200)
-    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${session}`, "x-cmux-client-version": "1.0.0" } })
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${session}`, "x-cmux-client-version": "1.0.0" } })
     expect(wire.status).toBe(403)
     expect((await op(session, "chief.create", {}, "chief-default")).json.code).toBe("policy.denied")
     // The user socket refuses chief.create (it would skip the class gate).
-    const sock = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${session}`, "x-cmux-client-version": "2.4.0" } })
+    const sock = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${session}`, "x-cmux-client-version": "2.4.0" } })
     expect(sock.status).toBe(101)
     const ws = sock.webSocket!
     const frames: Array<any> = []

@@ -42,6 +42,13 @@ export class CloudHome {
   private readonly hydrationQueue: string[] = [];
   private hydrationWorkers = 0;
   private readonly subscribed: string[] = [];
+  /** Each subscribed conversation's `cloud-conversation-subscribe`: whether it took. */
+  private readonly subscriptions = new Map<string, Promise<boolean>>();
+  /** The last presence send of each conversation (the next one waits for it). */
+  private readonly presenceSends = new Map<string, Promise<boolean>>();
+  /** Conversations the person views through this connection (the last `presence` said so): never
+   *  evicted, since the daemon ends a connection's viewing when it unsubscribes. */
+  private readonly viewing = new Set<string>();
 
   constructor(
     private readonly daemon: DaemonSocket,
@@ -49,11 +56,51 @@ export class CloudHome {
     private readonly project: (raw: Json, me: string) => HomeConversation,
     /** Pushes a changed cloud summary to the page (the events stream). */
     private readonly changed: (conversation: HomeConversation) => void,
+    /** Participants a head names for the first time: their Cloud picture can be read now (with
+     *  that conversation), so the page asks again instead of keeping an earlier refusal. */
+    private readonly peopleSeen: (participants: string[]) => void = () => {},
   ) {}
+
+  /** Participants some head named (the pictures asked again once, `peopleSeen`). */
+  private readonly seen = new Set<string>();
+
+  private keepHead(id: string, head: Json): void {
+    this.heads.set(id, head);
+    const people = Array.isArray(head.participants) ? (head.participants as Json[]) : [];
+    // A member who left is not marked: a later head where they are present re-asks them.
+    const fresh = people
+      .filter((person) => (person as Json | null)?.left_at === undefined)
+      .map((person) => (person as Json | null)?.id)
+      .filter((pid): pid is string => typeof pid === "string" && pid !== LOCAL_USER && !this.seen.has(pid));
+    for (const pid of fresh) this.seen.add(pid);
+    if (fresh.length) this.peopleSeen(fresh);
+  }
 
   /** Whether `id` is a cloud conversation this page knows. */
   owns(id: string): boolean {
     return this.known.has(id);
+  }
+
+  /** Whether participant `id` (not the person) is in a cloud conversation this page read: its
+   *  picture is the Cloud owner's. */
+  hasParticipant(id: string): boolean {
+    return this.conversationWith(id) !== undefined;
+  }
+
+  /** A cloud conversation this page knows that has participant `id` (not the person): a head that
+   *  names them, else a DM with them. Cloud answers another participant's picture only with one. */
+  conversationWith(id: string): string | undefined {
+    if (id === LOCAL_USER) return undefined;
+    for (const [conversation, head] of this.heads) {
+      const people = head.participants;
+      if (
+        Array.isArray(people) &&
+        people.some((person) => (person as Json | null)?.id === id && (person as Json).left_at === undefined)
+      )
+        return conversation;
+    }
+    for (const [conversation, entry] of this.entries) if (entry.dm_peer === id) return conversation;
+    return undefined;
   }
 
   /** The person's id rewritten to the page's `me` in an owner value (people, authors, cursors). */
@@ -103,9 +150,13 @@ export class CloudHome {
       this.participant = null;
       this.entries = new Map();
       this.heads.clear();
+      this.seen.clear();
       return;
     }
-    if (status.participant !== this.participant) this.heads.clear();
+    if (status.participant !== this.participant) {
+      this.heads.clear();
+      this.seen.clear();
+    }
     this.participant = status.participant;
     // Subscribed before the list, so no inbox change falls between them.
     void this.daemon.request("cloud-inbox-subscribe").catch(() => undefined);
@@ -134,7 +185,9 @@ export class CloudHome {
       unread: num(entry.unread),
       mentions: num(entry.mentions),
       pinned: entry.pinned === true,
-      muted: entry.muted === true,
+      ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+      ...(entry.marked_unread === true ? { markedUnread: true } : {}),
+      muted: mutedNow(entry),
       lastText: base.lastText ?? (String(entry.preview ?? "") || undefined),
     };
   }
@@ -144,7 +197,7 @@ export class CloudHome {
     if (typeof params.tail === "number") params = { ...params, tail: Math.min(params.tail, MAX_TAIL) };
     const value = this.localize(await this.daemon.request<T>(cmd, params));
     const head = (value as Json).conversation as Json | undefined;
-    if (head && typeof head === "object") this.heads.set(String(head.id), head);
+    if (head && typeof head === "object") this.keepHead(String(head.id), head);
     if (cmd === "cloud-conversation-snapshot") this.subscribe(String(params.conversation));
     return value;
   }
@@ -172,6 +225,14 @@ export class CloudHome {
     removed?: string[];
     stale?: string;
     inboxStale?: boolean;
+    /** A Cloud Chief's run change (the run and the steps that changed), in the owner's shape. */
+    run?: { run: Json; steps: Json[] };
+    /** A Cloud Chief's live frame (`step.delta`, `run.activity`, `run.live`), in the owner's shape. */
+    live?: Json;
+    /** Someone typing in a cloud conversation (the owner's `conversation-typing`). */
+    typing?: { conversation: string; participant: string; on: boolean };
+    /** Who views a cloud conversation (the owner's `conversation-presence`), ephemeral. */
+    presence?: { conversation: string; participants: { participant: string; viewing: boolean }[] };
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -188,20 +249,45 @@ export class CloudHome {
           const head = this.heads.get(id);
           const message = change.message as Json;
           if (head && num(message.seq) >= num(head.last_seq))
-            this.heads.set(id, { ...head, last_seq: message.seq, last_message: message, rev: event.rev });
+            this.keepHead(id, { ...head, last_seq: message.seq, last_message: message, rev: event.rev });
           return { message, conversation: this.summary(id) };
         }
-        if (change.kind === "conversation" && change.conversation) this.heads.set(id, change.conversation as Json);
+        if (change.kind === "conversation" && change.conversation) this.keepHead(id, change.conversation as Json);
         if (change.kind === "read-cursor") {
           const head = this.heads.get(id);
           const cursors = { ...(head?.read_cursors as Json | undefined), [String(change.participant)]: change.seq };
-          if (head) this.heads.set(id, { ...head, read_cursors: cursors });
+          if (head) this.keepHead(id, { ...head, read_cursors: cursors });
         }
         return { conversation: this.summary(id) };
       }
+      case "cloud-conversation-run-changed":
+        if (!event.run || typeof event.run !== "object") return null;
+        return { run: { run: this.localize(event.run as Json), steps: (event.steps as Json[] | undefined) ?? [] } };
+      case "cloud-conversation-live":
+        if (!event.frame || typeof event.frame !== "object") return null;
+        return { live: event.frame as Json };
+      case "cloud-conversation-typing":
+        if (typeof event.conversation !== "string" || typeof event.participant !== "string") return null;
+        return {
+          typing: {
+            conversation: event.conversation,
+            participant: this.localize({ participant: event.participant }).participant,
+            on: event.on === true,
+          },
+        };
+      case "cloud-conversation-presence": {
+        if (typeof event.conversation !== "string" || !Array.isArray(event.participants)) return null;
+        const participants = (event.participants as Json[])
+          .filter((p) => p && typeof p.participant === "string")
+          .map((p) => ({
+            participant: this.localize({ participant: p.participant }).participant as string,
+            viewing: p.viewing === true,
+          }));
+        return { presence: { conversation: event.conversation, participants } };
+      }
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
-        this.heads.set(id, this.localize(event.summary as Json));
+        this.keepHead(id, this.localize(event.summary as Json));
         return { stale: id, conversation: this.summary(id) };
       }
       case "cloud-inbox-changed": {
@@ -227,6 +313,14 @@ export class CloudHome {
       case "cloud-subscription-state":
         // The inbox socket closed for good (the owner refused it): list again on the next read.
         if (event.scope === "inbox" && event.state === "closed") this.listed = false;
+        // A conversation's socket closed for good: the daemon dropped the subscription, so the
+        // next open or view subscribes again (a kept one would send presence it refuses).
+        if (event.scope === "conversation" && event.state === "closed" && typeof event.conversation === "string")
+          this.unsubscribed(event.conversation);
+        // A conversation's socket that is not live hears no presence: its viewers go until the
+        // owner's next `conversation-presence` (it sends one after each subscribe).
+        if (event.scope === "conversation" && event.state !== "live" && typeof event.conversation === "string")
+          return { presence: { conversation: event.conversation, participants: [] } };
         return null;
       case "cloud-session-needed":
         // The app renews the lease; the page waits for it (a relist now would only fail again).
@@ -243,20 +337,61 @@ export class CloudHome {
     this.epoch++;
   }
 
+  /** Says that the person views `id` or stopped (`cloud-conversation-presence`), after the
+   *  conversation's subscribe (the daemon refuses presence for one nobody subscribes). One send
+   *  at a time per conversation, in order, so a quick open and switch never ends as viewing.
+   *  Resolves whether it went out; a refusal or a lost connection is not an error. */
+  presence(id: string, viewing: boolean): Promise<boolean> {
+    if (viewing) this.viewing.add(id);
+    else this.viewing.delete(id);
+    const send = async (): Promise<boolean> => {
+      if (viewing) {
+        if (!this.subscriptions.has(id)) this.subscribe(id);
+        if (!(await this.subscriptions.get(id))) return false;
+      }
+      return this.daemon.request("cloud-conversation-presence", { conversation: id, viewing }).then(
+        () => true,
+        () => false,
+      );
+    };
+    const next = (this.presenceSends.get(id) ?? Promise.resolve(false)).then(send);
+    this.presenceSends.set(id, next);
+    void next.then(() => {
+      if (this.presenceSends.get(id) === next) this.presenceSends.delete(id);
+    });
+    return next;
+  }
+
   private subscribe(id: string): void {
     const at = this.subscribed.indexOf(id);
     if (at >= 0) this.subscribed.splice(at, 1);
-    else
-      void this.daemon.request("cloud-conversation-subscribe", { conversation: id }).catch(() => {
-        // Not subscribed: the next open tries again.
-        const failed = this.subscribed.indexOf(id);
-        if (failed >= 0) this.subscribed.splice(failed, 1);
-      });
+    else {
+      const subscribed = this.daemon.request("cloud-conversation-subscribe", { conversation: id }).then(
+        () => true,
+        () => {
+          // Not subscribed: the next open tries again.
+          if (this.subscriptions.get(id) === subscribed) this.unsubscribed(id);
+          return false;
+        },
+      );
+      this.subscriptions.set(id, subscribed);
+    }
     this.subscribed.push(id);
     while (this.subscribed.length > MAX_SUBSCRIPTIONS) {
-      const oldest = this.subscribed.shift()!;
+      // The least recent one the person does not view: an unsubscribe would end the viewing.
+      const at = this.subscribed.findIndex((other) => !this.viewing.has(other));
+      if (at < 0) break;
+      const oldest = this.subscribed.splice(at, 1)[0]!;
+      this.subscriptions.delete(oldest);
       void this.daemon.request("cloud-conversation-unsubscribe", { conversation: oldest }).catch(() => undefined);
     }
+  }
+
+  /** Forgets `id`'s subscription (refused, or closed by the daemon): the next open subscribes. */
+  private unsubscribed(id: string): void {
+    const at = this.subscribed.indexOf(id);
+    if (at >= 0) this.subscribed.splice(at, 1);
+    this.subscriptions.delete(id);
   }
 
   /** Reads a one-message snapshot of each entry without a head: the inbox names no people. */
@@ -281,7 +416,7 @@ export class CloudHome {
         this.hydrating.delete(id);
         const head = page && (this.localize(page).conversation as Json | undefined);
         if (!head || !this.entries.has(id)) continue;
-        this.heads.set(id, head);
+        this.keepHead(id, head);
         const summary = this.summary(id);
         if (summary) this.changed(summary);
       }
@@ -296,13 +431,27 @@ function listed(entry: Json): boolean {
   return entry.removed !== true && entry.archived !== true;
 }
 
-/** A conversation known only from its inbox entry (no people yet): a DM names its peer's id. */
+/** The person's mute, until `muted_until` (Unix ms) when it has one. */
+function mutedNow(entry: Json): boolean {
+  return entry.muted === true && (typeof entry.muted_until !== "number" || entry.muted_until > Date.now());
+}
+
+/** A conversation known only from its inbox entry (no people yet): a DM's peer has no name yet. */
 function fromEntry(entry: Json): HomeConversation {
   const at = time(entry.last_at);
   const peer = typeof entry.dm_peer === "string" ? entry.dm_peer : undefined;
   const participants: HomeParticipant[] = [{ id: LOCAL_USER, kind: "human", name: "You", chief: false }];
-  if (peer)
-    participants.push({ id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", name: "", chief: false });
+  if (peer) {
+    // Named once its head is read; until then a Chief is "Chief" and a person has no name: an
+    // id is never a name (the daemon's home-inbox rows do the same).
+    const chief = entry.kind === "chief";
+    participants.push({
+      id: peer,
+      kind: peer.startsWith("agent_") ? "agent" : "human",
+      name: chief ? "Chief" : "",
+      chief,
+    });
+  }
   return {
     id: String(entry.conversation),
     owner: "cloud",
@@ -315,7 +464,9 @@ function fromEntry(entry: Json): HomeConversation {
     createdAt: at,
     unread: num(entry.unread),
     mentions: num(entry.mentions),
-    muted: entry.muted === true,
+    muted: mutedNow(entry),
     pinned: entry.pinned === true,
+    ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+    ...(entry.marked_unread === true ? { markedUnread: true } : {}),
   };
 }

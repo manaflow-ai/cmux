@@ -122,7 +122,7 @@ impl CmuxClient {
     ) -> Result<FrontendBrowserTabCreated> {
         validate_idempotency_key(&create.idempotency_key)?;
         if self.server_info().is_none() {
-            self.identify(IdentifyRequest {})?;
+            self.identify(IdentifyRequest::default())?;
         }
         self.require_capability_field(
             "new-frontend-browser-tab",

@@ -8,7 +8,10 @@ import AppKit
 // type: SidebarView is at its god-type limit.)
 @MainActor enum SidebarPinDrops {
     static func install(_ sidebar: SidebarView) {
-        sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in sidebar.map { isOverList($0, windowPoint) } ?? false }
+        sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in
+            sidebar.map { isOverList($0, windowPoint) } ?? false
+        }
+        // The older path: on the document every section draws in the list (SidebarBlockRowView), so these never run.
         sidebar.aboveRegion.onDropToList = { [weak sidebar] id in sidebar?.model.send(.layout(.itemRemove(id))) }
         // A drop's preview or landing changed a band's height: the bands lay
         // out again, so no gap stays above the list (cx-odqn).
@@ -26,7 +29,8 @@ import AppKit
             sidebar.hideDropOutline()
             return nil
         }
-        sidebar.showDropOutline(region.convert(drop.frame, to: nil), refused: false)
+        // A band row runs past the region's edge by the row trim (`rowEdgeGap`); its outline stops at the edge.
+        sidebar.showDropOutline(region.convert(drop.frame.clippedX(to: region.bounds), to: nil), refused: false)
         return drop
     }
 
@@ -34,7 +38,8 @@ import AppKit
     /// the item it goes before, or past the section's last item.
     static func slot(_ sidebar: SidebarView, for drop: SidebarRegionDrop) -> NSRect? {
         let region = sidebar.aboveRegion
-        let rows = region.layoutResult.rows.filter { SidebarRegionReorder.item(of: $0)?.1 == drop.section }
+        // The drop's index counts document items, so a client item drawn there (Channels after Home) is skipped.
+        let rows = region.layoutResult.rows.filter { SidebarRegionReorder.item(of: $0).map { $0.1 == drop.section && !$0.0.isTransient } == true }
         let frame: CGRect
         if drop.index < rows.count {
             frame = rows[drop.index].frame
@@ -51,7 +56,7 @@ import AppKit
         } else {
             frame = drop.frame
         }
-        return region.convert(frame, to: nil)
+        return region.convert(frame.clippedX(to: region.bounds), to: nil) // as the outline
     }
 
     /// Whether `windowPoint` is over the workspace list (outlined); false

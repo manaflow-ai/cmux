@@ -1,7 +1,15 @@
-//! The machine kind `agent-session-start` needs (cx-d0tq, hq-84 rule): a
-//! remote start is refused on a team VM, and on a Cloud VM whose kind the
-//! daemon cannot tell. The kind comes from this machine's own identity,
-//! read again at every start (a few file checks), never from a request.
+//! The machine kind `agent-session-start` needs (cx-d0tq, hq-84 rule), and
+//! with it a chat move in (`agent-transfer-receive`, `-finish`) and folder
+//! trust (`agent-session-trust`): refused on a team VM, and on any Cloud VM
+//! unless the caller says the Cloud API answered `vmKind: "owner"` for it on
+//! its link (the call's `vm_kind`, cmux-tui-core `agent_session_start.rs`). The kind
+//! comes from this machine's own identity, read again at every start (a few
+//! file checks).
+//!
+//! Agents keep sudo on a Cloud VM, so anything on it (the records below)
+//! says whatever an agent writes there: a record may only make the answer
+//! stricter. An `owner` record never allows a call by itself; team evidence
+//! refuses even with the caller's word.
 //!
 //! The daemon runs as the work user and cannot read cmux-host's state
 //! (/var/lib/cmux is 0700 root), so cmux-host records the kind where any
@@ -17,10 +25,15 @@
 //! - Cloud VM: the Cloud image stamp `/etc/cmux/image-stamp` or the bake
 //!   instance id `/etc/cmux/bake-instance-id` exists (trusted or not: a
 //!   tampered one can only make the kind stricter), or `CMUX_VM_ID` is set.
-//! - owner VM: a Cloud VM with kind `owner` and no team marker.
+//! - owner record: a Cloud VM with kind `owner` and no team marker
+//!   ([`AgentStartHost::OwnerCloud`]). A call still needs the caller's word.
 //! - Any other Cloud VM (no record, an unreadable one, another value) is of
-//!   unknown kind and refused (fail closed). Anything that is not a Cloud VM
-//!   (a Mac, a plain SSH host) is allowed.
+//!   unknown kind: as an owner record.
+//!   Anything that is not a Cloud VM (a Mac, a plain SSH host) is allowed.
+//!   The guest's root can remove every sign above, so this is only an extra
+//!   refusal: the caller knows a Cloud machine from its own records and
+//!   starts a chat there only on the Cloud API's `owner` answer, and a start
+//!   whose `vm_kind` is anything else is refused on any host.
 //!
 //! Not containment: a team member already has a shell on the VM and can run
 //! an agent there directly. The gate keeps the app from starting
@@ -140,7 +153,7 @@ fn detect(etc: &CloudEtc, vm_id: bool, team_gid: Option<u32>) -> AgentStartHost 
     let cloud = present(IMAGE_STAMP_FILE) || present(BAKE_INSTANCE_FILE) || vm_id;
     match (cloud, kind.as_deref()) {
         (false, _) => AgentStartHost::Allowed,
-        (true, Some("owner")) => AgentStartHost::Allowed,
+        (true, Some("owner")) => AgentStartHost::OwnerCloud,
         (true, _) => AgentStartHost::UnknownCloud,
     }
 }

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// A toolbar control whose hover follows the pointer (`OmnibarPointer`).
 @MainActor
@@ -33,6 +34,10 @@ public struct BrowserPointerDebug: Sendable, Equatable {
     /// AppKit rebuilds them lazily for the key window, so this can lag in a
     /// window that is never key.
     public var installedTextCursor: String?
+    /// The cursor the toolbar row last set on a pointer move (`arrow`,
+    /// `iBeam`); nil before the first move. The row sets it in any window
+    /// state, also while a Chromium page window has the key.
+    public var trackedCursor: String?
     /// Part name to frame (x, y, width, height).
     public var frames: [String: CGRect]
 }
@@ -46,8 +51,14 @@ extension BrowserChromeView {
         object["probe_region"] = report.probeRegion ?? NSNull()
         object["probe_cursor"] = report.probeCursor ?? NSNull()
         object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
+        object["tracked_cursor"] = report.trackedCursor ?? NSNull()
+        // The bar's resolved look (cx-d0d.101): fill RGBA, radius, ring, state, coverage.
+        object["bar_style"] = addressBar.pill.debugStyle
         #if DEBUG
         object["omnibar_trace"] = addressBar.controller.trace
+        // `ArrowCursorView.pointerDidMove` past its first check: calls and their mean cost.
+        object["move_hook"] = ["calls": MoveHookStats.calls,
+                               "mean_ns": MoveHookStats.calls == 0 ? 0 : Double(MoveHookStats.totalNanoseconds) / Double(MoveHookStats.calls)] as [String: Any]
         #endif
         object["frames"] = report.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) }
         return object
@@ -88,6 +99,7 @@ extension BrowserChromeView {
             probeRegion: probed?.rawValue ?? (probe == nil ? nil : "outside"),
             probeCursor: probed.map { OmnibarPointer.cursor($0).rawValue },
             installedTextCursor: addressBar.field.installedCursor?.rawValue,
+            trackedCursor: toolbar.trackedCursor?.rawValue,
             frames: frames
         )
     }
@@ -111,6 +123,7 @@ extension BrowserChromeView {
         if hit === addressBar || hit.superview === addressBar && hit is NSStackView {
             return addressBar.textArea.contains(addressBar.convert(base, from: nil)) ? .bar : .barEdge
         }
+        if OmnibarPointer.clickable(at: hit, below: toolbar) != nil { return .button }
         var view: NSView? = hit
         while let current = view, current !== toolbar {
             if current is NSControl || current is any PointerHoverReporting || current is ProfileBadgeView || current is MachineBadgeView {

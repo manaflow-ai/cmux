@@ -1,5 +1,5 @@
 {
-  "description": "Build identity vectors (cmux-tui cmux_agent_pane_policy::build_identity, CmuxNextCompat BuildIdentity). user_home and app_support are the inputs of every case; account is the Chief account.",
+  "description": "Build identity vectors (cmux-tui cmux_agent_pane_policy::build_identity, CmuxNextCompat BuildIdentity). user_home and app_support are the inputs of every case; account is the Chief account. app_daemon: the app's daemon session, control socket and daemon state directory (null: the default state root); app_daemon null: no app (outside any bundle).",
   "user_home": "/Users/u",
   "app_support": "/Users/u/Library/Application Support/cmux",
   "cases": [
@@ -15,7 +15,12 @@
       "keeps_shared_roots": true,
       "chief_home": "/Users/u/.cmux/chief/default",
       "acpmux_home": "/Users/u/.acpmux",
-      "app_support": "/Users/u/Library/Application Support/cmux"
+      "app_support": "/Users/u/Library/Application Support/cmux",
+      "app_daemon": {
+        "session": "cmux-app-nightly",
+        "control_socket": "/tmp/cmux-nightly.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/nightly/tui"
+      }
     },
     {
       "name": "cmux NEXT's NIGHTLY identity has its own roots",
@@ -29,7 +34,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.nightly.cmux-next",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.nightly.cmux-next",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.nightly.cmux-next"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.nightly.cmux-next",
+      "app_daemon": {
+        "session": "cmux-app-cmux-next",
+        "control_socket": "/tmp/cmux-nightly-cmux-next.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/cmux-next/tui"
+      }
     },
     {
       "name": "a tagged DEV build",
@@ -43,7 +53,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug.hq6dpb0",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug.hq6dpb0",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.hq6dpb0"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.hq6dpb0",
+      "app_daemon": {
+        "session": "cmux-app-hq6dpb0",
+        "control_socket": "/tmp/cmux-debug-hq6dpb0.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/hq6dpb0/tui"
+      }
     },
     {
       "name": "an untagged DEV build",
@@ -57,7 +72,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug",
+      "app_daemon": {
+        "session": "cmux-app--650e93e3",
+        "control_socket": "/tmp/cmux-debug--650e93e3.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug/tui"
+      }
     },
     {
       "name": "an untagged DEV bundle that ships a tag",
@@ -71,7 +91,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug--foo-bar",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug--foo-bar",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--foo-bar"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--foo-bar",
+      "app_daemon": {
+        "session": "cmux-app-foo-bar",
+        "control_socket": "/tmp/cmux-debug-foo-bar.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/foo-bar/tui"
+      }
     },
     {
       "name": "a tagged staging build, another account",
@@ -85,7 +110,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.staging.x1@work-acct",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.staging.x1",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.staging.x1"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.staging.x1",
+      "app_daemon": {
+        "session": "cmux-app--7c0d929e",
+        "control_socket": "/tmp/cmux-staging--7c0d929e.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.staging.x1/tui"
+      }
     },
     {
       "name": "RC",
@@ -99,7 +129,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.rc",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.rc",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.rc"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.rc",
+      "app_daemon": {
+        "session": "cmux-app-rc",
+        "control_socket": "/tmp/cmux-rc.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/rc/tui"
+      }
     },
     {
       "name": "release",
@@ -113,7 +148,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app",
+      "app_daemon": {
+        "session": "cmux-app",
+        "control_socket": "/Users/u/.local/state/cmux/cmux.sock",
+        "state_dir": null
+      }
     },
     {
       "name": "an unknown cmux bundle is isolated as DEV",
@@ -127,7 +167,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.vpncheck",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.vpncheck",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.vpncheck"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.vpncheck",
+      "app_daemon": {
+        "session": "cmux-app--45e8289c",
+        "control_socket": "/tmp/cmux-debug--45e8289c.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.vpncheck/tui"
+      }
     },
     {
       "name": "NIGHTLY's bundle with a shipped tag still keeps the shared roots",
@@ -141,7 +186,12 @@
       "keeps_shared_roots": true,
       "chief_home": "/Users/u/.cmux/chief/default",
       "acpmux_home": "/Users/u/.acpmux",
-      "app_support": "/Users/u/Library/Application Support/cmux"
+      "app_support": "/Users/u/Library/Application Support/cmux",
+      "app_daemon": {
+        "session": "cmux-app--1148a09a",
+        "control_socket": "/tmp/cmux-nightly--1148a09a.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.nightly--lab/tui"
+      }
     },
     {
       "name": "outside any bundle",
@@ -155,7 +205,8 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/default",
       "acpmux_home": "/Users/u/.acpmux",
-      "app_support": "/Users/u/Library/Application Support/cmux"
+      "app_support": "/Users/u/Library/Application Support/cmux",
+      "app_daemon": null
     },
     {
       "name": "two builds of cmux NEXT's bundle id with different shipped tags stay apart",
@@ -169,7 +220,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.nightly.cmux-next--t1",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.nightly.cmux-next--t1",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.nightly.cmux-next--t1"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.nightly.cmux-next--t1",
+      "app_daemon": {
+        "session": "cmux-app--03a6c6eb",
+        "control_socket": "/tmp/cmux-nightly--03a6c6eb.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.nightly.cmux-next--t1/tui"
+      }
     },
     {
       "name": "an empty suffix is not the untagged DEV build",
@@ -183,7 +239,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug--e2f2abb7",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug--e2f2abb7",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--e2f2abb7"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--e2f2abb7",
+      "app_daemon": {
+        "session": "cmux-app--71c3cab6",
+        "control_socket": "/tmp/cmux-debug--71c3cab6.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--e2f2abb7/tui"
+      }
     },
     {
       "name": "an untagged DEV build with account foo is not the DEV build tagged foo",
@@ -197,7 +258,12 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug@foo",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug",
+      "app_daemon": {
+        "session": "cmux-app--650e93e3",
+        "control_socket": "/tmp/cmux-debug--650e93e3.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug/tui"
+      }
     },
     {
       "name": "a shipped tag is lowercased by Unicode scalars",
@@ -211,7 +277,126 @@
       "keeps_shared_roots": false,
       "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug--i-x",
       "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug--i-x",
-      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--i-x"
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug--i-x",
+      "app_daemon": {
+        "session": "cmux-app-i-x",
+        "control_socket": "/tmp/cmux-debug-i-x.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/i-x/tui"
+      }
+    },
+    {
+      "name": "a reload.sh DEV build of a tag with a dash keeps its tag's names",
+      "bundle_id": "com.cmuxterm.app.debug.foo.bar",
+      "bundled_tag": "foo-bar",
+      "account": "default",
+      "kind": "dev",
+      "tag": "foo-bar",
+      "key": "com.cmuxterm.app.debug.foo.bar",
+      "key_hash": "0423e452",
+      "keeps_shared_roots": false,
+      "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug.foo.bar",
+      "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug.foo.bar",
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.foo.bar",
+      "app_daemon": {
+        "session": "cmux-app-foo-bar",
+        "control_socket": "/tmp/cmux-debug-foo-bar.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/tags/foo-bar/tui"
+      }
+    },
+    {
+      "name": "a DEV build tagged nightly has its own names: NIGHTLY owns cmux-app-nightly",
+      "bundle_id": "com.cmuxterm.app.debug.nightly",
+      "bundled_tag": null,
+      "account": "default",
+      "kind": "dev",
+      "tag": "nightly",
+      "key": "com.cmuxterm.app.debug.nightly",
+      "key_hash": "03a65450",
+      "keeps_shared_roots": false,
+      "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug.nightly",
+      "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug.nightly",
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.nightly",
+      "app_daemon": {
+        "session": "cmux-app--03a65450",
+        "control_socket": "/tmp/cmux-debug--03a65450.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.nightly/tui"
+      }
+    },
+    {
+      "name": "a DEV build tagged cmux-next has its own names: cmux NEXT owns cmux-app-cmux-next",
+      "bundle_id": "com.cmuxterm.app.debug.cmux.next",
+      "bundled_tag": null,
+      "account": "default",
+      "kind": "dev",
+      "tag": "cmux-next",
+      "key": "com.cmuxterm.app.debug.cmux.next",
+      "key_hash": "15b5b1b1",
+      "keeps_shared_roots": false,
+      "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug.cmux.next",
+      "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug.cmux.next",
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.cmux.next",
+      "app_daemon": {
+        "session": "cmux-app--15b5b1b1",
+        "control_socket": "/tmp/cmux-debug--15b5b1b1.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.cmux.next/tui"
+      }
+    },
+    {
+      "name": "a DEV bundle that ships another tag than its id has its own names",
+      "bundle_id": "com.cmuxterm.app.debug.a1",
+      "bundled_tag": "b2",
+      "account": "default",
+      "kind": "dev",
+      "tag": "b2",
+      "key": "com.cmuxterm.app.debug.a1--b2",
+      "key_hash": "a8e7a123",
+      "keeps_shared_roots": false,
+      "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug.a1--b2",
+      "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug.a1--b2",
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.a1--b2",
+      "app_daemon": {
+        "session": "cmux-app--a8e7a123",
+        "control_socket": "/tmp/cmux-debug--a8e7a123.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.a1--b2/tui"
+      }
+    },
+    {
+      "name": "a DEV bundle id that is not the reload.sh form has its own names",
+      "bundle_id": "com.cmuxterm.app.debug.Feat_X",
+      "bundled_tag": null,
+      "account": "default",
+      "kind": "dev",
+      "tag": "feat-x",
+      "key": "com.cmuxterm.app.debug.Feat_X",
+      "key_hash": "ec0e7410",
+      "keeps_shared_roots": false,
+      "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.debug.Feat_X",
+      "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.debug.Feat_X",
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.Feat_X",
+      "app_daemon": {
+        "session": "cmux-app--ec0e7410",
+        "control_socket": "/tmp/cmux-debug--ec0e7410.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.debug.Feat_X/tui"
+      }
+    },
+    {
+      "name": "a tagged RC build has its own names: its tag may be a DEV build's",
+      "bundle_id": "com.cmuxterm.app.rc.try2",
+      "bundled_tag": null,
+      "account": "default",
+      "kind": "rc",
+      "tag": "try2",
+      "key": "com.cmuxterm.app.rc.try2",
+      "key_hash": "36529c0e",
+      "keeps_shared_roots": false,
+      "chief_home": "/Users/u/.cmux/chief/com.cmuxterm.app.rc.try2",
+      "acpmux_home": "/Users/u/.acpmux/builds/com.cmuxterm.app.rc.try2",
+      "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.rc.try2",
+      "app_daemon": {
+        "session": "cmux-app--36529c0e",
+        "control_socket": "/tmp/cmux-rc--36529c0e.sock",
+        "state_dir": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app.rc.try2/tui"
+      }
     }
   ]
 }

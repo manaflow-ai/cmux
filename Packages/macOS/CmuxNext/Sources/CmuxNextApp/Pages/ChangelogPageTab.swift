@@ -63,13 +63,13 @@ final class ChangelogPageTab: InternalPageProvider {
         return view != nil
     }
 
-    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default journal, the span only
+    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default ledger, the span only
     /// with `to`; nil when neither applies.
-    static func route(from: String?, to: String?, design: WhatsNewDesign = .journal) -> String? {
+    static func route(from: String?, to: String?, design: WhatsNewDesign = .ledger) -> String? {
         let span = to.flatMap { $0.isEmpty ? nil : $0 }
-        guard span != nil || design != .journal else { return nil }
+        guard span != nil || design != .ledger else { return nil }
         var query = URLComponents()
-        query.queryItems = [design == .journal ? nil : URLQueryItem(name: "design", value: design.rawValue),
+        query.queryItems = [design == .ledger ? nil : URLQueryItem(name: "design", value: design.rawValue),
                             span.flatMap { _ in from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) } },
                             span.map { URLQueryItem(name: "to", value: $0) }].compactMap { $0 }
         // URLSearchParams reads `+` as a space; a version may carry build metadata (`1.2.3+abc`).
@@ -85,16 +85,28 @@ extension PageFactory {
     /// The changelog page: `cmux.changelog.` to verified notes, `cmux.app.` to the native ops
     /// (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
-        let updater = services.updater
-        // A DEV build reading the cmux-next nightly notes is not in their list: no current build,
-        // so the page selects the newest listed one.
-        let current = updater.changelogReadsDevelopmentNotes ? "" : updater.identity.build
-        let provider = ChangelogPageProvider(source: updater.changelogNotes, currentBuild: current,
-                                             media: updater.releaseMedia)
+        let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
         native.anchor = { [weak page] in page }
+        provider.anchor = { [weak page] in page }
         return page
+    }
+
+    /// The verified notes (`cmux.changelog.list`, `get`) for the page and the Updated card, and
+    /// their PR chips' card (`pr.inspect`, `browser.list`, `browser.openIn`). A DEV build reading
+    /// the cmux-next nightly notes is not in their list: no current build, so the page selects the
+    /// newest listed one.
+    func changelogNotes(media: ReleaseMediaStore? = nil) -> ChangelogPageProvider {
+        ChangelogPageProvider(
+            source: services.updater.changelogNotes, currentBuild: services.updater.changelogReadsDevelopmentNotes ? "" : services.updater.identity.build,
+            media: media,
+            // `browser.openIn` with cmux's id, as the agent page's card opens a link: LinkOpener.openWeb,
+            // from the pane that shows the page.
+            openLink: { [weak services] url, view in
+                guard let opener = services?.linkOpener else { return false }
+                return opener.openWeb(url, from: view.flatMap(opener.source(containing:)), background: false)
+            })
     }
 }

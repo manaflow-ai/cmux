@@ -4,6 +4,7 @@
 //! separable security foundation used by `terminal_host_runtime`, where each
 //! PTY lives in an independently adoptable process.
 
+use crate::panic_free::RecoverPoison;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{BitOr, RangeInclusive};
@@ -11,7 +12,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::terminal_host_protocol::{
-    Frame, MessageKind, PROTOCOL_VERSION, ProtocolError, read_frame, write_frame,
+    Frame, MessageKind, PROTOCOL_VERSION, ProtocolError, read_frame, wire_array, wire_u8, wire_u16,
+    wire_u32, write_frame,
 };
 
 pub const CAPABILITY_TOKEN_LEN: usize = 32;
@@ -44,24 +46,27 @@ impl TerminalId {
     pub fn from_hex(value: &str) -> Option<Self> {
         if value.len() != TERMINAL_ID_LEN * 2
             || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-            || value.as_bytes()[12] != b'4'
-            || !matches!(value.as_bytes()[16], b'8'..=b'b')
+            || value.as_bytes().get(12) != Some(&b'4')
+            || !matches!(value.as_bytes().get(16), Some(b'8'..=b'b'))
         {
             return None;
         }
         let mut bytes = [0u8; TERMINAL_ID_LEN];
-        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
-            bytes[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+        for (slot, pair) in bytes.iter_mut().zip(value.as_bytes().chunks_exact(2)) {
+            let [high, low] = pair else {
+                return None;
+            };
+            *slot = (hex_nibble(*high)? << 4) | hex_nibble(*low)?;
         }
         Some(Self(bytes))
     }
 
     pub fn to_hex(self) -> String {
-        const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut output = String::with_capacity(TERMINAL_ID_LEN * 2);
         for byte in self.0 {
-            output.push(HEX[(byte >> 4) as usize] as char);
-            output.push(HEX[(byte & 0x0f) as usize] as char);
+            for nibble in [byte >> 4, byte & 0x0f] {
+                output.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
+            }
         }
         output
     }
@@ -300,26 +305,21 @@ impl ClientHello {
         if payload.len() != CLIENT_HELLO_LEN {
             return Err(HostHandshakeError::MalformedPayload("bad client hello length"));
         }
-        if payload[5..8] != [0; 3] {
+        let short = || HostHandshakeError::MalformedPayload("bad client hello length");
+        if wire_array::<3>(payload, 5).ok_or_else(short)? != [0; 3] {
             return Err(HostHandshakeError::MalformedPayload(
                 "nonzero client hello reserved bytes",
             ));
         }
-        let requested_rights = CapabilityRights::from_bits(u32::from_le_bytes(
-            payload[8..12].try_into().expect("fixed rights slice"),
-        ))
-        .ok_or(HostHandshakeError::MalformedPayload("unknown capability rights"))?;
+        let requested_rights = CapabilityRights::from_bits(wire_u32(payload, 8).ok_or_else(short)?)
+            .ok_or(HostHandshakeError::MalformedPayload("unknown capability rights"))?;
         Ok(Self {
-            min_version: u16::from_le_bytes(payload[0..2].try_into().expect("fixed min slice")),
-            max_version: u16::from_le_bytes(payload[2..4].try_into().expect("fixed max slice")),
-            role: ClientRole::try_from(payload[4])?,
+            min_version: wire_u16(payload, 0).ok_or_else(short)?,
+            max_version: wire_u16(payload, 2).ok_or_else(short)?,
+            role: ClientRole::try_from(wire_u8(payload, 4).ok_or_else(short)?)?,
             requested_rights,
-            terminal_id: TerminalId::from_bytes(
-                payload[12..28].try_into().expect("fixed terminal-id slice"),
-            ),
-            token: CapabilityToken::from_bytes(
-                payload[28..60].try_into().expect("fixed capability-token slice"),
-            ),
+            terminal_id: TerminalId::from_bytes(wire_array(payload, 12).ok_or_else(short)?),
+            token: CapabilityToken::from_bytes(wire_array(payload, 28).ok_or_else(short)?),
         })
     }
 
@@ -353,23 +353,16 @@ impl HostHello {
         if payload.len() != HOST_HELLO_LEN {
             return Err(HostHandshakeError::MalformedPayload("bad host hello length"));
         }
-        if payload[2..4] != [0; 2] {
+        let short = || HostHandshakeError::MalformedPayload("bad host hello length");
+        if wire_array::<2>(payload, 2).ok_or_else(short)? != [0; 2] {
             return Err(HostHandshakeError::MalformedPayload("nonzero host hello reserved bytes"));
         }
         Ok(Self {
-            selected_version: u16::from_le_bytes(
-                payload[0..2].try_into().expect("fixed version slice"),
-            ),
-            granted_rights: CapabilityRights::from_bits(u32::from_le_bytes(
-                payload[4..8].try_into().expect("fixed rights slice"),
-            ))
-            .ok_or(HostHandshakeError::MalformedPayload("unknown capability rights"))?,
-            terminal_id: TerminalId::from_bytes(
-                payload[8..24].try_into().expect("fixed terminal-id slice"),
-            ),
-            incarnation: HostIncarnation::from_bytes(
-                payload[24..40].try_into().expect("fixed incarnation slice"),
-            ),
+            selected_version: wire_u16(payload, 0).ok_or_else(short)?,
+            granted_rights: CapabilityRights::from_bits(wire_u32(payload, 4).ok_or_else(short)?)
+                .ok_or(HostHandshakeError::MalformedPayload("unknown capability rights"))?,
+            terminal_id: TerminalId::from_bytes(wire_array(payload, 8).ok_or_else(short)?),
+            incarnation: HostIncarnation::from_bytes(wire_array(payload, 24).ok_or_else(short)?),
         })
     }
 }
@@ -403,7 +396,7 @@ impl CapabilityStore {
             return Err(HostHandshakeError::CapabilityDenied);
         }
         let now = Instant::now();
-        let mut grants = self.grants.lock().unwrap();
+        let mut grants = self.grants.lock().recover_poison();
         grants.retain(|grant| grant.expires_at > now);
         if grants.len() >= self.max_grants {
             return Err(HostHandshakeError::CapabilityCapacity);
@@ -436,7 +429,7 @@ impl CapabilityStore {
             negotiate_version(hello.min_version, hello.max_version, supported_versions)?;
         let now = Instant::now();
         let grant = {
-            let mut grants = self.grants.lock().unwrap();
+            let mut grants = self.grants.lock().recover_poison();
             grants.retain(|grant| grant.expires_at > now);
             let Some(index) =
                 grants.iter().position(|grant| grant.token.constant_time_eq(&hello.token))
@@ -462,7 +455,7 @@ impl CapabilityStore {
 
     pub fn active_grants(&self) -> usize {
         let now = Instant::now();
-        let mut grants = self.grants.lock().unwrap();
+        let mut grants = self.grants.lock().recover_poison();
         grants.retain(|grant| grant.expires_at > now);
         grants.len()
     }
@@ -501,18 +494,15 @@ impl HostBootstrap {
         if payload.len() != BOOTSTRAP_LEN {
             return Err(HostHandshakeError::MalformedPayload("bad bootstrap length"));
         }
-        let owner_token = CapabilityToken::from_bytes(
-            payload[20..52].try_into().expect("fixed owner-token slice"),
-        );
+        let short = || HostHandshakeError::MalformedPayload("bad bootstrap length");
+        let owner_token = CapabilityToken::from_bytes(wire_array(payload, 20).ok_or_else(short)?);
         if owner_token.is_zero() {
             return Err(HostHandshakeError::MalformedPayload("zero owner token"));
         }
         Ok(Self {
-            min_version: u16::from_le_bytes(payload[0..2].try_into().expect("fixed min slice")),
-            max_version: u16::from_le_bytes(payload[2..4].try_into().expect("fixed max slice")),
-            terminal_id: TerminalId::from_bytes(
-                payload[4..20].try_into().expect("fixed terminal-id slice"),
-            ),
+            min_version: wire_u16(payload, 0).ok_or_else(short)?,
+            max_version: wire_u16(payload, 2).ok_or_else(short)?,
+            terminal_id: TerminalId::from_bytes(wire_array(payload, 4).ok_or_else(short)?),
             owner_token,
         })
     }
@@ -544,16 +534,11 @@ impl HostReady {
         if payload.len() != READY_LEN {
             return Err(HostHandshakeError::MalformedPayload("bad ready length"));
         }
+        let short = || HostHandshakeError::MalformedPayload("bad ready length");
         Ok(Self {
-            selected_version: u16::from_le_bytes(
-                payload[0..2].try_into().expect("fixed version slice"),
-            ),
-            terminal_id: TerminalId::from_bytes(
-                payload[2..18].try_into().expect("fixed terminal-id slice"),
-            ),
-            incarnation: HostIncarnation::from_bytes(
-                payload[18..34].try_into().expect("fixed incarnation slice"),
-            ),
+            selected_version: wire_u16(payload, 0).ok_or_else(short)?,
+            terminal_id: TerminalId::from_bytes(wire_array(payload, 2).ok_or_else(short)?),
+            incarnation: HostIncarnation::from_bytes(wire_array(payload, 18).ok_or_else(short)?),
         })
     }
 }

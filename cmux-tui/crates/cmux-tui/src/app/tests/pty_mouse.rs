@@ -272,7 +272,7 @@ fn canonical_terminal_content_clamps_to_the_visible_pane() {
 
 #[test]
 fn outer_cursor_escapes_cover_color_shape_blink_and_reset() {
-    let color = Rgb { r: 0x12, g: 0x34, b: 0x56 };
+    let color = Some(Rgb { r: 0x12, g: 0x34, b: 0x56 });
     let terminal = |shape, blinking| OuterCursorSpec::Terminal { color, shape, blinking };
     assert_eq!(
         outer_cursor_escape(terminal(CursorShape::Block, true)),
@@ -304,12 +304,21 @@ fn outer_cursor_escapes_cover_color_shape_blink_and_reset() {
         "DECSCUSR has no hollow block, so it degrades to steady block"
     );
     assert_eq!(outer_cursor_escape(OuterCursorSpec::Reset), "\x1b]112\x07\x1b[0 q");
+    // No authored cursor color: leave the host terminal's own cursor color.
+    assert_eq!(
+        outer_cursor_escape(OuterCursorSpec::Terminal {
+            color: None,
+            shape: CursorShape::Bar,
+            blinking: false
+        }),
+        "\x1b]112\x07\x1b[6 q"
+    );
 }
 
 #[test]
 fn outer_cursor_state_suppresses_redundant_global_terminal_writes() {
     let desired = OuterCursorSpec::Terminal {
-        color: Rgb { r: 1, g: 2, b: 3 },
+        color: Some(Rgb { r: 1, g: 2, b: 3 }),
         shape: CursorShape::Bar,
         blinking: false,
     };

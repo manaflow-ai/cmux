@@ -95,7 +95,7 @@ final class AgentCursorVisibilitySource {
             for await _ in ObservationStream({ () -> [String] in
                 windows.controllers.map { controller in
                     let state = controller.state
-                    return "\(state.workspaceID ?? "-"):\(state.sidebarHidden):\(String(describing: state.selection))"
+                    return "\(state.workspaceID ?? "-"):\(state.sidebarHidden):\(state.selection.revision)"
                 }
             }) {
                 self?.reresolve()

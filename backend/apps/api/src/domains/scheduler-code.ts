@@ -5,6 +5,7 @@ import { deniedPattern } from "../egress-hosts.ts"
 import { decodeParams, reject } from "./common.ts"
 import type { SchedulerStore } from "./scheduler-store.ts"
 import type { SchedulerState } from "./scheduler.ts"
+import { invalidStepRef } from "../automation-machine.ts"
 
 /**
  * Code bodies in the SchedulerDO reducer (decisions A11, A12, C1): the daily
@@ -76,6 +77,8 @@ export const invalidBody = (body: Body): ({ ok: false } & Reject) | undefined =>
   }
   if (body.type !== "steps") return undefined
   for (const [i, s] of body.steps.entries()) {
+    const ref = invalidStepRef(body.steps, i)
+    if (ref) return reject("validation.invalid", ref)
     if (s.type !== "op") continue
     const def = cloudOpByName.get(s.op)
     if (!def || Exit.isFailure(Schema.decodeUnknownExit(def.params as Schema.Codec<unknown>)(s.params ?? {}))) {

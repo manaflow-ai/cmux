@@ -31,8 +31,8 @@ GRANT USAGE ON SCHEMA public TO "<ro>";
 GRANT SELECT ON TABLE public.home_participants, public.home_message_search, public.home_conversations TO "<ro>";
 ```
 
-Steps per branch (confirm the branch with `pscale branch show cmux-next <branch> --org cmux` first):
-1. `pscale role create cmux-next <branch> search-ro2 --org cmux` (no `--inherited-roles`); store the URL in
+Steps per branch (confirm the branch with `pscale branch show cmux-next-deprecated <branch> --org cmux` first):
+1. `pscale role create cmux-next-deprecated <branch> search-ro2 --org cmux` (no `--inherited-roles`); store the URL in
    `~/.secrets/cmux-next-planetscale-ro-<env>.env` (mode 600).
 2. The SQL above as migrator.
 3. Check: `pg_has_role(<ro>, 'pg_read_all_data', 'MEMBER')` = false, SELECT on home_message_search = true,
@@ -40,7 +40,7 @@ Steps per branch (confirm the branch with `pscale branch show cmux-next <branch>
    as the role fails with permission denied.
 4. `wrangler hyperdrive update <id> --connection-string=<new url>` (dev cb712d90..., staging 10bbf30d...,
    production 6badee5c...).
-5. `pscale role delete cmux-next <branch> <old search-ro id> --org cmux --force --successor postgres`.
+5. `pscale role delete cmux-next-deprecated <branch> <old search-ro id> --org cmux --force --successor postgres`.
 
 Done: development and staging (all checks passed, Hyperdrives use search-ro2, old role deleted).
 Production (branch main, Hyperdrive 6badee5cbb964e9f9c09c6f175a14c85): done 2026-10-03 after the
@@ -76,7 +76,7 @@ per commit, each with the existing tests.
 ## Production high availability (2026-10-03)
 
 Approved by Lawrence through the coordinator (+$10/month). Confirmed cmux-next/main is the
-production branch, then `pscale branch resize cmux-next main --replicas 2 --org cmux --wait`.
+production branch, then `pscale branch resize cmux-next-deprecated main --replicas 2 --org cmux --wait`.
 Change request wo8mbi6eghr0 completed: PS_5_AWS_ARM, replicas 0 -> 2 ("highly available",
 $15/month instead of $5). Size kept at PS-5 (no headroom resize). The production API answered 200
 after the change.

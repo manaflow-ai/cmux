@@ -30,6 +30,9 @@ export function codePath(text: string): string | undefined {
     const path = linkPath(value);
     return path && isPathShape(path) ? path : undefined;
   }
+  // `src/app.ts:12`: relative, as a compiler writes it, with its line (TEXT_LINK's last group).
+  if (/^\.?[\w@+-]+\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}:\d+(?::\d+)?$/.test(value))
+    return stripLine(value);
   if (!/^(?:~|\.{1,2})?\/[^\t\n`'"<>|*?$;&(){}[\]]+$/.test(value) || / -/.test(value)) return undefined;
   const path = stripLine(value);
   return isPathShape(path) ? path : undefined;
@@ -50,12 +53,23 @@ export function isPathShape(path: string): boolean {
 /// `file://` URL decoded, a line suffix dropped). Paths have the shape of `isPathShape` and no
 /// spaces (prose has no quotes to bound one); a URL is http or https with a host. Trailing
 /// sentence punctuation stays text.
-export type TextLink = { kind: "path" | "url"; start: number; end: number; value: string; path?: string };
+/// `line`: the `:12` of `src/app.ts:12`, which the chip's label keeps.
+export type TextLink = {
+  kind: "path" | "url";
+  start: number;
+  end: number;
+  value: string;
+  path?: string;
+  line?: number;
+};
 
 // Groups: a file URL; a path (a file with an extension and an optional line suffix, or a folder
-// with its trailing slash that is not followed by more of a name); a web URL.
+// with its trailing slash that is not followed by more of a name); a web URL; a path relative to
+// the session's folder written as a compiler does (`src/app.ts:12`), which needs its line suffix
+// so `and/or.txt` stays prose. Its first folder has no dot inside, so `example.com/a.js:1` is not one.
+// No link starts after a `+`: a long base64 run would retry a path at every `+/` (quadratic).
 const TEXT_LINK =
-  /(?<![\w/.:~@-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|((?:~|\.{1,2})?\/(?:[\w.@+-]+\/)+(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?(?![\w/])|(?![\w@+-]|\.\w)))|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*))/g;
+  /(?<![\w/.:~@+-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|((?:~|\.{1,2})?\/(?:[\w.@+-]+\/)+(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?(?![\w/])|(?![\w@+-]|\.\w)))|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|(\.?[\w@+-]+\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}:\d+(?::\d+)?(?![\w/])))/g;
 
 export function textLinks(text: string): TextLink[] {
   if (!text.includes("/")) return [];
@@ -69,10 +83,39 @@ export function textLinks(text: string): TextLink[] {
       if (/^https?:\/\/[^/?#]*[A-Za-z0-9]/.test(value)) out.push({ kind: "url", start, end, value });
       continue;
     }
+    if (match[4]) {
+      out.push({ kind: "path", start, end, value, path: stripLine(value), line: lineOf(value) });
+      continue;
+    }
     const path = match[1] ? linkPath(value) : stripLine(value);
-    if (path && isPathShape(path)) out.push({ kind: "path", start, end, value, path });
+    const line = lineOf(value);
+    if (path && isPathShape(path)) out.push({ kind: "path", start, end, value, path, ...(line ? { line } : {}) });
   }
   return out;
+}
+
+/// The line of a `:12` or `:12:4` suffix.
+function lineOf(value: string): number | undefined {
+  const match = /:(\d+)(?::\d+)?$/.exec(value);
+  return match ? Number(match[1]) : undefined;
+}
+
+/// A raster image the pane draws as a thumbnail: PNG, JPEG, GIF or WebP, by file extension.
+const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_FILE.test(path);
+}
+
+/// An https address of a raster image (its path ends in an image extension), such as a PR's media
+/// on raw.githubusercontent.com.
+export function isImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && IMAGE_FILE.test(parsed.pathname);
+  } catch {
+    return false;
+  }
 }
 
 /// The path without a `:12` or `:12:4` line suffix (the open takes the file).

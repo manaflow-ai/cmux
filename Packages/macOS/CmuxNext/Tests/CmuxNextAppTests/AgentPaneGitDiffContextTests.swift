@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 @testable import CmuxNextApp
+@testable import CmuxNextDaemonService
 
 /// Show more lines in the changes view (cx-ncc.85): the page asks for one file's patch with
 /// enough unchanged lines to hold the whole file, `git.diff` or `git.checkpoint.diff` with

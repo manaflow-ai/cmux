@@ -8,9 +8,10 @@ import Observation
 /// Writes a browser page's back/forward entries and scroll positions to
 /// its daemon tab (`frontend-browser-history-v1`), so a relaunch restores
 /// them (plans/cmux-next/browser.md, "Session history across relaunch").
-/// Navigations are debounced like the record write-back; scroll changes
-/// fire no page event, so the shown page's position is measured when the
-/// user leaves the app (a crash afterwards keeps it) and at quit.
+/// Navigations are debounced like the record write-back, and so is the
+/// page's own report of where its scrolling settled (`BrowserScrollReport`),
+/// so a crash keeps it; the shown page's position is also measured when the
+/// user leaves the app and at quit.
 public final class BrowserHistoryWriter {
     /// Stores a history with the tab's daemon; true when it was stored.
     public typealias Send = @MainActor (FrontendBrowserHistory) async -> Bool
@@ -40,7 +41,7 @@ public final class BrowserHistoryWriter {
     private var observation: Task<Void, Never>?
     private var pending: Task<Void, Never>?
     private var leaving: Task<Void, Never>?
-    private var resignObserver: (any NSObjectProtocol)?
+    private var resignObserver: MainActorObservation?
     /// Where it hears that the app resigned active (tests post to their own).
     private let center: NotificationCenter
 
@@ -60,9 +61,8 @@ public final class BrowserHistoryWriter {
                 self?.pageDidChange(state)
             }
         }
-        resignObserver = center.addObserver(forName: NSApplication.didResignActiveNotification,
-                                             object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.appDidResignActive() } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
+            self?.appDidResignActive()
         }
     }
 
@@ -97,7 +97,6 @@ public final class BrowserHistoryWriter {
         observation = nil
         pending = nil
         leaving = nil
-        if let resignObserver { center.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
@@ -109,7 +108,7 @@ public final class BrowserHistoryWriter {
         }
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
-            do { try await sleep(delay) } catch { return }
+            do { try await sleep(delay) } catch { return } // wakeup-allow: one `delay` per page change; the next change and cancel() cancel it
             guard let session = await self?.page?.savedSession(measuringScroll: false) else { return }
             await self?.write(session)
         }
@@ -123,7 +122,7 @@ public final class BrowserHistoryWriter {
             if session.entries.contains(where: \.formPost) { showedPrivateField = true }
             var probed = false  // A probe that fails to run takes no new state (the last stays).
             if !showedPrivateField {
-                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
+                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated, gesture: .cmux) {
                 case .bool(true)?: showedPrivateField = true
                 case .bool(false)?: probed = true
                 default: break
@@ -230,7 +229,7 @@ public final class BrowserHistoryWriter {
         return await withCheckedContinuation { continuation in
             once.continuation = continuation
             let timer = Task { @MainActor in
-                try? await sleep(budget)
+                try? await sleep(budget) // wakeup-allow: the one `budget` deadline for `work`, cancelled when the work finishes first
                 once.resume(nil)
             }
             Task { @MainActor in
@@ -256,13 +255,14 @@ public final class BrowserHistoryWriter {
     }
 
     /// The page changes that can change its history: a new URL or title,
-    /// each load's start and end, and Back/Forward availability.
+    /// each load's start and end, Back/Forward availability, and a settled scroll.
     private struct HistoryKey: Equatable, Sendable {
         var url: URL?
         var title: String?
         var isLoading: Bool
         var canGoBack: Bool
         var canGoForward: Bool
+        var scrollReport: BrowserScrollReport?
 
         init(_ state: BrowserTabState) {
             url = state.url
@@ -270,6 +270,7 @@ public final class BrowserHistoryWriter {
             isLoading = state.isLoading
             canGoBack = state.canGoBack
             canGoForward = state.canGoForward
+            scrollReport = state.scrollReport
         }
     }
 }

@@ -261,7 +261,7 @@ fn send_with_descriptor(
     }
     // The descriptor travelled with the first byte; the rest is plain data.
     let mut writer = stream;
-    writer.write_all(&bytes[sent.min(bytes.len())..])
+    writer.write_all(bytes.get(sent..).unwrap_or_default())
 }
 
 fn receive_with_descriptor(
@@ -273,10 +273,8 @@ fn receive_with_descriptor(
     let mut descriptor: Option<OwnedFd> = None;
     while received < length {
         let mut control = ControlBuffer([0; 64]);
-        let mut iov = libc::iovec {
-            iov_base: bytes[received..].as_mut_ptr().cast(),
-            iov_len: length - received,
-        };
+        let Some(unread) = bytes.get_mut(received..) else { break };
+        let mut iov = libc::iovec { iov_base: unread.as_mut_ptr().cast(), iov_len: unread.len() };
         // SAFETY: zeroed msghdr is a valid empty message.
         let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
         message.msg_iov = &mut iov;

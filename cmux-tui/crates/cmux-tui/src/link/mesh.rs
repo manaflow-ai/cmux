@@ -83,14 +83,14 @@ impl Overlay for MeshOverlay {
         self.mesh.connect(remote).await.map_err(io::Error::other)
     }
 
-    /// Remove stale and changed peers first (a rotated key keeps its
-    /// install's `/128`, which would overlap), then add new and changed
-    /// ones. Unchanged peers keep their sessions.
+    /// Remove stale keys and changed address ranges first (a rotated key
+    /// keeps its install's `/128`, which would overlap). Replace endpoint-only
+    /// changes in place so the stack preserves the same peer's streams.
     async fn sync_peers(&self, pairings: &Pairings) -> io::Result<()> {
         let wanted = wanted(pairings)?;
         let current = locked(&self.peers).clone();
         for (key, shape) in &current {
-            if wanted.get(key) != Some(shape) {
+            if wanted.get(key).is_none_or(|next| next.0 != shape.0) {
                 self.mesh.remove_peer(*key).await.map_err(io::Error::other)?;
                 locked(&self.peers).remove(key);
             }

@@ -1,4 +1,5 @@
-title: Sidebar sections collapse, and no more "daemon capability" errors
+title: Sidebar sections collapse, and clearer feature errors
 category: fixed
+action: sidebar.section.toggleCollapsed | Collapse or Expand Section
 
-Clicking a sidebar section header now collapses or expands it, and cmux remembers that for the window after a relaunch. Messages about unavailable features now say what to do (for example, reopen cmux to update its background service) instead of showing internal feature names.
+Click a sidebar section header to collapse or expand it, and cmux remembers it after a relaunch. Messages about unavailable features now say what to do instead of showing internal names.

@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+public import CmuxNextDesignTokens
 
 /// Draws a `StatusMark` as an alpha mask (opaque where the mark is), the one
 /// drawing the live indicator layer and the image export both use. Vector
@@ -45,6 +46,10 @@ enum StatusMarkArt {
             context.setBlendMode(.normal)
         case .symbol(let name):
             drawSymbol(name, in: context, rect: rect)
+        case .vector(let glyph):
+            // Filled even-odd; the 1x pixel art's edges fall on whole pixels, so it draws with no soft edge.
+            context.addPath(glyph.path(in: rect))
+            context.fillPath(using: .evenOdd)
         }
     }
 

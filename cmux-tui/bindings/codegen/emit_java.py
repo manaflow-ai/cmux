@@ -1183,6 +1183,14 @@ class JavaEmitter:
                 )
             lines.append("    }")
             lines.append("")
+            if wire_name == "identify" and has_fields:
+                # Keep the original no-argument entry point as this command evolves.
+                lines.extend([
+                    f"    public final {result_type} identify() throws CmuxException {{",
+                    f"        return identify({request_name}.builder().build());",
+                    "    }",
+                    "",
+                ])
         lines.append("}")
         return "\n".join(lines) + "\n"
 

@@ -64,12 +64,20 @@ public final class LayoutPassGuard {
     /// gets the full ``bound``.
     static let viewCountCap = 2 * bound
     public private(set) var isInstalled = false
+    /// `-[NSView layout]` calls and window layout passes that laid out a view
+    /// (outermost `layoutIfNeeded` only), since launch, all windows: plain
+    /// counters a probe reads as deltas (`debug.frames` per frame). Counted in
+    /// DEBUG builds only; a release build always reads 0.
+    public private(set) var viewLayoutCalls = 0
+    public private(set) var windowLayoutPasses = 0
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
     /// layout calls per view in it (the weak reference tells a reused
     /// address apart) and the window's limit once looked up.
     private struct WindowLayout {
         var depth = 0
+        /// `viewLayoutCalls` when the outermost pass began.
+        var viewCallsAtStart = 0
         var counts: [ObjectIdentifier: (view: Weak, count: Int)] = [:]
         var limit: Int?
     }
@@ -145,17 +153,27 @@ public final class LayoutPassGuard {
     }
 
     fileprivate func windowLayoutWillBegin(_ window: NSWindow) {
-        windowLayouts[ObjectIdentifier(window), default: WindowLayout()].depth += 1
+        let id = ObjectIdentifier(window)
+        windowLayouts[id, default: WindowLayout()].depth += 1
+        #if DEBUG
+        if windowLayouts[id]?.depth == 1 { windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls }
+        #endif
     }
 
     fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
+        #if DEBUG
+        if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart { windowLayoutPasses &+= 1 }
+        #endif
         windowLayouts[id] = layout.depth > 0 ? layout : nil
     }
 
     fileprivate func record(_ view: NSView) {
+        #if DEBUG
+        viewLayoutCalls &+= 1
+        #endif
         let type: AnyClass = Swift.type(of: view)
         let typeID = ObjectIdentifier(type)
         if let entry = classCounts[typeID] {

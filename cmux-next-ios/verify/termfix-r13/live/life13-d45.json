@@ -1,0 +1,32 @@
+{
+ "t0": 1792478982.4798,
+ "quit_ok": true,
+ "quit_call_s": 30.42,
+ "pill_changes": [],
+ "offline_label_after_quit_s": null,
+ "composer_value_after_send": "echo STALE_COMPOSER",
+ "notices": [
+  "Not sent: reconnecting to cmux11\u2019s Mac mini. Send again when it's back."
+ ],
+ "notices_after_direct": [
+  "Keys typed while your Mac was unreachable were not sent."
+ ],
+ "pill_before_relaunch": "e2e-t1, Reattaching\u2026",
+ "launch_call_s": 1.46,
+ "pill_after_relaunch": [
+  [
+   1.9,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   3.56,
+   "e2e-t1, ~"
+  ]
+ ],
+ "live_after_launch_s": 3.56,
+ "stale_ran_on_mac": [
+  false,
+  false
+ ],
+ "mac_tail": "240\n#0001998 whiskey bravo kilo victor uniform november q\nuebec lima charl crc=18f855c8\n#0001999 xray india hotel alpha delta yankee papa ech\no foxtrot mike j crc=be58deb1\n#0002000 yankee papa echo foxtrot mike juliet oscar x\nray india hotel crc=ce57979a\nTOTAL 2000 0e3af32b\ncmux@cmux11s-Mac-mini ~ %"
+}

@@ -1,0 +1,93 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+@@ -337,7 +337,7 @@
+         lock.lock(); defer { lock.unlock() }
+         if let a = drawAttr[outgoing] { return a }
+         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
+-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
++        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
+         let a = NSMutableAttributedString(string: string as String,
+                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
+         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
+@@ -391,7 +391,8 @@
+     let markdown: Bool
+     /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
+     /// its tiles near the end are drawn off main, then both reach the screen in one publish.
+-    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
++    /// cmux: `box`, the asking view's palette (PaletteScope), which the prerendered tiles draw in.
++    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int; var box: PaletteBox? }
+     var tileHint: TileHint? { get { lock.lock(); defer { lock.unlock() }; return hint } set { lock.lock(); hint = newValue; lock.unlock() } }
+     private var hint: TileHint?
+     private var pendingTiles: [(TileCache.Key, CGImage)] = []
+@@ -542,7 +543,9 @@
+                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
+                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
+                         // a tile that could not be allocated is not prerendered.
+-                        if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
++                        if let img = PaletteScope.with(h.box, { TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) }) {
++                            tiles.append((k, img))
++                        }
+                     }
+                     line += c
+                 }
+@@ -618,7 +621,7 @@
+         pending.removeAll()
+         // Tiles drawn with the measurement: in the cache before the new height is laid out.
+         // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
+-        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration { TileCache.shared.put(k, img) }
++        for (k, img) in pendingTiles where Fixture.generationIsLive(k.palette) { TileCache.shared.put(k, img) } // cmux: any view's palette
+         pendingTiles.removeAll()
+         return changed
+     }
+@@ -891,15 +894,34 @@
+             guard create else { return nil }
+             // Streaming: the same text with more at the end keeps every block but the last
+             // (a plain stream that turns into markdown is indexed again from its start).
+-            if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0,
++            // cmux: a stream whose end was rewritten (a Markdown style that closes rewrites its last
++            // line, and can shorten the text a little) keeps every block before the change, and its
++            // lineage (its tiles): a new index from the start cost every such token O(reply) on main
++            // (plans/cmux-next/home-streaming-perf-DESIGN.md).
++            if let prev, prev.ready, prev.count != p.count, p.count + 64 >= prev.count, prev.blockCount > 0,
+                prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
+-                let keep = prev.blockCount - 1
+-                let from = max(0, (prev.starts[checked: keep] ?? 0) - 256) // checked
+-                let same = prev.withBytes { q in // no force unwraps
++                let last = prev.blockCount - 1
++                let from = max(0, (prev.starts[checked: last] ?? 0) - 256) // checked
++                // An append: the old text is the new one's start (the previous rule).
++                let appended = prev.count < p.count && prev.withBytes { q in // no force unwraps
+                     guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
+                     return memcmp(qb + from, pb + from, prev.count - from) == 0
+                 }
+-                if same {
++                // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
++                var keepAt: Int? = appended ? last : nil
++                if keepAt == nil {
++                    var k = last
++                    while k >= 1, keepAt == nil {
++                        let end = prev.starts[checked: k] ?? 0 // checked
++                        let shared = end <= p.count && prev.withBytes { q in // no force unwraps
++                            guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
++                            return memcmp(qb, pb, end) == 0
++                        }
++                        if shared { keepAt = k }
++                        k -= 1
++                    }
++                }
++                if let keep = keepAt {
+                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
+                     LongTextStats.streamExtends += 1
+                     let old = layoutsOf(prev)
+@@ -982,6 +1004,11 @@
+ /// fixed (80 lines and the band), so measurement never changes it.
+ enum LongTextFold {
+     static let headLines = 40, tailLines = 40
++    /// cmux: the folded head and tail for `total` measured lines, valid for any total. The fold
++    /// is decided from the scan's estimate and the measured total can be smaller (fewer than
++    /// `headLines`): `tailFirst..<total` then had lowerBound > upperBound and trapped.
++    static func head(_ total: Int) -> Range<Int> { 0..<min(max(0, total), headLines) }
++    static func tailFirst(_ total: Int) -> Int { min(max(0, total), max(headLines, total - tailLines)) }
+     /// 3 screens (the 1041 pt window).
+     static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
+     static var bandHeight: CGFloat { 2 * Fixture.lineHeight }

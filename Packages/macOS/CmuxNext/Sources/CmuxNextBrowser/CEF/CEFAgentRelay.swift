@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
@@ -24,7 +25,15 @@ public final class CEFAgentRelay {
     /// bridge takes its own, and the browser's events stay on while it
     /// listens, relay or not.
     private lazy var media = tab.map { CEFMediaBridge(tab: $0) }
+    /// The email verification detector's binding reports (`CEFVerificationBridge`), on the same events.
+    private lazy var verification = tab.map { CEFVerificationBridge(tab: $0) }
     var mediaListens = false { didSet { updateWatch() } }
+    /// When a document first paints content (`CEFFirstPaintBridge`), on the
+    /// same events; it only reads them, so it never takes one off the stream.
+    private lazy var firstPaint = tab.map { CEFFirstPaintBridge(tab: $0) }
+    /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
+    private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
+    var designModeListens = false { didSet { updateWatch() } }
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -40,7 +49,7 @@ public final class CEFAgentRelay {
     }
 
     private func updateWatch() {
-        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens ? 1 : 0) }
+        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens || designModeListens ? 1 : 0) }
     }
 
     /// Sends one raw DevTools message; its "id" must be a raw id (>= 2^30).
@@ -94,14 +103,54 @@ public final class CEFAgentRelay {
     // MARK: Tab lifetime (CEFTab)
 
     func deliver(_ json: String) {
-        if media?.handle(json) == true { return }
+        // The method comes from the message's first bytes; only the bridges
+        // of that method look further (NIGHTLY 2026-10-29: five whole-message
+        // scans per message were most of the main thread's idle time).
+        let head = DevToolsMessageHead(json: json)
+        switch head.method {
+        case "Page.lifecycleEvent":
+            // Reads the stream and always returns false, so a relayed agent that
+            // subscribed to page lifecycle events still sees them.
+            _ = firstPaint?.handle(head)
+        case "Runtime.bindingCalled":
+            if media?.handle(head) == true { return }
+            if verification?.handle(head) == true { return }
+            if designMode?.handle(head) == true { return }
+        default:
+            break
+        }
         sink?(json)
+    }
+
+    /// Readies the page to post design mode messages (``CEFDesignModeBridge/prepare()``).
+    func prepareDesignMode() async throws {
+        guard let designMode else { throw BrowserTabError.closed }
+        try await designMode.prepare()
+    }
+
+    /// A page posted on one of cmux's channels (fork API 29): the same reports the DevTools
+    /// bindings carry before it, to the same bridges.
+    func pageMessage(_ message: CEFPageMessage) {
+        switch message.channel {
+        case .media: media?.report(message.payload)
+        case .protectedMedia: media?.refused(message.payload)
+        case .verification: verification?.report(message.payload)
+        case .firstPaint: firstPaint?.painted()
+        case .scrollReport:
+            if let y = BrowserScrollReport.y(fromPayload: message.payload) { tab?.machine.apply(.pageScrolled(y)) }
+        }
     }
 
     func browserAttached() {
         resumeWaiters(true)
-        if let browser = tab?.browserID { media?.attach(browser) }
-        if sink != nil || mediaListens { updateWatch() }
+        // From fork API 29 the runtime installs the document scripts for every browser in the
+        // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them.
+        if let tab, let browser = tab.browserID, !tab.runtime.forkFeatures.rendererPaths {
+            media?.attach(browser)
+            verification?.attach(browser)
+            firstPaint?.attach(browser)
+        }
+        if sink != nil || mediaListens || designModeListens { updateWatch() }
     }
 
     func resumeWaiters(_ created: Bool) {

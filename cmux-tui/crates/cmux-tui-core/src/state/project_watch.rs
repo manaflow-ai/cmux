@@ -6,8 +6,10 @@
 //! editor writing its state file without a new recent folder costs one read.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Weak};
+use std::time::SystemTime;
 
 use notify::Watcher as _;
 
@@ -55,6 +57,8 @@ fn run(mux: &Weak<Mux>, layout: &Layout) {
         }
     }
     let mut imported: HashMap<&'static str, Vec<Observation>> = HashMap::new();
+    let dirs = layout.watch_dirs();
+    let mut seen = fingerprint(&dirs);
     if !import_changed(mux, layout, &mut imported) {
         return;
     }
@@ -62,10 +66,35 @@ fn run(mux: &Weak<Mux>, layout: &Layout) {
         return;
     }
     while next_relevant(&events) {
+        // An event with no source file changed (a reader's lock, a touch)
+        // costs a few stats, not a rescan of every store.
+        let now = fingerprint(&dirs);
+        if now == seen {
+            continue;
+        }
+        seen = now;
         if !import_changed(mux, layout, &mut imported) {
             return;
         }
     }
+}
+
+/// Size and modification time of every source file and its write-ahead log
+/// in the watched folders.
+fn fingerprint(dirs: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
+    dirs.iter()
+        .flat_map(|dir| {
+            WATCHED_NAMES
+                .iter()
+                .flat_map(move |name| [dir.join(name), dir.join(format!("{name}-wal"))])
+        })
+        .map(|path| {
+            let stamp = std::fs::metadata(&path)
+                .ok()
+                .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
+            (path, stamp)
+        })
+        .collect()
 }
 
 /// Waits for an event on a source file, then drains the burst queued behind
@@ -82,10 +111,16 @@ fn next_relevant(events: &Receiver<notify::Result<notify::Event>>) -> bool {
 
 fn relevant(event: &notify::Result<notify::Event>) -> bool {
     let Ok(event) = event else { return true };
-    event.paths.iter().any(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| WATCHED_NAMES.iter().any(|watched| name.starts_with(watched)))
+    event.paths.iter().any(|path| is_source_path(path))
+}
+
+/// A source file, its write-ahead log or a temporary copy an editor renames
+/// over it. Not SQLite's shared-memory index (`-shm`): the scan's own
+/// read-only open writes it, so watching it made every scan wake the next
+/// one and kept this thread busy for good.
+fn is_source_path(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+        !name.ends_with("-shm") && WATCHED_NAMES.iter().any(|watched| name.starts_with(watched))
     })
 }
 
@@ -113,4 +148,41 @@ fn import_changed(
         Err(error) => note(&format!("project import failed: {error}")),
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(path: &str) -> notify::Result<notify::Event> {
+        Ok(notify::Event::new(notify::EventKind::Any).add_path(PathBuf::from(path)))
+    }
+
+    #[test]
+    fn a_readers_shared_memory_index_does_not_wake_the_watch() {
+        assert!(!relevant(&event("/a/com.conductor.app/conductor.db-shm")));
+        assert!(!relevant(&event("/a/.t3/userdata/state.sqlite-shm")));
+    }
+
+    #[test]
+    fn a_source_file_or_its_log_wakes_the_watch() {
+        assert!(relevant(&event("/a/com.conductor.app/conductor.db")));
+        assert!(relevant(&event("/a/.t3/userdata/state.sqlite-wal")));
+        assert!(relevant(&event("/a/User/globalStorage/storage.json")));
+        assert!(!relevant(&event("/a/.codex/logs_2.sqlite-wal")));
+    }
+
+    #[test]
+    fn the_fingerprint_changes_only_when_a_source_file_changes() {
+        let dir = std::env::temp_dir().join(format!("cmux-project-watch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dirs = vec![dir.clone()];
+        let before = fingerprint(&dirs);
+        std::fs::write(dir.join("conductor.db-shm"), b"reader").unwrap();
+        std::fs::write(dir.join("unrelated.json"), b"{}").unwrap();
+        assert_eq!(fingerprint(&dirs), before);
+        std::fs::write(dir.join("conductor.db-wal"), b"commit").unwrap();
+        assert_ne!(fingerprint(&dirs), before);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

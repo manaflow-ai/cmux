@@ -12,6 +12,14 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
     func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void)
     /// Ends the path (the host's decision).
     func cancel(code: Int, reason: String)
+    /// Reads one image from a remote chat's owning host. Local socket wires have no such route.
+    func loadRemoteImage(_ path: String) async throws -> Data
+}
+
+public extension AcpmuxPaneWire {
+    func loadRemoteImage(_ path: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "remote.unsupported", message: "remote media is unavailable")
+    }
 }
 
 /// A chat whose acpmux runs on another machine: the host's socket for it is a wire this route
@@ -20,12 +28,16 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
 public nonisolated final class AgentPaneRemoteRoute: Sendable {
     /// The machine's name, for logs (never a secret).
     public let machine: String
+    /// The canonical host key used by session lineage (`registry:<id>`).
+    public let hostID: String?
     /// The keyed restart of the machine's acpmux, when the app can do one (cx-0q7o).
     public let approvals: AgentPaneRemoteApprovals?
     private let make: @Sendable () -> any AcpmuxPaneWire
 
-    public init(machine: String, approvals: AgentPaneRemoteApprovals? = nil, make: @escaping @Sendable () -> any AcpmuxPaneWire) {
+    public init(machine: String, hostID: String? = nil, approvals: AgentPaneRemoteApprovals? = nil,
+                make: @escaping @Sendable () -> any AcpmuxPaneWire) {
         self.machine = machine
+        self.hostID = hostID
         self.approvals = approvals
         self.make = make
     }
@@ -60,11 +72,28 @@ public nonisolated struct AgentPaneRemoteApprovals: Sendable {
     public let machineID: String
     public let label: String
     public let restart: @Sendable () async -> Failure?
+    /// Who decided that a keyed restart before a new chat loses nothing.
+    public enum Preparation: Sendable, Equatable {
+        /// That machine's cmux-tui answered `agent_session.needs_keyed_start` with
+        /// `safe_to_restart` (cx-0w0jj): restart now.
+        case daemonSaidSafe
+        /// A cmux-tui without `agent-session-start-keyed-reason-v1`: the app reads the acpmux
+        /// status itself (cx-oa6ah). Remove when the oldest supported cmux-tui has the capability.
+        case checkStatus
+    }
 
-    public init(machineID: String, label: String, restart: @escaping @Sendable () async -> Failure?) {
+    /// The keyed restart before a new chat starts there, only when that machine's agent daemon
+    /// runs no agent (none to hand off, cx-oa6ah): true when this app's key is then bound. A
+    /// daemon with live agents is left as it is; its Allow then shows the restart notice, and only
+    /// the person's click restarts it. Nil where the app cannot tell.
+    public let prepare: (@Sendable (Preparation) async -> Bool)?
+
+    public init(machineID: String, label: String, restart: @escaping @Sendable () async -> Failure?,
+                prepare: (@Sendable (Preparation) async -> Bool)? = nil) {
         self.machineID = machineID
         self.label = label
         self.restart = restart
+        self.prepare = prepare
     }
 }
 

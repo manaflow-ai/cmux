@@ -1,0 +1,59 @@
+# cmux-managed: true
+# The GitHub pack (plans/cmux-next/chief-toolpacks-DESIGN.md; a607's chief-github-DESIGN.md
+# section 4): this Chief's own GitHub login for gh and git, else the Mac's gh login.
+name = "github"
+title = "GitHub"
+description = "gh and git with this Chief's own GitHub login (device code or a pasted token), else the Mac's gh"
+health = ["gh", "auth", "status", "--hostname", "github.com"]
+
+[tool]
+bin = "gh"
+brew = "gh"
+apt = "gh"
+url = "https://cli.github.com"
+
+[auth]
+methods = ["device", "paste"]
+token_min = 20
+token_max = 255
+login_hint = "chief github login"
+revoke_url = "https://github.com/settings/applications"
+revoke_name = "GitHub CLI"
+tokens_url = "https://github.com/settings/personal-access-tokens"
+skill = "github-signin"
+
+# The GitHub CLI's OAuth app (public client id; `gh auth login --web`), gh's scopes plus
+# `workflow` (pushes that touch .github/workflows).
+[auth.device]
+client_id = "178c6fc778ccc68e1d6a"
+code_url = "https://github.com/login/device/code"
+token_url = "https://github.com/login/oauth/access_token"
+scopes = "repo read:org gist workflow"
+verification_uri = "https://github.com/login/device"
+window_minutes = 180
+
+[check]
+url = "https://api.github.com/user"
+accept = "application/vnd.github+json"
+login_field = "login"
+scopes_header = "x-oauth-scopes"
+expiry_header = "github-authentication-token-expiration"
+
+[inject]
+env = ["GH_TOKEN"]
+git_host = "github.com"
+git_via_tool = ["auth", "git-credential"]
+
+# With no login of its own, the Chief uses the person's gh login on this machine.
+[share]
+label = "the Mac's gh"
+command = ["gh", "auth", "token", "--hostname", "github.com"]
+
+# GitHub's own remote MCP server with this Chief's token, read-mostly tools only. Off by
+# default (every listed tool costs prompt on every turn): `chief pack enable github/github`.
+[[mcp]]
+name = "github"
+url = "https://api.githubcopilot.com/mcp/"
+bearer = "secret:github"
+tools = ["get_file_contents", "search_code", "search_issues", "search_pull_requests", "get_pull_request", "get_issue", "list_commits"]
+enabled = false

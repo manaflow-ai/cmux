@@ -46,4 +46,26 @@ impl SettleStatus {
     pub fn clear(&self) {
         let _ = std::fs::remove_file(&self.path);
     }
+
+    /// `state/compactor.json` beside `settle.json` (cx-oqnw3): while the
+    /// compactor cannot build summaries, `{"error": why}`; the app shows a
+    /// system notice in the Chief conversation for it (never a Chief message).
+    /// None removes it (a good probe, or a host start).
+    pub fn compactor_fault(&self, error: Option<&str>) {
+        let path = self.path.with_file_name("compactor.json");
+        let Some(error) = error else {
+            let _ = std::fs::remove_file(&path);
+            return;
+        };
+        let tmp = path.with_extension("json.tmp");
+        let body = serde_json::json!({"error": error}).to_string();
+        let written = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&tmp, body))
+            .and_then(|()| std::fs::rename(&tmp, &path));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
 }

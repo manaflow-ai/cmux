@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Debug-build control methods for extension verification without a real
 /// pointer: `debug.cef.devtools` runs a DevTools method on the focused
 /// Chromium tab (trusted `Input.*` events, such as a right click that opens

@@ -8,13 +8,19 @@ export interface IdentityInfo {
     accountId: string;
     managed: boolean;
 }
+export interface CreateAccessTokenOptions {
+    /** RFC 3339 deadline; omitted or null means no expiration. */
+    expiresAt?: string | null;
+}
 export interface CreatedToken {
     id: string;
     /** Returned once, in full. */
     token: string;
+    expiresAt?: string | null;
 }
 export interface AccessTokenInfo {
     id: string;
+    expiresAt?: string | null;
 }
 export interface ListIdentitiesResult {
     identities: IdentityData[];
@@ -44,7 +50,7 @@ export declare class IdentityTokensNamespace {
     private readonly basePath;
     constructor(client: FreestyleClient, basePath: string);
     /** Mint an access token for the identity. */
-    create(): Promise<CreatedToken>;
+    create(options?: CreateAccessTokenOptions): Promise<CreatedToken>;
     list(): Promise<AccessTokenInfo[]>;
     revoke(tokenId: string): Promise<void>;
 }

@@ -28,7 +28,7 @@ extension LayoutRootView {
         let center = NotificationCenter.default
         for token in keyWindowObservers { center.removeObserver(token) }
         keyWindowObservers = []
-        guard let window else { return }
+        guard isLive, let window else { return }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshDividerHover() } // main-proof: observer on queue: .main
@@ -36,7 +36,7 @@ extension LayoutRootView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
     /// coordinates; nil: outside the window), shared with every chrome hover
     /// (`PointerHover`, which recomputes them), then every layout in the

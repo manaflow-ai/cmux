@@ -25,10 +25,14 @@ extension PaneContentView {
         guard let view = toolbar?.view else { return [] }
         view.translatesAutoresizingMaskIntoConstraints = false
         view.setContentHuggingPriority(.required, for: .horizontal)
+        // Below the window's stay-put priority (500): overflow compresses the toolbar instead
+        // of making a narrow window grow to twice the toolbar's intrinsic width.
+        view.setContentCompressionResistancePriority(.init(490), for: .horizontal)
         return [
             view.topAnchor.constraint(equalTo: stripView.topAnchor),
             view.heightAnchor.constraint(equalTo: stripView.heightAnchor),
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.5),
         ]
     }
 }

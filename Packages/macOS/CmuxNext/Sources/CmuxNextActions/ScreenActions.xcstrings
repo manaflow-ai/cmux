@@ -7,7 +7,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Screen with…"
+            "value": "New Screen With…"
           }
         },
         "ar": {
@@ -1579,7 +1579,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin or Unpin Screen"
+            "value": "Pin/Unpin Screen"
           }
         },
         "ar": {
@@ -3413,7 +3413,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collapse or Expand Screen Group"
+            "value": "Collapse/Expand Screen Group"
           }
         },
         "ar": {

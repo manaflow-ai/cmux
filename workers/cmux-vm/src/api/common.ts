@@ -17,7 +17,17 @@ export const GroupCreateHeaders = Schema.Struct({
   "idempotency-key": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255))),
 });
 
+/** A status lookup addresses an existing intent and always requires its original key. */
+export const GroupCreationKeyHeaders = Schema.Struct({
+  ...teamHeader,
+  "idempotency-key": Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255)),
+});
+
 export const DisplayName = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100));
+
+export const CreatedByCaller = Schema.Literal("caller").annotations({
+  description: "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators.",
+});
 
 export const describe = (summary: string, scope: string, detail?: string) =>
   OpenApi.annotations({

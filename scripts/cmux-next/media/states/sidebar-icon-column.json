@@ -1,0 +1,9 @@
+{
+  "title": "Sidebar icon column: the top band (Home, the band's rows), pinned rows and workspace rows with their leading glyphs, and the trailing marks (unread, needs-you, error) on the showcase fixture plus the Debug row badge preview rows. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-icon-column.json",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "The showcase sidebar: Home, pinned and workspace rows", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 1.5},
+    {"title": "Add the Debug row badge preview rows (unread, needs-you, working, error)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowBadgePreview", "value": true}}, "wait": 1.5},
+    {"title": "The trailing marks' positions", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 0.5}
+  ]
+}

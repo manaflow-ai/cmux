@@ -48,12 +48,11 @@ try {
       await page.locator(".acpmux-shell").screenshot({ path: path.join(out, `${name}-${theme}.png`) });
     }
   }
-  // Keys: the card never takes focus on arrival; Tab reaches the first row, arrows move the
-  // highlight (and the preview), Escape hands the keyboard back.
+  // Keys: the card takes an idle keyboard on arrival, arrows move the highlight (and the
+  // preview), Escape hands the keyboard back to the composer and never answers.
   await page.goto(`http://127.0.0.1:${port}/?fixture=question-pending-with-preview`);
   await card().waitFor();
-  assert.equal(await page.evaluate(() => !!document.activeElement?.closest(".acpmux-question")), false);
-  await page.locator(".acpmux-question-row").first().focus();
+  assert.equal(await page.evaluate(() => !!document.activeElement?.closest(".acpmux-question")), true);
   await page.keyboard.press("ArrowDown");
   assert.match(await page.locator(".acpmux-question-preview pre").innerText(), /┌ General ┬ Keys/);
   await page.locator(".acpmux-shell").screenshot({ path: path.join(out, "pending-with-preview-arrow-down.png") });

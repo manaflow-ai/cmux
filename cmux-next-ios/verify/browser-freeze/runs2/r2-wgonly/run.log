@@ -1,0 +1,103 @@
+04:36:17 rig mini-cmux11s-mac-mini: device 20b6e48c-f0ba-4169-a60b-52b887731225, workspace brfz-term (8 workspaces: ['Home', 'brfz-term', 'lr-a', 'lr-a', 'lr-a', 'lr-a', 'lr-a', 'lr-a'])
+04:36:19 app launched, config wgonly, env ['CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA', 'CMUX_MOBILE_LOG'], drop 0, bg 0
+04:36:24 host 04:36:20 link up session_id="df75b5a6-2ab6-4b57-a0c5-68675439a044" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_l
+04:36:24 host 04:36:20 link path changed session_id="df75b5a6-2ab6-4b57-a0c5-68675439a044" path=Turn
+04:36:25 step open_tab ('A', 'https://en.wikipedia.org/wiki/Cat') at +0.1 min
+04:36:30 host 04:36:30 media session down session_id="9c08d3cc-3897-4adb-ae6e-0d18f425026e" link_session="4bdd6ae3-a83e-4b17-b383-3904bd5f87a1" reason="failed"
+04:36:32 phone tab new-c10834ed-t1 opens -
+04:36:42 act {"t": 1792816602.44, "utc": "04:36:42", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 16.6, "key": "new-c10834ed-t1", "mac_ws": "ws_5c9e384cd43cfe80faf1959aa742a4f0"}
+04:36:42 step interact (70,) at +0.4 min
+04:36:42 act {"t": 1792816602.44, "utc": "04:36:42", "tab": "A", "act": "back", "skipped": "no history from this run"}
+04:36:47 act {"t": 1792816607.74, "utc": "04:36:47", "tab": "A", "act": "scroll-down", "rtt": 3.6}
+04:36:50 act {"t": 1792816610.41, "utc": "04:36:50", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:36:50 host 04:36:46 link down session_id="4bdd6ae3-a83e-4b17-b383-3904bd5f87a1" reason="keepalive timed out"
+04:36:52 act {"t": 1792816613.0, "utc": "04:36:52", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:36:55 act {"t": 1792816615.72, "utc": "04:36:55", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:37:01 act {"t": 1792816621.71, "utc": "04:37:01", "tab": "A", "act": "scroll-down", "rtt": 3.33}
+04:37:05 act {"t": 1792816625.44, "utc": "04:37:05", "tab": "A", "act": "scroll-down", "rtt": 1.68}
+04:37:17 act {"t": 1792816637.79, "utc": "04:37:17", "tab": "A", "act": "tap", "rtt": null, "at": [336, 503]}
+04:37:20 act {"t": 1792816640.39, "utc": "04:37:20", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:37:20 act {"t": 1792816640.97, "utc": "04:37:20", "tab": "A", "act": "back", "skipped": "no history from this run"}
+04:37:25 act {"t": 1792816645.53, "utc": "04:37:25", "tab": "A", "act": "scroll-down", "rtt": 3.08}
+04:37:27 act {"t": 1792816647.91, "utc": "04:37:27", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:37:29 act {"t": 1792816649.77, "utc": "04:37:29", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:37:32 act {"t": 1792816652.45, "utc": "04:37:32", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:37:37 act {"t": 1792816657.47, "utc": "04:37:37", "tab": "A", "act": "scroll-down", "rtt": 3.37}
+04:37:42 act {"t": 1792816662.47, "utc": "04:37:42", "tab": "A", "act": "scroll-up", "rtt": 3.57}
+04:37:53 act {"t": 1792816673.74, "utc": "04:37:53", "tab": "A", "act": "tap", "rtt": null, "at": [108, 402]}
+04:37:55 step long_scroll (12,) at +1.6 min
+04:38:10 act {"t": 1792816690.69, "utc": "04:38:10", "tab": "A", "act": "long-scroll", "rtt": 0.0, "swipes": 6, "seconds": 15.0, "reconnecting": []}
+04:38:10 step interact (60,) at +1.9 min
+04:38:14 act {"t": 1792816694.48, "utc": "04:38:14", "tab": "A", "act": "scroll-up", "rtt": 3.57}
+04:38:18 act {"t": 1792816698.94, "utc": "04:38:18", "tab": "A", "act": "scroll-down", "rtt": 3.54}
+04:38:22 act {"t": 1792816702.98, "utc": "04:38:22", "tab": "A", "act": "scroll-down", "rtt": 3.19}
+04:38:26 act {"t": 1792816706.7, "utc": "04:38:26", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:38:31 act {"t": 1792816711.72, "utc": "04:38:31", "tab": "A", "act": "scroll-up", "rtt": 3.73}
+04:38:36 act {"t": 1792816716.36, "utc": "04:38:36", "tab": "A", "act": "scroll-down", "rtt": 3.27}
+04:38:39 act {"t": 1792816719.4, "utc": "04:38:39", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:38:42 act {"t": 1792816722.88, "utc": "04:38:42", "tab": "A", "act": "scroll-down", "rtt": 2.5}
+04:38:44 act {"t": 1792816724.25, "utc": "04:38:44", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:38:47 act {"t": 1792816727.14, "utc": "04:38:47", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:38:51 act {"t": 1792816731.76, "utc": "04:38:51", "tab": "A", "act": "scroll-down", "rtt": 2.63}
+04:38:53 act {"t": 1792816733.56, "utc": "04:38:53", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:38:54 act {"t": 1792816734.37, "utc": "04:38:54", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:38:57 act {"t": 1792816737.31, "utc": "04:38:57", "tab": "A", "act": "search", "error": "no address bar or pill"}
+04:38:58 act {"t": 1792816738.69, "utc": "04:38:58", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:39:04 act {"t": 1792816744.18, "utc": "04:39:04", "tab": "A", "act": "scroll-up", "rtt": 3.32}
+04:39:08 act {"t": 1792816748.98, "utc": "04:39:08", "tab": "A", "act": "scroll-down", "rtt": 3.18}
+04:39:10 step open_tab ('B', 'https://news.ycombinator.com') at +2.9 min
+04:39:44 act {"t": 1792816784.44, "utc": "04:39:44", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "error": "could not get back to the Workspaces list"}
+04:39:44 step interact (60,) at +3.4 min
+04:39:54 act {"t": 1792816794.9, "utc": "04:39:54", "tab": "B", "act": "tap", "rtt": null, "at": [326, 361]}
+04:39:58 act {"t": 1792816798.32, "utc": "04:39:58", "tab": "B", "act": "scroll-down", "rtt": 2.66}
+04:40:02 act {"t": 1792816802.64, "utc": "04:40:02", "tab": "B", "act": "scroll-down", "rtt": 3.38}
+04:40:03 act {"t": 1792816803.46, "utc": "04:40:03", "tab": "B", "act": "forward", "skipped": "no history from this run"}
+04:40:08 act {"t": 1792816808.5, "utc": "04:40:08", "tab": "B", "act": "scroll-down", "rtt": 3.85}
+04:40:09 act {"t": 1792816809.55, "utc": "04:40:09", "tab": "B", "act": "back", "skipped": "no history from this run"}
+04:40:11 act {"t": 1792816811.44, "utc": "04:40:11", "tab": "B", "act": "back", "skipped": "no history from this run"}
+04:40:17 act {"t": 1792816817.44, "utc": "04:40:17", "tab": "B", "act": "scroll-up", "rtt": 4.06}
+04:40:29 act {"t": 1792816829.14, "utc": "04:40:29", "tab": "B", "act": "tap", "rtt": null, "at": [188, 272]}
+04:40:33 act {"t": 1792816833.77, "utc": "04:40:33", "tab": "B", "act": "scroll-up", "rtt": 3.74}
+04:41:07 act {"t": 1792816867.83, "utc": "04:41:07", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz011", "type_s": 6.45}
+04:41:08 step list_idle (45,) at +4.8 min
+04:41:17 act {"t": 1792816877.25, "utc": "04:41:17", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}
+04:42:02 step switch ('B',) at +5.7 min
+04:42:34 act {"t": 1792816954.21, "utc": "04:42:34", "tab": null, "act": "switch", "name": "B", "error": "row not listed"}
+04:42:34 step interact (80,) at +6.2 min
+04:43:04 act {"t": 1792816984.8, "utc": "04:43:04", "tab": null, "act": "search", "error": "no address bar or pill"}
+04:43:08 act {"t": 1792816988.95, "utc": "04:43:08", "tab": null, "act": "scroll-up", "rtt": 2.69}
+04:43:09 act {"t": 1792816989.82, "utc": "04:43:09", "tab": null, "act": "forward", "skipped": "no history from this run"}
+04:43:10 act {"t": 1792816990.35, "utc": "04:43:10", "tab": null, "act": "forward", "skipped": "no history from this run"}
+04:43:43 act {"t": 1792817023.81, "utc": "04:43:43", "tab": null, "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz013", "type_s": 5.09}
+04:43:45 act {"t": 1792817025.55, "utc": "04:43:45", "tab": null, "act": "forward", "skipped": "no history from this run"}
+04:43:56 act {"t": 1792817036.54, "utc": "04:43:56", "tab": null, "act": "tap", "rtt": null, "at": [222, 303]}
+04:43:56 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: tap on None)
+04:43:57 captured /Users/cmux/brfreeze/runs/r2-wgonly/freeze-01-phone-unresponsive-044356
+04:43:58 step switch ('A',) at +7.7 min
+04:44:29 act {"t": 1792817069.56, "utc": "04:44:29", "tab": null, "act": "switch", "name": "A", "error": "row not listed"}
+04:44:29 step interact (50,) at +8.2 min
+04:44:39 act {"t": 1792817079.82, "utc": "04:44:39", "tab": null, "act": "tap", "rtt": null, "at": [177, 413]}
+04:44:39 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: tap on None)
+04:44:51 act {"t": 1792817091.26, "utc": "04:44:51", "tab": null, "act": "tap", "rtt": null, "at": [205, 450]}
+04:44:51 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: tap on None)
+04:45:01 act {"t": 1792817101.45, "utc": "04:45:01", "tab": null, "act": "scroll-down", "rtt": null}
+04:45:01 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: scroll-down on None)
+04:45:02 captured /Users/cmux/brfreeze/runs/r2-wgonly/freeze-04-phone-unresponsive-044501
+04:45:12 act {"t": 1792817112.26, "utc": "04:45:12", "tab": null, "act": "scroll-up", "rtt": null}
+04:45:12 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: scroll-up on None)
+04:45:22 act {"t": 1792817122.55, "utc": "04:45:22", "tab": null, "act": "scroll-up", "rtt": null}
+04:45:22 FREEZE phone-unresponsive: 7 inputs in a row with no screen change in 8 s (last: scroll-up on None)
+04:45:23 step open_tab ('C', 'https://duckduckgo.com') at +9.1 min
+04:45:34 act {"t": 1792817134.47, "utc": "04:45:34", "tab": "C", "act": "open", "name": "C", "url": "https://duckduckgo.com", "error": "no New Workspace button"}
+04:45:34 step interact (50,) at +9.3 min
+04:45:34 act {"t": 1792817134.47, "utc": "04:45:34", "tab": "C", "act": "forward", "skipped": "no history from this run"}
+04:46:09 act {"t": 1792817169.05, "utc": "04:46:09", "tab": "C", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz014", "type_s": 6.05}
+04:46:09 FREEZE phone-unresponsive: 8 inputs in a row with no screen change in 8 s (last: search on C)
+04:46:10 captured /Users/cmux/brfreeze/runs/r2-wgonly/freeze-07-phone-unresponsive-044609
+04:46:19 act {"t": 1792817179.31, "utc": "04:46:19", "tab": "C", "act": "scroll-down", "rtt": null}
+04:46:19 FREEZE phone-unresponsive: 9 inputs in a row with no screen change in 8 s (last: scroll-down on C)
+04:46:29 act {"t": 1792817189.5, "utc": "04:46:29", "tab": "C", "act": "scroll-down", "rtt": null}
+04:46:29 FREEZE phone-unresponsive: 10 inputs in a row with no screen change in 8 s (last: scroll-down on C)
+04:46:31 minutes reached; ending the plan
+04:46:37 per minute: [{"minute": 0, "decoded_frames": 150, "fps_max": 33, "carriers": ["wg-rtp"], "kf_requests": 5, "inputs": 8, "no_response": 5, "rtt_median_s": 3.33}, {"minute": 1, "decoded_frames": 720, "fps_max": 54, "carriers": ["wg-rtp"], "kf_requests": 5, "inputs": 12, "no_response": 6, "rtt_median_s": 3.54}, {"minute": 2, "decoded_frames": 660, "fps_max": 55, "carriers": ["wg-rtp"], "kf_requests": 0, "inputs": 15, "no_response": 8, "rtt_median_s": 3.19}, {"minute": 3, "decoded_frames": 570, "fps_max": 55, "carriers": ["wg-rtp"], "kf_requests": 6, "inputs": 8, "no_response": 4, "rtt_median_s": 3.85}, {"minute": 4, "decoded_frames": 150, "fps_max": 55, "carriers": ["wg-rtp"], "kf_requests": 3, "inputs": 3, "no_response": 2, "rtt_median_s": 3.74}, {"minute": 5, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 0, "inputs": 0, "no_response": 0, "rtt_median_s": null}, {"minute": 6, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 0, "inputs": 4, "no_response": 3, "rtt_median_s": 2.69}, {"minute": 7, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 0, "inputs": 3, "no_response": 3, "rtt_median_s": null}, {"minute": 8, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 0, "inputs": 4, "no_response": 4, "rtt_median_s": null}, {"minute": 9, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 0, "inputs": 4, "no_response": 4, "rtt_median_s": null}, {"minute": 10, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 0, "inputs": 1, "no_response": 1, "rtt_median_s": null}]
+04:46:37 done: freezes 9

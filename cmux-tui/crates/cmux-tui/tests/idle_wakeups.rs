@@ -6,7 +6,12 @@
 //! The test starts a headless daemon with one terminal running `cat`, keeps
 //! the streams the cmux app keeps open (an event subscription and a terminal
 //! attach), lets it settle, and then counts context switches and CPU time of
-//! the daemon and the terminal host over a quiet window.
+//! the daemon and the terminal host over a quiet window. It also follows each
+//! daemon thread across the windows: a thread that runs in every window wakes
+//! on a timer, however cheap each wake is (issue 23087: an idle owner retried
+//! a missing acpmux every 10 s and ran journal maintenance every 30 s for
+//! good). acpmux is not running for these daemons, as on most machines, and
+//! journal maintenance runs at a test interval of half a second.
 #![cfg(unix)]
 
 use std::fs;
@@ -17,26 +22,33 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-/// Quiet window over which wakeups are counted.
-const WINDOW: Duration = Duration::from_secs(10);
+/// Quiet window over which wakeups are counted. Longer than the 10 s retry
+/// cap of the daemon's reconnect loops, so a thread on such a loop runs in
+/// every window.
+const WINDOW: Duration = Duration::from_secs(12);
 /// Consecutive windows measured; a process is judged by its median window, so
 /// a one-off event (one window) passes and a periodic wake (every window) fails.
 const WINDOWS: u32 = 3;
 /// Time after setup for one-shot work (first render, journal flushes) to end.
 const SETTLE: Duration = Duration::from_secs(3);
 /// Context switches allowed per process in its median window. Any periodic
-/// wake of 1 Hz or faster gives at least 10 in every window; a stray one-shot
+/// wake of 1 Hz or faster gives at least 12 in every window; a stray one-shot
 /// event (a late journal fsync, a deadline set during setup, one write below a
 /// watched folder) gives a few in one window.
 const MAX_SWITCHES_PER_WINDOW: u64 = 5;
-/// CPU allowed per process in its median window: 0.5% of one core.
+/// CPU allowed per process in its median window: about 0.4% of one core.
 const MAX_CPU_PER_WINDOW: Duration = Duration::from_millis(50);
+/// The journal maintenance interval of these daemons (debug builds read it):
+/// a worker that ticks on its interval while nothing changed runs in every
+/// window.
+const MAINTENANCE_INTERVAL_MS: &str = "500";
 
 struct Daemon {
     child: Child,
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
+    acpmux: PathBuf,
 }
 
 impl Daemon {
@@ -54,6 +66,9 @@ impl Daemon {
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
         let config = dir.join("config.json");
+        // This daemon's own acpmux socket, which nothing serves until a test
+        // binds it (never the machine's acpmux).
+        let acpmux = dir.join("acpmux").join("acpmux.sock");
         // The daemon's own settings file exists, as on a configured machine: its
         // watcher must not wake on the daemon's own reads of it (a Linux inotify
         // open event once fed a reload loop of ~40k reloads/s).
@@ -68,6 +83,8 @@ impl Daemon {
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
             .env("CMUX_NEXT_CONFIG_FILE", &settings)
+            .env("ACPMUX_SOCKET", &acpmux)
+            .env("CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS", MAINTENANCE_INTERVAL_MS)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -77,7 +94,7 @@ impl Daemon {
             assert!(Instant::now() < deadline, "daemon did not create {}", socket.display());
             std::thread::sleep(Duration::from_millis(25));
         }
-        Self { child, socket, state, dir }
+        Self { child, socket, state, dir, acpmux }
     }
 
     fn host_pids(&self) -> Vec<u32> {
@@ -299,6 +316,104 @@ fn delta(before: Usage, after: Usage) -> Usage {
     }
 }
 
+/// Each thread of `pid` by id: its name and a counter that grows whenever the
+/// thread runs (context switches on Linux, CPU time in nanoseconds on macOS,
+/// which has no per-thread switch count).
+#[cfg(target_os = "linux")]
+fn thread_activity(pid: u32) -> std::collections::HashMap<u64, (String, u64)> {
+    fs::read_dir(format!("/proc/{pid}/task"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|task| {
+            let tid = task.file_name().to_str()?.parse::<u64>().ok()?;
+            let name = fs::read_to_string(task.path().join("comm")).ok()?.trim().to_string();
+            let switches = fs::read_to_string(task.path().join("status"))
+                .ok()?
+                .lines()
+                .filter(|line| line.contains("ctxt_switches:"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum();
+            Some((tid, (name, switches)))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn thread_activity(pid: u32) -> std::collections::HashMap<u64, (String, u64)> {
+    use std::os::raw::{c_char, c_int, c_void};
+
+    #[repr(C)]
+    struct ThreadInfo {
+        user_time: u64,
+        system_time: u64,
+        cpu_usage: i32,
+        policy: i32,
+        run_state: i32,
+        flags: i32,
+        sleep_time: i32,
+        current_priority: i32,
+        priority: i32,
+        max_priority: i32,
+        name: [c_char; 64],
+    }
+
+    unsafe extern "C" {
+        fn proc_pidinfo(
+            pid: c_int,
+            flavor: c_int,
+            arg: u64,
+            buffer: *mut c_void,
+            size: c_int,
+        ) -> c_int;
+    }
+    const PROC_PIDLISTTHREADS: c_int = 6;
+    const PROC_PIDTHREADINFO: c_int = 5;
+
+    let mut handles = vec![0_u64; 4096];
+    let size = (handles.len() * size_of::<u64>()) as c_int;
+    // SAFETY: the buffer holds `size` bytes of thread handles.
+    let filled = unsafe {
+        proc_pidinfo(pid as c_int, PROC_PIDLISTTHREADS, 0, handles.as_mut_ptr().cast(), size)
+    };
+    handles.truncate(usize::try_from(filled).unwrap_or(0) / size_of::<u64>());
+    handles
+        .into_iter()
+        .filter_map(|handle| {
+            // SAFETY: zeroed is a valid ThreadInfo (integers and a C string).
+            let mut info: ThreadInfo = unsafe { std::mem::zeroed() };
+            let size = size_of::<ThreadInfo>() as c_int;
+            // SAFETY: the buffer matches the PROC_PIDTHREADINFO layout and size.
+            let read = unsafe {
+                proc_pidinfo(pid as c_int, PROC_PIDTHREADINFO, handle, (&raw mut info).cast(), size)
+            };
+            (read == size).then(|| {
+                // SAFETY: the kernel NUL-terminates the thread name.
+                let name = unsafe { std::ffi::CStr::from_ptr(info.name.as_ptr()) };
+                (handle, (name.to_string_lossy().into_owned(), info.user_time + info.system_time))
+            })
+        })
+        .collect()
+}
+
+/// Threads of the daemon that ran in every window: a timer wakes them, not
+/// an event, however little each wake costs. A one-off event (a late journal
+/// fsync, a deadline set during setup) runs a thread in one window.
+fn periodic_threads(marks: &[std::collections::HashMap<u64, (String, u64)>]) -> Vec<String> {
+    let Some(first) = marks.first() else { return Vec::new() };
+    let mut periodic: Vec<String> = first
+        .iter()
+        .filter(|(id, _)| {
+            marks.windows(2).all(|pair| match (pair[0].get(id), pair[1].get(id)) {
+                (Some((_, before)), Some((_, after))) => after > before,
+                _ => false,
+            })
+        })
+        .map(|(id, (name, _))| format!("{name} (thread {id})"))
+        .collect();
+    periodic.sort();
+    periodic
+}
+
 /// Whether a process woke up over the measured windows: its median window
 /// (switches and CPU taken separately) is over the limit.
 fn woke(windows: &[Usage]) -> bool {
@@ -327,7 +442,56 @@ fn cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake() {
 
 #[test]
 fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
-    assert_idle(&Daemon::start("daemon"), || {});
+    let daemon = Daemon::start("daemon");
+    // acpmux's folder is there from an earlier run; only its socket is not.
+    fs::create_dir_all(daemon.acpmux.parent().unwrap()).unwrap();
+    assert_idle(&daemon, || {});
+    // The daemon waited for acpmux without retrying on a timer; it still
+    // reaches acpmux as soon as acpmux binds its socket.
+    assert_follows_acpmux_when_it_appears(&daemon);
+}
+
+/// Binds the daemon's acpmux socket the way acpmux does (creating its folder
+/// first when it is missing) and expects the daemon's agent chat watch to
+/// connect and start its watch at once, not at a later retry (those were up
+/// to 10 s apart).
+fn assert_follows_acpmux_when_it_appears(daemon: &Daemon) {
+    let directory = daemon.acpmux.parent().unwrap();
+    fs::create_dir_all(directory).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(&daemon.acpmux).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let bound = Instant::now();
+    let deadline = bound + Duration::from_secs(3);
+    let stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    Instant::now() < deadline,
+                    "the daemon did not connect to acpmux within 3 s of its socket appearing"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("accept on the acpmux socket: {error}"),
+        }
+    };
+    stream.set_nonblocking(false).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut first = String::new();
+    reader.read_line(&mut first).unwrap();
+    let initialize: serde_json::Value = serde_json::from_str(&first).unwrap();
+    assert_eq!(initialize["method"], "initialize", "{first}");
+    assert_eq!(initialize["params"]["clientInfo"]["name"], "cmux-tui-agent-chat-notices");
+    let mut second = String::new();
+    reader.read_line(&mut second).unwrap();
+    let watch: serde_json::Value = serde_json::from_str(&second).unwrap();
+    assert_eq!(watch["method"], "_acpmux/watch", "{second}");
+    let _ = writeln!(
+        std::io::stderr(),
+        "acpmux socket bound: the daemon connected after {:?}",
+        bound.elapsed()
+    );
 }
 
 /// Before the first save the settings folder does not exist, so the daemon
@@ -354,6 +518,9 @@ fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
         }
     });
     assert!(!daemon.dir.join("config").exists(), "the daemon created the settings folder");
+    // acpmux has never run here: its folder appears with its socket.
+    assert!(!daemon.acpmux.parent().unwrap().exists());
+    assert_follows_acpmux_when_it_appears(&daemon);
 }
 
 /// Starts a terminal, keeps the app's streams open, settles, then runs
@@ -404,12 +571,15 @@ fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
     let processes: Vec<(String, u32)> = std::iter::once(("daemon".to_string(), daemon.child.id()))
         .chain(hosts.iter().map(|pid| (format!("terminal host {pid}"), *pid)))
         .collect();
+    let daemon_pid = daemon.child.id();
     let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
+    let mut threads = vec![thread_activity(daemon_pid)];
     let started = Instant::now();
     let activity = std::thread::spawn(during);
     for _ in 0..WINDOWS {
         std::thread::sleep(WINDOW);
         marks.push(processes.iter().map(|(_, pid)| usage(*pid)).collect());
+        threads.push(thread_activity(daemon_pid));
     }
     activity.join().unwrap();
     assert!(
@@ -439,6 +609,13 @@ fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
         if woke(&windows) {
             failures.push(line);
         }
+    }
+    let periodic = periodic_threads(&threads);
+    if !periodic.is_empty() {
+        failures.push(format!(
+            "daemon threads that ran in each of the {WINDOWS} windows of {WINDOW:?}: {}",
+            periodic.join(", ")
+        ));
     }
     assert!(failures.is_empty(), "idle processes woke up:\n{}", failures.join("\n"));
 }

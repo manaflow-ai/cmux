@@ -1,4 +1,4 @@
-import CmuxNextBrowserImport
+public import CmuxNextBrowserImport
 import Foundation
 
 /// User-facing onboarding text (Localizable.xcstrings in this module).
@@ -37,15 +37,6 @@ enum OnboardingStrings {
     static var importWithoutPasswords: String {
         String(localized: "onboarding.button.importWithoutPasswords", defaultValue: "Import Without Passwords", bundle: .module)
     }
-    static var passwordsTitle: String {
-        String(localized: "onboarding.passwords.title", defaultValue: "Bring saved passwords from these profiles?", bundle: .module)
-    }
-    /// `items`: the Keychain item names, each already in quotation marks.
-    static func passwordsKeychain(_ items: String) -> String {
-        String(format: String(localized: "onboarding.passwords.keychain2",
-                              defaultValue: "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac.",
-                              bundle: .module), items)
-    }
     /// Only Firefox profiles chosen: no Keychain item to allow.
     static var passwordsFirefoxOnly: String {
         String(localized: "onboarding.passwords.firefoxOnly",
@@ -57,25 +48,13 @@ enum OnboardingStrings {
         String(localized: "onboarding.passwords.firefoxPrimary",
                defaultValue: "If a Firefox profile has a primary password, cmux asks for it once and does not keep it.", bundle: .module)
     }
-    /// The consent screen's paragraph: Chromium browsers name the Keychain items macOS asks about
-    /// (`quote` puts them in quotation marks); Firefox keeps its key in the profile.
-    static func passwordsConsent(keychainItems: [String], includesFirefox: Bool, quote: ([String]) -> String) -> String {
-        guard !keychainItems.isEmpty else { return passwordsFirefoxOnly }
-        let keychain = passwordsKeychain(quote(keychainItems))
-        return includesFirefox ? keychain + " " + passwordsFirefoxPrimary : keychain
-    }
     /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
     static var passwordsAuthReason: String {
         String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .module)
     }
     static var passwordsAuthDenied: String {
         String(localized: "onboarding.passwords.authDenied",
-               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Import to try again, or import without passwords.",
-               bundle: .module)
-    }
-    static var passwordsStore: String {
-        String(localized: "onboarding.passwords.store",
-               defaultValue: "They go into cmux’s own encrypted password store, where autofill finds them. Agents never see them, and nothing is read until you click Import.",
+               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Begin Importing to try again, or import without passwords.",
                bundle: .module)
     }
     /// "Already saved with a different password: 2. cmux kept the saved password."
@@ -102,6 +81,20 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.passwordsNotRead",
                defaultValue: "Some passwords weren’t imported: macOS didn’t allow the key, or the file couldn’t be read.", bundle: .module)
     }
+    /// The row menu's first item: the source's own new cmux profile, with its name, color and picture.
+    static var newMatchingProfile: String {
+        String(localized: "onboarding.import.target.new", defaultValue: "New Profile", bundle: .module)
+    }
+    /// The checkbox under the kinds: imported history keeps following the other browser.
+    static var keepHistoryInSync: String {
+        String(localized: "onboarding.import.keepInSync", defaultValue: "Keep history in sync", bundle: .module)
+    }
+    static var keepHistoryInSyncHelp: String {
+        String(localized: "onboarding.import.keepInSync.help",
+               defaultValue: "New pages you visit in these browsers show up in cmux too. Everything stays on this Mac.", bundle: .module)
+    }
+    /// The row menu's accessibility label.
+    static var importInto: String { String(localized: "onboarding.import.target.label", defaultValue: "Import Into", bundle: .module) }
     static func kind(_ kind: ImportDataKind) -> String {
         switch kind {
         case .bookmarks: String(localized: "onboarding.kind.bookmarks", defaultValue: "Bookmarks", bundle: .module)
@@ -110,6 +103,7 @@ enum OnboardingStrings {
         case .openTabs: String(localized: "onboarding.kind.openTabs", defaultValue: "Open Tabs", bundle: .module)
         case .extensions: String(localized: "onboarding.kind.extensions", defaultValue: "Extensions", bundle: .module)
         case .passwords: String(localized: "onboarding.kind.passwords", defaultValue: "Passwords", bundle: .module)
+        case .searchEngines: String(localized: "onboarding.kind.searchEngine", defaultValue: "Search Engine", bundle: .module)
         }
     }
 
@@ -117,5 +111,21 @@ enum OnboardingStrings {
     static func profileName(_ profile: BrowserSourceProfile) -> String {
         profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
             ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
+    }
+}
+
+public extension Optional where Wrapped == ImportCounts {
+    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204"), or (nil) that it failed.
+    func removalText(profile: String) -> String {
+        guard let counts = self else {
+            return String(localized: "onboarding.import.removed.failed", defaultValue: "Couldn’t remove the data imported into \(profile).",
+                          bundle: .module)
+        }
+        let line = ImportCountsText.line(counts)
+        guard !line.isEmpty else {
+            return String(localized: "onboarding.import.removed.none", defaultValue: "Nothing imported into \(profile).", bundle: .module)
+        }
+        return String(localized: "onboarding.import.removed", defaultValue: "Removed from \(profile): \(line). Sign-ins and passwords stay.",
+                      bundle: .module)
     }
 }

@@ -6,6 +6,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/context-proxy.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-xcrun clang++ -std=c++17 -Wall -Werror -O1 \
+# shellcheck source=lib/cxx.sh
+source "$root/scripts/cmux-next/lib/cxx.sh"
+"${cxx[@]}" -std=c++17 -Wall -Werror -O1 \
   -o "$work/test" "$root/Packages/macOS/CmuxNext/CEFShim/tests/context_proxy_test.cpp"
 "$work/test"

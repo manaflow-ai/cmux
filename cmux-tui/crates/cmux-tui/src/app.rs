@@ -47,9 +47,12 @@ mod presentation;
 mod session_apply;
 
 mod config_status;
+mod dock_ops;
 mod graphics_emit;
 mod layout_sync;
 mod render;
+mod window_docks;
+mod window_frame;
 
 mod drag_resize;
 mod input_admission;
@@ -74,6 +77,8 @@ mod mouse_dispatch;
 mod pty_mouse;
 mod pty_write;
 mod tab_moves;
+mod workspace_pins;
+pub(crate) use workspace_pins::{WorkspaceDropGeometry, WorkspaceDropSlot};
 
 mod clipboard;
 mod left_down;
@@ -420,6 +425,8 @@ pub struct App {
     /// Durable identity for per-client focus memory on the mux
     /// (client-focus-v1); None when no config directory is available.
     client_focus_id: Option<String>,
+    /// Docked workspaces: this client's frame record and last placement.
+    pub(crate) docks: window_docks::DockFrameState,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -456,6 +463,8 @@ pub struct App {
     pub(crate) machine_rail_scroll: usize,
     pub(crate) machine_footer_scroll: usize,
     pub(crate) workspace_rail_scroll: usize,
+    /// The workspace rows as last drawn, for drop slots under the pointer.
+    pub(crate) workspace_drop_geometry: Option<WorkspaceDropGeometry>,
     pub(crate) workspace_footer_scroll: usize,
     pub(crate) tabs_rail_selection: usize,
     pub(crate) tabs_rail_scroll: usize,
@@ -704,7 +713,7 @@ impl App {
             }
         }
         match &event {
-            AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
+            AppEvent::Mux(MuxEvent::LayoutChanged(..)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
@@ -719,7 +728,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(&event, AppEvent::Mux(MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_))) {
+        if matches!(&event, AppEvent::Mux(MuxEvent::TreeChanged | MuxEvent::LayoutChanged(..))) {
             self.session.clear_surface_sync_failures();
         }
         if let AppEvent::NormalizedInput(TerminalInput::Mouse(

@@ -7,6 +7,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { ApiKeyId, type TenantId } from "../lib/ids.ts";
 import { SqlClient, StoreError } from "./sql.ts";
+import type { AgentKeyRecord } from "./stores.ts";
 
 export interface NewApiKey {
   readonly id: ApiKeyId;
@@ -18,6 +19,8 @@ export interface NewApiKey {
   readonly createdBy: string;
   readonly createdAt: Date;
   readonly expiresAt: Date | null;
+  /** Set for an agent key (migration 0016). */
+  readonly agent?: AgentKeyRecord;
 }
 
 /** A key as its tenant's admins see it: no secret, no hash. */
@@ -74,10 +77,10 @@ export const sqlApiKeyAdminStoreLayer: Layer.Layer<ApiKeyAdminStore, never, SqlC
         .query(
           "api_keys.insert",
           `INSERT INTO cmux_vm.api_keys
-             (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, created_at, expires_at)
+             (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, created_at, expires_at${key.agent === undefined ? "" : ", agent_labels, agent_max_vms, agent_max_usd_per_hour"})
            VALUES ($1, $2, $3, $4, ${textArray(5)},
                    CASE WHEN $6::text::jsonb IS NULL THEN NULL ELSE ${textArray(6)} END,
-                   $7, $8::timestamptz, $9::timestamptz)`,
+                   $7, $8::timestamptz, $9::timestamptz${key.agent === undefined ? "" : ", $10::text::jsonb, $11::int, $12::numeric"})`,
           [
             key.id,
             key.tenantId,
@@ -88,6 +91,8 @@ export const sqlApiKeyAdminStoreLayer: Layer.Layer<ApiKeyAdminStore, never, SqlC
             key.createdBy,
             key.createdAt.toISOString(),
             key.expiresAt === null ? null : key.expiresAt.toISOString(),
+            // Ordinary keys keep the pre-0016 statement, so they can be issued before 0016 is applied.
+            ...(key.agent === undefined ? [] : [JSON.stringify(key.agent.labels), key.agent.maxVms, String(key.agent.maxUsdPerHour)]),
           ],
         )
         .pipe(Effect.asVoid),

@@ -1,0 +1,4 @@
+Third-party, MIT/BSD licensed, vendored unmodified:
+- marked.min.js: marked v15.0.12 (MIT) https://github.com/markedjs/marked
+- temml.min.js, Temml-Local.css, Temml.woff2: temml v0.14.0 (MIT) https://github.com/ronkok/Temml
+- highlight.min.js: highlight.js v11.12.0 (BSD-3-Clause) https://github.com/highlightjs/highlight.js

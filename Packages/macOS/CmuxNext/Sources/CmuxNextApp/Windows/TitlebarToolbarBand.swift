@@ -59,6 +59,9 @@ final class TitlebarToolbarBand: NSView {
         backButton.menuProvider = { [weak self] in self?.historyMenu?(.back) }
         forwardButton.menuProvider = { [weak self] in self?.historyMenu?(.forward) }
         [sidebarToggle, backButton, forwardButton].forEach(addSubview)
+        sidebarToggle.setAccessibilityIdentifier("cmux.titlebar.toggleSidebar")
+        backButton.setAccessibilityIdentifier("cmux.titlebar.back")
+        forwardButton.setAccessibilityIdentifier("cmux.titlebar.forward")
         followIcon()
     }
 
@@ -154,11 +157,9 @@ final class TitlebarToolbarBand: NSView {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            descriptionObservation?.cancel()
-            iconObservation?.cancel()
-        }
+        descriptionObservation?.cancel()
+        iconObservation?.cancel()
     }
 }

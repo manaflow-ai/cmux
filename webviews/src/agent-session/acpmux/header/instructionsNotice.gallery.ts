@@ -46,6 +46,13 @@ export default agentPaneEntry({
         await ctx.click({ selector: '.acpmux-instructions-notice button[data-notice-action="dismiss"]' });
         await ctx.waitFor(() => !ctx.document.querySelector('[role="alert"]'));
       },
+      checks: {
+        layoutShiftMax: {
+          value: 0.06,
+          reason:
+            "The notice joins and leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) grows and shrinks from its top, 0.040 measured each way; the composer and the rows do not move.",
+        },
+      },
     },
   },
 });

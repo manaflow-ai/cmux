@@ -1,12 +1,12 @@
 import AppKit
 
-/// Computer Use setup: both grants as rows under the title, Allow on each
-/// until it is Done.
+/// Computer Use setup: the helper's icon, a title, a row per grant with
+/// the next missing one's Allow filled, on full-window glass.
 struct StandardComputerUse: OnboardingScreenVariant {
     static let step = OnboardingModel.Step.computerUse
     static let surface = OnboardingSurface.fullGlass
+    static var size: NSSize { ComputerUseSetupView.size }
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
-        OnboardingScaffold.make(title: OnboardingStrings.computerUseTitle, subtitle: OnboardingStrings.computerUseSubtitle,
-                                body: ComputerUseStepView(model: context.model.computerUse), context: context)
+        ComputerUseSetupView(model: context.model.computerUse, context: context)
     }
 }

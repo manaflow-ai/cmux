@@ -11,6 +11,13 @@ public protocol PaletteSettingsSource: AnyObject {
     func commit(row: String, option: String)
     /// Writes typed text (a custom input).
     func commit(row: String, text: String)
+    /// Calls `onChange` when `rows` change outside a palette command (a write that landed or
+    /// failed after its command returned). One observer: a later call replaces it.
+    func observeChanges(_ onChange: @escaping @MainActor () -> Void)
+}
+
+extension PaletteSettingsSource {
+    public func observeChanges(_ onChange: @escaping @MainActor () -> Void) {}
 }
 
 public protocol PaletteRecentDirectorySource: AnyObject {

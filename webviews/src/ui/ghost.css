@@ -7,6 +7,7 @@
    control. Labels: medium weight, Apple's tracking for the size (12 px: 0; 13 px: -0.08 px).
    `.ui-ghost-sm` is the 22 px size of a footer. The caller keeps its colors. Its own file, as the
    agent pane does not load ui.css. */
+:root { --ui-ghost-icon-size: 14px; }
 .ui-ghost {
   --ui-ghost-inset: 8px;
   --ui-ghost-bearing: 2px;
@@ -41,8 +42,8 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: var(--ui-ghost-icon-size);
+  height: var(--ui-ghost-icon-size);
 }
 /* Lowest specificity, so a caller's own hover color wins. */
 .ui-ghost:where(:hover:not(:disabled, [data-disabled])) {

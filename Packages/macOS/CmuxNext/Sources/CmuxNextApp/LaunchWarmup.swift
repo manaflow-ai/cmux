@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
 import CoreFoundation
@@ -35,6 +36,8 @@ enum LaunchWarmup {
         thread.name = "cmux-next launch warm-up"
         thread.qualityOfService = .userInitiated
         thread.start()
+        // Its own thread: the connecting screen's strings can be read before the work above ends.
+        Bundle.warmResourceBundlesInBackground()
     }
 }
 

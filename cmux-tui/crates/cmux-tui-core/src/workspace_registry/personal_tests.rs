@@ -18,6 +18,8 @@ fn seed(registry: &mut WorkspaceRegistry, keys: &[&str]) {
             public_id: WorkspacePublicId::parse(format!("ws_{id:032x}")).unwrap(),
             key: (*key).into(),
             name: format!("Workspace {id}"),
+            name_source: Default::default(),
+            name_revision: 0,
             group_key: "default".into(),
         });
         registry

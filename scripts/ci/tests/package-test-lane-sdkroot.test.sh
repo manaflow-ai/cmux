@@ -14,10 +14,11 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 repo="$tmp/repo"
-mkdir -p "$repo/scripts/ci" "$repo/Packages/macOS/Fake" "$tmp/bin"
-# The lane and the Python helpers it imports (hung_test_watchdog.py needs ci_process_tree.py).
+mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$repo/Packages/macOS/Fake" "$tmp/bin"
+# The lane, the scripts it sources and the Python helpers it imports (hung_test_watchdog.py needs ci_process_tree.py).
 cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
-  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$repo/scripts/ci/"
+  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$repo/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' \
   > "$repo/Packages/macOS/Fake/Package.swift"
 dev="$tmp/Xcode_26.6.app/Contents/Developer"
@@ -55,12 +56,14 @@ chmod +x "$tmp/bin/xcrun" "$tmp/bin/swift"
 # the fake Xcode above has no python3.
 ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$tmp/bin/python3"
 fails=0
+# CMUX_PACKAGE_LANE_TEST_OS=Darwin: the macOS path this test fakes, on a Linux guard runner too.
 lane() {
   local mode="$1" code="$2" out status=0
   : > "$tmp/seen"
   out=$(cd "$repo" && env ${LANE_ENV:-} PATH="$tmp/bin:$PATH" DEVELOPER_DIR="$dev" \
     SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk \
     FAKE_SEEN="$tmp/seen" FAKE_MODE="$mode" FAKE_EXIT="$code" RUNNER_TEMP="$tmp" \
+    CMUX_PACKAGE_LANE_TEST_OS=Darwin \
     CMUX_SWIFT_TEST_STALL_SECONDS=30 CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
     bash scripts/ci/package-test-lane.sh suite Packages/macOS/Fake FakeTests 2>&1) || status=$?
   LANE_OUT="$out"; LANE_STATUS=$status

@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 
 export type ClosedItem = {
   id: string;
-  kind: "terminal" | "browser" | "screen" | "workspace";
+  kind: "terminal" | "browser" | "agent" | "screen" | "workspace";
   title: string;
   detail?: string;
   closedAt: number;
@@ -15,7 +15,7 @@ export type ClosedItem = {
   available: boolean;
 };
 
-const KINDS: readonly ClosedItem["kind"][] = ["terminal", "browser", "screen", "workspace"];
+const KINDS: readonly ClosedItem["kind"][] = ["terminal", "browser", "agent", "screen", "workspace"];
 let items: ClosedItem[] = [];
 const listeners = new Set<() => void>();
 

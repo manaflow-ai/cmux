@@ -13,6 +13,7 @@
 //! with a host confirmation for exactly it). Transport: the Unix socket and
 //! authenticated WebSocket connections, as for the person's conversations.
 
+use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -171,6 +172,10 @@ fn run(
     }
     match route.owner {
         "apps.store" => apps_store(mux, client, operation, Value::Object(params), origin),
+        #[cfg(unix)]
+        "agent_session.trust" => {
+            super::agent_session_attach::routed_trust(mux, client, operation, params)
+        }
         owner => Err(ResourceError::operation_failed(
             operation,
             "this daemon has no owner for the routed namespace",
@@ -207,7 +212,7 @@ fn apps_store(
         }
         let mut extra = json!({"code": error.code});
         if let Some(details) = error.details {
-            extra["details"] = details;
+            extra.insert("details", details);
         }
         ResourceError::operation_failed(operation, error.message, extra)
     })

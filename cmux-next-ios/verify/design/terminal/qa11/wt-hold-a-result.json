@@ -1,0 +1,14 @@
+{
+ "tag": "wt-hold-a",
+ "seconds": 150,
+ "prunes": 9,
+ "blank_page_lines": [],
+ "black_runs": [],
+ "flashes": 0,
+ "valid": false,
+ "load": [
+  15.7,
+  15.65,
+  15.36
+ ]
+}

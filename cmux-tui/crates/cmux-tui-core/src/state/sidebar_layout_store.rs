@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::Value;
 
 use super::sidebar_layout::{self, Document};
+use cmux_json::JsonSet as _;
 
 /// `sidebar_layout.get|update` and `extra.state.sidebar_layout`.
 pub const CAPABILITY: &str = "sidebar-layout-v1";
@@ -69,7 +70,7 @@ pub(crate) fn write_document(
 /// (`SidebarLayoutSnapshot`: the revision as a decimal string).
 pub(crate) fn snapshot_value(document: &Document) -> anyhow::Result<Value> {
     let mut value = serde_json::to_value(document)?;
-    value["revision"] = Value::String(document.revision.to_string());
+    value.set("revision", Value::String(document.revision.to_string()));
     Ok(value)
 }
 
@@ -80,6 +81,8 @@ pub(crate) fn snapshot(connection: &Connection) -> anyhow::Result<Value> {
         // Its migration failed at open: the stored tiles, as before.
         return snapshot_value(&document(connection)?);
     }
-    let doc = super::sidebar_doc_store::read_doc(connection)?;
-    snapshot_value(&super::sidebar_doc_legacy::project_layout(&document(connection)?, &doc))
+    let stored = document(connection)?;
+    super::sidebar_doc_store::with_doc(connection, |doc| {
+        snapshot_value(&super::sidebar_doc_legacy::project_layout(&stored, doc))
+    })
 }

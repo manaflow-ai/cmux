@@ -1,0 +1,102 @@
+name: Swift packages on Linux
+
+# The receipt behind scripts/ci/swift-linux-packages.txt: every listed package's
+# test targets, run on Linux through the same `package-test-lane.sh suite` a
+# fleet step sends there (the fleet controller routes only the listed packages'
+# suites to Linux; every other package keeps the Mac path). A package joins the
+# list only with a green run of this job, and the job runs on every change to a
+# package, the list or the script, so a listed package that stops building on
+# Linux turns it red. tests/test_swift_linux_packages.py keeps the list, the
+# manifests and this workflow in step.
+#
+# Cache: every listed package's .build, restored on every run and saved only by
+# a successful push to feat-cmux-next (never a pull request or a fork). The key
+# is the ISO week + toolchain + arch + the packages' manifests, Package.resolved,
+# the list (its per-package ENV) and the debug-info flags, never github.sha:
+# .build is rebuildable state, so the first push for a key seeds an immutable
+# entry and later runs build on it incrementally. Same pattern as
+# swift-packages-linux.yml (tests/test_ci_swift_packages_linux_cache.py).
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/package-test-lane.sh
+      - .github/workflows/swift-linux-packages.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/package-test-lane.sh
+      - .github/workflows/swift-linux-packages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-linux-packages-${{ github.ref }}
+  # A push run finishes, so it can seed the cache; a newer PR head cancels the old one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  swift-linux-packages:
+    name: Swift packages on Linux (listed)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    container: swift:6.2-noble
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Python for the lane's watchdog
+        run: command -v python3 >/dev/null || { apt-get update && apt-get install -y --no-install-recommends python3; }
+
+      - name: Cache key
+        id: key
+        run: |
+          set -euo pipefail
+          inputs="$({ find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+              -type f \( -name Package.swift -o -name Package.resolved \) -print0
+            printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
+            LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
+          {
+            echo "inputs=$inputs"
+            echo "week=$(date -u +%G-W%V)"
+            echo "toolchain=$(swift --version 2>/dev/null | head -1 | tr -cs 'A-Za-z0-9.' '-')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore .build
+        id: build_cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: Packages/**/.build
+          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ steps.key.outputs.inputs }}
+          restore-keys: |
+            swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-
+
+      - name: package-test-lane.sh suite, every listed package
+        run: |
+          set -euo pipefail
+          status=0
+          while read -r dir targets _; do
+            case "$dir" in ''|'#'*) continue ;; esac
+            echo "::group::$dir ($targets)"
+            bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+            echo "::endgroup::"
+          done < scripts/ci/swift-linux-packages.txt
+          exit "$status"
+
+      - name: Save .build
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: Packages/**/.build
+          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ steps.key.outputs.inputs }}

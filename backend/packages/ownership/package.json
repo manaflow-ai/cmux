@@ -8,11 +8,13 @@
   },
   "scripts": {
     "typecheck": "tsc -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mirror:vectors": "bun scripts/export-mirror-vectors.ts",
+    "mirror:check": "bun scripts/export-mirror-vectors.ts --check"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

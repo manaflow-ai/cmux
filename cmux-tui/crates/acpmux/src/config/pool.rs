@@ -20,11 +20,22 @@ pub struct PoolConfig {
     pub park: bool,
     /// `_acpmux/prewarm` hints this close together count once (the last).
     pub debounce_ms: u64,
+    /// Most hinted sessions one harness keeps warm across folders; the newest
+    /// hint wins. Typing in new chats in several folders keeps this many warm
+    /// agents of the harness, not one per folder. 0 counts as 1.
+    pub hinted_per_harness: u64,
 }
 
 impl Default for PoolConfig {
     fn default() -> Self {
-        Self { enabled: true, idle_minutes: 10, max_rss_mb: 1024, park: false, debounce_ms: 150 }
+        Self {
+            enabled: true,
+            idle_minutes: 10,
+            max_rss_mb: 1024,
+            park: false,
+            debounce_ms: 150,
+            hinted_per_harness: 1,
+        }
     }
 }
 

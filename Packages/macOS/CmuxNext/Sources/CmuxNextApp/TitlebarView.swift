@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// it moves the window; a double-click runs the user's titlebar action
 /// (both through `TitlebarDragPolicy`).
 final class TitlebarView: NSView, TitlebarPressDeciding {
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "") // a layer color: a theme change blends it (I5)
 
     var title: String = "" {
         didSet { label.stringValue = title }

@@ -110,3 +110,51 @@ test("an acpmux without the operations shows the CLI and no Add, Check or Remove
   expect(button(harness(page.container, "acme-agent")!, "Remove")).toBeUndefined();
   page.unmount();
 });
+
+// User 12922: a custom harness's icon is set from Settings (one emoji, an SF Symbol name, an agent,
+// or a PNG/SVG) and Automatic gives it back to acpmux; the row draws the icon acpmux resolved.
+test("a profile's icon is set from its row and the row draws it", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  const row = () => harness(page.container, "acme-agent")!;
+  // Unset: the monogram acpmux picked, never an empty box.
+  expect(row().querySelector(".agent-mark-monogram")?.textContent).toBe("AA");
+  await act(async () => button(row(), "Icon…").click());
+  const editor = () => page.container.querySelector<HTMLElement>('[data-agent-icon-editor="acme-agent"]')!;
+  await changeValue(editor().querySelector<HTMLInputElement>('[aria-label="Icon…"]')!, "🦊");
+  await act(async () => button(editor(), "Set Icon").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({
+    action: "icon",
+    id: "acme-agent",
+    icon: "🦊",
+  });
+  expect(row().querySelector(".agent-mark-emoji")?.textContent).toBe("🦊");
+  expect(page.container.querySelector('[data-agent-icon-editor="acme-agent"]')).toBeNull();
+  // Automatic: the icon line goes, acpmux picks again.
+  await act(async () => button(row(), "Icon…").click());
+  await act(async () => button(editor(), "Automatic").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({
+    action: "icon",
+    id: "acme-agent",
+    clear: true,
+  });
+  expect(row().querySelector(".agent-mark-monogram")?.textContent).toBe("AA");
+  // A dropped PNG goes as its bytes; acpmux copies it next to the profile.
+  await act(async () => button(row(), "Icon…").click());
+  const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "logo.png", { type: "image/png" });
+  await act(async () => {
+    const drop = new Event("drop", { bubbles: true, cancelable: true }) as Event & { dataTransfer: unknown };
+    drop.dataTransfer = { files: [png] };
+    editor().dispatchEvent(drop);
+  });
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({
+    action: "icon",
+    id: "acme-agent",
+    data: "iVBORw==",
+    ext: "png",
+  });
+  expect(row().querySelector<HTMLImageElement>("img.agent-mark-image")?.src).toBe("data:image/png;base64,iVBORw==");
+  page.unmount();
+});

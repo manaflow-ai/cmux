@@ -18,7 +18,7 @@ struct StatusAndGroupAssetIconsTests {
 
     /// The sidebar sections of one grouped workspace reporting a status entry, with the group
     /// and the entry both naming the stored icon.
-    func sections(asset: (String) -> SidebarFavicon?, groupAsset: ((String) -> SidebarFavicon?)? = nil,
+    func sections(asset: @escaping (String) -> SidebarFavicon?, groupAsset: ((String) -> SidebarFavicon?)? = nil,
                   extraEntries: Int = 0) -> [SidebarRowSection] {
         let store = DaemonStore()
         let group = WorkspaceGroupID(rawValue: "g1")
@@ -30,7 +30,7 @@ struct StatusAndGroupAssetIconsTests {
             workspaceID: Self.workspace,
             entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: Self.icon)]
                 + (0..<extraEntries).map { WorkspaceStatus.Entry(key: "k\($0)", text: "entry \($0)") })
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+        store.session.apply(.snapshot(mirror), in: store)
         return SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
                                               iconAsset: asset, groupIconAsset: groupAsset)
     }

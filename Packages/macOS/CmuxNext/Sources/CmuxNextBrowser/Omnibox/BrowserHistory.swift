@@ -132,6 +132,22 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         notify(.remove(gone.values.map(\.url)))
     }
 
+    /// An import's change: `entries` merge in, then the pages at `urls` go.
+    public func apply(merging entries: [BrowserHistoryEntry], forgetting urls: [URL]) {
+        if !entries.isEmpty { merge(entries) }
+        if !urls.isEmpty { forget(urls: urls) }
+    }
+
+    /// Forgets the pages at `urls` without telling `persistence` (Remove
+    /// Imported Data: the pages came from another browser, not the durable log).
+    public func forget(urls: [URL]) {
+        let keys = Set(urls.map(BrowserHistoryRanker.dedupeKey(for:)))
+        let gone = byKey.filter { keys.contains($0.key) }
+        guard !gone.isEmpty else { return }
+        for key in gone.keys { byKey[key] = nil }
+        notify(.remove(gone.values.map(\.url)))
+    }
+
     /// Forgets entries visited at or after `since` (nil: all) without
     /// telling `persistence` (the caller clears the durable log itself).
     public func forget(since: Date?) {

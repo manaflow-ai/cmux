@@ -1,4 +1,5 @@
 @testable import CmuxHomeCore
+import Foundation
 import Testing
 @testable import CmuxHomeUI
 

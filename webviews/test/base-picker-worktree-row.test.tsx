@@ -26,10 +26,10 @@ const row = (worktreeDir?: string) =>
     />,
   );
 
-test("a worktree row draws the worktree glyph, names its folder and shows the path on hover", () => {
+test("a worktree row draws the worktree glyph, names its folder and and has no tooltip", () => {
   const html = row("/Users/you/src/worktrees/atlas-feat-x");
   expect(html).toContain('data-icon="worktree"');
-  expect(html).toContain('title="/Users/you/src/worktrees/atlas-feat-x"');
+  expect(html).not.toContain("title=");
   expect(html).toMatch(/base-picker-row-secondary">atlas-feat-x</);
 });
 

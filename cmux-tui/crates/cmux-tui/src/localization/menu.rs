@@ -7,6 +7,8 @@ pub(crate) struct MenuMessages {
     pub move_tab_new_workspace: &'static str,
     pub copy_message: &'static str,
     pub copy_workspace_id: &'static str,
+    pub pin_workspace: &'static str,
+    pub unpin_workspace: &'static str,
     pub copy_tab_id: &'static str,
     pub copy_pane_id: &'static str,
     pub copy_url: &'static str,
@@ -63,6 +65,9 @@ pub(crate) struct MenuMessages {
     pub sidebar_profiles: &'static str,
     pub show_sidebar_view: &'static str,
     pub hide_sidebar_view: &'static str,
+    pub docked_workspaces: &'static str,
+    pub docked_workspaces_off: &'static str,
+    pub docked_workspace_none: &'static str,
 }
 
 pub(super) const ENGLISH: MenuMessages = MenuMessages {
@@ -71,6 +76,8 @@ pub(super) const ENGLISH: MenuMessages = MenuMessages {
     move_tab_new_workspace: "New workspace",
     copy_message: "Copy message",
     copy_workspace_id: "Copy workspace id",
+    pin_workspace: "Pin workspace",
+    unpin_workspace: "Unpin workspace",
     copy_tab_id: "Copy tab id",
     copy_pane_id: "Copy pane id",
     copy_url: "Copy URL",
@@ -125,6 +132,9 @@ pub(super) const ENGLISH: MenuMessages = MenuMessages {
     sidebar_profiles: "Layouts",
     show_sidebar_view: "Show {view}",
     hide_sidebar_view: "Hide {view}",
+    docked_workspaces: "Docked workspaces",
+    docked_workspaces_off: "Docked workspaces are off. Set viewport.docked_workspaces to true in cmux-tui.json",
+    docked_workspace_none: "This workspace is not docked",
 };
 
 pub(super) const JAPANESE: MenuMessages = MenuMessages {
@@ -133,6 +143,8 @@ pub(super) const JAPANESE: MenuMessages = MenuMessages {
     move_tab_new_workspace: "新しいワークスペース",
     copy_message: "メッセージをコピー",
     copy_workspace_id: "ワークスペース ID をコピー",
+    pin_workspace: "ワークスペースをピン留め",
+    unpin_workspace: "ワークスペースのピン留めを解除",
     copy_tab_id: "タブ ID をコピー",
     copy_pane_id: "ペイン ID をコピー",
     copy_url: "URL をコピー",
@@ -187,4 +199,7 @@ pub(super) const JAPANESE: MenuMessages = MenuMessages {
     sidebar_profiles: "レイアウト",
     show_sidebar_view: "{view}を表示",
     hide_sidebar_view: "{view}を非表示",
+    docked_workspaces: "ドッキングしたワークスペース",
+    docked_workspaces_off: "ドッキングしたワークスペースはオフです。cmux-tui.json で viewport.docked_workspaces を true に設定してください",
+    docked_workspace_none: "このワークスペースはドッキングされていません",
 };

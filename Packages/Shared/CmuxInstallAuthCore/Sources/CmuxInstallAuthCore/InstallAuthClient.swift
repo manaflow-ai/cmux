@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// One HTTP exchange; the iOS app supplies a redirect-refusing session.
@@ -62,10 +66,13 @@ public actor InstallAuthClient {
     private let signer: any InstallSigner
     private let sessionToken: SessionToken?
     private let stackUser: String
+    /// One immutable requested team per client; its token cache cannot cross scopes.
+    private let team: String?
     /// The API's `ENVIRONMENT` (`staging`, `production`, `development`,
     /// `local`), learned from the server: the challenge prefix names it and
     /// the minted token's issuer (`https://cmux-api/<environment>`) must
-    /// agree. Never derived from the host name. Nil before the first mint.
+    /// agree. Never derived from the host name. A scoped client can pin the
+    /// environment already learned by its personal client.
     /// The issuer check is a consistency check (the token signature is the
     /// owner's to verify); trust comes from TLS and the per-host install key.
     public private(set) var environment: String?
@@ -89,16 +96,20 @@ public actor InstallAuthClient {
     public static let clientVersionHeader = "x-cmux-client-version"
 
     /// - Parameters:
+    ///   - team: One backend team id, fixed for this client and its token cache. Nil keeps personal issuance.
+    ///   - expectedEnvironment: The environment already verified by the enclosing account client, when available.
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
                 stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
-                profile: InstallProfile = .ios,
+                profile: InstallProfile = .ios, team: String? = nil, expectedEnvironment: String? = nil,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
         self.signer = signer
         self.sessionToken = sessionToken
         self.stackUser = stackUser
+        self.team = team
+        self.environment = expectedEnvironment
         self.deviceName = deviceName
         self.profile = profile
         self.clientVersion = clientVersion
@@ -148,11 +159,11 @@ public actor InstallAuthClient {
         token = nil
     }
 
-    /// A revoked or unknown install is registered again with a new key, once.
+    /// The personal sign-in path can recover a revoked install once. A team refusal preserves the key and record.
     private func mintRecovering() async throws -> String {
         do {
             return try await mint()
-        } catch InstallAuthError.refused(let code) where code == "auth.forbidden" {
+        } catch InstallAuthError.refused(let code) where code == "auth.forbidden" && team == nil {
             try await signer.rotate()
             record = nil
             await onRecord(nil)
@@ -161,10 +172,15 @@ public actor InstallAuthClient {
     }
 
     private func mint() async throws -> String {
+        // Team selection belongs to the signed challenge. A denied team must not rotate the install
+        // or silently mint a personal token; the unscoped sign-in path owns registration recovery.
+        if let team, !Self.isTeam(team) { throw InstallAuthError.unexpectedChallenge }
         let record = try await ensureRegistered()
-        let challenge = try await postJSON("/v1/auth/challenge", ["user": record.user, "install": record.install], bearer: nil)
+        var request = ["user": record.user, "install": record.install]
+        if let team { request["team"] = team }
+        let challenge = try await postJSON("/v1/auth/challenge", request, bearer: nil)
         guard let nonce = challenge["nonce"] as? String, let prefix = challenge["message_prefix"] as? String,
-              let named = Self.environment(inPrefix: prefix, install: record.install), Self.isNonce(nonce) else {
+              let named = Self.environment(inPrefix: prefix, install: record.install, team: team), Self.isNonce(nonce) else {
             throw InstallAuthError.unexpectedChallenge
         }
         // Once learned, the environment never changes for this client.
@@ -174,6 +190,15 @@ public actor InstallAuthClient {
                                                           "nonce": nonce, "signature": (signature).base64URLEncoded], bearer: nil)
         guard let value = reply["access_token"] as? String else { throw InstallAuthError.malformedReply }
         guard Self.issuer(of: value) == "https://cmux-api/\(named)" else { throw InstallAuthError.unexpectedChallenge }
+        if let team {
+            let claims = Self.claims(of: value)
+            guard reply["team"] as? String == team, reply["user"] as? String == record.user,
+                  reply["install"] as? String == record.install, let grant = reply["grant"] as? String, !grant.isEmpty,
+                  claims?["team"] as? String == team, claims?["sub"] as? String == record.user,
+                  claims?["inst"] as? String == record.install, claims?["grant"] as? String == grant,
+                  claims?["aud"] as? String == "api", claims?["agt"] == nil,
+                  claims?["vm"] == nil, claims?["tvm"] == nil else { throw InstallAuthError.unexpectedChallenge }
+        }
         // A mint cancelled by reset() (sign-out) must not store its token.
         try Task.checkCancellation()
         environment = named
@@ -183,10 +208,10 @@ public actor InstallAuthClient {
         return value
     }
 
-    /// The environment in `cmux-auth-v1\n<environment>\n<install>\n`, or nil
-    /// when the prefix has any other shape.
-    static func environment(inPrefix prefix: String, install: String) -> String? {
-        let head = "cmux-auth-v1\n", tail = "\n\(install)\n"
+    /// Only the exact expected environment/install/team context may be signed.
+    static func environment(inPrefix prefix: String, install: String, team: String? = nil) -> String? {
+        let head = team == nil ? "cmux-auth-v1\n" : "cmux-auth-team-v1\n"
+        let tail = "\n\(install)\n" + (team.map { "\($0)\n" } ?? "")
         guard prefix.hasPrefix(head), prefix.hasSuffix(tail), prefix.count > head.count + tail.count else { return nil }
         let name = String(prefix.dropFirst(head.count).dropLast(tail.count))
         guard name.count <= 32, let first = name.first, first.isASCII, first.isLowercase,
@@ -196,10 +221,18 @@ public actor InstallAuthClient {
 
     /// The `iss` claim of a JWT (payload read only; the owner verifies it).
     static func issuer(of token: String) -> String? {
+        claims(of: token)?["iss"] as? String
+    }
+
+    private static func claims(of token: String) -> [String: Any]? {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3, let payload = Data(base64URLEncoded: String(parts[1])),
               let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
-        return claims["iss"] as? String
+        return claims
+    }
+
+    private static func isTeam(_ value: String) -> Bool {
+        value.utf8.count == 25 && value.hasPrefix("team_") && value.dropFirst(5).allSatisfy { "0123456789abcdef".contains($0) }
     }
 
     static func isNonce(_ value: String) -> Bool {

@@ -81,7 +81,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // that blocked the newest download, where its choice changes.
             ActionDescriptor(
                 id: "browser.download.openBlockedSiteSettings",
-                title: String(localized: "action.browser.download.openBlockedSiteSettings", defaultValue: "Open Site Settings of Blocked Download", bundle: .module),
+                title: String(localized: "action.browser.download.openBlockedSiteSettings", defaultValue: "Open Site Settings for Blocked Downloads", bundle: .module),
                 keywords: ["browser", "download", "blocked", "automatic downloads", "multiple files", "site settings", "permission", "allow"],
                 category: .browser, symbol: "gearshape", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)

@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "จำเป็น: เครื่องนี้ใช้ร่วมกันกับทีม" },
   "agentHarness": {
     "title": "ตรวจพบการกำหนดค่า harness",
     "selectionNotice": "การเลือกผู้ให้บริการจะไม่เปิดใช้งานหรือเริ่มต้น harness เหล่านี้",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "การวางแผน TDD ตัวแทนย่อย และการตรวจทาน"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "คำขอ Cloud VM ล่าช้า",
+      "message": "ไม่สามารถจัดสรร Cloud VM ได้ชั่วคราว",
+      "action": "รอหนึ่งนาที แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "คำขอสแนปช็อตต้องใช้คีย์สำหรับลองใหม่",
+      "message": "สแนปช็อต Cloud VM ต้องใช้คีย์ idempotency",
+      "action": "ลองอีกครั้งด้วย Idempotency-Key แบบคงที่ที่ยาวไม่เกิน 128 อักขระ"
+    },
+    "snapshotInProgress": {
+      "title": "สแนปชอตยังดำเนินการอยู่",
+      "message": "สแนปชอตที่ใช้คีย์ idempotency นี้ยังทำงานอยู่สำหรับ Cloud VM นี้",
+      "action": "รอให้สแนปชอตแรกเสร็จ แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "คีย์ลองใหม่ของสแนปชอตถูกใช้แล้ว",
+      "message": "คีย์ idempotency นี้ถูกใช้กับคำขอสแนปชอตอื่นบน Cloud VM นี้แล้ว",
+      "action": "ใช้คีย์ idempotency ใหม่สำหรับสแนปชอตที่มีชื่ออื่น"
+    },
+    "snapshotQuota": {
+      "title": "ถึงขีดจำกัดสแนปช็อตแล้ว",
+      "message": "Cloud VM นี้ถึงขีดจำกัดสแนปช็อตแล้ว",
+      "action": "ลบสแนปช็อตที่มีอยู่ แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
     "guestInstall": {
       "title": "การตั้งค่า Cloud VM ไม่เสร็จสมบูรณ์",
       "reason": "การตั้งค่าเกสต์ของ Cloud VM ไม่เสร็จสมบูรณ์",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "สร้างเครื่องนี้ใหม่",
       "message": "เครื่องนี้สร้างขึ้นก่อนการอัปเดต Cloud จึงเชื่อมต่อไม่ได้",
-      "action": "สร้างเครื่องใหม่ คัดลอกไฟล์ด้วย cmux vm pull และ cmux vm push แล้วลบเครื่องนี้"
+      "action": "สร้างเครื่องใหม่ เตรียมปลายทาง SCP ด้วย `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` แล้วคัดลอกไฟล์ผ่าน SCP ก่อนลบเครื่องนี้"
     },
     "guestUnresponsive": {
       "title": "เครื่องไม่ตอบสนอง",
       "message": "เครื่องนี้ไม่ตอบสนองภายในเวลาที่กำหนด จึงดำเนินการคำขอให้เสร็จไม่ได้",
-      "action": "หยุดเครื่องชั่วคราว แล้วทำงานต่อ จากนั้นลองอีกครั้ง ในแอป Mac ให้เลือก หยุดเครื่องชั่วคราว แล้วเลือก ทำงานเครื่องต่อ ในเทอร์มินัล ให้เรียกใช้ cmux vm pause '<machine>' แล้วตามด้วย cmux vm resume '<machine>'"
+      "action": "ติดต่อฝ่ายสนับสนุนพร้อมรหัสการติดตามก่อนสร้างเครื่องใหม่"
     },
     "inProgress": {
       "title": "ยังดำเนินการอยู่",
       "message": "ผู้ให้บริการคลาวด์ยังทำการเปลี่ยนแปลงนี้ไม่เสร็จ และอาจเสร็จในภายหลัง",
-      "action": "ตรวจสอบสถานะของเครื่องด้วย cmux vm ls หรือในรายการเครื่องก่อนลองอีกครั้ง"
+      "action": "ตรวจสอบสถานะของเครื่องด้วย cmux cloud list-machines หรือในรายการเครื่องก่อนลองอีกครั้ง"
     },
     "providerTimeout": {
       "title": "ผู้ให้บริการคลาวด์ตอบสนองช้า",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "เครื่องไม่ว่าง",
       "message": "เครื่องนี้กำลังเริ่มทำงาน กำลังหยุดชั่วคราว หรือไม่ได้ทำงาน จึงทำสิ่งนี้ไม่ได้ในตอนนี้",
-      "action": "รอสักครู่แล้วลองอีกครั้ง ตรวจสอบสถานะของเครื่องด้วย cmux vm ls และให้ทำงานต่อก่อนหากเครื่องหยุดชั่วคราวอยู่"
+      "action": "รอสักครู่แล้วลองอีกครั้ง ตรวจสอบสถานะของเครื่องด้วย cmux cloud list-machines และให้ทำงานต่อก่อนหากเครื่องหยุดชั่วคราวอยู่"
     },
     "networkRuleCapacity": {
       "title": "กฎเครือข่ายเต็มความจุ",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "อย่าลองใหม่ งานบนประเภทเครื่องนี้จะเก็บไว้ในโฮมวอลุ่มถาวร",
         "restore": "อย่าลองใหม่ งานบนประเภทเครื่องนี้จะเก็บไว้ในโฮมวอลุ่มถาวร",
-        "fork": "อย่าลองใหม่ สร้าง VM ใหม่ด้วย `cmux vm new`",
-        "openPort": "อย่าลองอีกครั้ง ให้เข้าถึงบริการจากภายในเครื่องด้วย `cmux vm exec` หรือใช้ประเภทเครื่องที่เปิดพอร์ตได้",
-        "default": "อย่าลองใหม่ เรียกใช้ `cmux vm ls` หรือติดต่อฝ่ายสนับสนุนหากคิดว่านี่เป็นข้อผิดพลาด"
+        "fork": "อย่าลองใหม่ สร้าง VM ใหม่ด้วย `cmux cloud new-machine`",
+        "openPort": "อย่าลองอีกครั้ง ให้เข้าถึงบริการจากภายในเครื่องด้วย `cmux cloud exec --target machine:<id> --command <command>` หรือใช้ประเภทเครื่องที่เปิดพอร์ตได้",
+        "default": "อย่าลองใหม่ เรียกใช้ `cmux cloud list-machines` หรือติดต่อฝ่ายสนับสนุนหากคิดว่านี่เป็นข้อผิดพลาด"
       }
     },
     "requiresPro": {
-      "title": "ต้องใช้ cmux Pro",
-      "message": "Cloud VM ต้องใช้แผน cmux Pro",
-      "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
+      "title": "ต้องใช้ cmux {plan}",
+      "message": "Cloud VM ต้องใช้แผน cmux {plan}",
+      "action": "อัปเกรดเป็น cmux {plan} ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
     },
     "displayName": {
       "title": "ชื่อเครื่องไม่ถูกต้อง",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "ขนาดเครื่องนี้ไม่พร้อมใช้งาน โปรดเลือกขนาดไม่เกิน {max} GiB",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go รวม VM ที่บันทึกไว้สองเครื่อง รวมเครื่องที่กำลังทำงานด้วย",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go ใช้งาน VM ได้ครั้งละหนึ่งเครื่อง",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go ใช้เวลา VM ครบ 40 ชั่วโมงในเดือนนี้แล้ว VM ที่บันทึกไว้จะใช้ได้อีกครั้งในรอบบิลถัดไป",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "ใช้โควตาการประมวลผลของ {plan} หมดแล้ว",
+      "computeMessage": "แพ็กเกจ {plan} ของคุณใช้ชั่วโมงประมวลผล {included} ชั่วโมงของรอบการเรียกเก็บเงินนี้หมดแล้ว หนึ่งชั่วโมงประมวลผลคือ 1 vCPU พร้อมหน่วยความจำ 2 GB ทำงานหนึ่งชั่วโมง เครื่องของคุณจะเริ่มทำงานได้อีกครั้งในวันที่ {resetDate}",
+      "computeAction": "เครื่องที่หยุดชั่วคราวจะเก็บไฟล์ไว้ โปรดติดต่อฝ่ายสนับสนุนหากต้องการการประมวลผลเพิ่มก่อนวันที่ {resetDate}",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "ใช้โควตาดิสก์ของ {plan} หมดแล้ว",
+      "storageMessage": "แพ็กเกจ {plan} ของคุณมีดิสก์รวม {included} GB สำหรับเครื่องที่บันทึกไว้ทั้งหมด เครื่องที่บันทึกไว้ใช้ {used} GB และคำขอนี้ต้องการ {requested} GB",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "ทรัพยากร Cloud VM ไม่พอ",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "ใช้แพ็กเกจต่อก่อนจึงจะเปลี่ยนได้",
           "granted": "ได้รับจาก cmux ไม่มีอะไรให้เปลี่ยน",
+          "grantedNoCancel": "ได้รับจาก cmux จึงไม่มีอะไรให้ยกเลิก",
+          "paymentFailed": "อัปเดตวิธีการชำระเงินก่อนเปลี่ยนแผน",
+          "foundersLifetime": "Founder's Edition รวม Pro ตลอดชีพ",
           "adminOnly": "เฉพาะผู้ดูแลทีมเท่านั้นที่เปลี่ยนแพ็กเกจได้"
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "เปลี่ยนเป็น {plan} ไหม",
         "upgradeBody": "{plan} เริ่มทันที วันนี้คุณชำระ {amount} สำหรับช่วงที่เหลือของรอบบิลนี้ ตั้งแต่ {date} คุณชำระ {price} ต่อเดือน",
+        "upgradeBodyYearly": "{plan} เริ่มทันที วันนี้คุณชำระ {amount} สำหรับช่วงที่เหลือของรอบบิลนี้ ตั้งแต่ {date} คุณชำระ {price} ต่อปี",
         "downgradeBody": "{plan} เริ่มทันที ส่วนที่ยังไม่ได้ใช้ของแพ็กเกจปัจจุบัน {credit} จะนำไปหักในใบแจ้งหนี้ถัดไป ใบแจ้งหนี้ถัดไปในวันที่ {date} คือ {amount}",
         "confirm": "เปลี่ยนเป็น {plan}",
         "keep": "ใช้แพ็กเกจปัจจุบันต่อ",
@@ -568,6 +608,8 @@
         "title": "ยกเลิก {plan} ไหม",
         "body": "คุณยังใช้ {plan} ได้จนถึง {date} หลังจากนั้นคุณจะเสีย:",
         "bodyNoDate": "คุณยังใช้ {plan} ได้จนสิ้นรอบบิลนี้ หลังจากนั้นคุณจะเสีย:",
+        "foundersBody": "การสมัคร {plan} ของคุณจะสิ้นสุดในวันที่ {date} หลังจากนั้นคุณจะมี Pro ซึ่ง Founder's Edition รวมไว้ตลอดชีพ",
+        "foundersBodyNoDate": "การสมัคร {plan} ของคุณจะสิ้นสุดเมื่อจบรอบการเรียกเก็บเงินนี้ หลังจากนั้นคุณจะมี Pro ซึ่ง Founder's Edition รวมไว้ตลอดชีพ",
         "reasonLabel": "ทำไมจึงยกเลิก (ไม่บังคับ)",
         "otherPlaceholder": "บอกเราเพิ่มเติม (ไม่บังคับ)",
         "confirm": "ยกเลิกแพ็กเกจ",
@@ -2243,6 +2285,7 @@
           "currentLineHighlight": "แต้มสีบรรทัดที่เคอร์เซอร์อยู่ขณะที่ไม่ได้เลือกข้อความใด",
           "tabWidth": "จำนวนคอลัมน์ที่ tab stop หนึ่งตำแหน่งครอบคลุม เส้นนำการเยื้องใช้ระยะเดียวกัน"
         },
+        "actions": "การดำเนินการที่ใช้ซ้ำได้สำหรับแผงคำสั่ง ปุ่มลัด ปุ่มบนแถบแท็บ และเมนูปุ่มบวก รองรับ builtin, command, agent, workspaceCommand, workspace, setting, settingPreset และ text การดำเนินการแบบข้อความจะวางลงในเทอร์มินัลที่มีโฟกัสและคงการขึ้นบรรทัดใหม่ไว้ โดย submit: true จะกด Enter การดำเนินการเกี่ยวกับการตั้งค่าต้องใช้การกำหนดค่าส่วนกลาง",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

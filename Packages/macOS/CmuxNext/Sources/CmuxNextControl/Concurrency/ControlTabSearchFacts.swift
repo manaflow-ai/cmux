@@ -2,8 +2,9 @@ public import Foundation
 
 /// What Search Tabs needs beyond the topology, published with the control
 /// snapshot so `tabs.search` answers off the main actor (architecture.md
-/// 5a): when each tab was last used, which tabs are closing, and the
-/// recently closed tabs.
+/// 5a): when each tab was last used, which tabs are closing, the
+/// recently closed tabs, and the names the tab strip gives tabs whose
+/// record title is not theirs.
 public struct ControlTabSearchFacts: Sendable, Hashable {
     /// Tab id to when the user last settled on it (the location trail).
     public var lastActive: [String: Date]
@@ -11,11 +12,17 @@ public struct ControlTabSearchFacts: Sendable, Hashable {
     public var closing: Set<String>
     /// Recently closed tabs, oldest first.
     public var closed: [ControlClosedTab]
+    /// Tab id to the title its strip shows, for a tab whose record title is
+    /// not its name: an agent chat's record carries the `about:blank` of the
+    /// page that draws it. Other tabs are named by their topology title.
+    public var titles: [String: String]
 
-    public init(lastActive: [String: Date] = [:], closing: Set<String> = [], closed: [ControlClosedTab] = []) {
+    public init(lastActive: [String: Date] = [:], closing: Set<String> = [], closed: [ControlClosedTab] = [],
+                titles: [String: String] = [:]) {
         self.lastActive = lastActive
         self.closing = closing
         self.closed = closed
+        self.titles = titles
     }
 }
 

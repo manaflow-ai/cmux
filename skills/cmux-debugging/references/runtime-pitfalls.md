@@ -4,7 +4,7 @@ Why the rules in [../SKILL.md](../SKILL.md) exist, and what to check when one bi
 
 ## Drag-and-drop UTTypes
 
-Custom UTTypes are declared in `Resources/Info.plist` under `UTExportedTypeDeclarations`, for example `com.cmux.sidebar-tab-reorder`. If drag/drop works in a narrow local test but fails across a process or extension boundary, check Info.plist before rewriting the drag model.
+A new custom UTType that must cross a process or extension boundary is declared in `Resources/Info.plist` under `UTExportedTypeDeclarations`. cmux-next declares none yet; in-app drags use plain pasteboard types such as `com.cmuxterm.bookmark-id`. If drag/drop works in a narrow local test but fails across a process or extension boundary, check Info.plist before rewriting the drag model.
 
 ## Terminal rendering and typing latency
 

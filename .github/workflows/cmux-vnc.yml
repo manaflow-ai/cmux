@@ -1,0 +1,44 @@
+name: CmuxVNC
+
+# The shared RFB (VNC) client engine (Packages/Shared/CmuxVNC): protocol,
+# authentication and decoder unit tests, plus end-to-end runs against the
+# package's loopback demo server. The cmux-next app and the iOS demo
+# (experiments/cmux-vnc-ios) both link it.
+
+on:
+  pull_request:
+    paths:
+      - Packages/Shared/CmuxVNC/**
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      - .github/workflows/cmux-vnc.yml
+  push:
+    branches: [main]
+    paths:
+      - Packages/Shared/CmuxVNC/**
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      - .github/workflows/cmux-vnc.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-vnc-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  swift-test:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Test the RFB engine
+        run: swift test --package-path Packages/Shared/CmuxVNC

@@ -9,7 +9,8 @@ fn cloud_image_paste_crash_receipt_recovers_exact_owned_bytes() {
     // Model process death: descriptors close, but Drop cannot unlink anything.
     file.cleanup = false;
     drop(file);
-    let (deadline, recovered) = ImagePasteFile::recover_one(directory.clone()).unwrap();
+    let (deadline, recovered) =
+        ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).unwrap();
     assert!(deadline <= Instant::now() + Duration::from_secs(720));
     assert_eq!(fs::read(&path).unwrap(), b"private image bytes");
     assert!(recovered.remove_owned());
@@ -28,7 +29,7 @@ fn cloud_image_paste_recovery_rejects_replaced_files() {
     fs::write(&path, "user replacement").unwrap();
     file.cleanup = false;
     drop(file);
-    assert!(ImagePasteFile::recover_one(directory.clone()).is_none());
+    assert!(ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).is_none());
     assert_eq!(fs::read_to_string(&path).unwrap(), "user replacement");
     for name in ["clipboard.png", ".receipt", "moved.png"] {
         fs::remove_file(directory.join(name)).unwrap();
@@ -40,7 +41,9 @@ fn cloud_image_paste_recovery_rejects_replaced_files() {
 fn cloud_image_paste_recovery_does_not_own_an_active_daemons_file_before_expiry() {
     let file = ImagePasteFile::create("png").unwrap();
     let path = file.path().unwrap();
-    let (_, recovered) = ImagePasteFile::recover_one(path.parent().unwrap().to_owned()).unwrap();
+    let (_, recovered) =
+        ImagePasteFile::recover_one(path.parent().unwrap().to_owned(), WallClock::default().now())
+            .unwrap();
     drop(recovered);
     assert!(path.exists());
     drop(file);
@@ -64,7 +67,7 @@ fn cloud_image_paste_recovery_requires_a_marker_even_when_inode_metadata_matches
     receipt.file_device = replacement.dev();
     receipt.file_inode = replacement.ino();
     serde_json::to_writer(File::create(&receipt_path).unwrap(), &receipt).unwrap();
-    assert!(ImagePasteFile::recover_one(directory.clone()).is_none());
+    assert!(ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).is_none());
     assert_eq!(fs::read_to_string(&path).unwrap(), "replacement user file");
     fs::remove_file(path).unwrap();
     fs::remove_file(receipt_path).unwrap();
@@ -81,9 +84,34 @@ fn cloud_image_paste_recovery_retries_an_interrupted_quarantine() {
     fs::rename(&path, &quarantine).unwrap();
     file.cleanup = false;
     drop(file);
-    let (_, recovered) = ImagePasteFile::recover_one(directory.clone()).unwrap();
+    let (_, recovered) =
+        ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).unwrap();
     assert!(recovered.remove_owned());
     drop(recovered);
     assert!(!quarantine.exists());
     assert!(!directory.exists());
+}
+
+#[test]
+fn cloud_image_paste_receipt_rewrite_removes_only_an_owned_leftover() {
+    let mut file = ImagePasteFile::create("png").unwrap();
+    let directory = file.directory().to_owned();
+    let receipt = || -> Receipt {
+        serde_json::from_reader(File::open(directory.join(".receipt")).unwrap()).unwrap()
+    };
+    // A crash between writing the next receipt and renaming it leaves an
+    // owned copy at the private write name; the next rewrite replaces it.
+    fs::copy(directory.join(".receipt"), directory.join(".receipt-next")).unwrap();
+    file.set_expiry(42).unwrap();
+    assert_eq!(receipt().expires, 42);
+    assert!(!directory.join(".receipt-next").exists());
+    // A file at that name without this upload's token is never removed.
+    fs::write(directory.join(".receipt-next"), "user file").unwrap();
+    assert!(file.set_expiry(43).is_err());
+    assert_eq!(receipt().expires, 42);
+    assert!(file.remove_owned());
+    assert_eq!(fs::read_to_string(directory.join(".receipt-next")).unwrap(), "user file");
+    fs::remove_file(directory.join(".receipt-next")).unwrap();
+    fs::remove_dir(&directory).unwrap();
+    file.cleanup = false;
 }

@@ -98,7 +98,7 @@ fn byte_attachment_live_daemon_identity_attach_input_resize_detach_and_reattach(
     let terminal = workspace.resource.run(RunCommand::argv(["cat"]).unwrap()).unwrap();
     let terminal_id = terminal.resource.id().expect("created terminal has an id").clone();
     let mut raw = cmux::raw::Client::connect(ClientConfig::from_socket_path(&socket)).unwrap();
-    let generation = raw.identify(IdentifyRequest {}).unwrap().generation;
+    let generation = raw.identify(IdentifyRequest::default()).unwrap().generation;
 
     let config = ClientConfig::from_socket_path(&socket).with_timeout(Duration::from_secs(10));
     let target =

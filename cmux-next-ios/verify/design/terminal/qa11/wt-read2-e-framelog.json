@@ -1,0 +1,107 @@
+{
+ "frames": 2454,
+ "blank_frames": 0,
+ "blank_runs": [],
+ "blank_runs_over_1_frame": 0,
+ "dt_max": 66.53,
+ "dt_top10": [
+  66.53,
+  64.44,
+  48.03,
+  44.62,
+  43.72,
+  42.77,
+  38.2,
+  36.55,
+  36.23,
+  36.14
+ ],
+ "frames_over_100ms": 0,
+ "frames_over_250ms": 0,
+ "longest": [
+  {
+   "t": 1792071518.269,
+   "dt_ms": 66.53,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071513.185,
+   "dt_ms": 64.44,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071520.376,
+   "dt_ms": 48.03,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071521.912,
+   "dt_ms": 44.62,
+   "phase": "reading",
+   "work_ms": 20.19,
+   "parts": {
+    "scrollbar": 19.473,
+    "present-read": 0.082,
+    "present": 0.129,
+    "viewport-request": 0.08,
+    "did-scroll": 0.332,
+    "output-batch": 0.29
+   }
+  },
+  {
+   "t": 1792071515.519,
+   "dt_ms": 43.72,
+   "phase": "following",
+   "work_ms": 0.38,
+   "parts": {
+    "scrollbar": 0.003,
+    "present-read": 0.076,
+    "present": 0.108,
+    "viewport-request": 0.028,
+    "did-scroll": 0.048,
+    "output-batch": 0.213
+   }
+  },
+  {
+   "t": 1792071513.472,
+   "dt_ms": 42.77,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071515.355,
+   "dt_ms": 38.2,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071519.852,
+   "dt_ms": 36.55,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071514.836,
+   "dt_ms": 36.23,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071519.252,
+   "dt_ms": 36.14,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  }
+ ]
+}

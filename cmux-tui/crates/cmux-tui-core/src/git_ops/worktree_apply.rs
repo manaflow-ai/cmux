@@ -242,8 +242,11 @@ fn apply(attempt: &Attempt, resumed: bool) -> Result<(), ResourceError> {
 /// unstaged change against HEAD, or a file there that git does not track
 /// (untracked or ignored).
 fn changed_in_main(main_root: &Path, names: &[Vec<u8>]) -> Result<Vec<String>, ResourceError> {
+    // The main checkout can have filter drivers of its own (`config.worktree`).
+    let overrides =
+        cmux_git::filter_overrides(main_root).map_err(|failure| run_failed(OPERATION, &failure))?;
     let list = |arguments: &[&str]| -> Result<HashSet<Vec<u8>>, ResourceError> {
-        match run_git(main_root, &[], arguments, MAX_PATH_LIST_BYTES) {
+        match run_git(main_root, &overrides, arguments, MAX_PATH_LIST_BYTES) {
             Ok(output) if !output.truncated => {
                 Ok(split_names(&output.stdout).into_iter().collect())
             }

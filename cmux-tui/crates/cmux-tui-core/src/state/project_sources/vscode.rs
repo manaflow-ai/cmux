@@ -9,7 +9,10 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::{Layout, SourceScan, modified_ms, open_read_only};
+use super::{
+    Layout, MAX_SOURCE_ENTRIES, MAX_SOURCE_FILE_BYTES, MAX_SOURCE_PATH_BYTES, SourceScan,
+    modified_ms, open_read_only, read_text_bounded,
+};
 use crate::state::projects::Observation;
 
 /// (product folder, source id).
@@ -63,29 +66,41 @@ fn recent_list(db: &Path) -> Option<Vec<Observation>> {
     let connection = open_read_only(db)?;
     let raw: String = connection
         .query_row(
-            "SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
-            [],
+            "SELECT CAST(substr(CAST(value AS BLOB), 1, ?1) AS TEXT)
+             FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
+            [i64::try_from(MAX_SOURCE_FILE_BYTES + 1).ok()?],
             |row| row.get(0),
         )
         .ok()?;
+    if raw.len() > MAX_SOURCE_FILE_BYTES {
+        return None;
+    }
     let list: Value = serde_json::from_str(&raw).ok()?;
     let paths = list
         .get("entries")?
         .as_array()?
         .iter()
         .filter_map(|entry| entry.get("folderUri")?.as_str().and_then(local_folder))
-        .collect();
+        .take(MAX_SOURCE_ENTRIES + 1)
+        .collect::<Vec<_>>();
+    if paths.len() > MAX_SOURCE_ENTRIES {
+        return None;
+    }
     Some(ordered(paths, db))
 }
 
 fn profile_workspaces(file: &Path) -> Option<Vec<Observation>> {
-    let storage: Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
+    let storage: Value = serde_json::from_str(&read_text_bounded(file)?).ok()?;
     let paths = storage
         .pointer("/profileAssociations/workspaces")?
         .as_object()?
         .keys()
         .filter_map(|uri| local_folder(uri))
-        .collect();
+        .take(MAX_SOURCE_ENTRIES + 1)
+        .collect::<Vec<_>>();
+    if paths.len() > MAX_SOURCE_ENTRIES {
+        return None;
+    }
     Some(ordered(paths, file))
 }
 
@@ -96,5 +111,5 @@ fn local_folder(uri: &str) -> Option<String> {
         return None;
     }
     let path = url.to_file_path().ok()?.to_string_lossy().into_owned();
-    (!path.ends_with(".code-workspace")).then_some(path)
+    (path.len() <= MAX_SOURCE_PATH_BYTES && !path.ends_with(".code-workspace")).then_some(path)
 }

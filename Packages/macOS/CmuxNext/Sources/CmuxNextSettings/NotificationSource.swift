@@ -9,6 +9,25 @@ public nonisolated enum NotificationSource: String, Hashable, Sendable, CaseIter
     case terminal
     /// An agent hook (Claude Code, Codex) or any daemon-side producer.
     case agent
+
+    /// The source a daemon sends (`notification-source-v1`). `daemon` producers and daemons
+    /// without sources count as agent, as before sources existed.
+    public init(wire: String?) {
+        self = wire.flatMap(NotificationSource.init(rawValue:)) ?? .agent
+    }
+}
+
+public nonisolated extension NotificationSource {
+    /// What Settings calls this source (`notifications.sources.<source>`), for
+    /// any UI that names a notification's producer. One name and one catalog
+    /// key, so a row reads the way the setting that governs it does.
+    var settingsTitle: SettingText {
+        switch self {
+        case .cli: SettingsText.keyed("settings.notifications.source.cli", "cmux notify")
+        case .terminal: SettingsText.keyed("settings.notifications.source.terminal", "Terminal Programs")
+        case .agent: SettingsText.keyed("settings.notifications.source.agent", "Agents")
+        }
+    }
 }
 
 /// Per-source overrides (`notifications.sources.<source>`); nil keeps the global value.

@@ -15,6 +15,11 @@ extension SidebarWorkspace {
         if let badge = decoration.badge { row.status = badge }
         return row
     }
+
+    /// The row with its overrides in `decorations` (by id, else by title).
+    public func decorated(by decorations: [String: SidebarRowDecoration]) -> SidebarWorkspace {
+        decorations.isEmpty ? self : decorated(decorations[id.rawValue] ?? decorations["title:" + title])
+    }
 }
 
 extension SidebarSection {
@@ -25,9 +30,10 @@ extension SidebarSection {
             var section = section
             section.nodes = section.nodes.map { node in
                 switch node {
-                case let .workspace(ws): .workspace(ws.decorated((decorations[ws.id.rawValue] ?? decorations["title:" + ws.title])))
+                case let .workspace(ws): .workspace(ws.decorated(by: decorations))
                 case let .group(group):
-                    .group({ var group = group; group.workspaces = group.workspaces.map { $0.decorated((decorations[$0.id.rawValue] ?? decorations["title:" + $0.title])) }; return group }())
+                    .group({ var group = group; group.workspaces = group.workspaces.map { $0.decorated(by: decorations) }; return group }())
+                case .item: node
                 }
             }
             return section

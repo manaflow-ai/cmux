@@ -275,3 +275,73 @@ fn keybindings_owner_reports_a_hand_edit_of_the_file_on_the_subscribe_stream() {
     assert_eq!(event["origin"], "cli", "{event}");
     assert!(event["revision"].as_u64().is_some(), "{event}");
 }
+
+/// K1 (cx-9ce.37): a bare first stroke (no cmd, ctrl or opt) binds only
+/// under a `when` whose `&&` terms require a bare-key page (the diff viewer,
+/// a read-only markdown page) and no context that can hold with a text
+/// field; the app's loader applies the same rule (keybinding-vectors.json).
+/// Other bare entries stay out of `keybindings.get` with a diagnostic, and
+/// `keybindings.set` refuses them without a write.
+#[test]
+fn keybindings_owner_binds_a_bare_sequence_only_under_a_bare_key_page() {
+    let (config, keybindings) = KeybindingsDaemon::files("keybindings-owner-bare");
+    let file = r#"[
+  {"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused"},
+  {"key": "] f", "command": "diffViewerNextFile", "when": "pageId == 'cmux.diff' && (diffViewerFocused)"},
+  {"key": "g g", "command": "markdownGoToTop"},
+  {"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused && textInputFocus"},
+  {"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused || terminalFocused"},
+  {"key": "g g", "command": "markdownGoToTop", "when": "!markdownReadOnlyFocused"},
+  {"key": "g g", "command": "markdownGoToTop", "when": "pageId == 'a && markdownReadOnlyFocused'"},
+  {"key": "opt+g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused"}
+]
+"#;
+    fs::write(&keybindings, file).unwrap();
+    let daemon = KeybindingsDaemon::start("keybindings-owner-bare", config, keybindings);
+    let entries = daemon.entries();
+    let loaded: Vec<_> =
+        entries.iter().map(|entry| (entry["keys"].clone(), entry["when"].clone())).collect();
+    assert_eq!(
+        loaded,
+        vec![
+            (serde_json::json!(["g", "g"]), serde_json::json!("markdownReadOnlyFocused")),
+            (
+                serde_json::json!(["]", "f"]),
+                serde_json::json!("pageId == 'cmux.diff' && (diffViewerFocused)")
+            ),
+        ],
+        "{entries:?}"
+    );
+    let get = daemon.ok("keybindings.get", serde_json::json!({}), false);
+    let refused: Vec<_> = get["diagnostics"]
+        .as_array()
+        .unwrap_or_else(|| panic!("keybindings.get has no diagnostics: {get}"))
+        .iter()
+        .map(|diagnostic| {
+            assert!(
+                diagnostic["message"].as_str().is_some_and(|text| text.contains("bare-key")),
+                "{diagnostic}"
+            );
+            diagnostic["index"].as_u64().unwrap_or(u64::MAX)
+        })
+        .collect();
+    assert_eq!(refused, vec![2, 3, 4, 5, 6, 7], "{get}");
+
+    let before = daemon.file();
+    let refusal = daemon.refused(
+        "keybindings.set",
+        serde_json::json!({"command": "markdownGoToTop", "key": "g t", "when": "textInputFocus && markdownReadOnlyFocused"}),
+    );
+    assert!(refusal.contains("keybindings.invalid"), "{refusal}");
+    assert_eq!(daemon.file(), before, "a refused write changed the file");
+    daemon.ok(
+        "keybindings.set",
+        serde_json::json!({"command": "markdownGoToTop", "key": "g t", "when": "markdownReadOnlyFocused"}),
+        true,
+    );
+    assert!(
+        daemon.entries().iter().any(|entry| entry["keys"] == serde_json::json!(["g", "t"])),
+        "{}",
+        daemon.file()
+    );
+}

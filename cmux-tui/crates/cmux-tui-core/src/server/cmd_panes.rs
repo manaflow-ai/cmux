@@ -5,6 +5,7 @@
 
 use super::node_json;
 use crate::model::State;
+use crate::panic_free::JsonFields;
 
 use super::Command;
 use super::LayoutRequest;
@@ -166,6 +167,7 @@ pub(super) fn set_column_dock(
     mode: Option<String>,
     role: Option<String>,
     permanent: Option<bool>,
+    pinned: Option<bool>,
     transaction: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut dock =
@@ -174,6 +176,8 @@ pub(super) fn set_column_dock(
     // omitted keeps the current value (a permanent column stays one).
     if let Some(flag) = dock.as_mut() {
         flag.permanent = permanent == Some(true);
+        // `pinned-dock-v1`: the same for `pinned`; `allow_tabs` stays.
+        flag.pinned = pinned == Some(true);
     }
     let outcome = mux.set_column_dock_as(
         &actor,
@@ -183,7 +187,7 @@ pub(super) fn set_column_dock(
     )?;
     let mut data = json!({"column": outcome.column, "dock": outcome.dock});
     if let Some(transaction) = transaction {
-        data["transaction"] = json!(transaction);
+        data.insert("transaction", json!(transaction));
     }
     Ok(data)
 }
@@ -331,7 +335,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     let mut value = json!({
-        "layout": node_json(&screen.root, screen.active_pane),
+        "layout": node_json(&screen.root, screen.active_pane, &state.resource_indexes.split_ids),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes
@@ -342,15 +346,18 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
         }).collect::<Vec<_>>(),
     });
     if !screen.viewport_splits.is_empty() {
-        value["viewport_splits"] = json!(
-            screen
-                .viewport_splits
-                .iter()
-                .map(|(split, width)| json!({"split": split, "width": width}))
-                .collect::<Vec<_>>()
+        value.insert(
+            "viewport_splits",
+            json!(
+                screen
+                    .viewport_splits
+                    .iter()
+                    .map(|(split, width)| json!({"split": split, "width": width}))
+                    .collect::<Vec<_>>()
+            ),
         );
         if let Some(width) = screen.viewport_base_width {
-            value["viewport_base_width"] = json!(width);
+            value.insert("viewport_base_width", json!(width));
         }
     }
     Ok(value)

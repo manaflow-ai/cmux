@@ -38,6 +38,7 @@ const applySubscriptionUpdate = mock(async () => {
   if (applySubscriptionUpdateError) throw applySubscriptionUpdateError;
   return applySubscriptionUpdateResult;
 });
+const markTeamSeatsDirty = mock(async () => {});
 const revokeCoderouterRouteTokens = mock(async () => {});
 const revokeCoderouterTeamRouteTokens = mock(async () => {});
 const captureStripeBillingEvent = mock(async () => {});
@@ -121,6 +122,7 @@ const POST = makeStripeWebhookHandler({
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
+  markTeamSeatsDirty,
   sendProSignupWelcome,
   isPersonalWelcomeConfigured: () => personalWelcomeConfigured,
   revokeCoderouterRouteTokens,
@@ -178,6 +180,7 @@ describe("Stripe billing webhook route", () => {
     recordCheckoutCompletion.mockClear();
     recordFoundersCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
+    markTeamSeatsDirty.mockClear();
     revokeCoderouterRouteTokens.mockClear();
     revokeCoderouterTeamRouteTokens.mockClear();
     captureStripeBillingEvent.mockClear();
@@ -605,6 +608,7 @@ describe("Stripe billing webhook route", () => {
     expect(response.status).toBe(200);
     expect(applySubscriptionUpdate).toHaveBeenCalledWith(
       retrievedSubscription,
+      { markTeamSeatsDirty: false },
     );
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
     expect(captureStripeBillingEvent).not.toHaveBeenCalled();
@@ -682,7 +686,7 @@ describe("Stripe billing webhook route", () => {
 
     expect(response.status).toBe(200);
     expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
-    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription);
+    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty: false });
     expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
     await deferredTasks[0]();
     expect(captureStripeBillingEvent).toHaveBeenCalledWith(currentEvent, {
@@ -826,6 +830,29 @@ describe("Stripe billing webhook route", () => {
     expect(updates.at(-1)).toMatchObject({
       error: "retryable: Another account mutation is still in progress.",
     });
+  });
+
+  test("queues Team seat reconciliation for subscription create and update events", async () => {
+    for (const type of ["customer.subscription.created", "customer.subscription.updated"]) {
+      applySubscriptionUpdate.mockClear();
+      currentEvent = {
+        id: `evt_${type}`,
+        type,
+        data: { object: { id: "sub_team" } },
+      };
+      retrievedSubscription = {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_1", app: "cmux", plan: "team" },
+        cancel_at_period_end: false,
+        items: { data: [{ quantity: 2, price: { id: "price_team" } }] },
+      };
+      applySubscriptionUpdateResult = { scope: "team", stackTeamId: "team_1", isActive: true };
+
+      expect((await POST(webhookRequest())).status).toBe(200);
+      expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty });
+    }
   });
 });
 

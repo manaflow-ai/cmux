@@ -73,11 +73,9 @@ final class ProjectsImport {
     init(services: AppServices) { self.services = services }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            sending?.cancel()
-        }
+        sending?.cancel()
     }
 
     /// Follows the chat index and the local daemon connection for the app's life.
@@ -107,7 +105,7 @@ final class ProjectsImport {
             return
         }
         guard let services, let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapabilities.shared.projectList) else { return }
+              services.machines.local.supports(DaemonCapability.projectList.rawValue) else { return }
         let id = ObjectIdentifier(connection)
         let fresh = connectionID != id
         if fresh { sent = [:] }

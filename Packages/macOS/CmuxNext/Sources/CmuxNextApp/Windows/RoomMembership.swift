@@ -25,8 +25,15 @@ struct RoomMembership: Equatable, Sendable {
         return followers.isEmpty ? [.defaultProfile] : followers
     }
 
+    /// `rooms(of:).contains(room)` without building the set (the control snapshot asks it per workspace).
     func contains(_ workspace: Workspace, in room: ProfileID) -> Bool {
-        rooms(of: workspace).contains(room)
+        if let pinned = pins[workspace] { return pinned == room }
+        var followed = false
+        for (follower, sessions) in follows where sessions.contains(workspace.session) {
+            if follower == room { return true }
+            followed = true
+        }
+        return !followed && room == .defaultProfile
     }
 
     /// Whether Delete Space on `room` closes `workspace`

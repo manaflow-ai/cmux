@@ -1,6 +1,7 @@
 //! Terminal output and exit snapshots read from state: plain output rendering, output read results, run placements, and exit snapshots.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Render raw terminal output bytes to plain text by replaying them through
 /// a fresh terminal emulator sized to the recorded geometry, then formatting
@@ -59,12 +60,14 @@ pub(super) fn terminal_exit_snapshot_in_state(
         .terminal_resource_id(terminal_id)?
         .ok_or_else(|| anyhow::anyhow!("terminal {terminal_id} has no public resource id"))?;
     let content_id = ContentPublicId::Terminal(public_id.clone());
-    let topology = registry.resource_topology_snapshot()?;
-    let tab_ids = topology
-        .tabs
-        .iter()
-        .filter(|tab| tab.content_id == content_id)
-        .map(|tab| tab.public_id.clone())
+    // The terminal's own tabs by the content index, in the topology's order
+    // (pane, position). Loading the whole topology per exit made a reboot's
+    // adoption O(lost terminals x topology): 1.5 s of 2.8 s for 462 losses on
+    // a nightly registry (Lawrence 2026-10-29).
+    let tab_ids = registry
+        .resource_tabs_of_content(public_id.as_str())?
+        .into_iter()
+        .map(|tab| tab.public_id)
         .collect::<Vec<_>>();
     let surface = state.surface_by_content_public_id(&content_id);
     let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
@@ -78,7 +81,7 @@ pub(super) fn terminal_exit_snapshot_in_state(
         "running": false,
     });
     if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
-        snapshot["cwd"] = serde_json::json!(cwd);
+        snapshot.set("cwd", serde_json::json!(cwd));
     }
     Ok(snapshot)
 }

@@ -13,7 +13,7 @@ extension BrowserHistoryStarts {
         let skip: String? = if let url, ["http", "https", "file"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil {
             cache.pageRequests.proxiedTabs.isProxied(key) || !tab.isFrontendOwned || service.isIncognitoTab(key) ? "skip-page-kind"
                 : service.writers[key] != nil ? "skip-tracked" : service.wasOpenedHere(tab) ? "skip-opened-here"
-                : !daemon.isLocal ? "skip-remote" : !daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) ? "skip-no-capability" : nil
+                : !daemon.isLocal ? "skip-remote" : !daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) ? "skip-no-capability" : nil
         } else { "skip-address" }
         if let skip { outcomes[key] = skip }
         guard skip == nil, let url else { return nil }
@@ -32,7 +32,7 @@ extension BrowserHistoryStarts {
         guard configuration.restoreState == nil, configuration.machineStore == nil, let url = configuration.initialURL,
               ["http", "https", "file"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil,
               tab.isFrontendOwned, !service.isIncognitoTab(key), !service.wasOpenedHere(tab), daemon.isLocal,
-              daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) else { return configuration }
+              daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) else { return configuration }
         // As for a WebKit page, a slow read makes the page at its address.
         let saved = await BrowserHistoryWriter.within(Self.budget, sleep: service.sleep) {
             await service.fetchHistory(daemon, tab.surface)

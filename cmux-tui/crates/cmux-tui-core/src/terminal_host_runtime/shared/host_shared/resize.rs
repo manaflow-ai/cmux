@@ -1,6 +1,7 @@
 //! Viewer sizes and parser resizes of a terminal host.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl HostShared {
     pub(crate) fn set_viewer_size(
@@ -47,9 +48,9 @@ impl HostShared {
         // size and cell_pixels, matching the other geometry mutation
         // paths, so concurrent viewer and cell-metric updates cannot
         // acquire the locks in opposite orders.
-        let _source_order = self.source_order_lock.lock().unwrap();
-        let mut size = self.size.lock().unwrap();
-        let cell_pixels = self.cell_pixels.lock().unwrap();
+        let _source_order = self.source_order_lock.lock().recover_poison();
+        let mut size = self.size.lock().recover_poison();
+        let cell_pixels = self.cell_pixels.lock().recover_poison();
         let changed = *size != (cols, rows);
         if !changed && !acknowledge_with_replay {
             let targeted = targeted_ack.map(|(request_id, tap)| {
@@ -77,6 +78,30 @@ impl HostShared {
             payload.extend_from_slice(&rows.to_le_bytes());
             self.smart.publish(Frame::new(MessageKind::Resized, payload))
         });
+        // The program gets SIGWINCH now, not when the parser reaches this
+        // command behind up to MAX_HOST_PARSER_QUEUED_BYTES of output. The
+        // order rule still holds: the reader enqueues under
+        // `source_order_lock`, which this call holds until the parser
+        // answers, so every byte read after this resize parses after the
+        // grid resize; the output queued ahead of it was written at the
+        // old size and parses on the old grid.
+        let pty_previous = if changed {
+            let previous = pty_size(size.0, size.1, *cell_pixels);
+            if let Err(error) =
+                self.master.lock().recover_poison().resize(pty_size(cols, rows, *cell_pixels))
+            {
+                self.smart.close_failed_transition(source_cursor);
+                return Err(error);
+            }
+            Some(previous)
+        } else {
+            None
+        };
+        let restore_pty = || {
+            if let Some(previous) = pty_previous {
+                let _ = self.master.lock().recover_poison().resize(previous);
+            }
+        };
         let (response_sender, response_receiver) = sync_channel(1);
         let command = ParserCommand::Resize {
             cols,
@@ -85,15 +110,18 @@ impl HostShared {
             source_cursor,
             acknowledge_with_replay,
             targeted_ack: targeted_ack.map(|(request_id, tap)| (request_id, tap.clone())),
+            pty_previous,
             response: response_sender,
         };
         if self.parser_commands.send(command).is_err() {
+            restore_pty();
             self.smart.close_failed_transition(source_cursor);
             anyhow::bail!("terminal parser worker stopped");
         }
         let result = match response_receiver.recv() {
             Ok(result) => result,
             Err(_) => {
+                restore_pty();
                 self.smart.close_failed_transition(source_cursor);
                 anyhow::bail!("terminal parser worker stopped");
             }
@@ -111,6 +139,8 @@ impl HostShared {
         }
     }
 
+    /// The parser's resize when the PTY has not changed yet (tests).
+    #[cfg(test)]
     pub(crate) fn apply_parser_resize(
         &self,
         cols: u16,
@@ -120,15 +150,40 @@ impl HostShared {
         targeted_ack: Option<(u64, HostTap)>,
         cell_pixels: (u16, u16),
     ) -> ParserResizeResult {
-        let mut term = self.term.lock().unwrap();
+        self.apply_parser_resize_after_pty(
+            cols,
+            rows,
+            source_cursor,
+            acknowledge_with_replay,
+            targeted_ack,
+            cell_pixels,
+            None,
+        )
+    }
+
+    /// Apply a queued resize to the grid. With `pty_previous`, the PTY
+    /// already holds the new size; a failure before the grid changes puts
+    /// the PTY back to `pty_previous`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply_parser_resize_after_pty(
+        &self,
+        cols: u16,
+        rows: u16,
+        source_cursor: Option<u64>,
+        acknowledge_with_replay: bool,
+        targeted_ack: Option<(u64, HostTap)>,
+        cell_pixels: (u16, u16),
+        pty_previous: Option<PtySize>,
+    ) -> ParserResizeResult {
+        let mut term = self.term.lock().recover_poison();
         let previous = (term.cols(), term.rows());
         let acknowledgement_queued = (|| -> anyhow::Result<bool> {
             let requested_change = previous != (cols, rows);
-            let master = self.master.lock().unwrap();
+            let master = self.master.lock().recover_poison();
             let resize_sizes = if requested_change {
                 Some((
-                    pty_size(previous.0, previous.1, cell_pixels)?,
-                    pty_size(cols, rows, cell_pixels)?,
+                    pty_size(previous.0, previous.1, cell_pixels),
+                    pty_size(cols, rows, cell_pixels),
                 ))
             } else {
                 None
@@ -141,7 +196,7 @@ impl HostShared {
                 frame.request_id = *request_id;
                 (tap, frame)
             });
-            let has_legacy_clients = !self.taps.lock().unwrap().is_empty();
+            let has_legacy_clients = !self.taps.lock().recover_poison().is_empty();
             let publish_legacy_resize =
                 acknowledge_with_replay || (requested_change && has_legacy_clients);
             let replay_is_safe = term.vt_stream_is_ground();
@@ -151,7 +206,9 @@ impl HostShared {
                         "could not preflight terminal-host resize replay; geometry unchanged",
                     )?;
                 }
-                master.resize(next_size)?;
+                if pty_previous.is_none() {
+                    master.resize(next_size)?;
+                }
                 if let Err(error) =
                     term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
                 {
@@ -180,7 +237,7 @@ impl HostShared {
                         // the canonical resize and make compatibility clients
                         // reconnect instead of attempting a destructive
                         // inverse resize after Ghostty has reflowed state.
-                        let mut taps = self.taps.lock().unwrap();
+                        let mut taps = self.taps.lock().recover_poison();
                         for tap in taps.values() {
                             tap.close();
                         }
@@ -247,6 +304,13 @@ impl HostShared {
             Ok(acknowledgement_queued)
         })();
         let applied = (term.cols(), term.rows());
+        if acknowledgement_queued.is_err()
+            && applied == previous
+            && previous != (cols, rows)
+            && let Some(pty_previous) = pty_previous
+        {
+            let _ = self.master.lock().recover_poison().resize(pty_previous);
+        }
         ParserResizeResult {
             acknowledgement_queued: acknowledgement_queued.map_err(|error| error.to_string()),
             changed: applied != previous,

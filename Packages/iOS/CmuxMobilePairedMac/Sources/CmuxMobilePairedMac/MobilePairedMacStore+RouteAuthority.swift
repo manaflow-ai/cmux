@@ -1,7 +1,9 @@
 public import CMUXMobileCore
 public import Foundation
 import SQLite3
+#if canImport(os)
 import os
+#endif
 
 // MobilePairedMacStore's route authority: conditional route writes and removals, route
 // tombstones, and the device-local Tailscale compatibility grants.

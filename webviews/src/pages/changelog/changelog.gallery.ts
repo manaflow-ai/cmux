@@ -2,7 +2,14 @@
 import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
+import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
+import realChanges from "./fixtures/real-pr-changes.json";
+import type { ReleaseNotes } from "./types";
+import { clipNotes, clipRoute } from "./clipFixtures";
 import { journalNotes } from "./whatsNewFixtures";
+
+/** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
+const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
 
 const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   build: `37203579${String(6000 + index)}`,
@@ -18,8 +25,13 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
           },
         ]
       : [],
-  changes: Array.from({ length: (index % 5) + 1 }, (_, change) => `sample change ${index + 1}.${change + 1}`),
+  // Real landed pull requests, so each change shows its linked title and number.
+  items: realChanges.slice(start(index), start(index) + (index % 5) + 1),
+  changes: realChanges.slice(start(index), start(index) + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
 }));
+
+/** A real published reel (scripts/cmux-next/media/reel.py), so the gallery shows the card as it plays. */
+const nightlyReel = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193688601/reel.mp4";
 
 export default changelogPageEntry({
   id: "pages.changelog",
@@ -34,8 +46,15 @@ export default changelogPageEntry({
     "pages/changelog/RailPage.tsx",
     "pages/changelog/DigestPage.tsx",
     "pages/changelog/ReleaseParts.tsx",
+    "pages/changelog/SpanNews.tsx",
+    "pages/changelog/clipFixtures.ts",
   ],
   variants: {
+    "nightly-3913596493801": {
+      note: "The update from 1.0.0-nightly.3911762409401 to 3913596493801 (2026-10-18): the ten signed notes of that span as published, perf-split commits, cut titles and bead ids included.",
+      notes: nightly3913596493801 as ReleaseNotes[],
+      route: "#/?from=1.0.0-nightly.3911762409401&to=1.0.0-nightly.3913596493801",
+    },
     "nightly-update": {
       note: "Real nightly-next notes: opened after the update from 1.0.0-nightly.3797234815201 to 3832783556401. Highlights of the span first, then one section per day.",
       notes: realNightlies,
@@ -50,14 +69,64 @@ export default changelogPageEntry({
       note: "Opened from the Help menu (no update span): one section per day.",
       notes: realNightlies,
     },
-    journal: {
-      note: "Design A (default): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+    ledger: {
+      note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
       notes: journalNotes,
+    },
+    "ledger-wide": {
+      note: "Layout variant: full-pane Ledger with 24–32px margins, compact version/date rail, and descriptions that use the available width.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "ledger-two-up": {
+      note: "Layout variant: wide Ledger rows place the full description beside its media in a responsive two-column grid, stacking on narrow panes.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "ledger-glass": {
+      note: "Layout variant: the same full-width Ledger with shared glass tokens and material on media frames and item surfaces.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "clips-alternate": {
+      note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate: the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
+      notes: clipNotes,
+      route: `#/?news=alternate&${clipRoute}`,
+    },
+    "clips-stack": {
+      note: "The same update, Stack: one change after another, the clip on top and its caption under it.",
+      notes: clipNotes,
+      route: `#/?news=stack&${clipRoute}`,
+    },
+    "clips-grid": {
+      note: "The same update, Grid (default): two-up glass cards, the clip on top.",
+      notes: clipNotes,
+      route: `#/?${clipRoute}`,
+    },
+    "clips-lead": {
+      note: "The same update in the lead row the clips replaced (before): up to three changes side by side, each clip boxed to 16:10 and cut.",
+      notes: clipNotes,
+      route: `#/?news=lead&${clipRoute}`,
+    },
+    "ledger-update-span": {
+      note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
+      notes: journalNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    "ledger-update-reel": {
+      note: "The same update with a nightly reel: one video card (its first frame, a play button, its length and title) that plays in place. The reel is nightly 3969193's, as published.",
+      notes: journalNotes.map((n, i) => (i === 0 ? { ...n, reel: nightlyReel } : n)),
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    journal: {
+      note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+      notes: journalNotes,
+      route: "#/?design=journal",
     },
     "journal-update-span": {
       note: "Design A opened by See What's New after an update from 1.0.0-nightly.410 to 413: those releases come first under Since your last update.",
       notes: journalNotes,
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      route: "#/?design=journal&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     rail: {
       note: "Design B (Debug Settings whatsNew.design = rail) on the same update span.",

@@ -105,8 +105,13 @@ public nonisolated struct CrashReportingPolicy: Sendable, Equatable {
         }
     }
 
-    /// The main app's test-process rule (`MacSentryStartupPolicy`).
-    static func isTestProcess(_ environment: [String: String]) -> Bool {
+    /// The main app's test-process rule (`MacSentryStartupPolicy`): XCTest, UI and E2E test
+    /// launches, `CMUX_TEST_PROCESS=1`, unless `CMUX_TEST_SENTRY_ENABLED=1`. Opt-in hang reports
+    /// use the same rule, so no test run of a NIGHTLY bundle sends one.
+    ///
+    /// - Parameter environment: The process environment.
+    /// - Returns: Whether this is a test process.
+    public static func isTestProcess(_ environment: [String: String]) -> Bool {
         if environment["CMUX_TEST_SENTRY_ENABLED"] == "1" { return false }
         if environment["CMUX_TEST_PROCESS"] == "1" { return true }
         let keys = ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier",

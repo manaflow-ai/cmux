@@ -67,7 +67,7 @@ fn projected_views_share_one_graphics_and_cell_pixel_owner() {
 
 // Shared sizing (docs/shared-terminal-sizing.md) replaced the explicit
 // geometry-authority model: a view that joins is activity, so under the
-// `latest` policy (pinned here; the default is `smallest`) the newest view with a viewport sets the grid,
+// `latest` policy (the default, pinned here) the newest view with a viewport sets the grid,
 // and a claim (focus or input) moves it back.
 #[test]
 fn terminal_views_follow_the_latest_activity() {
@@ -182,7 +182,7 @@ fn terminal_runtime_events_fan_out_only_to_materialized_views() {
     mux.emit_terminal_exited(source.id);
     assert_eq!(
         collect_two(|event| match event {
-            MuxEvent::SurfaceExited(surface) => Some(surface),
+            MuxEvent::SurfaceExited(surface, _) => Some(surface),
             _ => None,
         }),
         expected
@@ -332,7 +332,8 @@ fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
     let mut exited = HashSet::new();
     while exited != placements {
         assert!(Instant::now() < deadline, "not every projected view observed terminal exit");
-        if let Ok(MuxEvent::SurfaceExited(surface)) = events.recv_timeout(Duration::from_millis(20))
+        if let Ok(MuxEvent::SurfaceExited(surface, _)) =
+            events.recv_timeout(Duration::from_millis(20))
         {
             exited.insert(surface);
         }
@@ -609,4 +610,69 @@ fn terminal_size_policy_changes_publish_size_state() {
     let state = mux.set_terminal_size_policy(surface.id, None).unwrap();
     assert_eq!(state.reason, TerminalSizingReason::Smallest);
     assert_eq!(surface.size(), (118, 30));
+}
+
+// Resize audit (2026-10-19), bug A: `apply_terminal_grid` records the
+// engine decision in `applied` before it resizes and ignores the error. A
+// failed grow-back after a viewer leaves therefore never retries: the owner's
+// next identical report sees `applied == target` and returns as a no-op, and
+// the TUI never re-reports (its `resize_needed` compares its own report).
+#[test]
+fn resize_audit_failed_grow_back_after_viewer_leaves_is_retried() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
+    mux.resize_surface_for_client(surface.id, 7, 60, 20).unwrap();
+    assert_eq!(surface.size(), (60, 20), "the default smallest policy fits both views");
+
+    // The small viewer leaves while one PTY resize fails transiently.
+    surface.fail_next_test_master_resize();
+    mux.remove_surface_size_client(surface.id, 7);
+    assert_eq!(surface.size(), (60, 20), "the injected failure kept the old grid");
+
+    // The remaining owner reports its unchanged viewport again.
+    mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
+    assert_eq!(
+        surface.size(),
+        (100, 40),
+        "the terminal never grows back to the only remaining viewer after one failed resize"
+    );
+}
+
+// Resize audit (2026-10-19): `clamp_terminal_size` accepts up to 10000
+// columns, but `PtyGeometry::pty_size` rejects the whole resize when
+// `cols * cell_width` overflows `u16` (ws_xpixel) instead of saturating the
+// pixel size. At the default 8 px cell, 8192+ columns cannot be applied.
+#[test]
+fn resize_audit_wide_grid_saturates_pixel_size_instead_of_failing() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let result = mux.resize_surface_for_client(surface.id, 0, 8200, 24);
+    assert!(result.is_ok(), "accepted grid size was rejected: {result:?}");
+    assert_eq!(surface.size(), (8200, 24));
+}
+
+// Resize audit item 5: the hosted path refuses a grid over
+// `TERMINAL_CELL_AREA_MAX` cells, but the mux clamp and the local path
+// accept it, so the same request fails or succeeds by terminal kind. The
+// mux clamp is the one rule: it keeps the columns and caps the rows.
+#[test]
+fn resize_audit_grid_over_the_cell_area_limit_is_clamped_on_the_local_path() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.resize_surface_for_client(surface.id, 0, 10_000, 401).unwrap();
+    assert_eq!(surface.size(), (10_000, 400), "the grid holds at most 4,000,000 cells");
+}
+
+// Resize audit item 7: the sizing engine clamps a viewport to 2 columns,
+// but a sized creation went through the mux clamp (1 column), so the same
+// report made a 1-column or a 2-column grid by entry point.
+#[test]
+fn resize_audit_sized_creation_uses_the_sizing_engine_minimum() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((1, 24))).unwrap();
+    assert_eq!(surface.size(), (2, 24));
+    mux.resize_surface_for_client(surface.id, 0, 1, 24).unwrap();
+    assert_eq!(surface.size(), (2, 24));
 }

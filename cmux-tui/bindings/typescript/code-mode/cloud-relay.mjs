@@ -35,6 +35,9 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
   async function request(operation, params, idempotencyKey) {
     if (!catalogOps.has(operation)) throw new Error(`Cloud operation is not in the catalog: ${operation}`);
     if (fixture && Object.hasOwn(fixture, operation)) return structuredClone(fixture[operation]);
+    const requestIdempotencyKey = operation === "vm.snapshot.create"
+      ? idempotencyKey ?? randomUUID()
+      : idempotencyKey;
     let method = "GET", path = "/api/vm", query = "", payload;
     if (VM.has(operation)) {
       if (operation === "vm.list") { method = "GET"; }
@@ -83,15 +86,15 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       const isMutation = descriptor.class === "mutation";
       method = isMutation ? "POST" : "POST";
       path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     } else {
       // Network policy operations are owner-routed through the Cloud API catalog.
       const isMutation = MUTATIONS.has(operation); method = "POST"; path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,
-      headers: { authorization: `Bearer ${bearerToken}`, ...(payload === undefined ? {} : { "content-type": "application/json" }), ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) },
+      headers: { authorization: `Bearer ${bearerToken}`, ...(payload === undefined ? {} : { "content-type": "application/json" }), ...(requestIdempotencyKey ? { "idempotency-key": requestIdempotencyKey } : {}) },
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
     let value;

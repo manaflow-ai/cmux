@@ -1,7 +1,7 @@
 // A clipped single-line title fades out at its end instead of ending in an ellipsis, and on hover
 // (or keyboard focus) scrolls once to show its end: the web port of cmux-next's TitleFadeGeometry
-// and MotionMarquee (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleFadeGeometry.swift,
-// Motion/MotionMarquee.swift), the marquee of the tabs and the workspace sidebar. Same rules,
+// and MotionMarquee (Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Text/TitleFadeGeometry.swift,
+// CmuxNextDesign/Motion/MotionMarquee.swift), the marquee of the tabs and the workspace sidebar. Same rules,
 // same token values (MotionTunables defaults, plans/cmux-next/motion.md "Marquee"): after the
 // pointer rests 0.6 s the title scrolls at 40 pt/s (at least 0.4 s), ease-in-out, until its last
 // glyph sits where the fade starts; it holds 1.2 s, then returns with the `move` spring's timed

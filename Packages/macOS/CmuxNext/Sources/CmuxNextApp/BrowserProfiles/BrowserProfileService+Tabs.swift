@@ -14,7 +14,7 @@ extension BrowserProfileService {
     /// daemon: the URL reopens in a new tab and the original closes.
     func move(_ tab: TabModel, in pane: PaneModel, to profile: String, notice: String?) {
         let daemon = services.machines.daemon(forTab: tab)
-        guard daemon.isLocal, daemon.supports(DaemonCapabilities.shared.frontendBrowserTabProfile) else {
+        guard daemon.isLocal, daemon.supports(DaemonCapability.frontendBrowserTabProfile.rawValue) else {
             return reopen(tab, in: pane, profile: profile, closingOriginal: true, notice: notice)
         }
         let (surface, key, browserTabs) = (tab.surface, tab.id, services.cache.browserTabs)
@@ -46,7 +46,7 @@ extension BrowserProfileService {
             let page = entry.tab
             guard page is WebKitTab || page is CEFTab, let tab = cache.browserTabs.tabModel(key), tab.isFrontendOwned,
                   services.machines.daemon(forTab: tab).isLocal, !cache.browserTabs.isIncognitoTab(key),
-                  !OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) else { return nil }  // never into a stored profile
+                  !services.browserStores.offTheRecord.isOffTheRecord(page.profileID) else { return nil }  // never into a stored profile
             let profile = book.engineProfile(for: tab.browserProfileID)
             guard page.profileID != profile, let url = page.state.url ?? tab.url.flatMap(URL.init(string:)),
                   ["http", "https", "about"].contains(url.scheme ?? "") else { return nil }
@@ -63,7 +63,7 @@ extension BrowserProfileService {
         let registry = services.registry
         let close: @MainActor (SurfaceID) -> Void = { _ in
             guard closingOriginal else { return }
-            registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: originalID)))
+            registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: originalID), origin: .script)) // replaced: never asks
         }
         if let controller = services.paneController(for: pane) {
             controller.newBrowserTab(url: URL(string: url), inherited: tab.browserEngine, profile: profile, notice: notice, then: close)

@@ -4,19 +4,24 @@
 //! clients. The `sec_pinned` tiles are the sidebar document's Pinned items
 //! (sidebar-doc-v1): an op reduces on that projection, and a tile it adds,
 //! removes or reorders is a Pinned op on the document in the same commit.
+//! A section's `align` or `gap` follows into the document's section (every
+//! machine section for the old workspaces section), and `layout.reset` is the
+//! document's `reset`.
 
 use serde_json::json;
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
-use crate::state::sidebar_doc_legacy::{mint_item_id, pinned_ops, project_layout};
+use crate::state::sidebar_doc_legacy::{
+    mint_item_id, pinned_ops, project_layout, section_field_ops,
+};
 use crate::state::sidebar_doc_store as doc_store;
 use crate::state::sidebar_layout::{self, Op};
 use crate::state::sidebar_layout_store::{self as store, ID, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
 use crate::workspace_registry::personal_store::commit_personal;
-use cmux_layout_reducer::sidebar_doc::reduce;
+use cmux_layout_reducer::sidebar_doc::{Op as DocOp, reduce};
 
 /// The largest op a client may send (a section with its items).
 const MAX_OP_BYTES: usize = 64 * 1024;
@@ -55,54 +60,75 @@ impl Mux {
                 // retried at the next) keeps the old behavior: the stored
                 // tiles, no document ops.
                 let migrated = doc_store::is_migrated(transaction)?;
-                let doc = doc_store::read_doc(transaction)?;
-                let current = if migrated { project_layout(&stored, &doc) } else { stored.clone() };
-                let reduced = sidebar_layout::reduce(&current, &parsed)
-                    .map_err(|reject| anyhow::anyhow!("bad request: {}", reject.as_str()))?;
-                if reduced.revision == current.revision {
-                    return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
-                }
-                let ops = if migrated { pinned_ops(&current, &reduced, &doc) } else { Vec::new() };
-                let mut events = Vec::new();
-                let mut next_doc = doc.clone();
-                if !ops.is_empty() {
-                    let mut mint = mint_item_id;
-                    let outcome = reduce::apply(&doc, &ops, &mut mint)
-                        .map_err(|refusal| anyhow::anyhow!("bad request: {}", refusal.as_str()))?;
-                    if !outcome.changes.is_empty() {
-                        events = doc_store::write_changes(
-                            transaction,
-                            &outcome.doc,
-                            doc.revision,
-                            outcome.doc.revision,
-                            &outcome.changes,
-                            Some(&mutation.id),
-                        )?;
+                doc_store::with_doc_mut(transaction, |doc| {
+                    let current =
+                        if migrated { project_layout(&stored, doc) } else { stored.clone() };
+                    let reduced = sidebar_layout::reduce(&current, &parsed)
+                        .map_err(|reject| anyhow::anyhow!("bad request: {}", reject.as_str()))?;
+                    let layout_changed = reduced.revision != current.revision;
+                    // The document's reset runs also when the old layout is
+                    // already the defaults (the document may still differ).
+                    let doc_reset = migrated && matches!(parsed, Op::Reset);
+                    if !layout_changed && !doc_reset {
+                        return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
                     }
-                    crate::state::sidebar_doc_sync::write_back(
+                    let mut ops = if !migrated {
+                        Vec::new()
+                    } else if matches!(parsed, Op::Reset) {
+                        vec![DocOp::Reset]
+                    } else {
+                        let mut ops = pinned_ops(&current, &reduced, doc);
+                        ops.extend(section_field_ops(&current, &reduced, doc));
+                        ops
+                    };
+                    crate::state::sidebar_doc_ops::closes_for_reset(transaction, doc, &mut ops)?;
+                    let mut events = Vec::new();
+                    let mut doc_changed = false;
+                    if !ops.is_empty() {
+                        let previous_revision = doc.revision;
+                        let mut mint = mint_item_id;
+                        let applied =
+                            reduce::apply_in_place(doc, &ops, &mut mint).map_err(|refusal| {
+                                anyhow::anyhow!("bad request: {}", refusal.as_str())
+                            })?;
+                        doc_changed = !applied.changes.is_empty();
+                        if doc_changed {
+                            events = doc_store::write_changes(
+                                transaction,
+                                previous_revision,
+                                doc.revision,
+                                &applied.changes,
+                                Some(&mutation.id),
+                            )?;
+                        }
+                        crate::state::sidebar_doc_sync::write_back(transaction, doc, &applied)?;
+                    }
+                    if !layout_changed && !doc_changed {
+                        return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
+                    }
+                    let next = if layout_changed {
+                        let mut next = reduced;
+                        next.revision = stored.revision + 1;
+                        store::write_document(transaction, &next)?;
+                        next
+                    } else {
+                        stored.clone()
+                    };
+                    let shown = if migrated { project_layout(&next, doc) } else { next.clone() };
+                    let value = store::snapshot_value(&shown)?;
+                    // Raw-protocol clients (the Mac app) follow personal
+                    // state through `personal-changed`; bump
+                    // `personal_revision` so they refetch the layout (v2
+                    // clients read the state_upsert).
+                    commit_personal(
                         transaction,
-                        &doc,
-                        &outcome.doc,
-                        &outcome.changes,
+                        "personal.sidebar_layout.updated",
+                        Vec::new(),
+                        &json!({"revision": next.revision}),
                     )?;
-                    next_doc = outcome.doc;
-                }
-                let mut next = reduced;
-                next.revision = stored.revision + 1;
-                store::write_document(transaction, &next)?;
-                let shown = if migrated { project_layout(&next, &next_doc) } else { next.clone() };
-                let value = store::snapshot_value(&shown)?;
-                // Raw-protocol clients (the Mac app) follow personal state
-                // through `personal-changed`; bump `personal_revision` so they
-                // refetch the layout (v2 clients read the state_upsert).
-                commit_personal(
-                    transaction,
-                    "personal.sidebar_layout.updated",
-                    Vec::new(),
-                    &json!({"revision": next.revision}),
-                )?;
-                events.push(state_upsert(RESOURCE, ID, value.clone()));
-                Ok(StateChanges::new(value, events))
+                    events.push(state_upsert(RESOURCE, ID, value.clone()));
+                    Ok(StateChanges::new(value, events))
+                })
             },
         )
     }

@@ -20,6 +20,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use super::cloud::{CloudResolver, ConnectInfoSource, serve_cloud_dial};
 #[cfg(test)]
 use super::lines::read_line;
+use super::paired_streams::{Revocations, close_revoked, while_paired};
 
 /// How long an overlay connect may take before the dial reports
 /// `unreachable` (direct path only: a peer on the same network answers in
@@ -56,7 +57,7 @@ where
 {
     let Ok(request) = read_line(&mut caller, MAX_LINE_BYTES).await else { return };
     let resolver = CloudResolver::new(super::cloud::RelaySource);
-    serve_dial_line(caller, &request, overlay, pairings, &resolver).await;
+    serve_dial_line(caller, &request, overlay, pairings, &resolver, None).await;
 }
 
 /// [`serve_dial`] after the caller's request line was read: a paired
@@ -67,6 +68,7 @@ pub(super) async fn serve_dial_line<C, O, S>(
     overlay: &O,
     pairings: &Pairings,
     resolver: &CloudResolver<S>,
+    mut revocations: Option<Revocations>,
 ) where
     C: AsyncRead + AsyncWrite + Unpin,
     O: Overlay,
@@ -87,19 +89,50 @@ pub(super) async fn serve_dial_line<C, O, S>(
     if !matches!(request.service, Service::Daemon | Service::OwnerSession) {
         return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
     }
-    let remote = SocketAddr::new(IpAddr::V6(record.overlay_address()), LINK_PORT);
-    let connected = tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await;
-    let Ok(Ok(mut stream)) = connected else {
-        return reply(&mut caller, DialReply::failed(DialError::Unreachable)).await;
+    let Some(key) = record.key() else {
+        return reply(&mut caller, DialReply::failed(DialError::UnknownHost)).await;
     };
-    let hello = line(&ServiceHello::paired(request.service));
-    if stream.write_all(hello.as_bytes()).await.is_err() {
-        return reply(&mut caller, DialReply::failed(DialError::Unreachable)).await;
+    let peer = record.peer();
+    let _open = revocations.as_ref().map(|view| view.open.enter(key));
+    let remote = SocketAddr::new(IpAddr::V6(record.overlay_address()), LINK_PORT);
+    let connected = while_paired(
+        revocations.as_mut(),
+        key,
+        &peer,
+        tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)),
+    )
+    .await;
+    let mut stream = match connected {
+        Ok(Ok(Ok(stream))) => stream,
+        Err(()) => return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await,
+        _ => return reply(&mut caller, DialReply::failed(DialError::Unreachable)).await,
+    };
+    let mut reply_started = false;
+    let served = while_paired(revocations.as_mut(), key, &peer, async {
+        let hello = line(&ServiceHello::paired(request.service));
+        if stream.write_all(hello.as_bytes()).await.is_err() {
+            reply_started = true;
+            return reply(&mut caller, DialReply::failed(DialError::Unreachable)).await;
+        }
+        reply_started = true;
+        if caller
+            .write_all(line(&DialReply::connected(PathState::Direct)).as_bytes())
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let _ = tokio::io::copy_bidirectional(&mut caller, &mut stream).await;
+    })
+    .await;
+    if served.is_err() {
+        if reply_started {
+            let _ = caller.shutdown().await;
+        } else {
+            reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
+        }
+        close_revoked(&mut stream).await;
     }
-    if caller.write_all(line(&DialReply::connected(PathState::Direct)).as_bytes()).await.is_err() {
-        return;
-    }
-    let _ = tokio::io::copy_bidirectional(&mut caller, &mut stream).await;
 }
 
 pub(super) async fn reply<C: AsyncWrite + Unpin>(caller: &mut C, reply: DialReply) {

@@ -13,6 +13,9 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     public var connect: [String]
     /// `frame-src` sources (loopback previews).
     public var frame: [String]
+    /// `media-src` sources (video and audio a page plays from a loopback server, such as the daemon's
+    /// attachment links). None: no media.
+    public var media: [String]
     /// Extra `script-src` keywords; only ``allowedScriptKeywords`` are kept.
     public var script: [String]
     /// False drops `'unsafe-inline'` from `script-src`: the page runs only same-origin script files,
@@ -22,9 +25,13 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     public static let allowedScriptKeywords: Set<String> = ["'wasm-unsafe-eval'"]
     public static let strict = PageCSP()
 
-    public init(connect: [String] = [], frame: [String] = [], script: [String] = [], inlineScript: Bool = true) {
+    public init(
+        connect: [String] = [], frame: [String] = [], media: [String] = [], script: [String] = [],
+        inlineScript: Bool = true
+    ) {
         self.connect = connect
         self.frame = frame
+        self.media = media
         self.script = script
         self.inlineScript = inlineScript
     }
@@ -32,6 +39,8 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     static let base: [(String, [String])] = [
         ("default-src", ["'none'"]), ("script-src", ["'self'", "'unsafe-inline'"]),
         ("style-src", ["'self'", "'unsafe-inline'"]), ("img-src", ["'self'", "data:"]), ("font-src", ["'self'", "data:"]),
+        // Inline attachment thumbnails decode in this page's bundled same-origin worker.
+        ("worker-src", ["'self'"]),
     ]
 
     /// The header value. A source with a character that could end or split a directive is dropped.
@@ -47,6 +56,8 @@ public nonisolated struct PageCSP: Sendable, Hashable {
         if !connect.isEmpty { directives.append(("connect-src", connect)) }
         let frame = clean(frame)
         if !frame.isEmpty { directives.append(("frame-src", frame)) }
+        let media = clean(media)
+        if !media.isEmpty { directives.append(("media-src", media)) }
         return directives.map { "\($0.0) \($0.1.joined(separator: " "))" }.joined(separator: "; ")
     }
 }

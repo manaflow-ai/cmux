@@ -53,7 +53,8 @@ export function GitToolbarButtons({
         type="button"
         className="acpmux-git-tool"
         data-tool="push"
-        title={pushTitle}
+        // tooltip-allow: why there is nothing to push
+        title={pushTitle === pushLabel ? undefined : pushTitle}
         aria-label={pushTitle}
         disabled={busy || !pushable}
         onClick={() => void git.push()}

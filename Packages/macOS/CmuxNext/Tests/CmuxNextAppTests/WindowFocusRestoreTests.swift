@@ -2,6 +2,7 @@
 import CmuxNextDaemon
 import Foundation
 import Testing
+import CmuxNextFocus
 
 /// A relaunch returns each workspace of a window to the pane that was
 /// focused in it, as classic restores each workspace's focused panel: the

@@ -61,9 +61,9 @@ pub(super) fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, Requ
         if read == 0 {
             return None;
         }
-        bytes.extend_from_slice(&chunk[..read]);
+        bytes.extend_from_slice(chunk.get(..read)?);
     };
-    let head = std::str::from_utf8(&bytes[..end]).ok()?;
+    let head = std::str::from_utf8(bytes.get(..end)?).ok()?;
     let mut lines = head.split("\r\n");
     let mut request_line = lines.next()?.split(' ');
     let method = request_line.next()?.to_owned();
@@ -140,7 +140,8 @@ fn page_policy(host: Option<&str>) -> String {
         .map_or_else(String::new, |host| format!(" ws://{host}"));
     format!(
         "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; \
-         img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'{websocket}; \
+         img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; \
+         connect-src 'self'{websocket}; \
          base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     )
 }

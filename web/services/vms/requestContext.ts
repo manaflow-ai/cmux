@@ -59,6 +59,15 @@ export type VmRequestContext = {
    */
   vmId?: string;
   /**
+   * The ledger id (`cloud_vms.id`) of the machine this request created or
+   * touched, recorded when the request writes its first usage-ledger row.
+   * Collection routes (create, base open) have no `vmId` in the URL, so this
+   * is how their PostHog rows still name the machine.
+   */
+  ledgerVmId?: string;
+  /** The caller is a probe account (services/analytics/syntheticAccounts.ts). */
+  synthetic?: boolean;
+  /**
    * Billing scope of the caller. Set from the authenticated user, then
    * refined by entitlement resolution when a route resolves one.
    */
@@ -86,6 +95,17 @@ export function annotateVmRequestBilling(billing: {
   context.billingCustomerType = billing.billingCustomerType ?? undefined;
   const planId = billing.planId?.trim().toLowerCase();
   context.planId = planId || undefined;
+}
+
+/**
+ * Note the ledger id of the machine a request wrote a usage row for, once.
+ * The first row wins: a create writes `vm.create.requested` for the new row
+ * before anything else.
+ */
+export function noteVmRequestLedgerVmId(vmId: string | null | undefined): void {
+  const context = storage.getStore();
+  if (!context || context.ledgerVmId || !vmId) return;
+  context.ledgerVmId = vmId;
 }
 
 /**

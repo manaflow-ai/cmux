@@ -7,6 +7,8 @@ pub enum HistoryError {
     Sqlite(rusqlite::Error),
     /// The store directory or a database file could not be made or read.
     Io(std::io::Error),
+    /// A legacy history database exceeds the migration contract.
+    InvalidImport(String),
 }
 
 impl fmt::Display for HistoryError {
@@ -14,6 +16,7 @@ impl fmt::Display for HistoryError {
         match self {
             Self::Sqlite(error) => write!(f, "history store: sqlite: {error}"),
             Self::Io(error) => write!(f, "history store: io: {error}"),
+            Self::InvalidImport(message) => write!(f, "history store: import: {message}"),
         }
     }
 }
@@ -23,6 +26,7 @@ impl std::error::Error for HistoryError {
         match self {
             Self::Sqlite(error) => Some(error),
             Self::Io(error) => Some(error),
+            Self::InvalidImport(_) => None,
         }
     }
 }

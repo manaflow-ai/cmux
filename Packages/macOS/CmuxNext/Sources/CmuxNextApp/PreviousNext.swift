@@ -1,4 +1,5 @@
 import CmuxNextSidebar
+import CmuxNextFocus
 
 /// Previous / Next (Leo 2026-10-09, rapid switching): what the
 /// browser-style keys step from the window's keyboard focus. A focused pane
@@ -92,7 +93,8 @@ extension PreviousNext {
         }
         let selected = SidebarNavigation.selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                                                       layout: model.layout, room: window.state.profileID.rawValue,
-                                                      refs: WorkspaceLayoutRefs(machines: services.machines))
+                                                      refs: WorkspaceLayoutRefs(machines: services.machines), home: services.home.dockedHomeID(in: window.state),
+                                                      channels: services.home.dockShowsChannels)
         let focusedTab = window.focusedPane?.stripModel.selectedID.map { CmuxNextSidebar.TabID($0.rawValue) }
         let from = current(selected, focusedTab: focusedTab, in: stops)
         switch stop(from: from, in: stops, by: offset, wraps: settings.steppingWraps) {

@@ -98,7 +98,7 @@ describe("unsupported provider operations", () => {
       ui: { retryable: false, severity: "error" },
     });
     expect(String(payload.message)).toContain("preview URLs");
-    expect(String(payload.action)).toContain("cmux vm exec");
+    expect(String(payload.action)).toContain("cmux cloud exec");
   });
 
   test("pause and resume on a provider without the verb answer verb-specific 501 copy", async () => {
@@ -113,7 +113,7 @@ describe("unsupported provider operations", () => {
       details: { operation: "pause", retryable: false },
     });
     expect(String(pausePayload.message)).toContain("cannot be paused");
-    expect(String(pausePayload.action)).toContain("cmux vm rm");
+    expect(String(pausePayload.action)).toContain("cmux cloud kill-machine --target machine:<id> --confirm");
 
     const resume = await vmWorkflowErrorResponse(new VmOperationUnsupportedError({ provider: "freestyle", operation: "resume" }));
     expect(resume!.status).toBe(501);

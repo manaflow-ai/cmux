@@ -20,6 +20,22 @@ public struct ChromiumProfileList {
         /// (`gaia_picture_file_name`: "Google Profile Picture.png" in Chrome,
         /// "Edge Profile Picture.png" in Edge), when it has one.
         public var avatarFileName: String? = nil
+        /// The profile's color as 0xRRGGBB (the theme seed or highlight
+        /// Chrome paints the profile's toolbar and avatar with), when it has one.
+        public var color: UInt32?
+    }
+
+    /// `Local State` color keys, most specific first: the theme seed (Chrome
+    /// 120+), the highlight color, then the default avatar's fill. Chromium
+    /// stores each as a signed 32-bit ARGB integer.
+    static let colorKeys = ["profile_color_seed", "profile_highlight_color", "default_avatar_fill_color"]
+
+    static func color(_ info: [String: Any]?) -> UInt32? {
+        for key in colorKeys {
+            guard let number = info?[key] as? NSNumber else { continue }
+            return UInt32(truncatingIfNeeded: number.int64Value) & 0xFF_FFFF
+        }
+        return nil
     }
 
     public func entries(in userDataDirectory: URL) -> [Entry] {
@@ -38,7 +54,7 @@ public struct ChromiumProfileList {
                 let info = cache[directory] as? [String: Any]
                 let name = (info?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? directory
                 let picture = (info?["gaia_picture_file_name"] as? String).flatMap { $0.isEmpty || $0.contains("/") ? nil : $0 }
-                entries.append(Entry(directoryName: directory, displayName: name, avatarFileName: picture))
+                entries.append(Entry(directoryName: directory, displayName: name, avatarFileName: picture, color: Self.color(info)))
             }
         }
         // Profiles on disk that Local State does not list (or no Local State).

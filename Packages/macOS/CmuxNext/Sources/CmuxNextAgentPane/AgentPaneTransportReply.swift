@@ -41,6 +41,10 @@ enum AgentPaneTransportReply {
             return AgentPaneReply.success(["ticket": ticket])
         case .transportGestureRelease: return model.endTransport(closing: nil)
         case .transportClose(let connection): return model.endTransport(closing: connection)
+        // This Mac's agent CLIs (cx-1mbnu): never for a chat on another machine.
+        case .harnessUpdate, .harnessRestart:
+            if model.remoteChat { return AgentPaneModel.unsupported("harness") }
+            return await AgentPaneHarnessCard.reply(to: request, transport: model.transport, session: model.sessionId)
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
     }

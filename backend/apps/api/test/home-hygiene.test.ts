@@ -55,7 +55,7 @@ const twoPersonGroup = async (tag: string) => {
 
 /** A conversation socket with a frame log and a wait for the next frame that matches. */
 const connect = async (id: string, token: string) => {
-  const res = await worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+  const res = await worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   expect(res.status).toBe(101)
   const ws = res.webSocket!
   const frames: Array<any> = []
@@ -77,6 +77,8 @@ const connect = async (id: string, token: string) => {
   return { ws, frames, until, send: (frame: unknown) => ws.send(JSON.stringify(frame)) }
 }
 const isTyping = (f: any) => f.t === "conversation-typing"
+const isPresence = (f: any) => f.t === "conversation-presence"
+
 
 describe("Home typing: ephemeral broadcast on the conversation socket", { timeout: 20_000 }, () => {
   it("reaches the other participant's socket, not the sender's, and is never stored", async () => {
@@ -147,6 +149,23 @@ describe("Home typing: ephemeral broadcast on the conversation socket", { timeou
 
 let n = 0
 const convId = () => `conv_01J0000000000000000HYGN${String(n++).padStart(2, "0")}`.slice(0, 31)
+
+describe("Home viewing presence: ephemeral per-socket broadcast", { timeout: 20_000 }, () => {
+  it("sends the aggregate on subscribe, changes to members, and drops a closed socket", async () => {
+    const { alice, bob, id } = await twoPersonGroup("presence")
+    const a = await connect(id, alice.token)
+    const b = await connect(id, bob.token)
+    expect(a.frames.filter(isPresence).at(-1)).toEqual({ t: "conversation-presence", conversation: id, participants: [] })
+    a.send({ t: "presence.set", conversation: id, viewing: true })
+    const onAt = await b.until((f) => isPresence(f) && f.participants.some((p: any) => p.participant === alice.user && p.viewing))
+    expect(b.frames[onAt].participants).toEqual([{ participant: alice.user, viewing: true }])
+    a.ws.close(1000, "bye")
+    // After the viewing frame: the empty set Bob got on subscribe does not count.
+    const off = b.frames[await b.until((f) => isPresence(f) && f.participants.length === 0, onAt + 1)]
+    expect(off).toEqual({ t: "conversation-presence", conversation: id, participants: [] })
+    b.ws.close()
+  })
+})
 
 describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { timeout: 60_000 }, () => {
 

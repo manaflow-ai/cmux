@@ -1,5 +1,5 @@
 """Pixel reads of Swift Home window snapshots (stdlib only), for the tagged-app checks
-home-typing-still.py and home-hidden-messages.py.
+home-typing-still.py, home-hidden-messages.py and home-scale-change.py.
 
 read_png decodes a window snapshot. row_edges reads the straight edges of the message rows
 that `debug.home.drive {action: rows}` reports (window points, bottom-left origin) and counts
@@ -101,19 +101,51 @@ def row_edges(px, w, h, scale, frame, window_height):
     """The straight edges of one row's bubble (frame: window points, bottom-left origin): top and bottom
     over the middle 40 % of its width; left and right over the middle 40 % of its height when the bubble is
     at least 60 pt tall (shorter bubbles have no straight side between their corners). Returns
-    {edge: (device px place, measured lines, partial lines)}."""
+    {edge: (device px place, measured lines, partial lines)}. The far outside sample is 3 device px out at 2x
+    and 2 at 1x (grouped bubbles are 3 pt apart: at 1x, 3 px out is the next bubble's edge)."""
     x0 = frame["x"] * scale; x1 = (frame["x"] + frame["width"]) * scale
     top = (window_height - frame["y"] - frame["height"]) * scale; bottom = (window_height - frame["y"]) * scale
     out = {}
     T, B, L, R = round(top), round(bottom), round(x0), round(x1)
+    f = 3 if scale >= 2 else 2
     xs = flat_span(x0, x1, frame["height"], scale)
-    out["top"] = (top,) + _edge(px, w, h, [((x, T - 3), (x, T - 1), (x, T), (x, T + 2)) for x in xs])
-    out["bottom"] = (bottom,) + _edge(px, w, h, [((x, B + 2), (x, B), (x, B - 1), (x, B - 3)) for x in xs])
+    out["top"] = (top,) + _edge(px, w, h, [((x, T - f), (x, T - 1), (x, T), (x, T + 2)) for x in xs])
+    out["bottom"] = (bottom,) + _edge(px, w, h, [((x, B + f - 1), (x, B), (x, B - 1), (x, B - 3)) for x in xs])
     if frame["height"] >= 60:
         ys = range(int(top + (bottom - top) * 0.3), int(top + (bottom - top) * 0.7))
-        out["left"] = (x0,) + _edge(px, w, h, [((L - 3, y), (L - 1, y), (L, y), (L + 2, y)) for y in ys])
-        out["right"] = (x1,) + _edge(px, w, h, [((R + 2, y), (R, y), (R - 1, y), (R - 3, y)) for y in ys])
+        out["left"] = (x0,) + _edge(px, w, h, [((L - f, y), (L - 1, y), (L, y), (L + 2, y)) for y in ys])
+        out["right"] = (x1,) + _edge(px, w, h, [((R + f - 1, y), (R, y), (R - 1, y), (R - 3, y)) for y in ys])
     return out
+
+
+def check_crisp(check, name, report, path, min_rows=1):
+    """At any backing scale (home-scale-change.py: 1x and 2x): the snapshot's incoming text balloons have crisp
+    straight edges (top, bottom, a tall row's left: at most 10 % partial lines, 8 lines measured or more each, at
+    least `min_rows` rows with a measured edge). A bitmap drawn at another scale, or a row off the device pixel
+    grid, blends a pixel line along the whole edge. Outgoing text balloons are soft by design (MessagesLab 3ded59a)
+    and are not read here. Returns the scale of the snapshot."""
+    w, h, px = read_png(path)
+    scale = w / report["windowWidth"]; wh = report["windowHeight"]
+    rows = [r for r in report["rows"] if r["kind"] == "text" and not r["outgoing"]
+            and r["y"] >= 64 and r["y"] + r["height"] <= wh - 90]
+    bad, measured_rows = [], 0
+    for r in rows:
+        line, any_measured = [], False
+        for edge, (place, measured, partial) in row_edges(px, w, h, scale, r, wh).items():
+            if edge == "right":
+                continue
+            line.append(f"{edge} {place:.2f}px partial {partial}/{measured}")
+            if measured >= 8:
+                any_measured = True
+                if partial > measured * 0.1:
+                    bad.append({r["key"]: edge, "partial": partial, "measured": measured, "place": round(place, 3)})
+        measured_rows += any_measured
+        print(f"     {name} {r['key']} (in, {scale:g}x): " + ", ".join(line), flush=True)
+    check(f"{name}: at least {min_rows} incoming text rows with a measured straight edge at {scale:g}x",
+          measured_rows >= min_rows, {"rows": len(rows), "measured": measured_rows})
+    check(f"{name}: no straight edge of an incoming balloon has partial pixels at {scale:g}x (at most 10 % of its lines)",
+          not bad, bad)
+    return scale
 
 
 def _coverage(p, o, i):

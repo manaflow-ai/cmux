@@ -10,6 +10,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("thin-scrollers.test.ts", async () => {
@@ -50,6 +51,7 @@ await requireBrowserLane("thin-scrollers.test.ts", async () => {
         }
       </body></html>`);
     await page.addScriptTag({ content: bundle });
+    await installPaintedFrames(page);
     return page;
   }
 
@@ -87,7 +89,14 @@ await requireBrowserLane("thin-scrollers.test.ts", async () => {
         const target = root ? document.scrollingElement! : document.getElementById("list")!;
         target.scrollTop = 300;
       }, root);
-      await page.waitForTimeout(100);
+      // The scroll marks the scroller as scrolling, and a frame paints the bar.
+      await page.waitForFunction(
+        (root) =>
+          (root ? document.documentElement : document.getElementById("list")!).hasAttribute("data-cmux-scrolling"),
+        root,
+        { timeout: 5_000 },
+      );
+      await page.evaluate(() => window.cmuxPaintFrame());
       const scrolling = await strip(page, root);
       await page.close();
       expect({ thin: rest.thin, rest: rest.drawn, scrolling: scrolling.drawn }).toEqual({

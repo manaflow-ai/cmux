@@ -56,7 +56,7 @@ class TerminalSizingFixtureTest {
             val name = case.string("name")
             TerminalSizingEngine(
                 size(case.getValue("initial").jsonObject),
-                terminalSizingPolicy(TerminalSizingMode.SMALLEST, emptyList(), null),
+                terminalSizingPolicy(TerminalSizingMode.LATEST, emptyList(), null),
             ).use { engine ->
                 for ((index, element) in case.getValue("steps").jsonArray.withIndex()) {
                     val step = element.jsonObject

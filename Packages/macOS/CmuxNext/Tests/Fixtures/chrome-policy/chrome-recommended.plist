@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Recommended Chrome policies only (non-forced values): the user may change them. -->
+<plist version="1.0">
+<dict>
+	<key>Recommended</key>
+	<dict>
+		<key>DefaultSearchProviderSearchURL</key>
+		<string>https://search.example.com/search?q={searchTerms}</string>
+		<key>URLBlocklist</key>
+		<array>
+			<string>facebook.com</string>
+		</array>
+	</dict>
+</dict>
+</plist>

@@ -84,16 +84,19 @@ impl HostedReader {
             replacement.vt_write(&delta);
         }
         self.title_changed.store(false, Ordering::Relaxed);
-        let title = replacement.title().unwrap_or_default();
+        let title = crate::terminal_title::read(&replacement);
         let pwd = replacement.pwd();
         let mut scroll_changed = None;
+        // A resize replays the same title: announce it only when it moved.
+        let mut title_moved = false;
         let generation = pty.with_terminal_stream_update(|term| {
             let before = terminal_scroll_position(term);
             *term = replacement;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
             *geometry = next_geometry;
             pty.journal_geometry(next_geometry);
-            *pty.title.lock().unwrap() = title.clone();
+            title_moved =
+                std::mem::replace(&mut *pty.title.lock().unwrap(), title.clone()) != title;
             pty.record_directory(pwd);
             *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
             self.applied_color_overrides = colors;
@@ -126,7 +129,9 @@ impl HostedReader {
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(mux) = mux.upgrade() {
-            mux.emit_terminal_title(surface.id, title.into());
+            if title_moved {
+                mux.emit_terminal_title(surface.id, title.into());
+            }
             mux.emit_terminal_resized(surface.id, cols, rows, None);
             if let Some((offset, at_bottom)) = scroll_changed {
                 mux.emit_terminal_scroll(surface.id, offset, at_bottom);

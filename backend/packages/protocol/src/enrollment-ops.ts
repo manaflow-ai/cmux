@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { InstallId, TeamId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Device enrollment (spec/enterprise.md 5.4, decision E3): a team admin makes
@@ -12,12 +13,12 @@ import { InstallId, TeamId } from "./schemas.ts"
  * SHA-256 of the token in base64url without padding (43 characters). The
  * creator generates the token and shows it once.
  */
-export const TokenHash = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{43}$/)).annotate({
+export const TokenHash = Schema.String.check(isPattern(/^[A-Za-z0-9_-]{43}$/)).annotate({
   identifier: "EnrollmentTokenHash",
   description: "base64url(SHA-256(token)) without padding."
 })
-export const EnrollmentTokenId = Schema.String.check(Schema.isPattern(/^enr_[a-z0-9]{20}$/)).annotate({ identifier: "EnrollmentTokenId" })
-const Domain = Schema.String.check(Schema.isPattern(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/))
+export const EnrollmentTokenId = Schema.String.check(isPattern(/^enr_[a-z0-9]{20}$/)).annotate({ identifier: "EnrollmentTokenId" })
+const Domain = Schema.String.check(isPattern(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/))
 const Label = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
 
 export const EnrollmentToken = Schema.Struct({

@@ -1,0 +1,142 @@
+{
+ "_doc": "cmux-next perf budgets (perf-budgets.py). A frame budget is one 120 Hz frame (8.33 ms) between presented frames during a motion; a latency budget (input to the committed frame that shows its result) is two 120 Hz frames (16.7 ms). CPU rows are percent of one core. Patterns are full-match regexes over row names; the first match wins. floor: the smallest p95 change the gate counts as a regression (noise). expected lists the row families each bench must measure; a missing family is an incomplete gate, never a pass.",
+ "expected": {
+  "new_surfaces": ["cmd_n\\..*\\.key_to_visible", "cmd_t\\..*\\.key_to_visible", "ctrl_backtick\\..*\\.key_to_visible", "cmd_d\\..*\\.key_to_visible", "cmd_shift_d\\..*\\.key_to_visible"],
+  "panes": ["panes\\..*\\.frame"],
+  "tab_switch": ["tab_switch\\..*\\.e2e"],
+  "palette": ["palette\\..*\\.key_to_frame"],
+  "sidebar": ["sidebar\\.\\d+\\.(scroll|scroll_while_ticking|drag|ticking)\\.frame", "sidebar\\.\\d+\\.ticking\\.(cpu_pct|main_ms_per_s)", "sidebar\\.\\d+\\.workspace_switch\\.click_to_idle", "workspace_switch\\..*"],
+  "home": ["home\\.typing\\.key_dispatch", "home\\.scroll\\.frame"],
+  "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
+  "idle": ["idle\\..*\\.app_cpu_pct"],
+  "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"]
+ },
+ "rows": {
+  "anim\\..*\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "app animation frame interval (anim-perf-terminal.py); its dropped/main_ms_max limits come from scripts/perf-bench/budgets.json animations"
+  },
+  "workspace_switch\\..*\\.input_to_commit": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "workspace switch: input event to the Core Animation commit that shows the new workspace (debug.workspace_switch; builds after 2026-10-21)"
+  },
+  "workspace_switch\\..*\\.input_to_idle": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "workspace switch (click, Cmd-1..9, Ctrl-Cmd-]/[; terminal or Chromium) at 400 workspaces with 15 agents ticking: input to the main thread idle after it drew"
+  },
+  "workspace_switch\\..*\\.longest_frame": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "workspace switch: the longest frame interval around it"
+  },
+  "sidebar\\.\\d+\\.ticking\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "frames while 15 agents tick, nothing else moving"
+  },
+  "sidebar\\.\\d+\\.ticking\\.main_ms_per_s": {
+   "p95": 50.0,
+   "unit": "ms/s",
+   "floor": 3.0,
+   "what": "main-thread ms per second while 15 agents tick (15 busy sidebar spinners; a465's 1/20-spinner xbench rows are in scripts/perf-bench/budgets.json, nightly gate)"
+  },
+  "panes\\..*\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "split, close, New Column, zoom: frame interval during the motion"
+  },
+  "sidebar\\.\\d+\\.(scroll|scroll_while_ticking|drag)\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "sidebar scroll at N workspaces, with and without agents ticking"
+  },
+  "home\\.scroll\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Home chat scroll"
+  },
+  "cmd_n\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Cmd-N: key to new workspace visible"
+  },
+  "cmd_t\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Cmd-T: key to new tab visible"
+  },
+  "ctrl_backtick\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Ctrl-`: key to new terminal visible"
+  },
+  "cmd_d\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Cmd-D: key to split visible"
+  },
+  "cmd_shift_d\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Cmd-Shift-D: key to split visible"
+  },
+  "tab_switch\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "tab switch: input to committed frame"
+  },
+  "palette\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Cmd-Shift-P / Cmd-P: key-down to committed frame (p90)"
+  },
+  "sidebar\\.\\d+\\.workspace_switch\\..*": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "workspace switch from a sidebar click to idle"
+  },
+  "home\\.typing\\..*": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Home composer: key dispatch"
+  },
+  "acp\\..*\\.typing\\..*": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "ACP chat composer: keydown to next frame / paint"
+  },
+  "sidebar\\.\\d+\\.ticking\\.cpu_pct": {
+   "p95": 10.0,
+   "unit": "%",
+   "floor": 1.0,
+   "what": "app CPU while 15 agents tick (15 busy spinners)"
+  },
+  "idle\\..*\\.app_cpu_pct": {
+   "p95": 0.5,
+   "unit": "%",
+   "floor": 0.3,
+   "what": "idle app CPU"
+  }
+ }
+}

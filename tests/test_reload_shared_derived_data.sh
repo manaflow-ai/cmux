@@ -80,10 +80,14 @@ fi
 tag="ddtest-$$"
 link="/tmp/cmux-$tag"
 trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$"; rm -rf "$tmp"' EXIT
-eval "$(awk '/^reload_socket_is_live\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-# The shim body is a heredoc with its own top-level braces, so the function ends at the first "}" after it.
-eval "$(awk '/^write_dev_cli_shim\(\) \{/ { on = 1 } on { print } on && /<<EOF$/ { doc = 1 } on && /^EOF$/ { doc = 0 } on && !doc && /^}/ { exit }' "$ROOT/scripts/reload.sh")"
-declare -F write_dev_cli_shim >/dev/null || fail "write_dev_cli_shim not found in reload.sh"
+# reload.sh sources the shim writer (and its socket probe) from scripts/lib/cmux-dev-shim-install,
+# the one source of the managed shim; load it the same way. Sourcing runs no command.
+grep -Fq 'source "$SCRIPT_DIR/lib/cmux-dev-shim-install"' "$ROOT/scripts/reload.sh" \
+  || fail "reload.sh no longer sources scripts/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/cmux-dev-shim-install
+source "$ROOT/scripts/lib/cmux-dev-shim-install"
+declare -F write_dev_cli_shim >/dev/null || fail "write_dev_cli_shim not found in scripts/lib/cmux-dev-shim-install"
+declare -F reload_socket_is_live >/dev/null || fail "reload_socket_is_live not found in scripts/lib/cmux-dev-shim-install"
 fake_home="$tmp/home"
 stale_app="$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug/cmux DEV $tag.app"
 shared_app="$tmp/dd/Build/Products/Debug/cmux DEV $tag.app"

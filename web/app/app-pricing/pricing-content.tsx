@@ -101,12 +101,14 @@ export function AppPricingContent({
     manageBilling: (canManageBilling && !isGo) || isMax,
   });
   // A Pro subscriber keeps the Max checkout link; the server routes an active
-  // Pro subscription to the Stripe portal upgrade flow.
+  // Pro subscription to the plan switch. A failed payment is fixed in the
+  // portal first.
+  const maxNeedsPaymentFix = snapshot.isPro && !isMax && snapshot.paymentPastDue === true;
   const maxAction = personalPlanActionState({
     isCurrent: isMax,
     appStorePaymentGated,
     appStoreManaged,
-    manageBilling: canManageBilling && !snapshot.isPro,
+    manageBilling: canManageBilling && (!snapshot.isPro || maxNeedsPaymentFix),
   });
   const portalVisible = canManageBilling && !appStorePaymentGated;
   // While a cancellation is scheduled the current plan's action is Resume.
@@ -138,21 +140,11 @@ export function AppPricingContent({
     "month",
     attribution,
   );
-  const maxPortalSwitch = snapshot.isPro && !isMax;
-  const maxCheckoutHref =
-    maxPortalSwitch
-      ? withExternalBrowserIntent(
-          `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
-        )
-      : appPricingCheckoutURL(
-          "max",
-          requestOrigin,
-          cmuxScheme,
-          "month",
-          attribution,
-        );
+  // The checkout endpoint decides whether this is a new purchase or a switch
+  // of an existing subscription. Pro access alone does not mean a Stripe
+  // customer exists (an operator grant has none).
   const maxCheckoutHrefs = {
-    month: maxCheckoutHref,
+    month: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "month", attribution),
     year: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "year", attribution),
   };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
@@ -301,7 +293,7 @@ export function AppPricingContent({
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
-        monthlyOnly={maxPortalSwitch}
+        monthlyOnly={false}
         initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
@@ -471,6 +463,8 @@ export type AppPlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The Stripe subscription has a failed payment to fix before a switch. */
+  paymentPastDue?: boolean;
   email: string | null;
 };
 

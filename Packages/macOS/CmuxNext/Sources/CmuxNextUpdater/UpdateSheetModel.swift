@@ -16,9 +16,12 @@ public protocol UpdateSheetSource: AnyObject, Observable {
 @Observable
 public final class UpdateSheetModel: UpdateSheetSource {
     @ObservationIgnored public let service: UpdaterService
+    /// Opens Release Notes and Download Manually (the App routes it by its link setting).
+    @ObservationIgnored let openLink: (URL) -> Void
 
-    public init(service: UpdaterService) {
+    public init(service: UpdaterService, openLink: ((URL) -> Void)? = nil) {
         self.service = service
+        self.openLink = openLink ?? { NSWorkspace.shared.openInBackground($0) }
     }
 
     public var content: UpdateSheetContent? {
@@ -35,6 +38,9 @@ public final class UpdateSheetModel: UpdateSheetSource {
         switch button {
         case .install:
             try? service.installAvailableUpdate()
+        case .update:
+            // The update-found step: download only; the staged update asks before relaunching.
+            service.downloadClicked()
         case .later, .cancel, .done:
             state?.cancel()
         case .retry:
@@ -43,7 +49,7 @@ public final class UpdateSheetModel: UpdateSheetSource {
         case .relaunch:
             if case .installing(let installing) = state { installing.retryTerminatingApplication() }
         case .releaseNotes(let url), .downloadManually(let url):
-            NSWorkspace.shared.openInBackground(url)
+            openLink(url)
         }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextTerminal
+import CmuxNextFocusUI
 
 /// The Ghostty config's keybinds as binding table entries (GHOSTTY-CONFIG,
 /// plans/cmux-next/ghostty-config.md "Keybinds"; PANE-FOCUS-RESIZE-KEYS-AND-
@@ -66,6 +67,15 @@ struct GhosttyKeyBindingLayer {
             guard entry.source == .default, entry.keys.count == 1, let key = entry.keys.first,
                   !key.modifiers.isDisjoint(with: [.command, .control]), seen.insert(key).inserted else { return nil }
             return key
+        }
+    }
+
+    /// Whether `event`'s chord is the user's own Ghostty keybind: a key their
+    /// config claims from a cmux default (`ghosttyClaims`) or a `.ghostty`
+    /// entry, never a `.ghosttyFallback` default.
+    static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers) -> Bool {
+        ActionRegistry.shortcuts(for: event).contains { key in
+            layers.ghosttyClaims.contains(key) || layers.ghostty.contains { $0.source == .ghostty && $0.keys == [key] }
         }
     }
 

@@ -1,9 +1,16 @@
 import AppKit
 import CmuxNextBrowser
+import Darwin
 import Foundation
 import WebKit
 
 extension WebKitDriver {
+    /// The result of encoding a captured image, including the executor proof used by tests.
+    struct ScreenshotEncoding: Sendable {
+        let base64: String
+        let ranOnMainThread: Bool
+    }
+
     /// `{ base64, width, height }` of the viewport or a clip (CSS pixels),
     /// at the page's CSS scale, as Playwright screenshots at scale 1.
     func tabScreenshot(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
@@ -46,15 +53,28 @@ extension WebKitDriver {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw DriverError(.unsupported, "tab.screenshot: WebKit returned no image")
         }
-        let rep = NSBitmapImageRep(cgImage: cgImage)
         let jpeg = format == "jpeg"
         let quality = (try params.optionalNumber("quality") ?? 80) / 100
-        guard let data = jpeg ? rep.representation(using: .jpeg, properties: [.compressionFactor: quality])
-            : rep.representation(using: .png, properties: [:]) else {
+        guard let encoded = await Self.encodeScreenshot(cgImage, jpeg: jpeg, quality: quality) else {
             throw DriverError(.unsupported, "tab.screenshot: could not encode the image")
         }
-        return .object(["base64": .string(data.base64EncodedString()), "width": .number(Double(cgImage.width)),
+        return .object(["base64": .string(encoded.base64), "width": .number(Double(cgImage.width)),
                         "height": .number(Double(cgImage.height))])
+    }
+
+    /// ImageIO/AppKit encoding and the base64 copy are deliberately detached from the main actor. A
+    /// full-page capture may contain millions of pixels, and compression must not hold up WebKit
+    /// input or rendering.
+    static func encodeScreenshot(_ image: CGImage, jpeg: Bool, quality: Double) async -> ScreenshotEncoding? {
+        await Task.detached(priority: .userInitiated) {
+            let rep = NSBitmapImageRep(cgImage: image)
+            let properties: [NSBitmapImageRep.PropertyKey: Any] = jpeg
+                ? [.compressionFactor: quality]
+                : [:]
+            let data = rep.representation(using: jpeg ? .jpeg : .png, properties: properties)
+            guard let data else { return nil }
+            return ScreenshotEncoding(base64: data.base64EncodedString(), ranOnMainThread: pthread_main_np() != 0)
+        }.value
     }
 
     /// The page as PDF (`WKWebView.createPDF`): the visible layout, one page

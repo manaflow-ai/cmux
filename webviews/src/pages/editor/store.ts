@@ -24,6 +24,7 @@ import {
   type ReadOnlyReason,
 } from "./host";
 import { resolveEditorSettings } from "./settings";
+import { revealOf, type RevealPosition } from "./keys";
 import { createEditReporter } from "../shared/editReporter";
 
 export type SaveStatus = "saved" | "edited" | "saving" | "failed";
@@ -76,6 +77,10 @@ export interface CodeView {
   setReadOnly(readOnly: boolean): void;
   /** Formats the document (format on save), when a formatter exists for its language. */
   format?(): Promise<void>;
+  /** Moves the cursor to `position` and centers its line (a Find result). */
+  reveal?(position: RevealPosition): void;
+  /** VS Code's save options (`editor.trimTrailingWhitespace`, `editor.insertFinalNewline`). */
+  prepareSave?(options: { trimTrailingWhitespace: boolean; insertFinalNewline: boolean }): Promise<void>;
 }
 
 export type Schedule = (run: () => void, delayMs: number) => () => void;
@@ -149,6 +154,8 @@ export class EditorStore {
   private stopLook: (() => void) | null = null;
   /** A recovered draft to load as an edit once the file is in the view. */
   private recovered: string | null = null;
+  /** Where the cursor goes once the file is in the view (the config's `reveal`, an early command). */
+  private pendingReveal: RevealPosition | null = null;
   private readonly reporter;
 
   constructor(
@@ -237,6 +244,7 @@ export class EditorStore {
       !readOnly && typeof config.recoveredText === "string" && config.recoveredText !== config.text
         ? config.recoveredText
         : null;
+    this.pendingReveal = revealOf(config.reveal) ?? this.pendingReveal;
     const size = typeof config.size === "number" ? config.size : config.text.length;
     this.set({
       phase: "ready",
@@ -288,6 +296,24 @@ export class EditorStore {
       this.view.replaceText(recovered);
       this.edited();
     }
+    this.applyReveal();
+  }
+
+  /**
+   * The `reveal` page command (a Find result opened in a tab that already shows its file): the cursor
+   * goes to `position` now, or once the file is in the view. Null (a malformed command) does nothing.
+   */
+  reveal(position: RevealPosition | null): void {
+    if (!position) return;
+    this.pendingReveal = position;
+    if (this.view && !this.pending && this.state.phase === "ready") this.applyReveal();
+  }
+
+  private applyReveal(): void {
+    const position = this.pendingReveal;
+    if (!position || !this.view?.reveal) return;
+    this.pendingReveal = null;
+    this.view.reveal(position);
   }
 
   /** The view mounted (or unmounted, with null). A loaded file goes into it. */
@@ -364,8 +390,12 @@ export class EditorStore {
       this.saveAgain = true;
       return this.saving;
     }
-    if (options.format && view.format && resolveEditorSettings(this.state.look.settings).formatOnSave) {
-      await view.format().catch(() => undefined);
+    if (options.format) {
+      const settings = resolveEditorSettings(this.state.look.settings);
+      if (view.prepareSave && (settings.trimTrailingWhitespace || settings.insertFinalNewline)) {
+        await view.prepareSave(settings).catch(() => undefined);
+      }
+      if (view.format && settings.formatOnSave) await view.format().catch(() => undefined);
     }
     const version = view.version();
     if (version === this.savedVersion) {

@@ -1,14 +1,36 @@
 # Cloud Chief on a placed machine (cx-ebm.7)
 
-Status: design for decision CLOUD-CHIEF-ON-A-MACHINE (coordinator, 2026-10-07):
-no Durable Object brain; the cloud Chief is the same optchat-chief, headless on a
-machine. (1) The user's paired server is the shipped path first. (2) A user
-without one gets one per-user cmux Cloud VM, created only through the cmux VM
-API (workers/cmux-vm, owner hq-ff; never Freestyle directly), at most one per
-user (enforced in the backend), asleep within minutes of no activity, woken by
-MuxDO wake rows, with a cost line per user per day in the admin view, behind a
-flag limited to the manaflow team. optchat-lab pi-durable stays an experiment.
-Nothing here is built yet beyond what section 1 lists.
+Status: SUPERSEDED as the plan by Lawrence's decision of 2026-10-15 (TWO BRAINS).
+The 2026-10-07 decision CLOUD-CHIEF-ON-A-MACHINE ("no Durable Object brain; the
+cloud Chief is optchat-chief headless on a machine") no longer holds. Sections 1
+to 9 stay as reference for the VM, placement handoff and cost work.
+
+Decision (Lawrence, 2026-10-15):
+
+1. Two brains. Brain 1 is the Rust optchat-chief, self-hosted on the user's
+   machine. Brain 2 is the Cloud brain: ChiefBrainDO on pi-durable in a Durable
+   Object (backend/apps/api/src/chief-brain/), which we host. An enterprise can
+   host it too, so every host, key and model route is configuration, never a
+   constant.
+2. The loop runs in a Durable Object. People make Cloud Chiefs; Cloud Chiefs
+   make Cloud Chiefs.
+3. A Cloud Chief and a local Chief run at the same time and talk in one shared
+   conversation.
+4. Hands: acpmux agents in Freestyle sandboxes and on the user's Mac (a host
+   agent that installs itself).
+5. Models: Bedrock (Anthropic) and OpenRouter. Default `claude-opus-5-5`, effort
+   `low`; any model and effort is selectable per Chief.
+6. Rollout: the team first; people load prepaid credits to use it.
+7. Real-time token streaming, a compact "working on" line, measured first token
+   and cache hit.
+8. Effect for the implementation; two implementations (pi-durable in the DO,
+   and opencode v2 with an Effect plugin) are built and compared.
+9. iMessage-style UI first, Slack UI too.
+
+Both brains emit the same Brain contract and live frames
+(backend/apps/api/src/chief-brain/contract.ts: Run, Step, `step.delta`,
+`run.activity`, `run.live`, capability `chief-live-v1`), so pages and the
+native Messages view do not know which brain runs.
 
 ## 1. Shape
 

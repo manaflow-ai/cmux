@@ -10,6 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 base64.workspace = true
@@ -39,7 +40,8 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-security-framework = "3.7"
+# The free-tier provider peer check (free_tier::provider_peer_allowed).
+cmux-link.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -32,6 +32,8 @@ React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. 
 
 Pages inside the app: `bun run dev:pages` serves every page cmux-next hosts (the React pages under `src/pages/`, and the diff, markdown and code editor viewers) from one server on `http://127.0.0.1:4190/` (`CMUX_PAGES_DEV_PORT` moves it). Launch a tagged build with `CMUX_NEXT_PAGES_DEV_URL=http://127.0.0.1:4190/ ./scripts/reload.sh --tag <tag>` and open any page; edits hot reload in the app. The app keeps each page on its own `cmux-page://` origin and fetches the files from the server, so the page still talks to the real host. Only Debug and tagged builds read the variable, under the agent pane's rule (`http` on `127.0.0.1` or `localhost` with an explicit port); Release always serves the bundled pages.
 
+Pages inside a running NIGHTLY (or Debug) app, no relaunch: `scripts/cmux-next/web-overlay.sh server --local` starts the dev server from this checkout and points the app at it through `~/.config/cmux/web-dev.json` (`server http://127.0.0.1:<port>/` takes any running one), and `web-overlay.sh fleet` installs bundles built on the fleet instead. See plans/cmux-next/web-live-reload.md.
+
 The hosts are `apply: "serve"` plugins in `dev-server/`, so `vp build` output does not change; `scripts/agent-pane/dev-slot.sh up N` runs this server on port 4180+N next to a standalone acpmux daemon and prints one URL per surface (sidecar from `$CMUX_DIFF_SIDECAR_BIN`, else the newest built app).
 
 Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go type check). The rules and formatting live in `config/vite-plus/check.ts`, shared with `cmux-tui/frontends/web`:
@@ -40,6 +42,8 @@ Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go t
 bun run check      # what CI runs
 bun run check:fix  # format and apply lint fixes
 ```
+
+Run tests with `bun run test [files, directories or name filters]`: it runs each file in its own `bun test` process, as CI does (`scripts/ci/run-webviews-tests.sh`). Never run a bare `bun test` over many files: one process leaks globals from file to file and fails tests that pass alone and in CI. `bun test FILE` on one file is fine.
 
 Interaction latency (plans/cmux-next/zero-latency.md): `bun run latency` builds the harness pages
 (`test/latency/`) for production and measures every page's named actions (input to paint) in

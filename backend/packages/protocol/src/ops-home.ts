@@ -1,4 +1,5 @@
 import { homeConversationOps } from "./ops-home-conversation.ts"
+import { homeAvatarOps } from "./ops-home-avatar.ts"
 import { homeInboxOps, homeInternalOps } from "./ops-home-inbox.ts"
 
 /**
@@ -6,5 +7,5 @@ import { homeInboxOps, homeInternalOps } from "./ops-home-inbox.ts"
  * `homeOps` are public (catalog, HTTP, MCP per op); `homeInternalOps` are system ops a Durable
  * Object or the Worker builds itself, never exported to the catalog.
  */
-export const homeOps = [...homeConversationOps, ...homeInboxOps] as const
+export const homeOps = [...homeConversationOps, ...homeInboxOps, ...homeAvatarOps] as const
 export { homeInternalOps }

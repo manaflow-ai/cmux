@@ -1,0 +1,42 @@
+{
+ "t0": 1792480499.704135,
+ "quit_ok": true,
+ "pill_changes": [
+  [
+   0.45,
+   "e2e-t1, Mac offline"
+  ]
+ ],
+ "proc_changes": [
+  [
+   0.45,
+   0,
+   0
+  ]
+ ],
+ "offline_label_after_quit_s": 0.45,
+ "composer_value_after_send": "echo STALECOMP2",
+ "notices": [
+  "Not sent: cmux11\u2019s Mac mini is offline. Send again when it's back."
+ ],
+ "notices_after_direct": [
+  "Keys typed while your Mac was unreachable were not sent."
+ ],
+ "pill_before_relaunch": "e2e-t1, Mac offline",
+ "launch_call_s": 1.36,
+ "pill_after_relaunch": [
+  [
+   1.77,
+   "e2e-t1, Mac offline"
+  ],
+  [
+   3.88,
+   "e2e-t1, ~"
+  ]
+ ],
+ "live_after_launch_s": 3.88,
+ "stale_ran_on_mac": [
+  false,
+  false
+ ]
+}

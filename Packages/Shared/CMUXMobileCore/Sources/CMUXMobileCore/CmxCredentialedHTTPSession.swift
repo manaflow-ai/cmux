@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public enum CmxCredentialedHTTPSessionError: Error, Equatable, Sendable {
     case responseTooLarge
@@ -38,6 +41,15 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
     }
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        #if canImport(FoundationNetworking)
+        // FoundationNetworking has no streaming `bytes(for:)`; the cap applies to the buffered body.
+        let (data, response) = try await session.data(for: request, delegate: redirectDelegate)
+        guard response.expectedContentLength <= maximumResponseByteCount,
+              data.count <= max(maximumResponseByteCount, 0) else {
+            throw CmxCredentialedHTTPSessionError.responseTooLarge
+        }
+        return (data, response)
+        #else
         let (bytes, response) = try await session.bytes(for: request)
         if response.expectedContentLength > maximumResponseByteCount {
             bytes.task.cancel()
@@ -57,6 +69,7 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
             data.append(byte)
         }
         return (data, response)
+        #endif
     }
 
     deinit {
@@ -68,6 +81,17 @@ final class CmxCredentialedHTTPRedirectDelegate: NSObject,
     URLSessionTaskDelegate,
     @unchecked Sendable
 {
+    #if canImport(FoundationNetworking)
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest _: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+    #else
     func urlSession(
         _: URLSession,
         task _: URLSessionTask,
@@ -77,4 +101,5 @@ final class CmxCredentialedHTTPRedirectDelegate: NSObject,
     ) {
         completionHandler(nil)
     }
+    #endif
 }

@@ -30,16 +30,23 @@ public nonisolated struct SidebarWorkspaceStatus: Hashable, Sendable {
         /// SF Symbol name, one emoji or a stored image or SVG (drawn from ``image``).
         public var icon: String?
         public var tint: Tint?
+        /// The daemon's explicit status state (`waiting` or `error` are actionable;
+        /// `busy`, `success`, and `info` stay in the existing glyph/text treatment).
+        public var state: String?
         /// The stored image or SVG `icon` names, once read (cx-qno.11.1).
         public var image: SidebarFavicon?
 
-        public init(key: String, text: String, icon: String? = nil, tint: Tint? = nil, image: SidebarFavicon? = nil) {
+        public init(key: String, text: String, icon: String? = nil, tint: Tint? = nil,
+                    state: String? = nil, image: SidebarFavicon? = nil) {
             self.key = key
             self.text = text
             self.icon = icon
             self.tint = tint
+            self.state = state
             self.image = image
         }
+
+        public var isActionable: Bool { state == "waiting" || state == "error" }
 
         /// The text, or the key when the text is blank.
         public var displayText: String {

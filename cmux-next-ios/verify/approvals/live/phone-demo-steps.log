@@ -1,0 +1,29 @@
+2026-10-14 00:15:04.924 I  CnxApp[40866:23eaa35] [dev.cmux.cnx:demo] demo step: start
+2026-10-14 00:15:51.043 I  CnxApp[40866:23eaa35] [dev.cmux.cnx:demo] demo step: paired
+2026-10-14 00:16:14.401 I  CnxApp[40866:23eaa35] [dev.cmux.cnx:demo] demo step: feed allow ask-01a13944-ccb5-72a2-9efc-d6ed2239b537
+2026-10-14 00:16:14.401 I  CnxApp[40866:23eaa35] [dev.cmux.cnx:demo] demo step: result ask-01a13944-ccb5-72a2-9efc-d6ed2239b537: resolution=Allowed: Allow error=-
+2026-10-14 00:16:52.462 I  CnxApp[40866:23eaa35] [dev.cmux.cnx:demo] demo step: feed allow ask-01a13945-5d6e-7a73-b59d-ff571c261e35
+2026-10-14 00:16:52.462 I  CnxApp[40866:23eaa35] [dev.cmux.cnx:demo] demo step: result ask-01a13945-5d6e-7a73-b59d-ff571c261e35: resolution=Allowed: Allow error=-
+2026-10-14 00:17:56.381 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: start
+2026-10-14 00:17:56.381 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: paired
+2026-10-14 00:17:57.909 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: feed allow ask-01a13945-5d6e-7a73-b59d-ff571c261e35
+2026-10-14 00:17:57.910 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: result ask-01a13945-5d6e-7a73-b59d-ff571c261e35: resolution=Allowed: Allow error=-
+2026-10-14 00:17:59.455 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: feed deny ask-01a13944-ccb5-72a2-9efc-d6ed2239b537
+2026-10-14 00:17:59.455 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: result ask-01a13944-ccb5-72a2-9efc-d6ed2239b537: resolution=Denied error=-
+2026-10-14 00:18:23.317 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: feed answer ask-01a13946-c4b5-7f70-ba83-648b39698567
+2026-10-14 00:18:23.317 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: result ask-01a13946-c4b5-7f70-ba83-648b39698567: resolution=Pick: A error=-
+2026-10-14 00:18:23.317 I  CnxApp[47270:23f3cdc] [dev.cmux.cnx:demo] demo step: plan done
+2026-10-14 00:18:44.504 I  CnxApp[48670:23f59d5] [dev.cmux.cnx:demo] demo step: start
+2026-10-14 00:18:45.275 I  CnxApp[48670:23f59d5] [dev.cmux.cnx:demo] demo step: paired
+2026-10-14 00:18:45.275 I  CnxApp[48670:23f59d5] [dev.cmux.cnx:demo] demo step: sign out
+2026-10-14 00:18:45.703 I  CnxApp[48670:23f59d5] [dev.cmux.cnx:demo] demo step: signed out
+2026-10-14 00:18:45.703 I  CnxApp[48670:23f59d5] [dev.cmux.cnx:demo] demo step: plan done
+2026-10-14 00:19:36.902 I  CnxApp[50790:23f865d] [dev.cmux.cnx:demo] demo step: start
+2026-10-14 00:20:55.982 I  CnxApp[50790:23f865d] [dev.cmux.cnx:demo] demo step: paired
+2026-10-14 00:20:55.984 I  CnxApp[50790:23f865d] [dev.cmux.cnx:demo] demo step: sign out
+2026-10-14 00:20:56.330 I  CnxApp[50790:23f865d] [dev.cmux.cnx:demo] demo step: signed out
+2026-10-14 00:20:56.330 I  CnxApp[50790:23f865d] [dev.cmux.cnx:demo] demo step: plan done
+2026-10-14 00:21:17.931 I  CnxApp[54562:23fe6e4] [dev.cmux.cnx:demo] demo step: start
+2026-10-14 00:21:25.219 E  CnxApp[54562:23fe6e4] [dev.cmux.cnx:live] pairing refused: denied the Mac did not allow this iPhone
+2026-10-14 00:22:16.918 I  CnxApp[55821:2400ad1] [dev.cmux.cnx:demo] demo step: start
+2026-10-14 00:22:17.200 E  CnxApp[55821:2400ad1] [dev.cmux.cnx:live] pairing refused: denied the Mac did not allow this iPhone

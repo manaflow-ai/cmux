@@ -127,6 +127,7 @@ export const handleStackWebhook = (request: Request, secret: Redacted.Redacted<s
       outcome: "revoked",
       devicesRevoked: done.devicesRevoked,
       meshesReapplied: done.meshesReapplied,
+      serversRevoked: done.serversRevoked,
       ...(event.tenantId === null ? {} : { tenantId: event.tenantId }),
       recorded: recorded._tag === "Right",
       eventAgeMs: at.getTime() - eventAt.getTime(),

@@ -1,0 +1,20 @@
+{
+ "date": "2026-10-30",
+ "build": "84c705adefd6cdc900e204ca (3ecd8020cb1)",
+ "host": "cmux21",
+ "harness_runs": "02ebc4c61a0",
+ "method": "paired t-interval 95 %, 5 rounds, labels in ABBA order (same build in both arms)",
+ "metrics": {},
+ "position_effects": {
+  "acpmux RSS growth MB/h": {
+   "position_ci": [
+    -283.4858807895968,
+    -16.50211921040318
+   ],
+   "note": "the second run of a round grows acpmux RSS less than the first; it cancels only in ABBA order"
+  }
+ },
+ "not_tested": [
+  "app request p99 ms"
+ ]
+}

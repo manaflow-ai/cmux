@@ -26,9 +26,14 @@ export const journalNotes: ReleaseNotes[] = [
     date: "2026-10-11",
     highlights: [],
     changes: [
-      "sidebar: group labels keep their band color",
-      "groups: pin keeps an empty group",
-      "toast: undo closed tabs",
+      "cmux-next sidebar: a long group or list shows its first rows then Show N more (#23671)",
+      "cmux-next sidebar: rows draw no status words; needs you is one yellow dot, never Done (#23767)",
+      "cmux-next sidebar: a working row shows no running time (#23812)",
+    ],
+    items: [
+      { title: "cmux-next sidebar: a long group or list shows its first rows then Show N more", pr: 23671 },
+      { title: "cmux-next sidebar: rows draw no status words; needs you is one yellow dot, never Done", pr: 23767 },
+      { title: "cmux-next sidebar: a working row shows no running time", pr: 23812 },
     ],
     whatsNew: {
       version: "1.0.0-nightly.413",
@@ -74,6 +79,20 @@ export const journalNotes: ReleaseNotes[] = [
           },
         ),
         entry(
+          "group-band-color",
+          "improved",
+          "Group labels keep their band color",
+          "A group's label stays the color of its band when you rename it, collapse it or move it to another window, so the sidebar reads the same everywhere.",
+          {
+            media: {
+              kind: "image",
+              light: groupsLight,
+              dark: groupsDark,
+              alt: { en: "Workspace groups, each label in its band's color" },
+            },
+          },
+        ),
+        entry(
           "fast-tabs",
           "improved",
           "Faster browser tab switches",
@@ -112,7 +131,14 @@ export const journalNotes: ReleaseNotes[] = [
       { group: "changed", title: "cmux tells you what changed after every update" },
       { group: "fixed", title: "A machine that cannot connect stays in the sidebar" },
     ],
-    changes: ["chats: discovery across homes", "updates: Updated card every channel"],
+    changes: [
+      "cmux NEXT Home: no stale divider line through the Chief chat after the list clamps (#23998)",
+      "updates: switch channels in place, both ways (Dev ↔ Nightly) (#23845)",
+    ],
+    items: [
+      { title: "cmux NEXT Home: no stale divider line through the Chief chat after the list clamps", pr: 23998 },
+      { title: "updates: switch channels in place, both ways (Dev ↔ Nightly)", pr: 23845 },
+    ],
   },
   {
     build: "3720357960411",
@@ -120,9 +146,14 @@ export const journalNotes: ReleaseNotes[] = [
     date: "2026-10-09",
     highlights: [],
     changes: [
-      "browser: popups belong to their session",
-      "remote: datalist popups past the page edge",
-      "labels keep their text width",
+      "cmux NEXT browser: files dragged in from Finder drop into the Chromium page (#23790)",
+      "cmux NEXT sidebar: remote Priority rows age out and keep their read marks (#23609)",
+      "cmux-next: rapid Cmd-W on terminal tabs closes one tab per press (#23646)",
+    ],
+    items: [
+      { title: "cmux NEXT browser: files dragged in from Finder drop into the Chromium page", pr: 23790 },
+      { title: "cmux NEXT sidebar: remote Priority rows age out and keep their read marks", pr: 23609 },
+      { title: "cmux-next: rapid Cmd-W on terminal tabs closes one tab per press", pr: 23646 },
     ],
   },
   {
@@ -136,6 +167,7 @@ export const journalNotes: ReleaseNotes[] = [
         body: "A pane can hold a terminal that runs on another connected machine, next to your local tabs. It keeps running on its machine when no tab shows it.",
       },
     ],
-    changes: ["remote: terminal tab on a machine"],
+    changes: ["cmux NEXT: a restored terminal pane comes back without a key press (#23145)"],
+    items: [{ title: "cmux NEXT: a restored terminal pane comes back without a key press", pr: 23145 }],
   },
 ];

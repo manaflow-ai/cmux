@@ -7,9 +7,10 @@ import Testing
 /// one popup shadow (`PopupStyle`, like the page's own menus) and opens and closes like every
 /// native popup (`openPopup` / `closePopup`).
 @MainActor @Suite(.serialized) struct PagePopupMotionTests {
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
-
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    /// Popup motion is observable only on an awake display with animations enabled. The tests pin
+    /// Reduce Motion off around the operation, so the system Reduce Motion setting does not gate
+    /// this predicate.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aPageMenuCastsThePopupShadowAndOpensAndClosesWithMotion() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
@@ -32,15 +33,75 @@ import Testing
 
         host.hide()
         #expect(panel.isVisible, "closed in one frame")
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(!panel.isVisible)
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
-    static func menu(_ ids: [String]) throws -> WebPopupHost.Model {
-        try #require(WebPopupHost.Model([
+    static func menu(_ ids: [String], instant: Bool? = nil) throws -> WebPopupHost.Model {
+        var params: [String: Any] = [
             "items": ids.map { ["id": $0, "label": $0] },
             "anchor": ["left": 40, "top": 40, "right": 200, "bottom": 64], "width": 160,
-        ]))
+        ]
+        if let instant { params["instant"] = instant }
+        return try #require(WebPopupHost.Model(params))
+    }
+
+    /// Leo 2026-10-22, no entry animations on the New Tab: its menus ask for none (`instant: true`).
+    @Test func theInstantFlagIsReadFromThePageRequest() throws {
+        #expect(try Self.menu(["a"], instant: true).instant)
+        #expect(try !Self.menu(["a"]).instant)
+        #expect(try !Self.menu(["a"], instant: false).instant)
+    }
+
+    /// No entrance asked: the card shows whole in one frame, and its close still fades.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
+    func anInstantPageMenuOpensInOneFrameAndStillFadesOut() async throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
+        let (panel, opening, opacity) = try { () throws -> (WebPopupPanel, [String], Float?) in
+            Motion.reduceMotionOverride = false
+            defer { Motion.reduceMotionOverride = nil }
+            host.show(try Self.menu(["a", "b"], instant: true))
+            let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+            let layer = panel.contentView?.layer
+            return (panel, ["opacity", "sublayerTransform"].filter { layer?.animation(forKey: $0) != nil }, layer?.opacity)
+        }()
+        #expect(opening == [], "the menu animated in")
+        #expect(opacity == 1)
+        #expect(panel.alphaValue == 1)
+
+        Motion.reduceMotionOverride = false
+        host.hide()
+        let closing = panel.contentView?.layer?.animation(forKey: "opacity") != nil
+        Motion.reduceMotionOverride = nil
+        #expect(closing, "the close lost its fade")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
+    }
+
+    /// Native menus and popovers use the host's default: no entrance motion. The explicit
+    /// `entrance` opt-in remains available for the command palette's own presentation.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
+    func aNativePopupDefaultsToAnInstantOpenAndFadesOnClose() async throws {
+        let (window, _) = try Self.page()
+        defer { window.orderOut(nil) }
+        let panel = NativePopupPanel(identifier: "cmux.tests.instant-popup")
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 80))
+        content.wantsLayer = true
+        panel.contentView = content
+        let host = NativePopupHost(panel: panel)
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+
+        _ = try #require(host.show(size: content.frame.size,
+                                   anchor: CGRect(x: 300, y: 580, width: 24, height: 24),
+                                   in: window))
+        #expect(content.layer?.animation(forKey: "opacity") == nil, "the popup fades in")
+        #expect(content.layer?.animation(forKey: "sublayerTransform") == nil, "the popup grows in")
+        #expect(content.layer?.opacity == 1)
+
+        host.hide()
+        #expect(content.layer?.animation(forKey: "opacity") != nil, "the popup lost its close fade")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
     /// A window on screen with a page view, and the page menu panel of `host` once shown.
@@ -56,7 +117,7 @@ import Testing
 
     /// Review of #19944: the page posts an update for the menu it is still closing (a highlight
     /// as Base UI closes it) after the menu went away here. It must not open again.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func anUpdateDuringTheCloseDoesNotReopenTheMenu() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
@@ -65,14 +126,13 @@ import Testing
         let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
         host.hide()
         host.update(try Self.menu(["a", "b", "c"]))
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(!panel.isVisible, "the closed menu opened again")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the closed menu opened again")
         #expect(host.shownFrame == nil)
     }
 
     /// Review of #19944: the page's view goes (its tab closed) while its menu fades out. The menu
     /// still leaves its window.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aMenuWhoseHostGoesMidFadeStillLeaves() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
@@ -83,8 +143,7 @@ import Testing
         host?.hide()
         host = nil
         #expect(gone == nil)
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(!panel.isVisible, "a dead host's menu stayed on its window")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "a dead host's menu stayed on its window")
         #expect(panel.parent == nil)
     }
 }

@@ -26,8 +26,8 @@ use tokio::task::JoinSet;
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
-    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, authorize_secure_link,
-    verify_secure_link,
+    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, ServiceAuthority,
+    authorize_secure_link, verify_secure_link,
 };
 pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
@@ -39,6 +39,7 @@ use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -140,6 +141,7 @@ struct ClientKey {
 pub struct ServerConnection {
     pub device_id: String,
     pub session_id: SessionId,
+    service_authority: ServiceAuthority,
     key: ClientKey,
     owner: Weak<RemoteDaemon>,
     self_weak: Weak<ServerConnection>,
@@ -290,6 +292,7 @@ impl ServerConnection {
     fn new(
         owner: &Arc<RemoteDaemon>,
         key: ClientKey,
+        service_authority: ServiceAuthority,
         session: ReliableSession,
         lane_bindings: Vec<Vec<Lane>>,
     ) -> Arc<Self> {
@@ -302,6 +305,7 @@ impl ServerConnection {
         Arc::new_cyclic(move |self_weak| Self {
             device_id,
             session_id,
+            service_authority,
             key,
             owner,
             self_weak: self_weak.clone(),
@@ -329,6 +333,10 @@ impl ServerConnection {
 
     fn current_generation(&self) -> u64 {
         *self.generation.borrow()
+    }
+
+    pub(crate) fn service_authority(&self) -> &ServiceAuthority {
+        &self.service_authority
     }
 
     pub async fn snapshot(&self) -> ServerConnectionSnapshot {
@@ -755,6 +763,7 @@ struct PendingLinks {
     assigned: BTreeSet<Lane>,
     client_resume: BTreeMap<Lane, u64>,
     grant_generation: u64,
+    service_authority: ServiceAuthority,
 }
 
 struct ReconnectRegistration<'a> {
@@ -763,6 +772,7 @@ struct ReconnectRegistration<'a> {
     link: Arc<dyn FrameLink>,
     lane_bindings: Vec<Vec<Lane>>,
     peer_resume: &'a BTreeMap<Lane, u64>,
+    service_authority: &'a ServiceAuthority,
 }
 
 impl RemoteDaemon {
@@ -932,7 +942,8 @@ impl RemoteDaemon {
             let duplicate_lane =
                 accepted.lanes.iter().copied().find(|lane| pending.assigned.contains(lane));
             let metadata_mismatch = pending.client_resume != accepted.resume
-                || pending.grant_generation != accepted.grant.revocation_generation;
+                || pending.grant_generation != accepted.grant.revocation_generation
+                || pending.service_authority != accepted.grant.authority;
             if metadata_mismatch || duplicate_lane.is_some() {
                 let stale = state.pending.remove(&pending_key);
                 drop(state);
@@ -958,6 +969,7 @@ impl RemoteDaemon {
                 assigned: BTreeSet::new(),
                 client_resume: accepted.resume.clone(),
                 grant_generation: accepted.grant.revocation_generation,
+                service_authority: accepted.grant.authority.clone(),
             }
         });
         for lane in &accepted.lanes {
@@ -1007,6 +1019,7 @@ impl RemoteDaemon {
                         link: mux,
                         lane_bindings,
                         peer_resume: &pending.client_resume,
+                        service_authority: &pending.service_authority,
                     },
                 )
                 .await
@@ -1020,7 +1033,13 @@ impl RemoteDaemon {
             (connection, false)
         } else {
             let reliable = ReliableSession::new(key.session, mux, self.limits);
-            let connection = ServerConnection::new(self, key.clone(), reliable, lane_bindings);
+            let connection = ServerConnection::new(
+                self,
+                key.clone(),
+                pending.service_authority,
+                reliable,
+                lane_bindings,
+            );
             let mut state = self.state.lock().await;
             if state.clients.contains_key(&key) {
                 drop(state);
@@ -1067,6 +1086,11 @@ impl RemoteDaemon {
         connection: &Arc<ServerConnection>,
         registration: ReconnectRegistration<'_>,
     ) -> Result<(), DaemonError> {
+        if connection.service_authority() != registration.service_authority {
+            return Err(DaemonError::Protocol(
+                "client service authority changed across reconnect".into(),
+            ));
+        }
         let still_registered = {
             let state = self.state.lock().await;
             state.clients.get(key).is_some_and(|current| {
@@ -1256,7 +1280,10 @@ struct WebSocketState {
     daemon: Arc<RemoteDaemon>,
     maximum_frame_bytes: usize,
     trusted_carrier: bool,
+    keepalive: WebSocketKeepalive,
 }
+
+pub use cmux_tui_core::net_keepalive::WebSocketKeepalive;
 
 /// How a direct WebSocket listener admits links.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1267,6 +1294,16 @@ pub struct DirectWebSocketOptions {
     /// from a network whose members are all authorized (a cmux Cloud machine's
     /// private VPC). Enrolled and invitation dials keep working alongside.
     pub trusted_carrier: bool,
+    /// When an idle link is pinged and when a silent one is closed. The
+    /// default ([`WebSocketKeepalive::default`]) is the production policy.
+    pub keepalive: WebSocketKeepalive,
+}
+
+impl DirectWebSocketOptions {
+    /// A listener with the production keepalive policy.
+    pub fn new(allow_insecure_non_loopback: bool, trusted_carrier: bool) -> Self {
+        Self { allow_insecure_non_loopback, trusted_carrier, ..Self::default() }
+    }
 }
 
 struct LimitedTcpListener {
@@ -1304,6 +1341,7 @@ impl Listener for LimitedTcpListener {
                 Ok((inner, address)) => {
                     self.accept_backoff.reset();
                     let _ = inner.set_nodelay(true);
+                    enable_tcp_keepalive(&inner);
                     return (
                         AdmissionIo {
                             inner,
@@ -1414,7 +1452,7 @@ pub async fn serve_direct_websocket(
         daemon,
         address,
         maximum_frame_bytes,
-        DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier: false },
+        DirectWebSocketOptions { allow_insecure_non_loopback, ..Default::default() },
     )
     .await
 }
@@ -1425,7 +1463,8 @@ pub async fn serve_direct_websocket_with_options(
     maximum_frame_bytes: usize,
     options: DirectWebSocketOptions,
 ) -> Result<DirectWebSocketServer, DaemonError> {
-    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier } = options;
+    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier, keepalive } =
+        options;
     if !address.ip().is_loopback() && !allow_insecure_non_loopback {
         return Err(DaemonError::Protocol(format!(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
@@ -1437,7 +1476,7 @@ pub async fn serve_direct_websocket_with_options(
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
     })?;
-    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier };
+    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier, keepalive };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
         accept_backoff: cmux_tui_core::backoff::Backoff::new(
@@ -1472,8 +1511,12 @@ async fn upgrade_websocket(
         .max_frame_size(state.maximum_frame_bytes)
         .on_upgrade(move |socket| async move {
             admission.upgraded.store(true, Ordering::Release);
-            let link =
-                AxumWebSocketLink::new("direct-websocket", state.maximum_frame_bytes, socket);
+            let link = AxumWebSocketLink::with_keepalive(
+                "direct-websocket",
+                state.maximum_frame_bytes,
+                socket,
+                state.keepalive,
+            );
             let inbound = if state.trusted_carrier {
                 InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
             } else {

@@ -7,7 +7,10 @@ import { testflightQuery } from "../queries/testflight";
 import { shellRoute } from "./root";
 import { settingsHubRoute } from "./settings";
 
-/** `?billing=` and `?welcome=` come from billing redirects; `team` from the shell. */
+/**
+ * `?billing=`, `?welcome=`, and `?change=` come from billing redirects; `team`
+ * from the shell. `change` opens the switch dialog for that plan.
+ */
 export const billingRoute = createRoute({
   getParentRoute: () => settingsHubRoute,
   path: "/dashboard/billing",
@@ -15,6 +18,7 @@ export const billingRoute = createRoute({
     billing: z.string().optional(),
     welcome: z.string().optional(),
     interval: z.string().optional(),
+    change: z.enum(["pro", "max"]).optional().catch(undefined),
   }),
   loaderDeps: ({ search }) => ({ team: search.team }),
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(dashboardBillingQuery(deps.team)),

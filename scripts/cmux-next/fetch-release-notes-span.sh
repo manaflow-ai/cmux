@@ -32,6 +32,13 @@ else
   echo "no $tag tag on $remote; the notes cover the head's fetched history" >&2
   tag=""
 fi
+# A full clone (a developer's, or a worktree of one) already has the history
+# and must stay full: --depth there writes .git/shallow and truncates history
+# for every worktree sharing it. Fetch without a depth and stop.
+if [[ "$(git rev-parse --is-shallow-repository)" != true ]]; then
+  git fetch --no-tags --filter=blob:none "$remote" "${refspecs[@]}"
+  exit 0
+fi
 git fetch --no-tags --filter=blob:none --depth="$depth" "$remote" "${refspecs[@]}"
 if [[ -n "$since_sha" ]]; then
   since="$since_sha"

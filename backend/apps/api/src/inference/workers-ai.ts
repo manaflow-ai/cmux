@@ -90,8 +90,9 @@ export interface WorkersAiResult {
 }
 
 /** Runs the model and answers an OpenAI-shaped response (JSON, or SSE when `stream`). Throws on an upstream error. */
-export const runWorkersAi = async (ai: Ai, model: ModelEntry, providerModel: string, body: Record<string, unknown>, requestId: string): Promise<WorkersAiResult> => {
-  const raw = await (ai.run as (m: string, i: unknown) => Promise<unknown>)(providerModel, workersAiInput(body))
+export const runWorkersAi = async (ai: Ai, model: ModelEntry, providerModel: string, body: Record<string, unknown>, requestId: string, gateway?: string): Promise<WorkersAiResult> => {
+  // With a gateway id the binding goes through Cloudflare AI Gateway (its logs and analytics); no extra key.
+  const raw = await (ai.run as (m: string, i: unknown, o?: unknown) => Promise<unknown>)(providerModel, workersAiInput(body), gateway ? { gateway: { id: gateway } } : undefined)
   const c = fromAny(raw)
   if (!c) throw new Error("workers-ai: unrecognized answer shape")
   const created = Math.floor(Date.now() / 1000)

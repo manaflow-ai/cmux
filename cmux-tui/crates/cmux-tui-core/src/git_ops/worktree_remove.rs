@@ -27,6 +27,7 @@ use super::{MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.remove";
 /// The uncommitted paths a refusal lists.
@@ -75,7 +76,7 @@ pub(super) fn dispatch(
             "branch_deleted": branch_deleted,
         });
         if let Some(branch) = &attempt.branch {
-            value["branch"] = json!(branch);
+            value.set("branch", json!(branch));
         }
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })
@@ -114,9 +115,22 @@ fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError
 /// Refused while the worktree has uncommitted changes, or commits that only
 /// its HEAD reaches: on a detached HEAD, or on the branch that goes with it.
 fn guard(repository: &Repository, attempt: &Attempt) -> Result<(), ResourceError> {
-    let arguments = ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"];
+    // One deadline for every run here, the submodule search included.
+    let repository = &repository.within(deadline());
+    let arguments = [
+        "status",
+        "--porcelain",
+        "-z",
+        "--untracked-files=all",
+        "--no-renames",
+        "--ignore-submodules=none",
+    ];
+    // Submodules stay in the status (a changed one is work to keep, even one
+    // `submodule.<name>.ignore` hides), so their own filter drivers are
+    // blanked too.
     let output = repository
-        .run(&arguments, MAX_STATUS_BYTES)
+        .with_submodule_filters()
+        .and_then(|repository| repository.run(&arguments, MAX_STATUS_BYTES))
         .map_err(|failure| run_failed(OPERATION, &failure))?;
     let files: Vec<String> = output
         .stdout

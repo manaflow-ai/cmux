@@ -16,9 +16,12 @@ app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cua-helper-dev.stamp"
+rm -f "$stamp"
 skip() {
   echo "note: not embedding the Computer Use helper (dev): $1"
-  rm -rf "$dest" "$stamp"
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$stamp")"
+  printf 'skipped:%s\n' "$1" > "$stamp"
   rmdir "$app/Contents/Library" 2>/dev/null || true
   exit 0
 }
@@ -43,5 +46,9 @@ ditto -x -k "$zip" "$app/Contents/Library"
 codesign --verify --strict --deep "$dest" || { echo "error: the embedded helper's signature does not verify" >&2; exit 1; }
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$dest/Contents/Info.plist")" == com.cmuxterm.cua.dev ]] ||
   { echo "error: the embedded helper is not com.cmuxterm.cua.dev" >&2; exit 1; }
+# The pinned bytes must load on the app's macOS floor: a helper built before its floor moved (minos 15,
+# libswiftSynchronization) kept every DEV build's helper from starting on macOS 14 (cx-sisy8).
+python3 -I "$SCRIPT_DIR/../ci/macho_minos.py" scan "$dest" --floor "${MACOSX_DEPLOYMENT_TARGET:-14.0}" ||
+  { rm -rf "$dest"; echo "error: the pinned Computer Use helper cannot load on macOS ${MACOSX_DEPLOYMENT_TARGET:-14.0}; rebuild it (build-cua-helper-dev.sh, sign-cua-helper-dev.sh) and update cua-helper-dev.pin.json" >&2; exit 1; }
 echo "$want" > "$stamp"
 echo "note: embedded the Computer Use helper (dev) sha256 $want"

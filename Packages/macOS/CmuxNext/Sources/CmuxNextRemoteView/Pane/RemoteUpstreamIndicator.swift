@@ -60,7 +60,6 @@ final class RemoteUpstreamIndicator: NSView {
             let stop = RemoteChromeButton(title: RemoteViewStrings.stop, height: 22)
             stop.apply(text: colors.accent, hover: colors.hoverFill)
             stop.setAccessibilityLabel(RemoteViewStrings.stopSharing(kind))
-            stop.themedToolTip = RemoteViewStrings.stopSharing(kind)
             stop.onPress = { [weak self] in self?.onStop?(kind) }
             row.addArrangedSubview(icon)
             row.addArrangedSubview(label)

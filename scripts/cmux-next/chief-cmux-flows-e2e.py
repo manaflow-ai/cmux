@@ -14,6 +14,7 @@ quits it with quitEndSessions, shuts down the tag's acpmux daemon, stops the
 tag's cmux-tui session and the Chief host, by exact PID only.
 
 Usage: chief-cmux-flows-e2e.py --tag <tag> --app PATH --debug-cli PATH [--out DIR] [--only N,M]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
@@ -29,6 +30,11 @@ parser.add_argument("--keep", action="store_true", help="leave the app running (
 parser.add_argument("--attach", action="store_true", help="use the tagged app this script left running (--keep)")
 parser.add_argument("--start-timeout", type=float, default=600, help="seconds for the app's control socket")
 opts = parser.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-cmux-flows-e2e.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 APP = opts.app
@@ -265,7 +271,7 @@ def cleanup():
             app.wait(timeout=20)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
                                                         "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")},
                    capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],

@@ -19,7 +19,7 @@ pub(crate) const COMMAND_PARAMS: &[&str] =
 /// `set-client-info` accepts the identity fields so a mirror client can send
 /// one shape to every daemon; dispatch ignores them (identity is the stamp).
 pub(crate) const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
-    ("identify", &[]),
+    ("identify", &["machine_metadata"]),
     (
         "set-client-info",
         &[

@@ -39,11 +39,15 @@ export type AuthedUser = {
   isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
+  /** Whether Stack verified the primary email; absent on identity snapshots. */
+  primaryEmailVerified?: boolean;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
   selectedTeamId: string | null;
   teams: readonly AuthedTeam[];
   teamIds: readonly string[];
+  /** True only when `teamIds` enumerates every current Stack membership. */
+  completeTeamList?: boolean;
   userBillingPlanId: string | null;
   billingPlanId: string | null;
   /** Paid seats on the resolved billing team; null for user billing or unknown. */
@@ -144,6 +148,13 @@ function authCacheTtlMs(raw = process.env.CMUX_VM_AUTH_CACHE_TTL_MS): number {
   const parsed = Number(trimmed);
   if (!Number.isSafeInteger(parsed) || parsed < 0) return DEFAULT_AUTH_CACHE_TTL_MS;
   return parsed;
+}
+
+/** Maximum age of the shared membership snapshot used by VM routes. */
+export function vmMembershipSnapshotMaxAgeMs(
+  raw = process.env.CMUX_VM_AUTH_CACHE_TTL_MS,
+): number {
+  return authCacheTtlMs(raw);
 }
 
 function nativeAuthCacheKey(
@@ -315,9 +326,9 @@ export function deadlineGatedStackCall<T>(
  * throws and the write runs detached. The write already swallows its own
  * failures.
  */
-function deferIdentitySnapshotWrite(write: () => Promise<void>): void {
+function deferIdentitySnapshotWrite(write: () => Promise<unknown>): void {
   try {
-    after(write);
+    after(async () => { await write(); });
   } catch {
     void write();
   }
@@ -575,6 +586,12 @@ export async function verifyRequest(
   );
   if (user) {
     const resolved = await authedUserFromStackUser(user, options);
+    if (resolved && options.requireFreshTeamMembership) {
+      const snapshot = await writeIdentitySnapshot(resolved.user, {
+        completeTeamList: resolved.completeTeamList,
+      });
+      if (snapshot !== "stored") return null;
+    }
     if (resolved) recordAuthResolution({ source: "cookie", providerCalled: true });
     return resolved?.user ?? null;
   }
@@ -632,8 +649,16 @@ async function verifyNativeRequest(
       // must not spend its Stack budget waiting for a database connection:
       // production traces showed this upsert idle 6-11 s behind a saturated
       // pool, which alone pushed /api/coderouter/organizations past 10 s.
-      if (options.subrouterAuthorizationSignal) deferIdentitySnapshotWrite(writeSnapshot);
-      else await writeSnapshot();
+      if (options.requireFreshTeamMembership) {
+        // This Stack read may have started before a membership webhook. The
+        // shared mirror fence decides whether it is still current; a fenced
+        // or unavailable result must not authorize the in-flight request.
+        if (await writeSnapshot() !== "stored") return null;
+      } else if (options.subrouterAuthorizationSignal) {
+        deferIdentitySnapshotWrite(writeSnapshot);
+      } else {
+        await writeSnapshot();
+      }
     }
     return resolved?.user ?? null;
   }
@@ -658,14 +683,17 @@ async function verifyNativeRequest(
  * Stack `team_membership.deleted` webhook (`app/api/webhooks/stack`) deletes
  * the removed user's row, so a delivered webhook ends that window at once; the
  * TTL (default ten minutes) remains the bound when a delivery is missed or
- * still retrying. Routes that gate money, account mutation, or admin powers
- * must keep calling `verifyRequest`.
+ * still retrying. A caller that gates money or mutation must use a short
+ * `maxSnapshotAgeMs`; a missing/deleted row always bypasses the process cache
+ * and asks Stack before it is repopulated.
  */
 export async function verifyRequestFromSnapshot(
   request: Request,
   options: {
     readonly requestedTeamId?: string | null;
     readonly maxSnapshotAgeMs?: number;
+    /** Whether a non-native request may fall back to Stack's cookie session. */
+    readonly allowCookie?: boolean;
     /** Test seam for the local token verifier. */
     readonly verifyAccessToken?: (
       accessToken: string,
@@ -719,8 +747,11 @@ export async function verifyRequestFromSnapshot(
   // later deny a team the user really belongs to.
   return await verifyRequest(request, {
     requestedTeamId: options.requestedTeamId,
-    allowCookie: false,
+    allowCookie: options.allowCookie ?? false,
     forceCompleteTeamList: true,
+    // A missing shared row may mean the membership webhook deleted it. Never
+    // resurrect an instance-local positive entry from before that deletion.
+    requireFreshTeamMembership: true,
   });
 }
 
@@ -944,11 +975,13 @@ async function authedUserFromStackUser(
       isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
+      primaryEmailVerified: user.primaryEmailVerified === true,
       billingCustomerType: billingTeam ? "team" : "user",
       billingTeamId: billingTeam?.id ?? user.id,
       selectedTeamId: selectedTeam?.id ?? null,
       teams: authedTeams,
       teamIds,
+      completeTeamList,
       userBillingPlanId,
       billingPlanId,
       billingSeats,
@@ -1054,6 +1087,7 @@ type StackUserLike = {
   readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
+  readonly primaryEmailVerified?: boolean;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   readonly listTeams?: (

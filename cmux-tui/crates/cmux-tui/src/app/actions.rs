@@ -256,6 +256,17 @@ impl App {
                 self.quit = true;
                 return Ok(RenderAction::None);
             }
+            Action::DockWorkspaceLeft
+            | Action::DockWorkspaceRight
+            | Action::DockWorkspaceTop
+            | Action::DockWorkspaceBottom
+            | Action::UndockWorkspace
+            | Action::ToggleDockLeft
+            | Action::ToggleDockRight
+            | Action::ToggleDockTop
+            | Action::ToggleDockBottom
+            | Action::ToggleDockFloating
+            | Action::ToggleDockOrientation => return Ok(self.run_dock_action(action)),
             Action::UserCommand(_) => {
                 if let Some(index) = action.user_command_index() {
                     self.run_user_command(index, pane)?;

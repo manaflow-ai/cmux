@@ -1,5 +1,6 @@
 //! Split identities of the ids that only the side tables name: row 1 of a
-//! column with rows, and the column of a lone column with rows.
+//! column with rows, the column of a lone column with rows, and a lone pinned
+//! column (`resource_lone_docks`).
 //!
 //! Every row id and column id is a split identity (plans/cmux-next/rows.md,
 //! R4b: never reused). A build without `rows-v1` checks at open that the live
@@ -28,6 +29,12 @@ pub(in super::super) fn side_splits(screen: &RegistryScreen) -> Vec<String> {
         splits.push(column.id.to_string());
         splits.extend(column.rows.iter().map(|row| row.id.to_string()));
     }
+    if screen.viewport.has_lone_pinned_column() {
+        let id = screen.viewport.columns[0].id.to_string();
+        if !splits.contains(&id) {
+            splits.push(id);
+        }
+    }
     splits
 }
 
@@ -40,6 +47,7 @@ pub(in super::super) fn stored_side_splits(
     let mut statement = connection.prepare(
         "SELECT column_id FROM resource_screen_rows WHERE screen_id = ?1
          UNION SELECT row_id FROM resource_screen_rows WHERE screen_id = ?1
+         UNION SELECT column_id FROM resource_lone_docks WHERE screen_id = ?1
          UNION SELECT public_id FROM resource_parked_splits WHERE screen_id = ?1",
     )?;
     let splits = statement
@@ -265,6 +273,11 @@ impl WorkspaceRegistry {
     /// `(kind, live)` of `public_id` in the identity ledger, if registered.
     pub(crate) fn split_identity(&self, public_id: &str) -> anyhow::Result<Option<(String, bool)>> {
         identity_state(&self.connection.get(), public_id)
+    }
+
+    /// The first column of the first row `sql` returns, as text.
+    pub(crate) fn query_text_for_test(&self, sql: &str) -> anyhow::Result<String> {
+        Ok(self.connection.get().query_row(sql, [], |row| row.get::<_, String>(0))?)
     }
 
     /// Runs `sql` on the registry, to stage records that another build wrote.

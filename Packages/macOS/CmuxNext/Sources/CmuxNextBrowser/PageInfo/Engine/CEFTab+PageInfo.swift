@@ -7,7 +7,11 @@ public import Foundation
 /// used only where CEF has no API: the page's resource tree (which sites
 /// the page touched) and `Storage.clearDataForOrigin`.
 extension CEFTab: PageInfoProviding {
-    public var pageInfoSettings: SiteSettingsRegistry { .shared }
+    /// The App's registry, which the engine handed to the runtime (`CEFRuntime.adopt`).
+    public var pageInfoSettings: SiteSettingsRegistry { runtime.stores.siteSettings }
+
+    /// The App's zoom per site, through the runtime as `pageInfoSettings`.
+    public var siteZoomLevels: SiteZoomLevels? { runtime.stores.siteZoom }
 
     public var supportedSitePermissions: Set<SitePermissionKind> { Set(SitePermissionKind.allCases) }
 

@@ -13,7 +13,7 @@ extension DaemonService {
     /// `MachineRegistry.compatibility(of:)` to also drop the ones personal
     /// state moved to the local daemon.
     public var compatibility: DaemonCompatibility? {
-        compatibility(notNeeded: isLocal ? [] : Set(DaemonCapabilities.shared.homeOnly))
+        compatibility(notNeeded: isLocal ? [] : Set(DaemonCapability.homeOnly))
     }
 
     public func compatibility(notNeeded: Set<String>) -> DaemonCompatibility? {
@@ -37,14 +37,14 @@ extension DaemonService {
     /// The home daemon may still bring personal state: it has not answered
     /// yet, or it serves `profiles-v1` (its next snapshot carries it).
     public var personalStateMayLoad: Bool {
-        !startup.isUnavailable && (identity == nil || supports(DaemonCapabilities.shared.profiles))
+        !startup.isUnavailable && (identity == nil || supports(DaemonCapability.profiles.rawValue))
     }
 
     /// Why the home session's personal state (spaces, workspace groups) is
     /// not usable now: still loading on a daemon that serves `profiles-v1`,
     /// else the capability gate's reason.
     public var personalStateUnavailableReason: String {
-        let capability = DaemonCapabilities.shared.profiles
+        let capability = DaemonCapability.profiles.rawValue
         return supports(capability) && !startup.isUnavailable ? RefusalStrings.personalStateLoading : missingCapabilityMessage(capability)
     }
 }

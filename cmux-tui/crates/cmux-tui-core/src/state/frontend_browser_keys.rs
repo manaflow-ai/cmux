@@ -139,6 +139,13 @@ pub(crate) struct FrontendBrowserTabOutcome {
     pub(crate) replayed: bool,
 }
 
+/// A keyed frontend browser creation: the tab `key` placed before, or what
+/// `create` made under the browser id registered for `key`.
+pub(crate) enum KeyedFrontendBrowser<T> {
+    Placed(Arc<Surface>),
+    Created(T),
+}
+
 impl Mux {
     /// `new-frontend-browser-tab {idempotency_key}`.
     pub(crate) fn new_frontend_browser_tab_keyed_as(
@@ -150,9 +157,6 @@ impl Mux {
         key: &str,
         placement: FrontendTabPlacement,
     ) -> anyhow::Result<FrontendBrowserTabOutcome> {
-        record.validate()?;
-        WorkspaceMutation::daemon(key, "new-frontend-browser-tab")?;
-        let _serial = KEYED_CREATION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let pane_id = match pane {
             Some(pane) => Some(self.with_state(|state| {
                 state.resource_indexes.pane_ids.get(&pane).cloned().context("unknown pane")
@@ -160,6 +164,42 @@ impl Mux {
             None => None,
         };
         let fingerprint = json!({"pane": pane_id, "record": &record});
+        let url = record.url.clone();
+        let title = record.title.clone();
+        let created = self.keyed_frontend_browser(key, record, fingerprint, |browser_id| {
+            let fields = frontend_browser_fields(browser_id, placement);
+            self.new_browser_tab_with_fields_as(actor, url, pane, size, fields)
+        })?;
+        let surface = match created {
+            KeyedFrontendBrowser::Placed(surface) => {
+                return Ok(FrontendBrowserTabOutcome { surface, replayed: true });
+            }
+            KeyedFrontendBrowser::Created(surface) => surface,
+        };
+        if let Some(runtime) = surface.as_browser()
+            && runtime.set_frontend_location(None, title)
+        {
+            self.emit_tab_changed(surface.id);
+        }
+        self.publish_journal_event();
+        Ok(FrontendBrowserTabOutcome { surface, replayed: false })
+    }
+
+    /// Register `record` under `key` (with the request's `fingerprint`) and
+    /// run `create` with its browser id, which must commit a browser tab
+    /// carrying that id (`frontend_browser_id`). A retry with the same key
+    /// answers the tab placed before, or resumes a failed creation under the
+    /// same id; another request under the key is `idempotency.conflict`.
+    pub(crate) fn keyed_frontend_browser<T>(
+        self: &Arc<Self>,
+        key: &str,
+        record: FrontendBrowserRecord,
+        fingerprint: Value,
+        create: impl FnOnce(&BrowserPublicId) -> anyhow::Result<T>,
+    ) -> anyhow::Result<KeyedFrontendBrowser<T>> {
+        record.validate()?;
+        WorkspaceMutation::daemon(key, "new-frontend-browser-tab")?;
+        let _serial = KEYED_CREATION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let (browser_id, fresh) = match self.read_registry_state(|c| browser_for_key(c, key))? {
             Some((browser_id, stored)) => {
                 anyhow::ensure!(
@@ -173,7 +213,7 @@ impl Mux {
                     state.surfaces.get(&surface).cloned()
                 });
                 if let Some(surface) = placed {
-                    return Ok(FrontendBrowserTabOutcome { surface, replayed: true });
+                    return Ok(KeyedFrontendBrowser::Placed(surface));
                 }
                 if self.read_registry_state(|c| browser_committed(c, browser_id.as_str()))? {
                     return Err(FrontendBrowserReuse::KeyClosed(browser_id.to_string()).into());
@@ -185,21 +225,35 @@ impl Mux {
         if fresh {
             let id = browser_id.as_str();
             let write = |tx: &Transaction<'_>| insert_key(tx, key, id, &fingerprint);
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             registry.put_frontend_browser(id, &record, Some(&write))?;
             self.reload_presentation(&registry)?;
         }
-        let fields = frontend_browser_fields(&browser_id, placement);
         // A failed keyed creation keeps its rows, so a retry resumes it.
-        let surface =
-            self.new_browser_tab_with_fields_as(actor, record.url.clone(), pane, size, fields)?;
-        if let Some(runtime) = surface.as_browser()
-            && runtime.set_frontend_location(None, record.title)
-        {
-            self.emit_tab_changed(surface.id);
-        }
-        self.publish_journal_event();
-        Ok(FrontendBrowserTabOutcome { surface, replayed: false })
+        create(&browser_id).map(KeyedFrontendBrowser::Created)
+    }
+}
+
+impl Mux {
+    /// Whether a keyed frontend browser creation already recorded `key`.
+    pub(crate) fn has_frontend_browser_key(&self, key: &str) -> anyhow::Result<bool> {
+        Ok(self.read_registry_state(|c| browser_for_key(c, key))?.is_some())
+    }
+
+    /// The placed tab a keyed `new-frontend-browser-tab` made under `key`.
+    pub(crate) fn keyed_frontend_browser_tab(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<Arc<Surface>>> {
+        let Some((browser_id, _)) = self.read_registry_state(|c| browser_for_key(c, key))? else {
+            return Ok(None);
+        };
+        let content = ContentPublicId::Browser(BrowserPublicId::parse(browser_id)?);
+        Ok(self.with_state(|state| {
+            let surface = state.single_placement_of_content(&content)?;
+            state.surfaces.get(&surface).cloned()
+        }))
     }
 }
 

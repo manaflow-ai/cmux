@@ -43,4 +43,8 @@ public struct MobileCompatMethods {
     public static var served: [String] {
         table.filter { $0.value != .fallback }.keys.sorted()
     }
+
+    /// Methods that create a workspace or a terminal, refused while
+    /// `PhoneAccessGate.allowsStartingSessions` is off.
+    public static let startsSessions: Set<String> = ["workspace.create", "mobile.terminal.create", "terminal.create"]
 }

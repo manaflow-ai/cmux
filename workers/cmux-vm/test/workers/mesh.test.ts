@@ -76,7 +76,7 @@ describe("the experiment flag", () => {
         .replace("{tunnelId}", "tun_00000000000000000000000000")
         .replace("{vmId}", "vm_00000000000000000000000000");
       const body =
-        endpoint.name === "enrollDevice"
+        endpoint.name === "enrollDevice" || endpoint.name === "enrollOverlayServer" || endpoint.name === "createOverlayServerCode"
           ? await signedEnroll("mesh_00000000000000000000000000", "laptop", KEY_1)
           : endpoint.name === "rotateDeviceKey"
             ? await rotateBody(install ?? (install = await makeInstallKey()), "dev_00000000000000000000000000", KEY_3)
@@ -385,7 +385,7 @@ describe("tenant isolation", () => {
     template.replace("{meshId}", ids.meshId).replace("{vmId}", ids.vmId).replace("{deviceId}", ids.deviceId).replace("{tunnelId}", ids.tunnelId);
 
   const bodyFor = async (name: string, ids: { meshId: string; deviceId: string }) =>
-    name === "enrollDevice"
+    name === "enrollDevice" || name === "enrollOverlayServer" || name === "createOverlayServerCode"
       ? await signedEnroll(ids.meshId, "intruder", KEY_2)
       : name === "rotateDeviceKey"
         ? await rotateBody(install ?? (install = await makeInstallKey()), ids.deviceId, KEY_3)

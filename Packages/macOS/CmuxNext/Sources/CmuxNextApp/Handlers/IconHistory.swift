@@ -39,18 +39,20 @@ struct IconHistory {
         }
     }
 
-    /// A history whose undo toast shows in the active window (the icon
-    /// picker panel, key while it closes, is never a toast's window).
+    /// A history whose undo step goes on the active window's undo stack (the
+    /// icon picker panel, key while it closes, is never its window). No
+    /// toast: an icon change is not destructive; Edit > Undo and Cmd-Z undo it.
     static func inActiveWindow(_ ctx: AppActionContext, apply: @escaping @MainActor (String, FieldUpdate<String>) throws -> Bool) -> Self {
         IconHistory(apply: apply, offerUndo: { message, undo in
             guard let window = ctx.services.windows.active?.window ?? NSApp.mainWindow else { return }
-            let handle = CmuxToastCenter.shared.show(CmuxToast(id: undoToastID, message: message, action: .undo()), in: window)
-            handle.onAction = { undo() }
+            registerUndo(message, in: window, undo)
         })
     }
 
-    /// The id of the icon undo toast (one per window; a newer change replaces it).
-    static let undoToastID = "icon-undo"
+    /// Puts an icon change's inverse on `window`'s undo stack, titled `message`; no toast.
+    static func registerUndo(_ message: String, in window: NSWindow, _ undo: @escaping @MainActor () -> Void) {
+        ToastUndoStep.attach(title: message, filling: nil, undoManager: window.undoManager, handle: nil, undo)
+    }
 }
 
 /// Undo toast messages of icon changes (Handlers.xcstrings).

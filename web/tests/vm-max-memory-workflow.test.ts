@@ -82,6 +82,8 @@ test("a gateway fork method cannot override the provider capability", async () =
   const repo = {
     findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, status: "running", provider: "freestyle",
       providerVmId: "vm", providerMetadata: { cmuxResourceReservation: { memoryMb: 8192, vcpus: 4, diskMb: 32768 } } }),
+    beginSnapshotRequest: () => Effect.succeed({ kind: "started" as const }),
+    finishSnapshotRequest: () => Effect.void,
     beginCreate: () => Effect.sync(() => { creates++; throw new Error("must not reserve a native fork"); }),
   } as unknown as VmRepositoryShape;
   const provider = {
@@ -111,6 +113,7 @@ test("a native fork retry returns a grandfathered oversized row to Pro", async (
     imageId: "snapshot",
     imageVersion: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     displayName: null,
     slug: null,
     providerMetadata: {
@@ -265,6 +268,7 @@ test("reopening an existing oversized Base remains usable during migration", asy
       imageId: "snapshot",
       imageVersion: null,
       createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
       providerMetadata: {
         cmuxResourceReservation: {
           vcpus,
@@ -312,6 +316,7 @@ test("reopening a markerless Base persists the measured reservation before retur
     imageId: "snapshot",
     imageVersion: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     displayName: null,
     slug: null,
     providerMetadata: {},
@@ -369,6 +374,7 @@ test("an idempotent create retry returns a grandfathered oversized row to Pro", 
     imageId: "snapshot",
     imageVersion: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     displayName: null,
     slug: null,
     providerMetadata: {

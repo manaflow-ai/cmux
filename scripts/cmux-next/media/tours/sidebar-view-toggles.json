@@ -1,0 +1,14 @@
+{
+  "title": "Sidebar view toggles in the App Store",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "App Store: Features, with Comfortable Sidebar and Expanded Sidebar cards and their row previews", "cmux": ["action", "run", "appStore.show", "--tab", "features", "--focus"], "wait": 3},
+    {"title": "Expanded on: its card says On and the sidebar shows a detail line under each workspace", "cmux": ["settings", "set", "sidebar.density", "expanded"], "wait": 2},
+    {"title": "Comfortable on: Expanded goes back to Get and the rows are taller", "cmux": ["settings", "set", "sidebar.density", "comfortable"], "wait": 2},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Removed: back to Compact, both cards say Get", "cmux": ["settings", "unset", "sidebar.density"], "wait": 2}
+  ]
+}

@@ -14,6 +14,7 @@ export type BrowseState = {
   kind: BrowseKind;
   mode: BrowseMode;
   cycle: boolean;
+  page: number;
   picks: Record<string, string>;
 };
 
@@ -22,10 +23,18 @@ export const DEFAULT_BROWSE: BrowseState = {
   kind: "all",
   mode: "entries",
   cycle: false,
+  page: 1,
   picks: {},
 };
 
-const BROWSE_QUERY_KEYS = ["browse-filter", "browse-kind", "browse-mode", "browse-cycle", "browse-pick"] as const;
+const BROWSE_QUERY_KEYS = [
+  "browse-filter",
+  "browse-kind",
+  "browse-mode",
+  "browse-cycle",
+  "browse-page",
+  "browse-pick",
+] as const;
 
 function readPick(value: string): [string, string] | undefined {
   const separator = value.indexOf("=");
@@ -43,6 +52,7 @@ function readPick(value: string): [string, string] | undefined {
 export function readBrowse(params: URLSearchParams): BrowseState {
   const kind = params.get("browse-kind");
   const mode = params.get("browse-mode");
+  const page = Number(params.get("browse-page"));
   const picks: Record<string, string> = {};
   for (const value of params.getAll("browse-pick")) {
     const pick = readPick(value);
@@ -53,6 +63,7 @@ export function readBrowse(params: URLSearchParams): BrowseState {
     kind: kind === "static" || kind === "motion" ? kind : DEFAULT_BROWSE.kind,
     mode: mode === "variants" ? mode : DEFAULT_BROWSE.mode,
     cycle: params.get("browse-cycle") === "1" || params.get("browse-cycle") === "true",
+    page: Number.isInteger(page) && page > 0 ? page : DEFAULT_BROWSE.page,
     picks,
   };
 }
@@ -65,6 +76,7 @@ export function writeBrowse(state: BrowseState, params = new URLSearchParams()):
   if (state.kind !== DEFAULT_BROWSE.kind) params.set("browse-kind", state.kind);
   if (state.mode !== DEFAULT_BROWSE.mode) params.set("browse-mode", state.mode);
   if (state.cycle) params.set("browse-cycle", "1");
+  if (state.page !== DEFAULT_BROWSE.page) params.set("browse-page", String(state.page));
   for (const [entry, variant] of Object.entries(state.picks).sort(([a], [b]) => a.localeCompare(b)))
     if (entry && variant) params.append("browse-pick", `${encodeURIComponent(entry)}=${encodeURIComponent(variant)}`);
   return params;
@@ -175,6 +187,12 @@ export function filterBrowseItems(
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */
-export function browseFrameHref(entry: GalleryEntry, variant: string, env: GalleryEnv, tune = ""): string {
-  return `frame.html?${frameQuery({ entry: entry.id, variant, tune }, env)}`;
+export function browseFrameHref(
+  entry: GalleryEntry,
+  variant: string,
+  env: GalleryEnv,
+  tune = "",
+  source?: string,
+): string {
+  return `frame.html?${frameQuery({ entry: entry.id, variant, tune, source }, env)}`;
 }

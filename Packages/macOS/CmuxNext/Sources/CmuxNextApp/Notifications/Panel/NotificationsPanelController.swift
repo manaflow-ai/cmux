@@ -189,10 +189,9 @@ final class NotificationsPanelController {
 
     private func menu(for row: NotificationsPanelRow) -> NSMenu {
         let menu = NSMenu()
-        // The rows come from the catalog's `.notification` placements; a
-        // read row has nothing to mark.
-        let catalog = ContextMenuCatalog.shared
-        let ids = catalog.referencedIDs(catalog.entries(for: .notification)).filter { row.unread || $0 != "notificationToggleRead" }
+        // The rows come from the catalog's `.notification` placements, as the person arranged
+        // them (Settings > Menus); a read row has nothing to mark.
+        let ids = ContextMenuCatalog.shared.referencedIDs(context.registry.contextMenuEntries(for: .notification)).filter { row.unread || $0 != "notificationToggleRead" }
         for id in ids {
             let handler = MenuHandler { [weak self] in self?.perform(id, row) }
             let item = NSMenuItem(title: context.registry.descriptor(for: id)?.title ?? id.rawValue,
@@ -202,6 +201,7 @@ final class NotificationsPanelController {
             item.representedObject = handler
             menu.addItem(item)
         }
+        context.registry.appendCustomizeItem(to: menu, for: .notification)
         return menu
     }
 

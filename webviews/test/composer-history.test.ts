@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -23,7 +24,7 @@ await requireBrowserLane("composer-history.test.ts", async () => {
   let browser: Browser | undefined;
 
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -33,22 +34,7 @@ await requireBrowserLane("composer-history.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    // Warm the gallery stage once before the test pages. The first load can trigger Vite's
-    // dependency optimizer and reload its context while the real fixture is compiling; doing it
-    // here keeps the measured plays from timing out on a cold runner.
-    const warm = await browser.newPage({
-      viewport: { width: 760, height: 560 },
-    });
-    await warm.goto(stageURL("history-recall"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "history-recall" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -60,10 +46,15 @@ await requireBrowserLane("composer-history.test.ts", async () => {
       viewport: { width: 760, height: 560 },
     });
     await page.goto(stageURL(variant));
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(
+      () => {
+        const ready = document.documentElement.dataset.galleryReady;
+        return ready === "1" || ready === "error";
+      },
+      undefined,
+      { timeout: 90_000 },
+    );
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,

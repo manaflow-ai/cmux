@@ -85,6 +85,12 @@ pub struct DaemonConfig {
     /// (page-router-v1, generic event delivery). The typed variants above
     /// still come for the events they name.
     pub raw_events: bool,
+    /// Report each applied `session.events` delta also as
+    /// [`DaemonEvent::SessionDelta`] with the event the stream delivered,
+    /// just before its typed [`DaemonEvent::Delta`] (cmux2-0b: the app reads
+    /// fields the mirror does not keep). Off by default: then no
+    /// `SessionDelta` comes and nothing is copied.
+    pub raw_session_deltas: bool,
     /// Additive capabilities the mirror's connections declare (for example
     /// `conversation-tabs-v1` and `agent-session-tabs-v1`, so the snapshot
     /// and the event stream read those tabs in their canonical form). Only
@@ -112,6 +118,7 @@ impl DaemonConfig {
             history_events: true,
             keybinding_events: true,
             raw_events: false,
+            raw_session_deltas: false,
             capabilities: Vec::new(),
         }
     }
@@ -203,6 +210,15 @@ pub enum DaemonEvent {
     Event {
         name: String,
         frame: serde_json::Value,
+    },
+    /// One applied `session.events` delta as the stream delivered it
+    /// (`DaemonConfig::raw_session_deltas`). It comes just before the typed
+    /// [`DaemonEvent::Delta`] of the same `revision`, which the mirror
+    /// already holds; snapshots and skipped events give none.
+    SessionDelta {
+        revision: u64,
+        /// Boxed: a delta is large next to the other variants.
+        frame: Box<cmux::SessionEvent>,
     },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
@@ -355,10 +371,18 @@ fn run(
 }
 
 fn emit(shared: &Shared, on_event: &SharedCallback, event: &DaemonEvent) {
+    emit_all(shared, on_event, std::slice::from_ref(event));
+}
+
+/// Reports `events` in order under one hold of the callback, so no event
+/// of the subscribe thread comes between them.
+fn emit_all(shared: &Shared, on_event: &SharedCallback, events: &[DaemonEvent]) {
     let mirror = lock(&shared.mirror);
     let mut callback = lock(on_event);
     IN_CALLBACK.with(|flag| flag.set(true));
-    callback(event, &mirror);
+    for event in events {
+        callback(event, &mirror);
+    }
     IN_CALLBACK.with(|flag| flag.set(false));
 }
 
@@ -511,6 +535,7 @@ fn follow(
             Ok(None) => return Ok(()),
             Err(e) => return Err(format!("session.events: {e}")),
         };
+        let frame = config.raw_session_deltas.then(|| Box::new(item.value.clone()));
         let applied = {
             let mut mirror = lock(&shared.mirror);
             let applied = mirror.apply(item.value);
@@ -519,7 +544,15 @@ fn follow(
         match applied {
             Ok((Applied::Reset, _)) => emit(shared, on_event, &DaemonEvent::Reset),
             Ok((Applied::Delta(changes), revision)) => {
-                emit(shared, on_event, &DaemonEvent::Delta { revision, changes });
+                let delta = DaemonEvent::Delta { revision, changes };
+                match frame {
+                    Some(frame) => emit_all(
+                        shared,
+                        on_event,
+                        &[DaemonEvent::SessionDelta { revision, frame }, delta],
+                    ),
+                    None => emit(shared, on_event, &delta),
+                }
             }
             Ok((Applied::Skipped, _)) => {}
             Err(e) => {

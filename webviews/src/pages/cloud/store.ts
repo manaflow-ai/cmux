@@ -11,6 +11,7 @@ import { TransferWatch, type FileTransfer } from "./transfers";
 import {
   applyEvent,
   defaultMemory,
+  memoryChoices,
   normalizeMachine,
   settled,
   visibleRows,
@@ -62,6 +63,8 @@ export interface CreateDraft {
   refusal?: PlanRefusal;
   /** The backend cannot create machines yet (no machine image configured): its own sentence. */
   blocked?: "no_snapshot_configured";
+  /** Opened from a storefront tier: the new machine opens in a workspace once it runs. */
+  openWhenRunning?: boolean;
 }
 
 export interface CloudState {
@@ -74,6 +77,8 @@ export interface CloudState {
   rows: MachineRow[];
   teams: CloudTeam[];
   plan?: CloudPlan;
+  /** The last plan read failed (not "not served"): the storefront says so and offers Retry. */
+  planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
   /** "Later" hid the classic migration banner for this page session. */
@@ -84,6 +89,10 @@ export interface CloudState {
   blocked?: "no_snapshot_configured";
   selection?: string;
   detail?: MachineDetail;
+  /** The storefront (`#/get`): what a cloud machine gives, the plan's sizes and Get. */
+  view: CloudView;
+  /** A machine created from the storefront: the page connects it once the mirror shows it running. */
+  openWhenRunning?: string;
   create?: CreateDraft;
   error?: string;
   /** The server code of `error`, when it had one: the page shows its own sentence for known codes. */
@@ -95,9 +104,18 @@ export interface CloudState {
   transfers: FileTransfer[];
 }
 
+/** `machines` lists the team's machines; `get` is the storefront. */
+export type CloudView = "machines" | "get";
+
+/** The view from the page's URL fragment: `#/get` is the storefront, anything else the list. */
+export function parseView(hash: string): CloudView {
+  return hash.replace(/^#\/?/, "").split("?", 1)[0] === "get" ? "get" : "machines";
+}
+
 export interface CloudStoreOptions {
   newKey?: () => string;
   layout?: MachineLayout;
+  view?: CloudView;
 }
 
 /** The host's answer to a native machine action: the op's answer fields, or a declined sheet. */
@@ -113,6 +131,8 @@ export class CloudStore {
    * result (and closes its watch) when it changed, so an old account or team never writes state.
    */
   private session = 0;
+  /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
+  private accountEpoch = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -132,6 +152,7 @@ export class CloudStore {
       teams: [],
       migrationDismissed: false,
       layout: options.layout ?? "rows",
+      view: options.view ?? "machines",
       unavailable: [],
       transfers: [],
     };
@@ -286,12 +307,29 @@ export class CloudStore {
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
   }
 
+  /** Storefront Retry after a failed plan read. */
+  retryPlan(): Promise<void> {
+    return this.account.readPlan(this.session);
+  }
+
+  setView(view: CloudView): void {
+    if (view !== this.state.view) this.set({ view });
+  }
+
   // Create sheet.
 
-  openCreate(): void {
+  /**
+   * Opens the create sheet, on `memoryMb` when the plan allows it. From a storefront tier
+   * (`openWhenRunning`), the created machine opens in a workspace once it runs.
+   */
+  openCreate(memoryMb?: number, openWhenRunning = false): void {
     if (!this.canChange() || this.state.create) return;
     const key = this.key();
-    this.set({ create: { key, name: "", memoryMb: defaultMemory(this.state.plan), submitting: false } });
+    const allowed = memoryChoices(this.state.plan).some((choice) => choice.mb === memoryMb && choice.allowed);
+    const size = allowed ? memoryMb : defaultMemory(this.state.plan);
+    this.set({
+      create: { key, name: "", memoryMb: size, submitting: false, ...(openWhenRunning ? { openWhenRunning } : {}) },
+    });
     void this.client!.call<SnapshotListResult>(CloudOps.snapshotList, {}).then(
       ({ snapshots }) => this.state.create?.key === key && this.set({ create: { ...this.state.create, snapshots } }),
       () => undefined,
@@ -326,6 +364,7 @@ export class CloudStore {
       idempotency_key: draft.key,
     };
     const session = this.session;
+    const accountEpoch = this.accountEpoch;
     try {
       const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
         action: CloudOps.machineCreate,
@@ -340,6 +379,18 @@ export class CloudStore {
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
+      // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
+      if (
+        draft.openWhenRunning &&
+        result?.machine?.id &&
+        accountEpoch === this.accountEpoch &&
+        this.state.auth?.signedIn
+      ) {
+        const id = result.machine.id;
+        this.set({ openWhenRunning: id, view: "machines" });
+        void this.select(id);
+        this.openIfRunning();
+      }
       if (session === this.session) void this.account.readPlan(session);
     } catch (error) {
       this.dropIntent(draft.key);
@@ -462,6 +513,7 @@ export class CloudStore {
   }
 
   private restartSession(): number {
+    this.accountEpoch += 1;
     this.endSession();
     return this.session;
   }
@@ -536,7 +588,11 @@ export class CloudStore {
 
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
-    const gone = this.state.selection && !machines.some((machine) => machine.id === this.state.selection);
+    // The machine Get just created stays selected until its first event reaches the mirror.
+    const gone =
+      this.state.selection &&
+      this.state.selection !== this.state.openWhenRunning &&
+      !machines.some((machine) => machine.id === this.state.selection);
     if (gone) void this.detail.load(undefined);
     this.set({
       machines,
@@ -546,6 +602,24 @@ export class CloudStore {
       ...(gone ? { selection: undefined, detail: undefined } : {}),
       ...patch,
     });
+    this.openIfRunning();
+  }
+
+  /**
+   * A machine Get created opens in a workspace (the host's connect action) the first time the mirror
+   * shows it running; a machine that fails or is being deleted drops the wish without connecting.
+   * A machine the mirror does not show yet keeps the wish (its first event may follow the reply).
+   */
+  private openIfRunning(): void {
+    const id = this.state.openWhenRunning;
+    if (!id) return;
+    const machine = this.state.machines.find((m) => m.id === id);
+    if (machine?.status === "running") {
+      this.set({ openWhenRunning: undefined });
+      void this.connect(id);
+    } else if (machine?.status === "failed" || machine?.status === "deleting") {
+      this.set({ openWhenRunning: undefined });
+    }
   }
 
   /**
@@ -661,6 +735,8 @@ function signedOutState(): Partial<CloudState> {
     selection: undefined,
     detail: undefined,
     create: undefined,
+    openWhenRunning: undefined,
+    planFailed: undefined,
     error: undefined,
     loading: false,
   };

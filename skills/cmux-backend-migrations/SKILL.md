@@ -11,6 +11,10 @@ own rules in `cmux-backend`. PlanetScale Postgres has no deploy requests, so saf
 from the rules below and from `.github/workflows/backend.yml`. Background:
 [docs/backend-migrations.md](../../docs/backend-migrations.md).
 
+This skill covers the Postgres track (`backend/db/migrations`). The PlanetScale MySQL/Vitess
+track (`backend/db/migrate-mysql.ts`, `backend/db/drizzle-mysql/`) is separate and is not
+described here.
+
 ## The rule
 
 Merging deploys. A migration reaches staging and production **before** its PR merges.
@@ -18,7 +22,11 @@ Every deploy refuses to run while its environment lacks a migration in `backend/
 
 ## Write
 
-1. Add `backend/db/migrations/NNNN_lower_snake.sql` with a number above the base branch's
+1. Edit `backend/db/schema/index.ts`, run `bun run db:generate` in `backend/db`, and copy the generated SQL
+   into the migration below; commit the Drizzle snapshot with it
+   ([backend/db/drizzle/README.md](../../backend/db/drizzle/README.md);
+   `test-pg/drizzle-schema.test.ts` checks the schema matches). Add
+   `backend/db/migrations/NNNN_lower_snake.sql` with a number above the base branch's
    highest. Never edit, rename or delete a file that exists on the base (CI refuses it; the
    runner refuses a changed checksum). If another PR applied a migration first, merge the
    base and renumber yours (the runner refuses a database with migrations your tree lacks).

@@ -10,7 +10,7 @@ extension DaemonHistoryClient {
     @discardableResult
     func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
                      jump: Bool) async throws -> (id: String?, recorded: Bool?) {
-        let place = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(HistoryTrailLocation(location)))
+        let place = try await Self.place(HistoryTrailLocation(location))
         var params: [String: JSONValue] = [
             "window": .string(window), "location": place, "at_ms": Self.decimal(time), "steps": .string(steps.rawValue),
         ]
@@ -20,6 +20,13 @@ extension DaemonHistoryClient {
         let id: String? = if case .string(let id)? = value["id"] { id } else { nil }
         let recorded: Bool? = if case .bool(let recorded)? = value["recorded"] { recorded } else { nil }
         return (id, recorded)
+    }
+
+    /// The step's location as the relay's JSON, encoded on the global executor: every settled pane
+    /// focus move reports a step, and the codec must not run between the move and its frame (a515).
+    @concurrent static func place(_ location: HistoryTrailLocation) async throws -> JSONValue {
+        if pthread_main_np() != 0 { await DebugPaneFocus.noteMainWork("trail_encodes") }
+        return try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(location))
     }
 
     /// The daemon's trail, oldest first (at most its 200 entries): every step of its trail document,

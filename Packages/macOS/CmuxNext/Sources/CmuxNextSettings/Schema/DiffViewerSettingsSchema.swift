@@ -17,10 +17,11 @@ nonisolated enum DiffViewerSettingsSchema {
                 ["diff", "layout"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.diff.layout", "Layout"),
                 kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Auto")),
                     SettingChoice("split", SettingsText.keyed("settings.choice.diffSplit", "Side by Side")),
                     SettingChoice("unified", SettingsText.keyed("settings.choice.diffUnified", "Unified")),
                 ]),
-                default: .string("unified"), keywords: ["diff", "split", "unified", "side by side"]
+                default: .string("auto"), keywords: ["diff", "split", "unified", "side by side", "auto", "automatic"]
             ),
             SettingDescriptor(
                 ["diff", "diffIndicators"], section: .appearance, group: group,
@@ -44,11 +45,26 @@ nonisolated enum DiffViewerSettingsSchema {
                 default: .string("theme"), keywords: ["diff", "color", "green", "red", "added", "removed"]
             ),
             toggle("wordWrap", SettingsText.keyed("settings.diff.wordWrap", "Wrap Lines"), false, ["wrap", "lines"]),
-            toggle("wordDiffs", SettingsText.keyed("settings.diff.wordDiffs", "Highlight Word Changes"), false, ["word", "inline"]),
+            // On by default (Leo, 2026-10-20: the diff viewer shows word-level changes, as a code review does).
+            toggle("wordDiffs", SettingsText.keyed("settings.diff.wordDiffs", "Highlight Word Changes"), true, ["word", "inline"]),
             toggle("lineNumbers", SettingsText.keyed("settings.diff.lineNumbers", "Line Numbers"), true, ["line numbers", "gutter"]),
             toggle("showBackgrounds", SettingsText.keyed("settings.diff.showBackgrounds", "Change Backgrounds"), true, ["background", "color"]),
             toggle("expandUnchanged", SettingsText.keyed("settings.diff.expandUnchanged", "Expand Unchanged Lines"), false,
                    ["unchanged", "context", "expand"]),
+            // Off by default: the familiar order is the order the diff arrived in, and a reorder
+            // nobody can turn off has no business being the default. The toolbar's toggle writes
+            // this row, so turning it on now lasts past the tab (webviews/src/viewer-prefs.ts).
+            toggle("groupByKind", SettingsText.keyed("settings.diff.groupByKind", "Group Files by Kind"), false,
+                   ["group", "kind", "tests", "generated", "order", "sort"]),
+            // Off by default: the diff shows every change, as git does. On, the diff leaves out white
+            // space changes (`git diff --ignore-all-space`), for the git sources only; the "..." menu's
+            // Hide white space writes this row.
+            toggle("hideWhitespace", SettingsText.keyed("settings.diff.hideWhitespace", "Hide White Space"), false,
+                   ["whitespace", "white space", "spaces", "indentation", "ignore"]),
+            // On by default: the floating Stage All / Revert All bar at the diff's end. Off hides it;
+            // each hunk's and file's own Stage and Revert stay.
+            toggle("showBulkActions", SettingsText.keyed("settings.diff.showBulkActions", "Stage All and Revert All Bar"), true,
+                   ["stage", "revert", "all", "floating", "bar", "bulk", "actions"]),
         ]
     }
 }

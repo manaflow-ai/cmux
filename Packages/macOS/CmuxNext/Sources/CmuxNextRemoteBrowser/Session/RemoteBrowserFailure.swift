@@ -24,7 +24,7 @@ public nonisolated enum RemoteBrowserFailure: Error, Sendable, Hashable {
     public init?(end: RemoteSessionEnd, streamed: Bool, hadSecret: Bool) {
         switch end {
         case .stoppedByViewer: return nil
-        case .consentDenied: self = .refused(hadSecret: hadSecret)
+        case .consentDenied, .signInRequired: self = .refused(hadSecret: hadSecret)
         case .connectionLost: self = streamed ? .connectionLost : .unreachable
         case .hostStoppedSharing, .disconnectedBy: self = .hostEnded
         }

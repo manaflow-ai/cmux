@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextSessionTransfer
 import CmuxNextSettings
 import Foundation
 
@@ -86,7 +87,7 @@ extension SessionTransferService {
 
     private nonisolated static func split(of pane: CmuxNextDaemon.PaneID, and newPane: CmuxNextDaemon.PaneID,
                                           in node: LayoutNode) -> SplitID? {
-        guard case .split(let id, _, _, let a, let b) = node else { return nil }
+        guard case .split(let id, _, _, _, let a, let b) = node else { return nil }
         if a == .leaf(pane), b == .leaf(newPane) { return id }
         return split(of: pane, and: newPane, in: a) ?? split(of: pane, and: newPane, in: b)
     }

@@ -1,0 +1,23 @@
+{
+  "id": "tone-no-filler",
+  "group": "tone",
+  "owner": "a25575",
+  "about": "a plain question gets a plain answer: no intro line, no praise of the question, no offer of more help",
+  "history": [
+    {"kind": "user", "text": "ship tonight's nightly"},
+    {"kind": "talk", "text": "a31 is on it."},
+    {"kind": "work", "text": "[a31] Nightly 2026.10.26 published at 21:04 UTC: https://github.com/manaflow-ai/cmux/releases/tag/nightly-2026.10.26 (all 4 assets uploaded, appcast updated). Nothing else open."}
+  ],
+  "turns": [
+    {
+      "text": "did the nightly go out?",
+      "checks": [
+        {"type": "reply_matches", "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/releases/tag/nightly-2026\\.10\\.26\\)"},
+        {"type": "reply_not_matches", "re": "(?i)(great question|good question|happy to help|let me know if|hope (this|that) helps|anything else|feel free to|certainly!|absolutely!|of course!)"},
+        {"type": "max_words", "n": 35},
+        {"type": "no_question"},
+        {"type": "no_raw_ids"}
+      ]
+    }
+  ]
+}

@@ -18,6 +18,7 @@ even `verify-local.py --help` and `--list` load repository code.
 | Compile app package tests | `swift build --build-tests` in `Packages/macOS/CmuxNext` |
 | Run one app module's tests | `swift test --filter <Module>Tests` in `Packages/macOS/CmuxNext` |
 | Merge-gate source rules for the app | `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh` |
+| Decide whether a red web test is the PR's fault or a flake | `python3 scripts/ci/web_test_verdict.py --pr <N>` ([guide](references/web-test-flakes.md); `--coverage` runs the PR's code) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't

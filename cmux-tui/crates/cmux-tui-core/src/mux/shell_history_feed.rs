@@ -17,4 +17,9 @@ impl Mux {
     pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_launch_snapshot()
     }
+
+    /// Local conversation changes (the host replica's Chief stream).
+    pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_conversations()
+    }
 }

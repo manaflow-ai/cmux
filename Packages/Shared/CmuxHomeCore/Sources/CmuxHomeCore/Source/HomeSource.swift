@@ -46,9 +46,15 @@ public enum HomeEvent: Hashable, Sendable {
     case intentsRevoked(Set<IdempotencyKey>)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
+    /// Who has the conversation open now, the whole set (the owner's presence; ephemeral, never
+    /// stored): an empty set is nobody.
+    case presence(ConversationID, viewing: Set<ParticipantID>)
     /// An agent's running reply (ephemeral, never stored): Home grows it in
     /// the agent's bubble until the reply is posted.
     case draft(HomeDraftUpdate)
+    /// A Chief's live run frame (`chief-live-v1`, ephemeral, never stored):
+    /// the reply's text so far and the run's "working on" line.
+    case live(HomeLiveEvent)
 }
 
 /// One search hit over Home messages.
@@ -115,8 +121,7 @@ public protocol HomeSource: Sendable {
     /// the conversation's blob storage under `file.ref.hash`. Idempotent by
     /// hash: a blob the conversation already holds succeeds without sending
     /// the bytes again. Files over `HomeAttachmentPolicy.streamMaxBytes` use
-    /// the owner's presigned PUT and its commit call before returning; a 412
-    /// on a retried presigned PUT means the first attempt landed, so commit.
+    /// bounded multipart pieces and a final commit before returning.
     /// A video with `ref.poster` declares it in the intent and PUTs the poster
     /// to the answer's `poster_upload` before the video's PUT or commit (the
     /// owner answers 409 `attachment.poster_missing` until then). An image
@@ -144,11 +149,37 @@ public protocol HomeSource: Sendable {
     /// Whether the owner of `conversation` takes `link_preview` parts. A
     /// sender sends plain text to an owner that does not (an older daemon).
     func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
+
+    /// Persisted agent messages, including finished runs; unsupported owners return none.
+    func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun]
+
+    /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
+    /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
+    func requestLive(of conversation: ConversationID) async
+
+    /// The talk steps of a running run as its rows hold them (id, text), for reply
+    /// segments the owner's live buffer already freed (a mid-run join). nil: no read.
+    func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]?
+
+    /// The owner's answer for a message permalink (`conversation-link-resolve`): its seq, thread root and
+    /// the path from that root down to it. nil: this owner has no resolver (the message is looked up in pages).
+    func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget?
 }
 
 extension HomeSource {
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? { nil }
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
+
+    /// Default: an owner without live frames.
+    public func requestLive(of conversation: ConversationID) async {}
+
+    public func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun] { [] }
+
+    /// Default: an owner without run reads.
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        nil
+    }
 
     /// Default: no link preview parts (send plain text).
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }

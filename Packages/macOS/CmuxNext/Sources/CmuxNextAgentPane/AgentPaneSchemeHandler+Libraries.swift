@@ -3,9 +3,9 @@ import Foundation
 import WebKit
 
 extension AgentPaneSchemeHandler {
-    /// The libraries the pane loads: Vega and Vega-Lite for charts in replies. Mermaid is not
-    /// served here; the pane draws it through the shared diagram worker.
-    nonisolated static let paneLibraries: Set<String> = ["vega.js"]
+    /// The libraries the pane loads: Vega and Vega-Lite for charts in replies, Ondine (Mermaid
+    /// compiled to WebAssembly) for diagrams, and Mermaid 11 as Ondine's fallback.
+    nonisolated static let paneLibraries: Set<String> = ["vega.js", "ondine.js", "mermaid.js"]
 
     /// Whether `url` names a file under the pane's `__lib/`.
     nonisolated static func isLibrary(_ url: URL) -> Bool {

@@ -38,7 +38,7 @@ pub(crate) struct SkewMessages {
 
 pub(super) const ENGLISH: SkewMessages = SkewMessages {
     reexec: "cmux: this CLI (build {own}) does not match the daemon (build {daemon}); running the daemon's CLI {cli}",
-    refused: "cmux: the daemon runs build {daemon} and its CLI cannot be used ({why}); fix: {fix}",
+    refused: "cmux: the daemon runs build {daemon}, and this CLI did not run the daemon's CLI by itself ({why}); this keeps the daemon and its terminals running; fix: {fix}",
     loop_guard: "this CLI was already started by a re-exec",
     same_build: "the daemon is this build",
     other_user: "the daemon runs as uid {uid}",
@@ -59,7 +59,7 @@ pub(super) const ENGLISH: SkewMessages = SkewMessages {
 
 pub(super) const JAPANESE: SkewMessages = SkewMessages {
     reexec: "cmux: この CLI (ビルド {own}) はデーモン (ビルド {daemon}) と一致しません。デーモンの CLI {cli} を実行します",
-    refused: "cmux: デーモンはビルド {daemon} で動いていますが、その CLI は使えません ({why})。修正: {fix}",
+    refused: "cmux: デーモンはビルド {daemon} で動いていますが、この CLI はデーモンの CLI を自動では実行しませんでした ({why})。デーモンとターミナルを止めずに実行できます。修正: {fix}",
     loop_guard: "この CLI はすでに再実行で起動されています",
     same_build: "デーモンはこのビルドです",
     other_user: "デーモンは uid {uid} で動いています",

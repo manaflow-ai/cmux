@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -8,24 +9,26 @@ import os
 /// turns a desync into a `DesyncReport` on disk (`debug.desync`). Nothing is
 /// repaired here: a broken rule stays visible and replayable.
 ///
-/// Event-driven like `SurfaceInvariantMonitor`: after a focus transition,
-/// key or mouse event or presentation change it waits `settleFrames`
-/// display frames, checks, and confirms a violation with a second check one
-/// settle later (async focus reports, such as Chromium's, land in between).
-/// Only a violation present in both checks is reported, once until it
-/// clears. An idle app runs no display link.
+/// Event-driven like `SurfaceInvariantMonitor`: one deadline `settleDelay`
+/// after the last focus transition, key or mouse event or presentation
+/// change (no display link, no per-frame step), then a check, and a second
+/// check one settle later to confirm a violation (async focus reports, such
+/// as Chromium's, land in between). Only a violation present in both checks
+/// is reported, once until it clears. The check walks every window and pane,
+/// so it runs by itself only in debug builds (perf-speed-of-light.md: no
+/// release scan per input); `debug.desync` checks on demand in any build.
 final class InputInvariantMonitor {
-    static let settleFrames = 12
+    /// Time after the last change before the check (about 12 display frames).
+    static let settleDelay: Duration = .milliseconds(200)
     static let reportsKept = 16
     static let journalTail = 512
 
     weak var services: AppServices?
-    private let frames = FrameBatcher(owner: "InputInvariantMonitor")
+    private let settle = DemandTimer(owner: "InputInvariantMonitor.settle")
     private let store: DesyncReportStore
     private let tag: String?
-    private var remaining = 0
     /// A change was noted and its check has not run yet.
-    var isPending: Bool { remaining > 0 }
+    var isPending: Bool { settle.isScheduled }
     /// Signatures seen at the last check, waiting for confirmation.
     private var suspected: Set<String> = []
     /// Signatures already reported and still broken.
@@ -47,23 +50,12 @@ final class InputInvariantMonitor {
 
     /// Input or focus changed; check once it settles.
     func noteChange() {
-        let idle = remaining == 0
-        remaining = Self.settleFrames
-        if idle { scheduleStep() }
+        #if DEBUG
+        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.settled() }
+        #endif
     }
 
-    private func scheduleStep() {
-        frames.scheduleFrame { [weak self] in self?.step() }
-    }
-
-    private func step() {
-        remaining -= 1
-        guard remaining <= 0 else { return scheduleStep() }
-        remaining = 0
-        settle()
-    }
-
-    private func settle() {
+    private func settled() {
         guard let result = check() else { return }
         // A window stays unsettled for a moment after a switch; unsettled at
         // the check and again at its confirmation, its presentation is stuck
@@ -81,7 +73,7 @@ final class InputInvariantMonitor {
             suspected.subtract(confirmed)
         }
         // Something is broken but unconfirmed: look again once, one settle
-        // later (bounded, so a flickering rule cannot keep a display link).
+        // later (bounded, so a flickering rule cannot keep re-arming the deadline).
         if !suspected.isEmpty, !confirming {
             confirming = true
             noteChange()

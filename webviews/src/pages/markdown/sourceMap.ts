@@ -133,7 +133,7 @@ export function parseSourceMap(
     } else {
       // Transformed alone. Reference links resolve here, keeping their reference (an edited
       // paragraph writes `[text][ref]` again, not the inline form).
-      const root: MdastRoot = { type: "root", children: [resolveReferences(child, definitions)] };
+      const root: MdastRoot = { type: "root", children: [resolveReferences(child, definitions, body)] };
       let built: readonly ProseNode[] = [];
       try {
         built = build(remark.runSync(root, body));
@@ -159,9 +159,10 @@ export interface ReferenceInfo {
 /**
  * `node` with every `linkReference` and `imageReference` that has a definition turned into a link
  * or image, the reference kept on `data.cmuxReference`, so the editor shows the target and the
- * serializer can write the reference back.
+ * serializer can write the reference back. With `source` (the text the positions point into), an
+ * autolink keeps its spelling on `data.cmuxAutolink`: "literal" for a bare URL, "angle" for `<url>`.
  */
-export function resolveReferences(node: MdastNode, definitions: readonly MdastNode[]): MdastNode {
+export function resolveReferences(node: MdastNode, definitions: readonly MdastNode[], source?: string): MdastNode {
   const byId = new Map<string, MdastNode>();
   for (const definition of definitions) {
     const id = String(definition.identifier ?? "");
@@ -184,6 +185,15 @@ export function resolveReferences(node: MdastNode, definitions: readonly MdastNo
         };
         if (current.type === "imageReference") return { type: "image", alt: current.alt, ...base };
         return { type: "link", ...base, children: (current.children ?? []).map(visit) };
+      }
+    }
+    if (current.type === "link" && source !== undefined) {
+      const start = offsetOf(current, "start");
+      const first = start === undefined ? "" : source[start];
+      const autolink = first === "<" ? "angle" : first && first !== "[" ? "literal" : undefined;
+      if (autolink) {
+        const data = { ...(current.data as Record<string, unknown> | undefined), cmuxAutolink: autolink };
+        return { ...current, data, children: (current.children ?? []).map(visit) };
       }
     }
     if (!current.children) return current;

@@ -49,7 +49,6 @@ impl WorkspaceRegistry {
         validate_terminal_batch_close(mutation, terminals)?;
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let result_json = canonical_json(result)?;
         let deltas = &self.prune_stated_topology_deltas(deltas)?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -67,6 +66,7 @@ impl WorkspaceRegistry {
             );
         }
         let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
+        let closed_before = crate::state::closed_history_store::closed_seq(&tx)?;
         let previous_revision = transaction_resource_revision(&tx)?;
         let revision = previous_revision
             .checked_add(1)
@@ -96,9 +96,6 @@ impl WorkspaceRegistry {
             }
             None => None,
         };
-        if let Some(tab_groups) = tab_groups {
-            presentation_store::write_tab_group_state(&tx, tab_groups)?;
-        }
         let terminal_batch =
             close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
         // A close that is part of another change (a space delete) writes that
@@ -114,6 +111,25 @@ impl WorkspaceRegistry {
         };
         if before_patch.is_some() {
             crate::state::closed_history_store::flush_pending_group(&tx)?;
+            // A stash's mark ends with its patch, whether or not the
+            // closed-history capture read it.
+            crate::state::stash_store::clear_capture_mark(&tx)?;
+        }
+        // `closed_ids`: the closed groups this close stored, oldest first, so
+        // an Undo reopens exactly them. A space delete (`before_patch`)
+        // answers with its own `closed_id` instead.
+        let mut result = result.clone();
+        if before_patch.is_none()
+            && let Some(fields) = result.as_object_mut()
+        {
+            let ids = crate::state::closed_history_store::closed_ids_after(&tx, closed_before)?;
+            fields.insert("closed_ids".to_string(), serde_json::json!(ids));
+        }
+        let result_json = canonical_json(&result)?;
+        // After the patch: its closed-history capture reads the groups the
+        // close takes (Close Group) before this write drops them.
+        if let Some(tab_groups) = tab_groups {
+            presentation_store::write_tab_group_state(&tx, tab_groups)?;
         }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
@@ -135,7 +151,7 @@ impl WorkspaceRegistry {
             &mutation.id,
             operation,
             Some(&patch),
-            result,
+            &result,
             &deltas,
         )?;
         prune_resource_mutations(&tx)?;
@@ -143,7 +159,7 @@ impl WorkspaceRegistry {
         drop(db);
         self.record_public_fold(previous_revision, revision, &deltas, true);
         Ok(TopologyCloseCommit {
-            resource: ResourcePatchCommit { revision, result: result.clone(), replayed: false },
+            resource: ResourcePatchCommit { revision, result, replayed: false },
             workspace_revision,
             terminal_batch,
         })

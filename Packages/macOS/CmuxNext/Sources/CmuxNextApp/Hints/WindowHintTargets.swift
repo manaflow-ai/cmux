@@ -63,9 +63,10 @@ enum WindowHintTargets {
             // Only controls report enabled; custom rows and tabs leave it unset.
             if element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {
+                // Outside the content the clip is a null rect (infinite origin): left out before the Int key.
                 let rect = window.convertFromScreen(element.accessibilityFrame()).intersection(bounds)
-                let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
-                if rect.width >= 4, rect.height >= 4, seen.insert(key).inserted {
+                if !rect.isNull, rect.width >= 4, rect.height >= 4,
+                   seen.insert([rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }).inserted {
                     found.append(Target(rect: rect, role: role.rawValue, title: describe(element)))
                 }
             }
@@ -94,9 +95,9 @@ enum WindowHintTargets {
             for (index, page) in pages.enumerated() {
                 // task-owner: one page's answer; the collection resumes once, at the deadline at the latest.
                 Task { @MainActor in
-                    let value = try? await page.callAsyncJavaScript("return " + LinkHintSession.collectScript,
-                                                                    arguments: [:], in: nil, contentWorld: .defaultClient)
-                    collection.answer(index, targets((value as? String) ?? "[]", in: page, clip: clip))
+                    // No user gesture: listing a page's links must not hand it the person's activation.
+                    let value = try? await WebKitGestureFreeEvaluation(webView: page).evaluate(LinkHintSession.collectScript, in: .defaultClient)
+                    collection.answer(index, targets(value?.stringValue ?? "[]", in: page, clip: clip))
                 }
             }
             // The deadline; resuming twice is guarded by the collection, which cancels it on finish.

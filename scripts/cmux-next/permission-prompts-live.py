@@ -179,7 +179,7 @@ def banners():
 
 
 def banner(title):
-    return next((b for b in banners() if b.get("title") == title), None)
+    return next((b for b in banners() if (b.get("subtitle") or "").split(" · ")[0] == title), None)
 
 
 def run_engine(engine):

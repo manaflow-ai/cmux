@@ -1,6 +1,7 @@
 import { previewAttachmentsOf, type PreviewAttachments } from "./attachments.ts"
 import type { Commit, OpRequest } from "./request.ts"
 import type { ConversationHead, ConversationKind, Message, Participant } from "./types.ts"
+import { focusOf, isLarge } from "./large.ts"
 import { currentParticipants, findParticipant, utf8Bytes } from "./validate.ts"
 
 /**
@@ -45,6 +46,8 @@ export interface InboxBump {
   readonly last_mention?: true
   /** This user's `joined_seq`: messages at or before it were history when the user joined. */
   readonly joined_seq?: number
+  /** A large group (large.ts): the inbox pulls this row's fields from the conversation when it lists. */
+  readonly large?: true
 }
 
 export type WakeReason = "dm" | "mention" | "reply"
@@ -100,6 +103,8 @@ export interface FanOutInput {
   readonly commit: Commit
   /** Counts per user before this commit, when the host has them. */
   readonly counts?: Readonly<Record<string, UnreadCounts>>
+  /** The commit that promotes a group to the large tier bumps every member once, so each inbox learns it. */
+  readonly everyone?: boolean
 }
 
 const textOf = (message: Message): string =>
@@ -156,8 +161,10 @@ export const searchIntent = (head: ConversationHead, message: Message): SearchIn
 /**
  * Wake rules (home.md section 5): with one human and one agent, the chief
  * wakes on every human message (`dm`); otherwise only on a mention or a reply
- * to its own message. `wake_policy` "mentions" drops the one-to-one rule, "all"
- * wakes every chief on every human message.
+ * to its own message. A Chief's own conversation keeps the one-to-one rule when
+ * its owner shares it with teammates (cmux#25569): the Chief answers each of
+ * them. `wake_policy` "mentions" drops the one-to-one rule, "all" wakes every
+ * chief on every human message.
  */
 export const wakesFor = (head: ConversationHead, message: Message, replyTarget: Message | null | undefined): ReadonlyArray<ChiefWake> => {
   const current = currentParticipants(head)
@@ -165,7 +172,7 @@ export const wakesFor = (head: ConversationHead, message: Message, replyTarget: 
   const agents = current.filter((participant) => participant.kind === "agent")
   const fromHuman = findParticipant(head, message.author)?.kind === "human"
   const policy = head.settings?.wake_policy ?? "auto"
-  const oneToOne = humans.length === 1 && agents.length === 1
+  const oneToOne = (humans.length === 1 || head.kind === "chief") && agents.length === 1
   const mentioned = mentionsOf(message)
   const repliedTo = message.reply_to && replyTarget?.id === message.reply_to.message_id ? replyTarget.author : undefined
   const wakes: Array<ChiefWake> = []
@@ -182,6 +189,17 @@ export const wakesFor = (head: ConversationHead, message: Message, replyTarget: 
   return wakes
 }
 
+/**
+ * The kind a person's inbox row shows. A Chief's conversation is `chief` only for the Chief's owner;
+ * a teammate it was shared with (cmux#25569) sees a group, so their apps never take someone else's
+ * Chief for their own (the Chiefs section, "send to my Chief").
+ */
+export const rowKind = (head: ConversationHead, user: string): ConversationKind => {
+  const kind = head.kind ?? "group"
+  if (kind !== "chief") return kind
+  return currentParticipants(head).some((participant) => participant.kind === "agent" && participant.owner_user === user) ? "chief" : "group"
+}
+
 const dmPeer = (head: ConversationHead, user: string): string | undefined =>
   head.kind === "dm" ? head.participants.find((participant) => participant.id !== user)?.id : undefined
 
@@ -195,11 +213,12 @@ const ROW_CHANGING = new Set([
   "invite.create",
   "invite.revoke",
   "invite.accept",
+  "invite.accept_verified",
   "invite.approve_join"
 ])
 
 /** The fan-out intent of one commit. */
-export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut => {
+export const fanOut = ({ before, request, commit, counts, everyone }: FanOutInput): FanOut => {
   const head = commit.head
   const op = request.op
   const message = commit.message
@@ -221,6 +240,9 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
     const mentionChange = old ? !sameSet(mentionsOf(old), mentionsOf(message)) : false
     if (isLast || mentionChange) recipients = nowHumans
   } else if (op.kind === "read_cursor.set" && nowHumans.includes(request.actor)) recipients = [request.actor]
+  // A large group bumps only the people the commit names; everyone else pulls (large.ts).
+  const focus = isLarge(head) && everyone !== true ? focusOf(request, message) : null
+  if (focus) recipients = recipients.filter((user) => focus.has(user))
 
   const countFor = (user: string): UnreadCounts | undefined => {
     if (op.kind === "read_cursor.set" && op.seq === head.last_seq) return { unread: 0, mentions: 0 }
@@ -246,18 +268,20 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
   const row = (user: string, isRemoved: boolean): InboxBump => {
     const count = isRemoved ? undefined : countFor(user)
     const peer = dmPeer(head, user)
-    const author = lastMessage && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
     const joined = findParticipant(head, user)?.joined_seq
+    // Under since_join a person never sees a message from before they joined, in the preview either.
+    const hidden = lastMessage !== undefined && head.settings?.history_visible === "since_join" && lastMessage.seq <= (joined ?? 0)
+    const author = lastMessage && !hidden && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
     return {
       user,
       conversation: head.id,
       rev: head.rev,
-      kind: head.kind ?? "group",
+      kind: rowKind(head, user),
       title: head.title,
       last_seq: head.last_seq,
       last_at: lastAt,
-      preview,
-      ...(previewAttachments ? { preview_attachments: previewAttachments } : {}),
+      preview: hidden ? "" : preview,
+      ...(previewAttachments && !hidden ? { preview_attachments: previewAttachments } : {}),
       ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
       ...(peer ? { dm_peer: peer } : {}),
       ...(isRemoved ? { removed: true } : {}),
@@ -265,10 +289,12 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       // Only an agent asks for approval, and only its owner can decide it (home.md section 5).
       ...(author?.kind === "agent" && author.owner_user === user && lastMessage && hasApprovalPart(lastMessage) ? { last_approval: true as const } : {}),
       ...(author && lastMessage && mentionsOf(lastMessage).has(user) ? { last_mention: true as const } : {}),
-      ...(joined === undefined ? {} : { joined_seq: joined })
+      ...(joined === undefined ? {} : { joined_seq: joined }),
+      ...(isLarge(head) ? { large: true as const } : {})
     }
   }
-  const bumps = [...recipients.map((user) => row(user, false)), ...(ROW_CHANGING.has(op.kind) ? removed.map((user) => row(user, true)) : [])]
+  const gone = focus ? removed.filter((user) => focus.has(user)) : removed
+  const bumps = [...recipients.map((user) => row(user, false)), ...(ROW_CHANGING.has(op.kind) ? gone.map((user) => row(user, true)) : [])]
 
   const wakes = op.kind === "message.send" && message ? wakesFor(head, message, request.reply_target) : []
   const search =

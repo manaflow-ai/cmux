@@ -47,7 +47,7 @@ describe("snapshots", { timeout: 60_000 }, () => {
     const machine = (await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value.machine.id as string
     const { json } = await bindFile(cloudStub(a.team), machine)
     await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })
-    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${a.session}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${a.session}` } })
     const ws = res.webSocket!
     const frames: Array<any> = []
     ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))

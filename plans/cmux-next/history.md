@@ -181,8 +181,23 @@ Rules:
    first focus is recorded. Incognito entries are never written.
 
 Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
-same split, page history over a page and location history elsewhere
-(follow-up; needs `debug.mouse` coverage first).
+same split, page history over a page and location history elsewhere. The side
+buttons are built (`MouseSideButtons`): over a browser tab they walk its
+history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
+`focusHistoryForward`; a remote desktop in control mode keeps them for its
+host. Debug Settings `navigation.mouseSideButtons` (on) turns them off.
+
+The swipe is built over Chromium pages (`CEFSwipeNavigation`): a two-finger
+horizontal swipe goes Back or Forward in the page's history when the page
+cannot scroll that way. The page answers a probe for the scroller under the
+fingers, and for whether a script took the wheels (a carousel), so a gesture the
+page would scroll stays the page's. AppKit tracks the swipe
+(`trackSwipeEvent`); an accent pill with an arrow slides in from that edge, and
+with no page that way it rubber-bands and nothing happens. It needs macOS's
+"Swipe between pages"; Debug Settings `browser.swipeNavigation` (on) turns it
+off. Not built: the swipe over agent chats and internal pages (no horizontal
+scroll answer from them yet; the side buttons cover their Back), and over
+WebKit pages.
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
 
@@ -244,6 +259,31 @@ Rules:
    `history.goTo {index}` (new action, same execution path as Back, origin user).
 5. With `surface` scope and a browser page focused, the actions run the page's back/forward; the
    page's own entry menu (4.1) is the list.
+
+### 4.2c What the right-click list shows (Leo 2026-10-18)
+
+"being able to right click the forward and back buttons for history would be good ... clicking
+between chats/workspaces as history is part of the situation ... there may be situations where
+we want splits of history between browsers and agent sessions."
+
+The R69 list (4.2a rule 4) showed only what Back walks, and a right-click with nothing in scope
+did nothing. With the default workspace steps (`navigation.history.scope` `workspaces`) Back already walks
+the whole window (`LocationTrailService.scope` is `.window`), so by default the list now always
+opens and ends with Show All History; the Other Workspaces section adds rows only when steps are
+finer and the scope is `workspace`. Back's walk is unchanged; only the list grows. Debug Settings `history.menuLayout`
+(DEV and NIGHTLY; Release uses the default):
+
+| Value | List |
+| --- | --- |
+| `scopeThenWindow` (default) | what Back walks, then an Other Workspaces section with this window's other places |
+| `scope` | the R69 list as it was (nothing in scope: no menu) |
+| `byKind` | this window's places split under Browser, Chats and Pages, Terminals |
+
+Rules: nearest first; the added sections hold each place (tab on its machine) once, at its nearest
+entry, at most 12 rows (`LocationTrail.menuSectionLimit`); every row runs `history.goTo {index}`;
+the two new layouts end with Show All History (`history.show`) and always open. With the `surface`
+scope the page's own entry menu (4.1) is the list. Agent chats are `content: other` locations, so
+they share Chats and Pages with cmux pages until the trail records a chat kind.
 
 ### 4.3 Existing actions mapped
 
@@ -397,5 +437,5 @@ export-and-forget policy removes them. The `cmux-history` crate's
 (H3) must read the `terminal_commands` rows (`list-terminal-commands`) instead
 when it wires commands into the merged read model.
 
-Not built: mouse side buttons and swipe for either axis; a daemon list of
+Not built: the swipe outside Chromium pages; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

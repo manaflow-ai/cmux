@@ -106,7 +106,14 @@ def inputs(workspace: Path, included_paths: set[str] | None = None):
     if included_paths is None:
         included_paths = tracked_paths(workspace)
     for root, directories, files in os.walk(workspace):
-        directories[:] = sorted(d for d in directories if d not in SKIPPED_DIRECTORIES)
+        # Never descend into a directory holding no tracked file: a restored
+        # .build or cargo target holds hundreds of thousands of untracked files.
+        directories[:] = sorted(
+            d for d in directories
+            if d not in SKIPPED_DIRECTORIES
+            and (included_paths is None
+                 or Path(root, d).relative_to(workspace).as_posix() + "/" in included_paths)
+        )
         for name in sorted(files):
             path = Path(root, name)
             if path.is_symlink() or not path.is_file():
@@ -189,6 +196,11 @@ def replay(workspace: Path, recorded: dict[str, list]) -> tuple[int, int]:
 def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] in {"record", "replay"}:
         workspace, manifest = Path(argv[2]).resolve(), Path(argv[3])
+        if tracked_paths(workspace) is None:
+            # Without git's file list every file is an input, build products
+            # included, and replay would give them recorded times.
+            print(f"{workspace} is not the top of a git checkout; refusing to {argv[1]}", file=sys.stderr)
+            return 1
         if argv[1] == "record":
             manifest.write_text(json.dumps(record(workspace), sort_keys=True))
             print(f"Recorded {len(json.loads(manifest.read_text()))} build inputs")

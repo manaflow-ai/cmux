@@ -44,7 +44,10 @@ final class AppTabSearchSource: TabSearchSource {
 
     func forgetClosedTab(id: String) {
         guard let entry = DaemonClosedHistory.entry(DaemonClosedHistory.daemonID(fromHistoryID: id) ?? id, in: services) else { return }
-        DaemonClosedHistory.delete(entry, services: services)
+        let closed = DaemonClosedHistory.entries([.tab], in: services)
+        for close in TabSearchFactsBuilder.forgotten(entry, among: closed, { ($0.item, $0.daemon.machineID) }) {
+            DaemonClosedHistory.delete(close, services: services)
+        }
     }
 
     /// An open browser tab's favicon on this Mac: its live page's, else its record's (never an

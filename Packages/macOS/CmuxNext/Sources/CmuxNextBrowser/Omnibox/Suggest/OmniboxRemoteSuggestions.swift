@@ -16,6 +16,8 @@ public nonisolated struct OmniboxRemoteSuggestions {
     public static func allows(_ text: String, resolver: OmniboxResolver) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.utf16.count <= OmniboxText.maxInputLength else { return false }
+        // A pairing link's room secret never reaches a search engine, wherever it sits in the text.
+        if BrowserURLResolver.containsPairingLink(trimmed) { return false }
         if case .url = resolver.destination(for: trimmed) { return false }
         let lowered = trimmed.lowercased()
         if lowered.hasPrefix("/") || lowered.hasPrefix("~") || lowered.hasPrefix("file:") || lowered.contains("://") { return false }
@@ -74,13 +76,16 @@ public nonisolated struct OmniboxConfiguration: Hashable, Sendable {
     public var maxRows = 8
     /// `browser.omnibar.calculator`: arithmetic answers.
     public var calculator = true
+    /// `browser.omnibar.showFullURLs`: the whole address at rest.
+    public var showFullURLs = false
 
     public init(searchEngine: BrowserSearchEngine = .google, remoteSuggestions: Bool = true, inlineAutocomplete: Bool = true,
-                maxRows: Int = 8, calculator: Bool = true) {
+                maxRows: Int = 8, calculator: Bool = true, showFullURLs: Bool = false) {
         self.searchEngine = searchEngine
         self.remoteSuggestions = remoteSuggestions
         self.inlineAutocomplete = inlineAutocomplete
         self.maxRows = maxRows
         self.calculator = calculator
+        self.showFullURLs = showFullURLs
     }
 }

@@ -1,3 +1,5 @@
+import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 /**
  * The mesh store against migrations 0001-0006 on an in-process Postgres
  * (PGlite). No network database is involved.
@@ -29,7 +31,7 @@ const at = new Date(Date.UTC(2026, 9, 7, 0, 0));
 
 beforeEach(async () => {
   pg = new PGlite();
-  for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3]) await pg.exec(migration);
+  for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3, creationReceipts, uncommittedCreations]) await pg.exec(migration);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>
       Effect.tryPromise({

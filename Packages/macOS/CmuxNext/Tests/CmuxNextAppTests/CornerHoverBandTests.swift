@@ -46,4 +46,25 @@ import Testing
         #expect(root.collapsedBand.isOpen)
         #expect(root.titlebarReveal.isRevealed)
     }
+
+    /// The zone ends at the open Forward button's trailing edge: a point past it, over nothing to click, opens nothing
+    /// (Leo, relaying Austin, 2026-10-28: "you only get that hoverable animation when you're in the area of the, like,
+    /// the rightmost area of the go forward button"). It was `space3` wider, a strip that pushed the tabs out for nothing.
+    @Test func theZoneEndsAtTheOpenForwardButton() throws {
+        let (window, root) = CollapsedTitlebarZoneGalleryTests.offscreenCollapsedRoot()
+        defer { window.close() }
+        let zone = root.titlebarRevealRegion.frame
+        let forward = try CollapsedTitlebarZoneGalleryTests.openForwardFrame(root)
+        // The open band does not move the zone (no flicker at its edge).
+        #expect(root.titlebarRevealRegion.frame == zone)
+        #expect(abs(zone.maxX - forward.maxX) < 0.5)
+        let y = forward.midY
+        #expect(!zone.contains(CGPoint(x: forward.maxX + 1, y: y)))
+        #expect(zone.contains(CGPoint(x: forward.maxX - 1, y: y)))
+        let band = root.toolbarBand
+        for button in [band.sidebarToggle, band.backButton, band.forwardButton] {
+            let frame = root.convert(button.bounds, from: button)
+            #expect(zone.contains(CGPoint(x: frame.midX, y: frame.midY)))
+        }
+    }
 }

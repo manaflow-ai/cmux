@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "påkrævet: denne maskine deles med teamet" },
   "agentHarness": {
     "title": "Registreret harness-konfiguration",
     "selectionNotice": "Valg af en udbyder starter eller aktiverer ikke disse harnesses.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM-anmodning forsinket",
+      "message": "Tildeling af en Cloud VM er midlertidigt utilgængelig.",
+      "action": "Vent et minut, og prøv derefter igen med den samme idempotensnøgle."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-anmodningen kræver en genforsøgsnøgle",
+      "message": "Cloud VM-snapshots kræver en idempotensnøgle.",
+      "action": "Prøv igen med en fast Idempotency-Key på højst 128 tegn."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot er stadig i gang",
+      "message": "Et snapshot med denne idempotensnøgle kører stadig for denne Cloud VM.",
+      "action": "Vent på, at det første snapshot bliver færdigt, og prøv derefter igen med samme idempotensnøgle."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-nøglen er allerede brugt",
+      "message": "Denne idempotensnøgle er allerede brugt til en anden snapshot-anmodning på denne Cloud VM.",
+      "action": "Brug en ny idempotensnøgle til et snapshot med et andet navn."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-grænsen er nået",
+      "message": "Denne Cloud VM har nået sin snapshot-grænse.",
+      "action": "Slet et eksisterende snapshot, og prøv derefter igen med den samme idempotensnøgle."
+    },
     "guestInstall": {
       "title": "Opsætning af Cloud VM blev ikke fuldført",
       "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "Genopret denne maskine",
       "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
-      "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
+      "action": "Opret en ny maskine. Klargør et SCP-endpoint med `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, og kopiér filerne med SCP, før du sletter denne maskine."
     },
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
-      "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
+      "action": "Kontakt support med sporings-id'et, før du opretter en ny maskine."
     },
     "inProgress": {
       "title": "Stadig i gang",
       "message": "Cloududbyderen har ikke afsluttet denne ændring endnu. Den kan stadig blive gennemført.",
-      "action": "Tjek maskinens status med cmux vm ls eller på listen over maskiner, før du prøver igen."
+      "action": "Tjek maskinens status med cmux cloud list-machines eller på listen over maskiner, før du prøver igen."
     },
     "providerTimeout": {
       "title": "Cloududbyderen er langsom",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "Maskinen er optaget",
       "message": "Denne maskine starter, sættes på pause eller kører ikke, så den kan ikke gøre dette lige nu.",
-      "action": "Vent et øjeblik, og prøv igen. Tjek maskinens status med cmux vm ls, og genoptag den først, hvis den er sat på pause."
+      "action": "Vent et øjeblik, og prøv igen. Tjek maskinens status med cmux cloud list-machines, og genoptag den først, hvis den er sat på pause."
     },
     "networkRuleCapacity": {
       "title": "Netværksregler har nået kapaciteten",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "restore": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
-        "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
-        "openPort": "Prøv ikke igen. Få adgang til tjenesten fra maskinen med `cmux vm exec`, eller brug en maskintype, der kan åbne porte.",
-        "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
+        "fork": "Prøv ikke igen. Opret en ny VM med `cmux cloud new-machine`.",
+        "openPort": "Prøv ikke igen. Få adgang til tjenesten fra maskinen med `cmux cloud exec --target machine:<id> --command <command>`, eller brug en maskintype, der kan åbne porte.",
+        "default": "Prøv ikke igen. Kør `cmux cloud list-machines`, eller kontakt support, hvis du mener, at dette er forkert."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro påkrævet",
-      "message": "Cloud VM'er kræver en cmux Pro-plan.",
-      "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
+      "title": "cmux {plan} påkrævet",
+      "message": "Cloud VM'er kræver en cmux {plan}-plan.",
+      "action": "Opgrader til cmux {plan} på {upgradeUrl} for at oprette Cloud VM'er."
     },
     "displayName": {
       "title": "Ugyldigt maskinnavn",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB kræver cmux {plan}. Din plan understøtter op til {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Kildemaskinens RAM-størrelse kunne ikke bekræftes.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Denne maskinstørrelse er ikke tilgængelig. Vælg op til {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go omfatter to gemte VM’er, inklusive den kørende VM.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go omfatter én kørende VM ad gangen.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go har brugt sine 40 VM-timer denne måned. Gemte VM’er kan bruges igen i næste faktureringsperiode.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "{plan}-regnekvote brugt op",
+      "computeMessage": "Din {plan}-plan har brugt sine {included} regnetimer i denne faktureringsperiode. En regnetime er 1 vCPU med 2 GB hukommelse i én time. Dine maskiner kan starte igen den {resetDate}.",
+      "computeAction": "Pausede maskiner beholder deres filer. Kontakt support, hvis du har brug for mere regnekraft før den {resetDate}.",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "{plan}-diskkvote brugt op",
+      "storageMessage": "Din {plan}-plan omfatter {included} GB disk på tværs af alle gemte maskiner. Gemte maskiner bruger {used} GB, og denne anmodning kræver {requested} GB.",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressourcer",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "Genoptag din plan for at ændre den.",
           "granted": "Tildelt af cmux. Der er intet at ændre.",
+          "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
+          "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "Skift til {plan}?",
         "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "upgradeBodyYearly": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om året.",
         "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
         "confirm": "Skift til {plan}",
         "keep": "Behold nuværende plan",
@@ -568,6 +608,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",
@@ -2242,6 +2284,7 @@
           "currentLineHighlight": "Farv den linje, hvor markøren står, når intet er markeret.",
           "tabWidth": "Hvor mange kolonner ét tabulatorstop fylder. Indrykningslinjerne bruger samme afstand."
         },
+        "actions": "Genbrugelige handlinger til kommandopaletten, genveje, knapper på fanelinjen og plusknappens menu. Understøtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger indsætter i terminalen med fokus og bevarer linjeskift; submit: true trykker på Enter. Indstillingshandlinger kræver global konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

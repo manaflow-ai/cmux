@@ -33,12 +33,12 @@ struct WebKitRestoredSessionHost: BrowserRestoredSessionHost {
     }
 
     func currentScrollY() async -> Double? {
-        guard case .number(let y)? = try? await tab.evaluate("window.scrollY", world: .isolated) else { return nil }
+        guard case .number(let y)? = try? await tab.evaluate("window.scrollY", world: .isolated, gesture: .cmux) else { return nil }
         return y
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
-        try await tab.evaluate(script, world: world)
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
+        try await tab.evaluate(script, world: world, gesture: gesture)
     }
 
     func load(_ url: URL) { tab.load(url) }

@@ -6,7 +6,8 @@
 # Covers: the DEV layout at Contents/Library with the helper's own signature
 # kept (never re-signed), Release embeds nothing and removes a stale helper, a
 # sha256 mismatch fails the build (also with the optional fetch), a missing
-# helper warns and embeds nothing, and a cached copy is reused.
+# helper warns and embeds nothing, a cached copy is reused, and a helper that
+# cannot load on the app's macOS floor fails the build (cx-sisy8).
 # macOS only (codesign, clang); run on a fleet Mac or cmux-lawrence-2.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -17,7 +18,7 @@ fail() { printf 'FAIL: %s\n%s\n' "$1" "${2:-}" >&2; exit 1; }
 
 mkdir -p "$TMP/src/$NAME/Contents/MacOS"
 printf 'int main(void){return 0;}\n' > "$TMP/m.c"
-clang -arch arm64 -o "$TMP/src/$NAME/Contents/MacOS/cmux-cua-helper" "$TMP/m.c"
+clang -arch arm64 -mmacosx-version-min=14.0 -o "$TMP/src/$NAME/Contents/MacOS/cmux-cua-helper" "$TMP/m.c"
 /usr/bin/python3 -c 'import plistlib,sys; plistlib.dump({"CFBundleIdentifier":"com.cmuxterm.cua.dev","CFBundleExecutable":"cmux-cua-helper","CFBundlePackageType":"APPL"}, open(sys.argv[1],"wb"))' \
   "$TMP/src/$NAME/Contents/Info.plist"
 codesign --force --sign - "$TMP/src/$NAME"
@@ -72,4 +73,18 @@ rm -rf "$TMP/store" "$TMP/cache"
 run Debug
 [[ $rc == 0 && ! -e "$dest" ]] || fail "a missing helper should warn and embed nothing" "$out"
 [[ "$out" == *"not embedding"* ]] || fail "no skip note" "$out"
+# A helper built above the floor (minos 15.0) fails the build and leaves nothing embedded.
+mkdir -p "$TMP/new/$NAME/Contents/MacOS"
+clang -arch arm64 -mmacosx-version-min=15.0 -o "$TMP/new/$NAME/Contents/MacOS/cmux-cua-helper" "$TMP/m.c"
+cp "$TMP/src/$NAME/Contents/Info.plist" "$TMP/new/$NAME/Contents/Info.plist"
+codesign --force --sign - "$TMP/new/$NAME"
+(cd "$TMP/new" && ditto -c -k --keepParent "$NAME" "$TMP/new.zip")
+sha=$(shasum -a 256 "$TMP/new.zip" | awk '{print $1}')
+printf '{"asset": "helper.zip", "arch": "arm64", "sha256": "%s", "r2_bucket": "", "r2_key": ""}\n' "$sha" > "$TMP/pin.json"
+rm -rf "$TMP/cache"
+serve "$TMP/new.zip"
+run Debug
+[[ $rc != 0 ]] || fail "a helper with minos 15.0 did not fail the build" "$out"
+[[ "$out" == *"cannot load on macOS 14.0"* ]] || fail "no floor message" "$out"
+[[ ! -e "$dest" ]] || fail "the helper that cannot load stayed embedded" "$out"
 echo "embed-cua-helper-dev.test.sh: ok"

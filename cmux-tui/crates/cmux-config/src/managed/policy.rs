@@ -74,8 +74,9 @@ pub const POLICY_KEYS: [PolicyKey; 8] = [
     },
 ];
 
-/// Keys whose values never leave the owner except through `policy` reads
-/// (the cold-start cache and status output show them as present only).
+/// Keys whose values never leave the owner: every read a client can ask for
+/// (`settings.snapshot`, the cold-start cache, the status output) shows them
+/// as present only. A caller inside the owner reads the typed field.
 pub const SECRET_POLICY_KEYS: [&str; 1] = ["EnrollmentToken"];
 
 /// Forced policy values, typed. A value of the wrong type is `None` here

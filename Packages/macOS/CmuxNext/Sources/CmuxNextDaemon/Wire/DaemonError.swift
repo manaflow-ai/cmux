@@ -56,3 +56,20 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         }
     }
 }
+
+extension DaemonError {
+    /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
+    public var isLostConnection: Bool {
+        switch self {
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        default: false
+        }
+    }
+
+    /// cmux-tui refused the connection at its connection limit (`server.busy`): it is
+    /// alive and frees a slot when one of its connections ends, so a retry soon can work.
+    public var isBusyRefusal: Bool {
+        if case .connectionClosed(let reason) = self { return reason == LineTransport.busyRefusal }
+        return false
+    }
+}

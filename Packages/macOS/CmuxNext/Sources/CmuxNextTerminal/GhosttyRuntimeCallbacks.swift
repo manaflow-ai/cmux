@@ -90,12 +90,21 @@ nonisolated func ghosttyConfirmReadClipboard(
 ) {
     guard let bridge = SurfaceBridge.from(userdata) else { return }
     var contents = ""
+    var contentBytes = 0
+    var chosePlainText = false
     if let confirm = confirm?.pointee, let items = confirm.contents {
         for index in 0..<confirm.contents_len {
             let item = items[index]
-            guard item.mime.map({ String(cString: $0) }) == "text/plain" else { continue }
-            contents = TerminalClipboardRequests.string(item)
-            break
+            let mime = item.mime.map({ String(cString: $0) }) ?? "text/plain"
+            let text = TerminalClipboardRequests.string(item)
+            let (itemBytes, itemOverflow) = mime.utf8.count.addingReportingOverflow(item.len)
+            let (next, totalOverflow) = contentBytes.addingReportingOverflow(itemBytes)
+            contentBytes = itemOverflow || totalOverflow ? TerminalClipboardRequests.maxProgramWriteBytes + 1 : next
+            if contents.isEmpty, !chosePlainText { contents = text }
+            if !chosePlainText, mime.hasPrefix("text/plain") {
+                contents = text
+                chosePlainText = true
+            }
         }
     }
     let kind: TerminalClipboardRequestKind = switch request {
@@ -105,7 +114,7 @@ nonisolated func ghosttyConfirmReadClipboard(
     }
     let pointer = UncheckedPointer(raw: state)
     let run: @MainActor @Sendable () -> Void = {
-        bridge.view?.clipboardRequests.confirm(contents: contents, kind: kind, state: pointer)
+        bridge.view?.clipboardRequests.confirm(contents: contents, contentBytes: contentBytes, kind: kind, state: pointer)
     }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above
@@ -135,11 +144,7 @@ nonisolated func ghosttyWriteClipboard(
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
     let bridge = SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
-        if confirm, let view = bridge?.view {
-            view.clipboardRequests.confirmWrite(items: items, location: location)
-        } else {
-            TerminalPasteboard.write(items, to: location)
-        }
+        bridge?.view?.clipboardRequests.write(items: items, location: location, requiresConfirmation: confirm)
     }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above

@@ -32,6 +32,15 @@ public struct CmuxPopoverAnchor {
         return NSPoint(x: x, y: y)
     }
 
+    /// The point for `menu` opened from `view`: under it, or above it when `view` sits in an
+    /// omnibar row at the bottom of its pane (`NSView.toolbarOpensUpward`), so the menu opens
+    /// toward the page instead of past the window's bottom edge.
+    public static func menuPoint(for menu: NSMenu, in view: NSView, gap: CGFloat = defaultGap) -> NSPoint {
+        guard view.toolbarOpensUpward else { return menuPoint(in: view, gap: gap) }
+        let bounds = view.bounds, height = menu.size.height
+        return NSPoint(x: bounds.minX, y: view.isFlipped ? bounds.minY - gap - height : bounds.maxY + gap + height)
+    }
+
     /// The same point converted into the coordinate space used by the menu
     /// presenter when the trigger is a descendant of that view.
     public static func menuPoint(for trigger: NSView, in presenter: NSView,

@@ -7,6 +7,9 @@ import {
   shouldSendSentryEvent,
 } from "./services/sentry";
 import { preconnectFreestyle } from "./services/vms/drivers/freestyleWarmup";
+import { installRunAttemptPromotionDependencies } from "./services/runs/promotion";
+import { createRunAttemptPromotionStore } from "./services/runs/repository";
+import { createRuntimePromotionAdapter } from "./services/runs/runtimePromotion";
 
 /** Compile the first-use Cloud routes while the development server is starting. */
 function prewarmDevCloudRoutes(): void {
@@ -45,6 +48,13 @@ function prewarmDevCloudRoutes(): void {
 }
 
 export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    installRunAttemptPromotionDependencies({
+      source: (await import("./services/runs/promotion")).runRepositoryPromotionSource(),
+      store: createRunAttemptPromotionStore(),
+      runtime: createRuntimePromotionAdapter(),
+    });
+  }
   if (process.env.NEXT_RUNTIME === "nodejs") {
     // A Stack 429 is final for the SDK call that got it; see the guard.
     const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();

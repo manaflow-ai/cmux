@@ -1,0 +1,18 @@
+{
+  "format": "cmux-avatar/1",
+  "id": "captain",
+  "name": "Captain",
+  "sheet": "sheet.png",
+  "frame": { "width": 32, "height": 32 },
+  "fps": 6,
+  "pixelArt": true,
+  "faces": "right",
+  "states": {
+    "idle": { "row": 0, "frames": 4 },
+    "working": { "row": 1, "frames": 6, "fps": 10 },
+    "thinking": { "row": 2, "frames": 4 },
+    "waiting": { "row": 3, "frames": 4 },
+    "done": { "row": 4, "frames": 5, "fps": 8, "loop": false },
+    "error": { "row": 5, "frames": 4, "loop": false }
+  }
+}

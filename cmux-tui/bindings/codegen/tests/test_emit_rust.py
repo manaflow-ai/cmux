@@ -56,6 +56,16 @@ class RustEmitterTests(unittest.TestCase):
                     )
                 self.assertNotIn("#![rustfmt::skip]", source)
 
+    def test_doc_text_never_reads_as_rustdoc_markup(self) -> None:
+        from codegen.emit_rust import _doc
+
+        self.assertEqual(
+            _doc("hosts: localhost, [::1], <hex> and `code`", "    "),
+            ["    /// hosts: localhost, \\[::1\\], \\<hex> and \\`code\\`"],
+        )
+        # A backslash in the text is escaped first, so it never cancels the escape after it.
+        self.assertEqual(_doc(r"a \[::1\] path C:\x"), [r"/// a \\\[::1\\\] path C:\\x"])
+
     def test_every_optional_non_null_field_uses_strict_deserialization(self) -> None:
         schema = Path(__file__).resolve().parents[3] / "spec" / "sdk-schema.json"
         ir = load_ir(schema)

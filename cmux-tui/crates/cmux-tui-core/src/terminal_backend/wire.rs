@@ -84,11 +84,11 @@ fn end_from_json(value: &Value) -> Result<End, BackendError> {
     match (value.get("exit"), value.get("lost")) {
         (Some(exit), None) => {
             let message = exit.get("message").and_then(Value::as_str).map(|m| {
-                let mut end = m.len().min(MAX_EXIT_MESSAGE);
-                while !m.is_char_boundary(end) {
-                    end -= 1;
-                }
-                m[..end].to_owned()
+                let end = (0..=m.len().min(MAX_EXIT_MESSAGE))
+                    .rev()
+                    .find(|&end| m.is_char_boundary(end))
+                    .unwrap_or(0);
+                m.get(..end).unwrap_or_default().to_owned()
             });
             Ok(End::Exit(ExitStatus {
                 code: exit.get("code").and_then(Value::as_i64).and_then(|c| i32::try_from(c).ok()),
@@ -163,8 +163,13 @@ pub(crate) fn error_reply(id: &Value, error: &BackendError) -> Value {
         "t": "host.error", "id": id, "code": error.code(),
         "message": error.to_string(), "retryable": error.retryable(),
     });
-    if let BackendError::HostKey { decision, fingerprint } = error {
-        reply["details"] = json!({ "decision": decision.name(), "fingerprint": fingerprint });
+    if let BackendError::HostKey { decision, fingerprint } = error
+        && let Some(fields) = reply.as_object_mut()
+    {
+        fields.insert(
+            "details".to_owned(),
+            json!({ "decision": decision.name(), "fingerprint": fingerprint }),
+        );
     }
     reply
 }

@@ -59,6 +59,14 @@ struct KeychainStackTokenStoreTests {
         #expect(!Self.writable { never.wait(); return errSecSuccess })
     }
 
+    @Test
+    func tokenItemsUseDeviceOnlyProtection() {
+        #expect(
+            KeychainStackTokenStore.keychainAccessibility
+                == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+        )
+    }
+
     @Test(.enabled(if: keychainWritable, "no writable keychain (no GUI login session)"))
     func clearingLegacyTokensPreservesSameAccountInAnotherService() async throws {
         let projectID = UUID().uuidString

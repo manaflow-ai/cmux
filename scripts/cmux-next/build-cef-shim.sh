@@ -3,6 +3,9 @@
 #   libcef_dll_wrapper.a      CEF's C++ wrapper (from the artifact's libcef_dll/)
 #   libcmux_cef_shim.dylib    Packages/macOS/CmuxNext/CEFShim (C ABI for Swift)
 #   cmux-cef-helper           the subprocess binary for the helper apps
+#   cmux-chromium-host        Chromium's browser process as an app of its own
+#                             (prototype, plans/cmux-next/cef-helper-app-DESIGN.md;
+#                             embed-cef.sh bundles it in Debug builds only)
 #
 # Usage: build-cef-shim.sh <cef_dir> <cache_dir>
 # Prints the output directory on stdout (progress goes to stderr); exits
@@ -41,7 +44,7 @@ key="$(
   } | shasum -a 256 | awk '{print $1}'
 )"
 FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${key:0:16}"
-complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" ]]; }
+complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -x "$1/cmux-chromium-host" ]]; }
 if complete "$FINAL_DIR"; then
   echo "$FINAL_DIR"
   exit 0
@@ -92,13 +95,19 @@ done
   "$OUT_DIR/obj/shim/shim_devtools_protocol.mm.o" "$OUT_DIR/obj/shim/shim_prefs.mm.o" \
   "$OUT_DIR/obj/shim/shim_page_scheme.mm.o" "$OUT_DIR/obj/shim/shim_downloads.mm.o" \
   "$OUT_DIR/obj/shim/shim_background.mm.o" "$OUT_DIR/obj/shim/shim_bookmarks.mm.o" \
-  "$OUT_DIR/obj/shim/shim_permissions.mm.o" \
+  "$OUT_DIR/obj/shim/shim_permissions.mm.o" "$OUT_DIR/obj/shim/shim_helper_host.mm.o" \
+  "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-cef-helper" \
   "$OUT_DIR/obj/shim/helper_main.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
+
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+  -o "$OUT_DIR/cmux-chromium-host" \
+  "$OUT_DIR/obj/shim/browser_host_main.mm.o" \
+  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore
 
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"

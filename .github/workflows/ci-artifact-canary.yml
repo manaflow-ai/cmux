@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   canary:
+    environment: ci-artifact-ops
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
@@ -129,4 +130,4 @@ jobs:
           name: r2-artifact-canary-receipt
           path: artifacts/r2-canary/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

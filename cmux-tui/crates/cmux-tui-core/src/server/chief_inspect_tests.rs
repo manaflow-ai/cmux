@@ -95,7 +95,7 @@ fn an_agent_bound_connection_is_refused() {
 }
 
 #[test]
-fn only_the_seven_read_only_paths_and_a_configured_socket() {
+fn only_the_inspector_paths_and_a_configured_socket() {
     let mux = Mux::new_for_test("chief-inspect", crate::SurfaceOptions::default());
     let owner = mux.control_clients.register(ClientTransport::Unix, writer());
     let (_dir, sock, seen) = tools_socket(json!({"status": 200, "body": {}}));
@@ -158,4 +158,71 @@ fn an_unconfigured_daemon_advertises_it_and_answers_not_configured() {
     let remote = mux.control_clients.register(ClientTransport::Remote, writer());
     let error = inspect_with(&mux, remote, params("/api/status"), None).unwrap_err();
     assert_eq!(response_error_code(&error).as_deref(), Some("origin.forbidden"));
+}
+
+/// A fake brain tools socket that keeps every request line it got.
+fn recording_socket() -> (cmux_unix_socket::TestDir, PathBuf, Arc<Mutex<Vec<Value>>>) {
+    let dir = cmux_unix_socket::short_test_dir("chmem");
+    let path = dir.path().join("tools.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let kept = seen.clone();
+    std::thread::spawn(move || {
+        for conn in listener.incoming().flatten() {
+            let mut out = conn.try_clone().unwrap();
+            let mut line = String::new();
+            if BufReader::new(conn).read_line(&mut line).is_ok() {
+                kept.lock().unwrap().push(serde_json::from_str(&line).unwrap_or(Value::Null));
+                let _ = writeln!(out, "{}", json!({"status": 200, "body": {}}));
+            }
+        }
+    });
+    (dir, path, seen)
+}
+
+/// The native Memory Inspector (memory-inspector-native-DESIGN.md): the
+/// owner's three change paths go to the brain with POST, the reads (the view
+/// and the change list too) with GET, and the reserved `chief` key is not
+/// forwarded; a non-owner is refused before any change reaches the brain.
+#[test]
+fn the_owner_change_paths_are_forwarded_with_post_and_reads_with_get() {
+    let mux = Mux::new_for_test("chief-inspect", crate::SurfaceOptions::default());
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let remote = mux.control_clients.register(ClientTransport::Remote, writer());
+    let (_dir, sock, seen) = recording_socket();
+    let ask = |client: u64, path: &str| {
+        let params: Params = serde_json::from_value(json!({
+            "path": path, "query": {"target": "message:5", "text": "new", "chief": "agent_mux"}
+        }))
+        .unwrap();
+        inspect_with(&mux, client, params, Some(&sock))
+    };
+    for path in ["/api/memory/edit", "/api/memory/delete", "/api/memory/undo"] {
+        assert!(ask(remote, path).is_err(), "{path}: a relayed connection");
+    }
+    assert!(seen.lock().unwrap().is_empty(), "nothing forwarded for a non-owner");
+    for path in [
+        "/api/memory/edit",
+        "/api/memory/delete",
+        "/api/memory/undo",
+        "/api/view",
+        "/api/memory/changes",
+    ] {
+        ask(owner, path).unwrap();
+    }
+    let seen = seen.lock().unwrap();
+    let methods: Vec<(&str, &str)> =
+        seen.iter().map(|r| (r["path"].as_str().unwrap(), r["method"].as_str().unwrap())).collect();
+    assert_eq!(
+        methods,
+        [
+            ("/api/memory/edit", "POST"),
+            ("/api/memory/delete", "POST"),
+            ("/api/memory/undo", "POST"),
+            ("/api/view", "GET"),
+            ("/api/memory/changes", "GET"),
+        ]
+    );
+    assert!(seen.iter().all(|r| r["query"].get("chief").is_none()), "{seen:?}");
+    assert_eq!(seen[0]["query"]["text"], "new");
 }

@@ -1,11 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
+  A11Y_SCRIPT,
+  A11Y_TEMPLATE_UNIT,
+  a11yRuntimeDir,
+  a11yScript,
+  a11yTemplateUnit,
   AGENT_TOOLS_BIN,
+  AGENT_XAUTHORITY,
+  agentXauthority,
+  DISPLAY_TEMPLATE_UNIT,
+  displayTemplateUnit,
+  ROOT_PROPERTY_SCRIPT,
+  rootPropertyScript,
   agentToolsDaemonEnv,
   CUA_REFUSE_DIR,
   cuaRefuseScript,
@@ -18,7 +30,7 @@ import {
   cuaWrapperScript,
   daemonEnvLines,
   DISPLAY_UNIT,
-  displayUnit,
+  A11Y_UNIT,
 } from "../scripts/cmux-vm-image/agent-tools";
 import { bakeOptionsFromArgv, daemonUnit } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, readInputsLock, rolesManifest } from "../scripts/cmux-vm-image/lock";
@@ -113,15 +125,24 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     await bashSyntax(staticCheckCommand());
   });
 
-  test("the display listens only on its Unix socket with a cookie, and the driver runs on it as the work user", () => {
-    const display = displayUnit();
-    expect(display).toContain("-nolisten tcp");
-    expect(display).toContain("-auth ");
-    expect(display).toContain("User=cmux");
-    expect(display).not.toContain("[Install]");
+  test("the shared agent display is display :99 of the per-display template, and the driver runs on it with its AT-SPI bus as the work user", () => {
+    // One Xvfb unit for :99: the template instance, so the AT-SPI bus unit (BindsTo) can follow it.
+    expect(DISPLAY_UNIT).toBe("cmux-agent-display@99.service");
+    expect(A11Y_UNIT).toBe("cmux-agent-a11y@99.service");
+    expect(AGENT_XAUTHORITY).toBe(agentXauthority("99"));
+    const paths = agentToolsFiles().map((f) => f.path);
+    expect(paths).not.toContain("/etc/systemd/system/cmux-agent-display.service");
     const cua = cuaUnit();
     expect(cua).toContain(`Requires=${DISPLAY_UNIT}`);
+    // The tree needs the bus, input and screenshots do not: a failed bus never stops the driver.
+    expect(cua).toContain(`Wants=${A11Y_UNIT}`);
+    expect(cua).not.toContain(`Requires=${A11Y_UNIT}`);
+    expect(cua).toContain(`After=${DISPLAY_UNIT} ${A11Y_UNIT}`);
     expect(cua).toContain("Environment=DISPLAY=:99");
+    expect(cua).toContain(`Environment=XAUTHORITY=${agentXauthority("99")}`);
+    // Without a session bus cmux-cua reports "AT-SPI trees will be empty" and apps it launches expose no tree.
+    expect(cua).toContain(`Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=${a11yRuntimeDir("99")}/bus`);
+    expect(cua).toContain(`Environment=XDG_RUNTIME_DIR=${a11yRuntimeDir("99")}`);
     expect(cua).toContain(`ExecStart=${CURRENT_BIN}/cmux-cua serve`);
     expect(cua).toContain("User=cmux");
     expect(cua).not.toContain("[Install]");
@@ -195,6 +216,104 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
         expect(r.stderr).toContain("ffmpeg");
       }
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("per-display units (cx-ncc.5): Xvfb on :%i with its own cookie and -noreset, the a11y bus needs its display, both ship off", () => {
+    const display = displayTemplateUnit();
+    expect(display).toContain(`ExecStart=/usr/bin/Xvfb :%i -screen 0 1280x800x24 -nolisten tcp -auth ${agentXauthority("%i")} -s 0 -dpms -noreset\n`);
+    expect(display).toContain(`xauth -q -f ${agentXauthority("%i")} add :%i . "$(mcookie)"`);
+    expect(display).toContain("[ -S /tmp/.X11-unix/X%i ]");
+    expect(display).toContain("User=cmux");
+    expect(display).not.toContain(":99");
+    expect(display).toContain("-nolisten tcp");
+    const a11y = a11yTemplateUnit();
+    expect(a11y).toContain("BindsTo=cmux-agent-display@%i.service");
+    expect(a11y).not.toContain("Requires=");
+    expect(a11y).toContain("After=cmux-agent-display@%i.service");
+    expect(a11y).toContain("Environment=DISPLAY=:%i");
+    expect(a11y).toContain(`Environment=XAUTHORITY=${agentXauthority("%i")}`);
+    expect(a11y).toContain(`Environment=XDG_RUNTIME_DIR=${a11yRuntimeDir("%i")}`);
+    expect(a11y).toContain("RuntimeDirectoryMode=0700");
+    expect(a11y).toContain("NoNewPrivileges=yes");
+    expect(a11y).toContain(`ExecStart=${A11Y_SCRIPT}\n`);
+    expect(a11y).toContain(`${a11yRuntimeDir("%i")}/at-spi-bus`);
+    expect(a11y).toContain("User=cmux");
+    for (const unit of [display, a11y]) expect(unit).not.toContain("[Install]");
+    const files = new Map(agentToolsFiles().map((f) => [f.path, f]));
+    expect(files.get(`/etc/systemd/system/${DISPLAY_TEMPLATE_UNIT}`)?.text).toBe(display);
+    expect(files.get(`/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`)?.text).toBe(a11y);
+    expect(files.get(A11Y_SCRIPT)?.mode).toBe(0o755);
+    expect(staticCheckCommand()).toContain(A11Y_TEMPLATE_UNIT);
+  });
+
+  test("the a11y script starts a session bus and the launcher, waits for org.a11y.Bus, publishes AT_SPI_BUS and exits 1 when a child exits", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-a11y-"));
+    try {
+      const bin = path.join(dir, "bin");
+      const run = path.join(dir, "run");
+      const log = path.join(dir, "calls.log");
+      for (const d of [bin, run]) mkdirSync(d);
+      const stub = (name: string, body: string) => {
+        writeFileSync(path.join(bin, name), `#!/bin/sh\n${body}\n`);
+        chmodSync(path.join(bin, name), 0o755);
+      };
+      // The session bus listens on the socket it is given and stays up.
+      stub("dbus-daemon", `echo "dbus-daemon $*" >> ${log}\nsock=$(echo "$*" | sed -n 's/.*--address=unix:path=\\([^ ]*\\).*/\\1/p')\nexec python3 -c 'import socket,sys,time; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(60)' "$sock" >/dev/null 2>&1`);
+      // The launcher owns org.a11y.Bus once it runs, then exits after a while.
+      stub("launcher", `echo "launcher $* bus=$DBUS_SESSION_BUS_ADDRESS" >> ${log}\ntouch ${dir}/owned\nsleep 2`);
+      stub("dbus-send", `case "$*" in\n*NameHasOwner*) if [ -e ${dir}/owned ]; then echo "   boolean true"; else echo "   boolean false"; fi ;;\n*GetAddress*) echo "   unix:path=/run/x/at-spi/bus_0,guid=abc   " ;;\n*) exit 1 ;;\nesac`);
+      stub("set-root-property", `echo "set-root-property $*" >> ${log}`);
+      writeFileSync(path.join(dir, "a11y"), a11yScript(path.join(bin, "launcher"), path.join(bin, "set-root-property")));
+      chmodSync(path.join(dir, "a11y"), 0o755);
+      await bashSyntax(a11yScript());
+      const result = await runChild(path.join(dir, "a11y"), [], { timeout: 20_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, XDG_RUNTIME_DIR: run, DISPLAY: ":7" } });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("exited on :7");
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+        `dbus-daemon --session --nofork --nopidfile --address=unix:path=${run}/bus`,
+        `launcher --launch-immediately bus=unix:path=${run}/bus`,
+        "set-root-property AT_SPI_BUS unix:path=/run/x/at-spi/bus_0,guid=abc",
+      ]);
+      expect(readFileSync(path.join(run, "at-spi-bus"), "utf8")).toBe("unix:path=/run/x/at-spi/bus_0,guid=abc\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the root property writer sets AT_SPI_BUS as xprop would, with the display's cookie", async () => {
+    const files = new Map(agentToolsFiles().map((f) => [f.path, f]));
+    expect(files.get(ROOT_PROPERTY_SCRIPT)?.text).toBe(rootPropertyScript());
+    expect(files.get(ROOT_PROPERTY_SCRIPT)?.mode).toBe(0o755);
+    const parsed = await runChild("python3", ["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"], { input: rootPropertyScript(), timeout: 20_000 });
+    expect(parsed.stderr).toBe("");
+    expect(parsed.status).toBe(0);
+  });
+
+  const haveXvfb = ["/usr/bin/Xvfb", "/usr/bin/xprop", "/usr/bin/xauth", "/usr/bin/mcookie"].every((f) => existsSync(f));
+  (haveXvfb ? test : test.skip)("the root property writer against a real Xvfb with a cookie (runs where Xvfb and xprop are installed)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-root-prop-"));
+    const display = `:${200 + Math.floor(Math.random() * 500)}`;
+    const auth = path.join(dir, "Xauthority");
+    // The cookie first: Xvfb reads its -auth file once, at start.
+    const cookie = (await runChild("/usr/bin/mcookie", [])).stdout.trim();
+    expect((await runChild("/usr/bin/xauth", ["-q", "-f", auth, "add", display, ".", cookie])).status).toBe(0);
+    const xvfb = spawn("/usr/bin/Xvfb", [display, "-nolisten", "tcp", "-auth", auth, "-noreset"], { stdio: "ignore" });
+    try {
+      const sock = `/tmp/.X11-unix/X${display.slice(1)}`;
+      for (let i = 0; i < 100 && !existsSync(sock); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+      writeFileSync(path.join(dir, "set"), rootPropertyScript());
+      const env = { ...process.env, DISPLAY: display, XAUTHORITY: auth };
+      const set = await runChild("python3", ["-I", path.join(dir, "set"), "AT_SPI_BUS", "unix:path=/run/x/at-spi/bus_0,guid=abc"], { env, timeout: 20_000 });
+      expect(set.stderr).toBe("");
+      expect(set.status).toBe(0);
+      const read = await runChild("/usr/bin/xprop", ["-root", "AT_SPI_BUS"], { env, timeout: 20_000 });
+      expect(read.stdout.trim()).toBe('AT_SPI_BUS(STRING) = "unix:path=/run/x/at-spi/bus_0,guid=abc"');
+      const refused = await runChild("python3", ["-I", path.join(dir, "set"), "AT_SPI_BUS", "x"], { env: { ...env, XAUTHORITY: path.join(dir, "none") }, timeout: 20_000 });
+      expect(refused.status).not.toBe(0);
+    } finally {
+      xvfb.kill();
       rmSync(dir, { recursive: true, force: true });
     }
   });

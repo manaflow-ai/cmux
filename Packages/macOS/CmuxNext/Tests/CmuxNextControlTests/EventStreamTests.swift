@@ -10,7 +10,7 @@ import Testing
 @Suite(.serialized) struct EventStreamTests {
     @Test func snapshotCursorThenFilteredReplayAndLiveEvents() throws {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
-        let server = ControlSocketServer(configuration: .init(path: temporarySocketPath(), accessMode: .allowAll), router: router)
+        let server = ControlSocketServer(configuration: .init(path: temporarySocketPath(), accessMode: .automation), router: router)
         try server.start()
         defer { server.stop() }
         router.events.publish(name: "other.thing", category: "misc", source: "test", payload: [:])

@@ -31,6 +31,9 @@ pub(super) struct MoveTabToColumnParams {
     sticky: Option<Value>,
     #[serde(default)]
     respawn: Option<SplitRespawnRequest>,
+    /// `tab-split-keep-focus-v1`: the focused pane stays focused.
+    #[serde(default)]
+    keep_focus: bool,
     #[serde(default)]
     transaction: Option<String>,
 }
@@ -49,6 +52,7 @@ pub(super) fn move_tab_to_column(
         dock,
         sticky,
         respawn,
+        keep_focus,
         transaction,
     } = params;
     if sticky.is_some() {
@@ -59,6 +63,10 @@ pub(super) fn move_tab_to_column(
         .into());
     }
     validate_client_transaction(transaction.as_deref())?;
+    anyhow::ensure!(
+        !(keep_focus && respawn.is_some()),
+        "bad request: keep_focus does not apply with respawn"
+    );
     get_surface(mux, surface)?;
     let anchor = column_anchor(mux, pane, screen)?;
     let actor = origin_gate::connection_actor(mux, client);
@@ -70,6 +78,7 @@ pub(super) fn move_tab_to_column(
             after_column,
             width,
             dock,
+            keep_focus,
             transaction,
         )?,
         Some(respawn) => {

@@ -4,10 +4,14 @@ import Foundation
 
 extension AppServices {
     /// The workspace that holds tab `id`, on any machine.
+    /// Each store's tab index answers (a lookup per tab or row must not walk every tab of every
+    /// workspace: space-switch-fast).
     func workspaceID(ofTab id: String) -> String? {
-        for (workspace, _) in machines.allWorkspaces
-        where workspace.screens.contains(where: { $0.panes.contains { $0.tabs.contains { $0.id == id } } }) {
-            return workspace.id
+        for daemon in machines.daemons {
+            let store = daemon.store
+            if let tab = store.tab(id: id), let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) {
+                return workspace.id
+            }
         }
         return nil
     }
@@ -44,7 +48,7 @@ extension AppServices {
     /// New Incognito Window): a new tab in the source page's
     /// window when that is incognito, else a new incognito window.
     func openOffTheRecord(_ url: URL?, source: (any BrowserTab)?) {
-        if let source, let key = cache.key(of: source), let (_, pane) = locateTab(key),
+        if let source, let key = cache.key(of: source), let (_, pane) = locateTabOnAnyMachine(key),
            let workspace = workspaceID(of: pane), windows.isIncognito(workspace: workspace),
            let controller = paneController(for: pane) {
             controller.newBrowserTab(url: url, background: false)

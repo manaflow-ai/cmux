@@ -37,14 +37,14 @@ impl App {
             Some(Drag::WorkspaceArm { workspace, at }) => {
                 let (workspace, at) = (*workspace, *at);
                 if (x, y) != at {
-                    let target = self.workspace_drop_target_at(x, y);
+                    let target = self.workspace_drop_slot_at(workspace, x, y);
                     self.drag = Some(Drag::Workspace { workspace, target });
                 }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::Workspace { workspace, .. }) => {
                 let workspace = *workspace;
-                let target = self.workspace_drop_target_at(x, y);
+                let target = self.workspace_drop_slot_at(workspace, x, y);
                 self.drag = Some(Drag::Workspace { workspace, target });
                 Ok(RenderAction::Draw)
             }
@@ -275,10 +275,10 @@ impl App {
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let Some(insertion) = self.workspace_drop_target_at(x, y)
+            if let Some(slot) = self.workspace_drop_slot_at(workspace, x, y)
                 && self.prepare_pty_input_before_mutation()
             {
-                self.session.move_workspace(workspace, insertion);
+                self.move_workspace_to_drop_slot(workspace, slot.index, slot.below_row);
             }
             return Ok(RenderAction::Draw);
         }

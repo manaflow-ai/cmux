@@ -10,6 +10,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Context, Result};
 use clap::Args;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -80,7 +81,7 @@ pub(crate) async fn run(client: Arc<Client>, a: ContinueArgs, json_out: bool) ->
         if a.text.is_some() || checkpoint.is_some() {
             let mut p = json!({"handoffId": id, "revision": h["revision"], "draftKey": uuid::Uuid::now_v7().to_string(), "capsule": {"text": text}});
             if let Some(c) = checkpoint {
-                p["checkpoint"] = c;
+                p.set("checkpoint", c);
             }
             h = client.request(method::MUX_HANDOFF_DRAFT, p).await?;
         }
@@ -94,7 +95,7 @@ pub(crate) async fn run(client: Arc<Client>, a: ContinueArgs, json_out: bool) ->
     let prompt_id = a.prompt_id.clone().unwrap_or_else(|| id.clone());
     let mut p = json!({"handoffId": id, "revision": h["revision"], "promptId": prompt_id, "capsule": {"text": text}});
     if let Some(c) = checkpoint {
-        p["checkpoint"] = c;
+        p.set("checkpoint", c);
     }
     // Start answers once the target records the prompt; no answer by then
     // is uncertain, and the same promptId retries safely.
@@ -155,10 +156,10 @@ async fn prepare(
     let key = a.key.unwrap_or_else(|| format!("{id}:{to}"));
     let mut p = json!({"sessionId": id, "harness": to, "handoffKey": key, "memoryRefs": a.memory});
     if let Some(c) = checkpoint {
-        p["checkpoint"] = c;
+        p.set("checkpoint", c);
     }
     if let Some(policy) = a.policy {
-        p["policy"] = json!(policy);
+        p.set("policy", json!(policy));
     }
     let h = client.request(method::MUX_HANDOFF_PREPARE, p).await?;
     if json_out {

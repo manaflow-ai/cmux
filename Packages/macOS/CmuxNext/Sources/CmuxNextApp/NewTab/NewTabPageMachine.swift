@@ -19,16 +19,14 @@ struct NewTabPageMachine {
     /// decides: a pane of another machine uses its workspace's folder there, never this Mac's.
     @MainActor init(_ services: AppServices, selected: TabModel?, pane: PaneController? = nil) {
         guard let daemon = selected.map(services.machines.daemon(forTab:)) ?? pane?.daemon, !daemon.isLocal else {
-            (cwd, home, remoteFolders) = (selected?.cwd, NSHomeDirectory(), nil)
+            // Beside an agent chat, the chat's exact folder (it has no daemon folder).
+            (cwd, home, remoteFolders) = (NewTerminalStart.inherited(besides: selected, in: pane?.pane ?? selected.flatMap { services.locateTab(model: $0)?.1 }, services: services) ?? selected?.cwd,
+                                       NSHomeDirectory(), nil)
             return
         }
         let store = daemon.store
         let workspace = selected.flatMap { store.pane(containing: $0.surface) }.flatMap { store.workspace(containing: $0.handle) }
             ?? pane.flatMap { store.workspace(containing: $0.pane.handle) }
-        let folder = workspace?.screens.flatMap(\.panes).flatMap(\.tabs).lazy.compactMap(\.cwd).first
-        var folders: [String] = []
-        for path in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
-            where path.hasPrefix("/") && !folders.contains(path) { folders.append(path) }
-        (cwd, home, remoteFolders) = (selected?.cwd ?? folder, nil, folders)
+        (cwd, home, remoteFolders) = (selected?.cwd ?? workspace?.firstTabFolder, nil, store.tabFolders)
     }
 }

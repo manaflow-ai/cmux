@@ -16,6 +16,7 @@ extension BrowserPageService {
 
     func waitAndCaptureMethods() -> [ControlMethod] {
         let engine = engine
+        let allowsUnsafeCapture = allowsUnsafeCapture
         return [
             .async("browser.page.wait") { call in
                 let tab = try Self.tab(call)
@@ -37,9 +38,14 @@ extension BrowserPageService {
                     throw ControlError.invalidParams(ControlStrings.text("control.error.screenshotSelectorOrFullPage",
                                                                          "browser.page.screenshot takes params.selector or params.full_page, not both"))
                 case (.some(let selector), false):
+                    guard allowsUnsafeCapture else { throw Self.unguardedCaptureRefusal() }
                     capture = .clip(try await Self.clip(engine, tab, selector))
-                case (nil, true): capture = .fullPage
-                case (nil, false): capture = .viewport
+                case (nil, true):
+                    guard allowsUnsafeCapture else { throw Self.unguardedCaptureRefusal() }
+                    capture = .fullPage
+                case (nil, false):
+                    guard allowsUnsafeCapture else { throw Self.unguardedCaptureRefusal() }
+                    capture = .viewport
                 }
                 let shot = try await Self.run(engine, .screenshot(capture), tab)
                 var result = Self.base(tab)
@@ -48,6 +54,12 @@ extension BrowserPageService {
                 return .object(result)
             }.withDeadline(.fixed(Self.screenshotDeadline)),
         ]
+    }
+
+    /// The app control plane does not know the browser host's vault, TOTP or per-tab typed-secret
+    /// values, so a raw pixel capture cannot reproduce its fail-closed mask.
+    static func unguardedCaptureRefusal() -> ControlError {
+        ControlError(code: "unavailable", message: ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
     }
 
     static func waitCondition(_ call: ControlCall) throws -> BrowserPageScripts.WaitCondition {

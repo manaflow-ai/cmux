@@ -13,12 +13,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   build-ghosttykit:
+    # GHOSTTY_RELEASE_TOKEN belongs only to this environment. Configure its
+    # deployment policy for the reviewed integration branches before moving
+    # the repository secret (see the supply-chain audit rollout).
+    environment: ghostty-release
     # Background lane: dispatch-only and off the PR critical path, so it runs
-    # on free GitHub-hosted capacity instead of the shared paid macOS pool.
-    # See docs/ci-runners.md "Background lane".
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    # on a fresh hosted VM. A repository variable must never route this
+    # secret-bearing publisher onto a persistent owned Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
@@ -40,6 +47,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Get ghostty SHA
         id: ghostty-sha

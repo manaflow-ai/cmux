@@ -187,7 +187,7 @@ impl Mux {
         };
         for surface in removed {
             surface.kill();
-            self.emit(super::MuxEvent::SurfaceExited(surface.id));
+            self.emit(super::MuxEvent::SurfaceExited(surface.id, None));
         }
     }
 }

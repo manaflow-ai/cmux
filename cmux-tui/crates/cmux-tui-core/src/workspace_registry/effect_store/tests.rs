@@ -323,6 +323,8 @@ fn effect_patch_commits_topology_event_and_receipt_together() {
         public_id: WorkspacePublicId::parse(format!("ws_{}", "1".repeat(32))).unwrap(),
         key: "one".into(),
         name: "One".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "effect-patch".into(),
     };
     let patch = ResourcePatch {

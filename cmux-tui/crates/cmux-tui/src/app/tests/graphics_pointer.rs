@@ -828,6 +828,8 @@ fn terminal_paint_reuses_unchanged_pointer_owner_snapshots() {
             name: "machine-1".to_string(),
             subtitle: "cloud".to_string(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         }],
         active: Some(MachineKey(1)),
         capabilities: MachineCapabilities::default(),

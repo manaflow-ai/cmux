@@ -4,6 +4,7 @@
  */
 import { Context } from "effect";
 import type { ApiKeyId, TenantId, UserId } from "../lib/ids.ts";
+import type { AgentBudget } from "./agents.ts";
 import type { Scope } from "./scopes.ts";
 
 export type Actor =
@@ -31,6 +32,12 @@ export interface Principal {
    * carry every one of these labels, and every VM it creates must carry them.
    */
   readonly requiredLabels?: Readonly<Record<string, string>>;
+  /**
+   * Set for an agent key: its live-VM and $/h budget. Its confinement is
+   * `requiredLabels` (which always holds cmux.agent=<key id>); the VMs it
+   * creates get those labels without asking.
+   */
+  readonly agent?: AgentBudget;
 }
 
 /** Whether `labels` carries every label the principal is limited to. */

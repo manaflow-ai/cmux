@@ -139,7 +139,11 @@ fn every_vector_sends_app_commands_to_the_app_or_says_it_needs_the_app() {
                 while sockets.reached().is_empty() && Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(10));
                 }
-                let reached = sockets.reached();
+                // The fake app closes every connection unanswered, so the CLI sends
+                // the read again on a new connection (a dropped connection heals
+                // itself): only which socket it reached counts here.
+                let mut reached = sockets.reached();
+                reached.dedup();
                 assert_eq!(reached, vec![want.to_owned()], "{name}: stderr {}", ran.stderr);
             }
             None => {

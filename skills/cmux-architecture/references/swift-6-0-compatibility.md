@@ -1,34 +1,32 @@
-# Swift 6.0 compatibility for app-linked code
+# Toolchain and macOS 14 compatibility
 
-The macOS app also builds on Intel Macs running macOS 14.5 or later with Xcode 16.2
-(Swift 6.0.3), including tagged `./scripts/reload.sh` dev builds.
-`GhosttyKit.xcframework` already ships fat x86_64+arm64 slices targeting macOS 13.
-Xcode 26 stays the pinned toolchain (`.xcode-version`) for CI, releases and the
-iOS app; this pathway is best effort and changes nothing for Xcode 26.
+## Swift version
 
-## What stays within Swift 6.0
+The Swift 6.0 / Xcode 16.2 syntax rule (no trailing commas in parameter lists,
+no type-level `nonisolated`) is a classic-app (`main`) rule. It does not apply to
+cmux-next: `Packages/macOS/CmuxNext/Package.swift` declares
+`swift-tools-version: 6.2`, so the app needs Xcode 26.
 
-Code linked into the macOS app (`App/`, `CLI/`, and the packages they depend
-on) stays within Swift 6.0 syntax:
+Xcode releases still differ. The nightly compiles Release with the Xcode pinned
+for the macOS 26 pool in `scripts/ci/xcode-pins.txt`, and a newer local Xcode
+accepts code that it rejects (for example `isolated deinit` on a class isolated
+only by `.defaultIsolation(MainActor.self)`). Xcode 26 releases also differ from
+each other: Xcode 26.3 rejects `Bundle.module` in nonisolated code that 26.6
+accepts. Before relying on such code, run:
 
-- No trailing commas in parameter or argument lists (SE-0439, Swift 6.1).
-- No `nonisolated` on struct, enum, class or protocol declarations (SE-0449,
-  Swift 6.1). Member-level `nonisolated` is fine.
-- Keep the existing `#if compiler(>=6.2)` / `#else @Sendable` split for
-  `@concurrent`. SE-0461 is Swift 6.2; the Swift 6.0 compiler does not implement
-  it and only warns that the attribute was renamed, so it must not be relied on
-  for the 6.2 semantics.
+```bash
+scripts/cmux-next/check-release-compile.sh
+```
 
-macOS 26-only APIs stay behind their `@available` / `#available` checks and are
-unavailable at runtime on macOS 14.
+## macOS 14 at runtime
 
-An async `@TaskLocal` binding stores its payload behind `TaskLocalReference`
-(`CmuxFoundation`) and binds it with `withReferencedValue`. On macOS 14 the
-back-deployed `TaskLocal.withValue` built by Xcode 26 aborts with "freed pointer
-was not the last allocation" when the payload's size is only known at run time,
-which includes any struct holding a Foundation `UUID`, `Date` or `URL`.
-Stdlib scalars, `String` and arrays of them are fixed-size and may stay unboxed.
+The app deploys to macOS 14.0 (`MACOSX_DEPLOYMENT_TARGET` in
+`cmux.xcodeproj`, `.macOS(.v14)` in the package). macOS 26-only APIs stay behind
+their `@available` / `#available` checks.
 
-## Outside the pathway
-
-`cmuxCLITests/` and `Packages/iOS/` may use newer Swift.
+On macOS 14 the back-deployed `TaskLocal.withValue` built by Xcode 26 can abort
+with "freed pointer was not the last allocation" when an async binding's payload
+size is only known at run time, which includes any struct holding a Foundation
+`UUID`, `Date` or `URL`. Stdlib scalars, `String` and arrays of them are
+fixed-size and safe. Box such a payload behind a reference, or bind it inside a
+task as `ActionRunScope` does, and test the binding on macOS 14.

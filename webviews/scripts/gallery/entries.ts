@@ -20,8 +20,17 @@ export function galleryFiles(dir = SRC): string[] {
 }
 
 export async function loadEntries(): Promise<GalleryEntry[]> {
-  const modules = await Promise.all(galleryFiles().map((file) => import(file) as Promise<{ default: GalleryEntry }>));
+  const modules = await loadEntrySources();
   return modules
-    .map((module) => module.default)
+    .map(({ entry }) => entry)
     .sort((a, b) => a.area.localeCompare(b.area) || a.title.localeCompare(b.title));
+}
+
+export async function loadEntrySources(): Promise<{ entry: GalleryEntry; path: string }[]> {
+  const files = galleryFiles();
+  const modules = await Promise.all(files.map((file) => import(file) as Promise<{ default: GalleryEntry }>));
+  return modules.map((module, index) => ({
+    entry: module.default,
+    path: `src/${path.relative(SRC, files[index]!).split(path.sep).join("/")}`,
+  }));
 }

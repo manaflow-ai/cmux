@@ -14,6 +14,41 @@ const API_VERSION: &str = "2023-06-01";
 /// identify as Claude Code goes to the Codex backend (and fails there), so
 /// the request says it is a Claude client. Other endpoints ignore the header.
 pub const AGENT_HEADER: (&str, &str) = ("x-subrouter-agent", "claude");
+
+/// The team gateway's session header: a caller that names its conversation
+/// keeps it on one subscription account, so its prompt cache keeps hitting.
+pub const SESSION_HEADER: &str = "x-subrouter-session";
+
+/// The session key of a Messages `body` for `scope` (`chief`, `compactor`,
+/// `eval`): a hash of its system prompt, and of its first message too when
+/// `per_conversation` (callers that run many conversations in parallel). A
+/// Chief's system prompt is constant for the host's life, so all its turns
+/// share one key.
+pub fn session_key(scope: &str, body: &Value, per_conversation: bool) -> String {
+    // FNV-1a: stable across builds and machines, no dependency.
+    let mut h: u64 = 0xcbf29ce484222325;
+    let mut eat = |bytes: &[u8]| {
+        for b in bytes {
+            h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+        }
+        h = (h ^ 0xff).wrapping_mul(0x100000001b3);
+    };
+    eat(scope.as_bytes());
+    eat(body
+        .get("system")
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+        .as_bytes());
+    if per_conversation {
+        let first = body
+            .get("messages")
+            .and_then(|m| m.get(0))
+            .map(|m| m.to_string())
+            .unwrap_or_default();
+        eat(first.as_bytes());
+    }
+    format!("optchat-{scope}-{h:016x}")
+}
 /// How much of an error body a failure report keeps.
 const ERROR_BODY: usize = 600;
 
@@ -116,12 +151,14 @@ impl CompactModel for AnthropicModel {
             .set("x-api-key", &self.key)
             .set("anthropic-version", API_VERSION)
             .set(AGENT_HEADER.0, AGENT_HEADER.1);
+        let body = self.body(request, followups);
+        let response = response.set(SESSION_HEADER, &session_key("compactor", &body, false));
         let response = if self.server_fallback {
             response.set("anthropic-beta", SERVER_FALLBACK_BETA)
         } else {
             response
         }
-        .send_json(self.body(request, followups));
+        .send_json(body);
         let value: Value = match response {
             Ok(r) => r
                 .into_json()

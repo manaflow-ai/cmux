@@ -16,7 +16,7 @@ Run it only on a fleet GUI host (it opens a window); never on a laptop in use.
 Exit 1 on any failure. Evidence (JSON, proxy and listener logs, app log) goes to
 --out (default $NX_ARTIFACTS or a temp dir).
 """
-import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, glob, hashlib, hmac, json, os, plistlib, secrets, signal, socket, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -85,6 +85,8 @@ for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
 
 # The stand-in for the Cloud machine's proxy: answers every request itself.
 PROXY_PORT = free_port()
+PROXY_USERNAME = "cmux-e2e"
+PROXY_PASSWORD = secrets.token_hex(32)
 proxy_requests = []
 proxy = socket.socket()
 proxy.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -94,19 +96,45 @@ proxy.listen(16)
 
 def proxy_handler(conn, peer):
     try:
-        while True:
-            data = b""
-            while b"\r\n\r\n" not in data:
-                chunk = conn.recv(4096)
-                if not chunk:
-                    return
-                data += chunk
-            line = data.split(b"\r\n", 1)[0].decode("latin-1")
-            proxy_requests.append(line)
-            log("PROXY_REQUEST", line=line)
-            body = b"<html><title>proxied</title><body>via the machine proxy</body></html>"
-            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: " + str(len(body)).encode() +
-                         b"\r\n\r\n" + body)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = conn.recv(4096)
+            if not chunk:
+                return
+            data += chunk
+        lines = data.split(b"\r\n")
+        authorization = next((line.split(b":", 1)[1].strip().decode("latin-1")
+                              for line in lines[1:] if line.lower().startswith(b"proxy-authorization:")), "")
+        first = lines[0].decode("latin-1").split(" ")
+        authority = first[1] if len(first) == 3 and first[0] == "CONNECT" else ""
+        parts = authorization.removeprefix("CMUX ").split(":")
+        nonce = parts[1] if len(parts) == 3 else ""
+        client_message = f"cmux-client-v1\n{nonce}\n{authority}".encode()
+        expected_mac = hmac.new(PROXY_PASSWORD.encode(), client_message, hashlib.sha256).hexdigest()
+        accepted = (len(parts) == 3 and parts[0] == PROXY_USERNAME and len(nonce) == 64 and
+                    hmac.compare_digest(parts[2], expected_mac))
+        log("PROXY_AUTH", accepted=accepted)
+        if not accepted:
+            conn.sendall(b"HTTP/1.1 407 Proxy Authentication Required\r\n"
+                         b"Proxy-Authenticate: Basic realm=\"cmux-e2e\"\r\nContent-Length: 0\r\n\r\n")
+            return
+        server_message = f"cmux-server-v1\n{nonce}\n{authority}".encode()
+        server_proof = hmac.new(PROXY_PASSWORD.encode(), server_message, hashlib.sha256).hexdigest()
+        conn.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Authentication-Info: CMUX " +
+                     server_proof.encode() + b"\r\n\r\n")
+
+        tunneled = b""
+        while b"\r\n\r\n" not in tunneled:
+            chunk = conn.recv(4096)
+            if not chunk:
+                return
+            tunneled += chunk
+        line = tunneled.split(b"\r\n", 1)[0].decode("latin-1")
+        proxy_requests.append(line)
+        log("PROXY_REQUEST", line=line)
+        body = b"<html><title>proxied</title><body>via the machine proxy</body></html>"
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: " + str(len(body)).encode() +
+                     b"\r\n\r\n" + body)
     except OSError:
         pass
     finally:
@@ -149,14 +177,22 @@ def wait(predicate, seconds, step=0.25):
 def tab_open(args, page="cmux.cloud"):
     reply = rpc("debug.page", {"page": page, "action": "call", "op": "cmux.app.action.run",
                                "params": {"action": "browser.tab.open", "args": args}})
-    log("CALL", page=page, args=args, reply=reply)
+    safe_args = json.loads(json.dumps(args))
+    safe_proxy = safe_args.get("machineStore", {}).get("proxy", {})
+    if "username" in safe_proxy:
+        safe_proxy["username"] = "[REDACTED]"
+    if "password" in safe_proxy:
+        safe_proxy["password"] = "[REDACTED]"
+    log("CALL", page=page, args=safe_args, reply=reply)
     return reply
 
 
 def args(port=PROXY_PORT, host="127.0.0.1", engine="cef"):
     return {"url": f"http://localhost:{TARGET_PORT}/", "engine": engine,
+            "incarnation": 1, "generation": 1,
             "machineStore": {"machine": "vm-e2e", "machineName": "e2e-box",
-                             "proxy": {"kind": "http", "host": host, "port": port}}}
+                             "proxy": {"kind": "http", "host": host, "port": port,
+                                       "username": PROXY_USERNAME, "password": PROXY_PASSWORD}}}
 
 
 if os.path.exists(SOCKET):

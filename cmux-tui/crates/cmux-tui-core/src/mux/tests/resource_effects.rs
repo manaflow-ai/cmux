@@ -41,6 +41,48 @@ fn receipt_only_effect_commit_wakes_journal_subscribers() {
 }
 
 #[test]
+fn one_commit_starts_an_effect_and_a_retry_never_runs_it_again() {
+    let mux = test_mux();
+    let fingerprint = serde_json::json!({"operation":"terminal.input","fixture":"one-commit"});
+    let mutation = WorkspaceMutation::daemon("one-commit-effect", "test").unwrap();
+    let (first, started) = mux
+        .prepare_resource_effect_executing(
+            &mutation,
+            "terminal.input",
+            &fingerprint,
+            &serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+    assert!(started);
+    assert!(matches!(first, ResourceEffectPreparation::Execute { resumed: false, .. }));
+    // Already executing: the old two-step path cannot start it a second time.
+    assert!(
+        mux.mark_resource_effect_executing("one-commit-effect", "terminal.input", &fingerprint)
+            .is_err()
+    );
+    let (retry, started) = mux
+        .prepare_resource_effect_executing(
+            &mutation,
+            "terminal.input",
+            &fingerprint,
+            &serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+    assert!(!started);
+    assert!(!matches!(retry, ResourceEffectPreparation::Execute { .. }));
+    mux.commit_resource_effect(
+        "one-commit-effect",
+        "terminal.input",
+        &fingerprint,
+        &ResourceEffectOutcome::Success(serde_json::json!({})),
+        None,
+    )
+    .unwrap();
+}
+
+#[test]
 fn projected_effect_failure_rolls_back_revision_event_and_topology() {
     let mux = test_mux();
     let surface = mux.new_browser_tab("about:blank#rollback".into(), None, Some((80, 24))).unwrap();
@@ -469,6 +511,8 @@ fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
                 public_id: public_id.clone(),
                 key: key.clone(),
                 name: name.clone(),
+                name_source: Default::default(),
+                name_revision: 0,
                 group_key: mux.session.clone(),
             },
             position: index,
@@ -479,6 +523,8 @@ fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
             public_id: public_id.clone(),
             key,
             name,
+            name_source: Default::default(),
+            name_revision: 0,
             screens: Vec::new(),
             active_screen: 0,
         });

@@ -294,7 +294,7 @@ test("Home and End jump to the first and last enabled rows", async () => {
   expect(highlighted()).toBe("Open");
 });
 
-test("a disabled row is dimmed and a long label keeps its full text a hover away", async () => {
+test("a disabled row is dimmed and a long label has no tooltip", async () => {
   const container = installDom();
   const long = "Open https://example.com/a/very/long/path/that/would/stretch/the/menu/past/the/window";
   await act(async () => {
@@ -318,5 +318,7 @@ test("a disabled row is dimmed and a long label keeps its full text a hover away
   const css = readFileSync(join(import.meta.dir, "../src/ui/ui.css"), "utf8");
   const dimmed = /([^{}]+)\{\s*opacity:\s*0\.45;\s*\}/.exec(css)![1]!.trim();
   expect(rows[1]!.matches(dimmed)).toBe(true);
-  expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.title).toBe(long);
+  // A long label shows its own text, cut off, with no tooltip (test/tooltip-rules.ts).
+  expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.textContent).toBe(long);
+  expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.title).toBe("");
 });

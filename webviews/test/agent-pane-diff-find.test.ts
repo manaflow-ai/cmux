@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-diff-find.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -141,6 +142,7 @@ await requireBrowserLane("agent-pane-diff-find.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
     // again if it stalls, so the test times only the card.
@@ -163,13 +165,10 @@ await requireBrowserLane("agent-pane-diff-find.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /** Waits until `read` gives `want` (2 s), then checks it. */
+  /** Reads until `read` gives `want` (each read is a round trip to the page; 5 s at most), then checks it. */
   async function until<T>(read: () => Promise<T>, want: T) {
     let got = await read();
-    for (let i = 0; i < 40 && !Bun.deepEquals(got, want); i++) {
-      await Bun.sleep(50);
-      got = await read();
-    }
+    for (const deadline = Date.now() + 5_000; !Bun.deepEquals(got, want) && Date.now() < deadline;) got = await read();
     expect(got as unknown).toEqual(want);
   }
   /** The diff find's highlights: how many matches and the active one's text and line. */
@@ -207,7 +206,7 @@ await requireBrowserLane("agent-pane-diff-find.test.ts", async () => {
     expect(await field.evaluate((node) => node === document.activeElement)).toBe(true);
     expect(await page.locator(".acpmux-scroll .acpmux-find").count()).toBe(0);
     await field.fill("retry");
-    const count = page.locator(".acpmux-diff-panel .acpmux-find__count");
+    const count = page.locator(".acpmux-diff-panel .acpmux-find .find-pill__count");
     await until(() => count.textContent(), "1 of 3");
     await until(async () => (await highlights(page)).count, 3);
     expect((await highlights(page)).active?.toLowerCase()).toBe("retry");

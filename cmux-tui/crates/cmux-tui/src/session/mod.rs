@@ -7,8 +7,12 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+use cmux_json::JsonSet as _;
+
 mod cursor_provenance;
+mod frontend_projection;
 mod remote;
+pub(crate) mod sidebar_doc;
 pub(crate) mod tree;
 
 use std::collections::HashSet;
@@ -37,6 +41,8 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+pub(crate) use frontend_projection::ProjectionKey;
+pub(crate) use remote::sidebar_doc::SidebarDropAnchors;
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
     RemoteTransportAbort,
@@ -384,8 +390,8 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
-        cmd["cols"] = json!(cols);
-        cmd["rows"] = json!(rows);
+        cmd.set("cols", json!(cols));
+        cmd.set("rows", json!(rows));
     }
     cmd
 }
@@ -793,14 +799,20 @@ impl Session {
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         match self {
             Session::Local(_) => Ok(self.tree()),
-            Session::Remote(remote) => remote.refresh_tree(),
+            Session::Remote(remote) => {
+                remote.ensure_sidebar_doc();
+                remote.refresh_tree()
+            }
         }
     }
 
     pub fn refresh_tree_background(&self) -> anyhow::Result<TreeView> {
         match self {
             Session::Local(_) => Ok(self.tree()),
-            Session::Remote(remote) => remote.refresh_tree_background(),
+            Session::Remote(remote) => {
+                remote.ensure_sidebar_doc();
+                remote.refresh_tree_background()
+            }
         }
     }
 
@@ -900,8 +912,12 @@ impl Session {
                                     "expected_revision": revision,
                                 });
                                 match target["key"].as_str() {
-                                    Some(key) if !key.is_empty() => request["key"] = json!(key),
-                                    _ => request["workspace"] = target["id"].clone(),
+                                    Some(key) if !key.is_empty() => {
+                                        request.set("key", json!(key));
+                                    }
+                                    _ => {
+                                        request.set("workspace", target["id"].clone());
+                                    }
                                 }
                                 Some(remote.request(with_size(request, size)).map(|_| ()))
                             }
@@ -2169,6 +2185,68 @@ impl Session {
                 }))
                 .map(|_| ()),
         }
+    }
+
+    /// Whether the daemon's sidebar document is Pinned for `workspace` (a
+    /// workspace public id). `None`: no document (an older daemon or an
+    /// in-process mux) or the document does not place the workspace yet.
+    pub(crate) fn sidebar_workspace_pinned(&self, workspace: &str) -> Option<bool> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.sidebar_workspace_pinned(workspace),
+        }
+    }
+
+    /// The section and group that hold `workspace` in the daemon's sidebar
+    /// document (`None` without one).
+    pub(crate) fn sidebar_workspace_container(
+        &self,
+        workspace: &str,
+    ) -> Option<(String, Option<String>)> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.sidebar_workspace_container(workspace),
+        }
+    }
+
+    /// The app loop tick: the sidebar document's fallback read.
+    pub(crate) fn tick_sidebar_doc(&self) {
+        if let Session::Remote(remote) = self {
+            remote.tick_sidebar_doc();
+        }
+    }
+
+    /// `sidebar.pin` / `sidebar.unpin` one workspace (by public id).
+    pub(crate) fn set_sidebar_workspace_pinned(
+        &self,
+        workspace: &str,
+        pinned: bool,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(_) => anyhow::bail!("the sidebar document is not available"),
+            Session::Remote(remote) => remote.sidebar_set_workspace_pinned(workspace, pinned),
+        }
+    }
+
+    /// Move a workspace to a drop slot of the drawn list. With the sidebar
+    /// document it is one `sidebar.move` next to the slot's neighbor
+    /// (`resource` is the workspace's public id); an older daemon gets the
+    /// control protocol's `move-workspace` to `index`.
+    pub(crate) fn move_workspace_to_slot(
+        &self,
+        workspace: WorkspaceId,
+        index: usize,
+        resource: Option<&str>,
+        anchors: &SidebarDropAnchors,
+    ) -> anyhow::Result<()> {
+        if let Session::Remote(remote) = self
+            && remote.sidebar_doc_active()
+        {
+            let resource = resource
+                .ok_or_else(|| anyhow::anyhow!("workspace has no stable resource identity"))?;
+            return remote.sidebar_move_workspace(resource, anchors);
+        }
+        self.move_workspace(workspace, index)
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {

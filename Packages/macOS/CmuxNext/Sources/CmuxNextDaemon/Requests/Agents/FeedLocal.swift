@@ -92,7 +92,7 @@ public struct FeedLocalListRequest: DaemonRequest {
         public var items: [FeedLocalItem]
     }
     public static let command = "feed-local-list"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.feedLocalOwner
+    public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
     public var state: FeedLocalItem.State?
     public var terminalId: String?
     public var unread: Bool?

@@ -92,7 +92,7 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () =>
             !ctx.document.querySelector('[role="dialog"]') &&
-            ctx.document.activeElement === ctx.document.querySelector("button.cv-img-open"),
+            ctx.document.activeElement === ctx.document.querySelector("button[data-open-image]"),
         );
       },
     },

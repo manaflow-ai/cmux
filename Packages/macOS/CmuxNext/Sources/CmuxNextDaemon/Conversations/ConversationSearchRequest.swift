@@ -21,7 +21,7 @@ public struct ConversationSearchRequest: DaemonRequest {
         public var hits: [Hit]
     }
     public static let command = "conversation-search"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationSearch
+    public static let requiredCapability: String? = DaemonCapability.conversationSearch.rawValue
     public var query: String
     public var limit: Int
     public init(query: String, limit: Int) {

@@ -79,7 +79,8 @@ fn run_op(head: &ConversationHead, request: &Request) -> Value {
     // counters (corpus notes), as the store does.
     if let Op::MessageSend { parts, .. } = &request.op {
         let now = parse_rfc3339_millis(&request.now).expect("corpus timestamps are well formed");
-        if let Err(error) = check_agent_streak(head, &request.actor, parts, now) {
+        let thread_root = commit.message.as_ref().and_then(|m| m.thread_root.as_deref());
+        if let Err(error) = check_agent_streak(head, &request.actor, parts, now, thread_root) {
             return reject(error.code());
         }
     }

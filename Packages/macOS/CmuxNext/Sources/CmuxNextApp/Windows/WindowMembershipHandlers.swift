@@ -11,20 +11,13 @@ import CmuxNextDaemon
 /// command; tab moves to a new window stay in `TabHandlers`.
 enum WindowMembershipHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("moveWorkspaceToWindow", run: { invocation in
-            let ids = try workspaces(invocation, context)
-            try move(ids, toWindow: invocation, context)
-        })
-        registry.bind("moveWorkspaceToNewWindow", run: { invocation in
-            let ids = try workspaces(invocation, context)
-            toNewWindow(ids, context)
-        })
-        registry.bind("workspaceGroup.moveToWindow", run: { invocation in
-            try move(groupMembers(invocation, context), toWindow: invocation, context)
-        })
-        registry.bind("workspaceGroup.moveToNewWindow", run: { invocation in
-            toNewWindow(try groupMembers(invocation, context), context)
-        })
+        // Into a new window beside the window they leave (`WindowManager.openMovedWindow`).
+        let windows = context.services.windows
+        let newWindow = { (ids: [String]) in windows.openMovedWindow(ids, from: windows.moveOrigin(of: ids.first), select: ActionRunScope.viewChangeAllowed()) }
+        registry.bind("moveWorkspaceToWindow", run: { try move(workspaces($0, context), toWindow: $0, context) })
+        registry.bind("moveWorkspaceToNewWindow", run: { try newWindow(workspaces($0, context)) })
+        registry.bind("workspaceGroup.moveToWindow", run: { try move(groupMembers($0, context), toWindow: $0, context) })
+        registry.bind("workspaceGroup.moveToNewWindow", run: { try newWindow(groupMembers($0, context)) })
     }
 
     /// The targeted workspace, widened to its window's sidebar selection
@@ -37,10 +30,24 @@ enum WindowMembershipHandlers {
         return selection.count > 1 && selection.contains(id) ? selection : [id]
     }
 
-    /// Every workspace of the targeted group, in daemon order.
+    /// A person's row verb (Pin, Duplicate, Mute, New Workspace Below, Close Other) on the targeted
+    /// workspace: ``workspaces(_:_:)`` for a menu, key or palette run; the target alone for the CLI
+    /// and MCP, which name their workspace, and for a row's own control (`closesRowOnly`).
+    static func rowTargets(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
+        let workspace = try context.workspace(invocation).model
+        guard invocation.origin == .user, !invocation.closesRowOnly else { return [workspace] }
+        let models = try workspaces(invocation, context).compactMap(context.services.workspace(id:))
+        return models.isEmpty ? [workspace] : models
+    }
+
+    /// Every workspace of the targeted group: its sidebar rows in order (`WorkspaceGroupClose.members`),
+    /// then any other the personal store places in it. A personal group's membership lives in the
+    /// personal store, not on `WorkspaceModel.group`, which reading the daemon's workspaces missed.
     static func groupMembers(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let group = try context.group(invocation)
-        let members = context.store.workspaces.filter { $0.group == group.id }.map(\.id)
+        let personal = context.services.machines.local.store.personal.workspaces.filter { $0.group == group.id }.map(\.workspaceKey.rawValue)
+        var seen = Set<String>()
+        let members = (WorkspaceGroupClose.members(of: group, context).map(\.0.id) + personal).filter { seen.insert($0).inserted }
         guard !members.isEmpty else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
         return members
     }
@@ -53,22 +60,5 @@ enum WindowMembershipHandlers {
         }
         target.sidebar.accept(ids.map(SidebarWorkspaceID.init), at: nil)
         context.services.windows.bringToFront(target)
-    }
-
-    /// Into a new window cascaded from the window they leave. When they are
-    /// every workspace of that window, the window itself moves there (like
-    /// dragging them out): no second window opens and none closes.
-    static func toNewWindow(_ ids: [String], _ context: AppActionContext) {
-        let windows = context.services.windows
-        let source = ids.first.flatMap { windows.registry.value.owner(of: $0) }.flatMap(windows.controller(for:))
-        let frame = source?.window?.frame.offsetBy(dx: 28, dy: -28)
-        if let source, let frame, Set(ids) == Set(windows.registry.members(of: source.state.id)) {
-            source.window?.setFrame(frame, display: true)
-            windows.bringToFront(source)
-            windows.recordSaver.stateDidChange(source.state)
-            return
-        }
-        guard let controller = windows.openWindow(workspaces: ids, frame: frame) else { return }
-        windows.bringToFront(controller)
     }
 }

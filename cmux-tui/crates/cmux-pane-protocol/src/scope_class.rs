@@ -20,16 +20,18 @@ struct Rule {
 static RULES: LazyLock<Result<Vec<Rule>, String>> = LazyLock::new(|| {
     let table: Value =
         serde_json::from_str(TABLE).map_err(|e| format!("scope-classes.json: {e}"))?;
-    let rules = table["rules"].as_array().ok_or("scope-classes.json has no rules")?;
+    let rules =
+        table.get("rules").and_then(Value::as_array).ok_or("scope-classes.json has no rules")?;
     rules
         .iter()
         .map(|rule| {
-            let pattern = rule["pattern"].as_str().ok_or("a rule has no pattern")?;
-            let class = rule["class"].as_str().ok_or("a rule has no class")?;
+            let pattern =
+                rule.get("pattern").and_then(Value::as_str).ok_or("a rule has no pattern")?;
+            let class = rule.get("class").and_then(Value::as_str).ok_or("a rule has no class")?;
             Ok(Rule {
                 pattern: Regex::new(pattern).map_err(|e| format!("rule {pattern:?}: {e}"))?,
                 class: class.to_owned(),
-                server_only: rule["serverOnly"].as_bool().unwrap_or(false),
+                server_only: rule.get("serverOnly").and_then(Value::as_bool).unwrap_or(false),
             })
         })
         .collect()

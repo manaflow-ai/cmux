@@ -1,4 +1,5 @@
-title: Restart to Update works when macOS downloaded the update on its own
+title: Restart to Update works after a background download
 category: fixed
+action: palette.checkForUpdates | Check for Updates
 
-When cmux had downloaded an update in the background with automatic updates turned on, clicking Restart to Update did nothing. The click now installs that update and reopens cmux. If an update can't start, cmux now says so instead of leaving the button without effect.
+When cmux had downloaded an update in the background, Restart to Update did nothing. It now installs the update and reopens cmux, or says why it can't.

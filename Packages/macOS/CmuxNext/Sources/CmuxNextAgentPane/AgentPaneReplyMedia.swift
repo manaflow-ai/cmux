@@ -113,6 +113,9 @@ extension AgentPaneModel {
     /// (the pane fetches nothing itself).
     func loadReplyMedia(_ src: String) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" { return await loadWebMedia(url) }
+        // A chat on another machine never reads this Mac's disk (cx-k21v): its agent names paths
+        // there, and a path here with the same spelling is not its file.
+        guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: break

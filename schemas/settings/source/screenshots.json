@@ -1,0 +1,59 @@
+{
+  "$comment": "HAND-EDITED source of the Screenshots pane settings; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "screenshots",
+      "section": "general",
+      "group": {
+        "key": "settings.group.screenshots",
+        "text": "Screenshots"
+      },
+      "note": "The Screenshots pane (cmux://screenshots, action screenshots.open): the folders it lists besides the macOS screenshot folder and its preview folder. Parsed by ScreenshotsSettings.",
+      "rows": [
+        {
+          "key": "screenshots.findTools",
+          "note": "On by default. On: the pane also lists the save and history folders of the screenshot tools it finds (CleanShot X, Shottr, Xnapper, Snagit, Monosnap, Skitch, Flameshot, Kap, Cap, QuickTime).",
+          "title": {
+            "key": "settings.screenshots.findTools",
+            "text": "Find Screenshot Apps"
+          },
+          "help": {
+            "key": "settings.screenshots.findTools.help",
+            "text": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "screenshots",
+            "screen recording",
+            "cleanshot",
+            "shottr",
+            "kap",
+            "capture"
+          ]
+        },
+        {
+          "key": "screenshots.folders",
+          "note": "More folders the pane lists: absolute or ~/ paths. A folder that does not exist is not listed.",
+          "title": {
+            "key": "settings.screenshots.folders",
+            "text": "More Screenshot Folders"
+          },
+          "help": {
+            "key": "settings.screenshots.folders.help",
+            "text": "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
+          },
+          "kind": "folder_list",
+          "default": [],
+          "keywords": [
+            "screenshots",
+            "folders",
+            "pictures",
+            "videos",
+            "recordings"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+2026-10-24T04:36:20.338817Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.145.8:19558 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-23 21:36:20.532 CmuxMobileApp[84428:613225570] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+2026-10-24T04:36:20.542452Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-24T04:36:20.604335Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:57610 })
+objc[84428]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x1178ac398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x1183c0310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+2026-10-23 21:36:22.743 CmuxMobileApp[84428:613225570] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 21:36:22.743 CmuxMobileApp[84428:613225570] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T04:36:30.156054Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="9c08d3cc-3897-4adb-ae6e-0d18f425026e"
+2026-10-24T04:36:46.513063Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="4bdd6ae3-a83e-4b17-b383-3904bd5f87a1"
+2026-10-24T04:36:58.999779Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294986778 highest=4294986789 hole=false

@@ -40,14 +40,17 @@ const view = createRoot(root);
     <section className="acpmux-shell">
       <div className="acpmux-main">
         <div className="acpmux-scroll" />
-        <PermissionPanel
-          state={state}
-          working
-          onRespond={() => {}}
-          onRetry={() => {}}
-          onRevoke={() => {}}
-          onRefresh={() => {}}
-        />
+        {/* The bottom stack the panel sits in (App.tsx `asks`). */}
+        <div className="acpmux-permission acpmux-asks-stack">
+          <PermissionPanel
+            state={state}
+            working
+            onRespond={() => {}}
+            onRetry={() => {}}
+            onRevoke={() => {}}
+            onRefresh={() => {}}
+          />
+        </div>
       </div>
     </section>,
   );

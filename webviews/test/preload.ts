@@ -10,6 +10,17 @@ await import("@base-ui/utils/useIsoLayoutEffect");
 if (!hadDocument) delete scope.document;
 export {};
 
+// The pages' strings tables are build output (gen-strings.mjs): rewrite any whose catalogs or
+// settings schema changed since they were written, so a test never reads a table from another
+// checkout state. Best effort: a missing translation fails strings.test.ts, not every file.
+{
+  const { writeStrings } = await import("../scripts/pages/gen-strings.mjs");
+  writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
+  // The feature tips table is build output too (gen-feature-tips.mjs): made from this tree's highlights.
+  const { writeFeatureTips } = await import("../scripts/pages/gen-feature-tips.mjs");
+  writeFeatureTips({ log: () => {} });
+}
+
 // react-dom picks the animationend event name once, when it first loads: without
 // window.AnimationEvent it listens for the prefixed webkitAnimationEnd for the rest of the run,
 // and onAnimationEnd handlers never fire (the agent pane's Search chats sheet exit). WebKit has

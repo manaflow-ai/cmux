@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxNextBrowser
 
 /// Serves the Passwords page's `cmux.passwords.*` ops (webviews/src/pages/passwords/types.ts,
 /// plans/cmux-next/passwords.md 1.4) from a ``PasswordStore``. The page is user-only: no

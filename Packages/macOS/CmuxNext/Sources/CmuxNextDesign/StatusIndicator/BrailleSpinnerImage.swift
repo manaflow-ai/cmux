@@ -41,7 +41,7 @@ enum BrailleSpinnerImage {
         if let family, let font = NSFont(name: family, size: size) ?? NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) {
             return font
         }
-        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        return CheckedFont.resolve(size: size) { .monospacedSystemFont(ofSize: size, weight: .regular) }
     }
 
     private static func render(pixels: Int, family: String?) -> [CGImage] {

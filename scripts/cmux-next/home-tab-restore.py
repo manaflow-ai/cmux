@@ -15,6 +15,9 @@ fixture; the tag's `acpmux daemon shutdown` at the end.
 Usage: home-tab-restore.py --tag <tag> [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -75,7 +78,7 @@ def launch(n):
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
            "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **home_classic.ENV}
     p = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                          stdout=open(os.path.join(opts.out, f"app-{n}.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
     print(f"launch {n}: pid {p.pid}", flush=True)
@@ -105,6 +108,8 @@ def home_tabs():
 pid = launch(1)
 before = None
 try:
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("launch 1: the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
@@ -115,6 +120,13 @@ try:
     fx = poll(fixture_texts, timeout=30)
     check("launch 1: the fixture shows its transcript", bool(fx), rpc("debug.home.drive", {"action": "texts"}))
     rpc("action.run", {"id": "home.tab", "focus": True})
+    # A new Home tab opens the Chief conversation, which is empty in this test's Chief home (last_seq 0, cx-w67hc):
+    # one message there, so the tab has a transcript to restore. (home.openConversation would show the classic
+    # top page instead of this tab.)
+    tab = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown")), None), timeout=90)
+    if tab and not tab.get("transcript_tail"):
+        sent = submit(kind="send", conversation=tab["shown"], text="restore check %d" % int(time.time()))
+        check("launch 1: a message in the Home tab's conversation", sent.get("ok") is True, sent)
     before = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")), None),
                   timeout=90)
     check("launch 1: a native Home tab shows a conversation with messages", bool(before), home_tabs())
@@ -124,6 +136,8 @@ finally:
 
 pid = launch(2)
 try:
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     # No open request: what the restored window shows by itself.
     restored = poll(lambda: [t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")] or None,
@@ -151,6 +165,8 @@ finally:
 # Before the fix its provider was registered only by the first debug open, after the pane had shown the tab blank.
 pid = launch(3)
 try:
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     fx = poll(fixture_texts, timeout=60)
     check("launch 3: the restored, selected fixture tab shows its transcript with no open request", bool(fx),
@@ -158,8 +174,8 @@ try:
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-3-fixture.png")})
 finally:
     quit_app(pid)
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)

@@ -51,7 +51,7 @@ fi
 slug="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
 SOCK="/tmp/cmux-debug-$slug.sock"
 BIN="$app/Contents/Resources/bin"
-export ACPMUX_HOME="$HOME/.acpmux/tags/$slug"
+export ACPMUX_HOME="$HOME/.acpmux/builds/com.cmuxterm.app.debug.$slug"
 export ACPMUX_SOCKET="$ACPMUX_HOME/acpmux.sock"
 pass=0 fail=0 xfail=0 xpass=0
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$out/run.log"; }
@@ -287,7 +287,7 @@ w=json.load(open('$out/ee-ws.json')); sys.exit(0 if [x.get('extra',{}).get('kind
 rpc_ok action.run '{"id":"quit","args":{"endSessions":true}}' >/dev/null || true
 wait_exit "$APP_PID" 70 || log "app $APP_PID still running"
 acp session cancel qp-agent >/dev/null 2>&1 || true
-acp daemon shutdown >/dev/null 2>&1 || true
+acp daemon shutdown --end-agents >/dev/null 2>&1 || true
 sleep 3
 left=""
 for p in "$APP_PID" "$TUI_PID" "$ACP_PID" "$SHELL_PID" "$LOOP_PID" "$AGENT_CLI_PID"; do alive "$p" && left="$left $p"; done

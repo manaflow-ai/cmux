@@ -45,6 +45,38 @@ test("off, the grants are unknown and the card says to turn Computer Use on", as
   page.unmount();
 });
 
+test("a cmux build the legacy helper can't verify says legacy Computer Use is off", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  const state: ComputerUseState = {
+    phase: "ready",
+    accessibility: true,
+    screen_recording: true,
+    helper: "cmux Computer Use",
+    host_unverified: true,
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
+  await settle();
+  expect(card(page.container)!.textContent).toContain("Legacy Computer Use is off");
+  page.unmount();
+});
+
+test("driver upstream in a build without its helper says Legacy runs instead", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  const state: ComputerUseState = {
+    phase: "ready",
+    accessibility: true,
+    screen_recording: true,
+    helper: "cmux Computer Use",
+    upstream_fallback: true,
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
+  await settle();
+  const text = card(page.container)!.textContent ?? "";
+  expect(text).toContain("Upstream helper isn't in this build; using Legacy.");
+  expect(text).not.toContain("Starting");
+  page.unmount();
+});
+
 test("the buttons run the shared actions; a policy lock hides the card", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
@@ -69,5 +101,40 @@ test("the buttons run the shared actions; a policy lock hides the card", async (
   );
   await settle();
   expect(card(page.container)).toBeNull();
+  page.unmount();
+});
+
+test("a failed helper has one Restart Helper action and recovers on a host update", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: "cmux Computer Use" },
+    }),
+  );
+  await settle();
+  const element = card(page.container)!;
+  expect(element.textContent).toContain("The cmux Computer Use helper did not respond.");
+  const buttons = element.querySelectorAll("button");
+  expect(buttons.length).toBe(1);
+  expect(buttons[0]!.textContent).toBe("Restart Helper");
+  await act(async () => buttons[0]!.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.app.action.run" &&
+        (entry.params as { action: string }).action === "palette.computerUse.restart",
+    ),
+  ).toBe(true);
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+    }),
+  );
+  await settle();
+  expect(grants(card(page.container)!)).toEqual(["true", "true"]);
+  expect(card(page.container)!.textContent).not.toContain("Restart Helper");
   page.unmount();
 });

@@ -240,7 +240,7 @@ fn dock_column_emits_screen_change_and_layout_change() {
         "transaction": 5,
     }));
     let events = events.try_iter().collect::<Vec<_>>();
-    assert!(events.iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
+    assert!(events.iter().any(|event| matches!(event, MuxEvent::LayoutChanged(..))));
     let delta = events
         .iter()
         .find_map(|event| match event {
@@ -850,12 +850,24 @@ fn permanent_dock_column_refuses_a_tab_move_that_empties_it() {
 #[test]
 fn permanent_flag_is_stored_only_when_set() {
     use crate::model::{ColumnDock, DockEdge, DockMode};
-    let pinned =
-        ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, role: None, permanent: true };
+    let pinned = ColumnDock {
+        edge: DockEdge::Left,
+        mode: DockMode::Docked,
+        role: None,
+        permanent: true,
+        pinned: false,
+        allow_tabs: false,
+    };
     let text = serde_json::to_string(&pinned).unwrap();
     assert!(text.contains("\"permanent\":true"), "{text}");
-    let plain =
-        ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, role: None, permanent: false };
+    let plain = ColumnDock {
+        edge: DockEdge::Left,
+        mode: DockMode::Docked,
+        role: None,
+        permanent: false,
+        pinned: false,
+        allow_tabs: false,
+    };
     assert!(!serde_json::to_string(&plain).unwrap().contains("permanent"), "omitted when false");
     let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
     assert!(!old.permanent, "a record written before the flag reads as not permanent");

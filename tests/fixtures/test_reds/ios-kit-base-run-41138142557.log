@@ -1,0 +1,93 @@
+2026-10-30T23:15:31.7433670Z ##[group]Run swift test --package-path cmux-next-ios/CmuxMobileKit
+2026-10-30T23:15:31.7433950Z [36;1mswift test --package-path cmux-next-ios/CmuxMobileKit[0m
+2026-10-30T23:15:31.7457340Z shell: /bin/bash -e {0}
+2026-10-30T23:15:31.7457490Z env:
+2026-10-30T23:15:31.7457620Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 281
+2026-10-30T23:15:31.7457790Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1062
+2026-10-30T23:15:31.7457970Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-10-30T23:15:31.7458220Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-10-30T23:15:31.7458440Z   CACHE_ON_FAILURE: false
+2026-10-30T23:15:31.7458550Z   CARGO_INCREMENTAL: 0
+2026-10-30T23:15:31.7458660Z ##[endgroup]
+2026-10-30T23:15:38.0492610Z Fetching https://github.com/apple/swift-asn1.git
+2026-10-30T23:16:32.4049110Z ◇ Test run started.
+2026-10-30T23:16:32.4218410Z ◇ Test aFailedOpenIsTriedAgain() started.
+2026-10-30T23:16:32.4236800Z ◇ Test failedHomeLoadRetriesTheFeedOnTheExistingLink() started.
+2026-10-30T23:16:33.0041180Z ✔ Test failedHomeLoadRetriesTheFeedOnTheExistingLink() passed after 0.570 seconds.
+2026-10-30T23:16:33.0049630Z ✔ Test aFailedOpenIsTriedAgain() passed after 0.578 seconds.
+2026-10-30T23:16:38.2693720Z ✔ Test run with 1452 tests in 335 suites passed after 5.858 seconds.
+2026-10-30T23:16:38.2937270Z ##[group]Run set -euo pipefail
+2026-10-30T23:16:38.2937500Z [36;1mset -euo pipefail[0m
+2026-10-30T23:16:38.2937670Z [36;1mudid="$(xcrun simctl list devices available -j | python3 -c '[0m
+2026-10-30T23:16:38.2937860Z [36;1mimport json, sys[0m
+2026-10-30T23:16:38.2937990Z [36;1mdevices = json.load(sys.stdin)["devices"][0m
+2026-10-30T23:16:38.2938140Z [36;1mfound = sorted([0m
+2026-10-30T23:16:38.2938250Z [36;1m    (runtime, device["udid"])[0m
+2026-10-30T23:16:38.2938390Z [36;1m    for runtime, items in devices.items()[0m
+2026-10-30T23:16:38.2938550Z [36;1m    if ".SimRuntime.iOS-26" in runtime[0m
+2026-10-30T23:16:38.2938690Z [36;1m    for device in items[0m
+2026-10-30T23:16:38.2938850Z [36;1m    if device["name"].startswith("iPhone")[0m
+2026-10-30T23:16:38.2939070Z [36;1m)[0m
+2026-10-30T23:16:38.2939260Z [36;1mprint(found[-1][1] if found else "")[0m
+2026-10-30T23:16:38.2939500Z [36;1m')"[0m
+2026-10-30T23:16:38.2939600Z [36;1mif [[ -z "$udid" ]]; then[0m
+2026-10-30T23:16:38.2945640Z [36;1m  echo "::error::no available iOS 26 iPhone simulator on this runner" >&2[0m
+2026-10-30T23:16:38.2945850Z [36;1m  exit 1[0m
+2026-10-30T23:16:38.2945950Z [36;1mfi[0m
+2026-10-30T23:16:38.2946050Z [36;1mecho "simulator $udid"[0m
+2026-10-30T23:16:38.2946290Z [36;1m# Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit[0m
+2026-10-30T23:16:38.2946600Z [36;1m# (TerminalDevProbe, SILProfiler in emitIsolatingDestructor); the app builds[0m
+2026-10-30T23:16:38.2946900Z [36;1m# without coverage. arm64 only: the xcframework has no x86_64 simulator slice.[0m
+2026-10-30T23:16:38.2947190Z [36;1mxcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \[0m
+2026-10-30T23:16:38.2947510Z [36;1m  -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \[0m
+2026-10-30T23:16:38.2947860Z [36;1m  -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?[0m
+2026-10-30T23:16:38.2948180Z [36;1m# -quiet drops Swift Testing's output: report from the result bundle (counts,[0m
+2026-10-30T23:16:38.2948460Z [36;1m# suites that did not pass, #23829's banner suite, and every failure).[0m
+2026-10-30T23:16:38.2948800Z [36;1mxcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/ios-sim.xcresult" --compact 2>/dev/null |[0m
+2026-10-30T23:16:38.2949080Z [36;1m  python3 -c '[0m
+2026-10-30T23:16:38.2949210Z [36;1mimport json, sys[0m
+2026-10-30T23:16:38.2949330Z [36;1mcounts = {}[0m
+2026-10-30T23:16:38.2949450Z [36;1mdef walk(node, path):[0m
+2026-10-30T23:16:38.2949610Z [36;1m    kind, result = node.get("nodeType"), node.get("result")[0m
+2026-10-30T23:16:38.2949800Z [36;1m    if kind == "Test Case":[0m
+2026-10-30T23:16:38.2949960Z [36;1m        counts[result] = counts.get(result, 0) + 1[0m
+2026-10-30T23:16:38.2950140Z [36;1m        if result == "Failed":[0m
+2026-10-30T23:16:38.2950310Z [36;1m            print("FAILED:", " / ".join(path))[0m
+2026-10-30T23:16:38.2950570Z [36;1m    if kind == "Test Suite" and (result != "Passed" or node.get("name") == "WaitingBannerTests"):[0m
+2026-10-30T23:16:38.2950860Z [36;1m        print("suite", node.get("name"), result, len(node.get("children", [])), "tests")[0m
+2026-10-30T23:16:38.2951080Z [36;1m    for child in node.get("children", []):[0m
+2026-10-30T23:16:38.2951260Z [36;1m        if child.get("nodeType") == "Failure Message":[0m
+2026-10-30T23:16:38.2951420Z [36;1m            print("   ", child.get("name"))[0m
+2026-10-30T23:16:38.2951570Z [36;1m        else:[0m
+2026-10-30T23:16:38.2951710Z [36;1m            walk(child, path + [child.get("name", "")])[0m
+2026-10-30T23:16:38.2951910Z [36;1mfor root in json.load(sys.stdin).get("testNodes", []):[0m
+2026-10-30T23:16:38.2952120Z [36;1m    walk(root, [root.get("name", "")])[0m
+2026-10-30T23:16:38.2952350Z [36;1mprint("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))[0m
+2026-10-30T23:16:38.2952860Z [36;1m' || echo "::warning::could not read the result bundle"[0m
+2026-10-30T23:16:38.2953050Z [36;1mexit "$status"[0m
+2026-10-30T23:16:38.3067380Z shell: /bin/bash -e {0}
+2026-10-30T23:16:38.3067550Z env:
+2026-10-30T23:16:38.3067670Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 281
+2026-10-30T23:16:38.3067860Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1062
+2026-10-30T23:16:38.3068060Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-10-30T23:16:38.3068340Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-10-30T23:16:38.3068570Z   CACHE_ON_FAILURE: false
+2026-10-30T23:16:38.3070020Z   CARGO_INCREMENTAL: 0
+2026-10-30T23:16:38.3070110Z ##[endgroup]
+2026-10-30T23:29:23.0024670Z 2026-10-30 23:29:23.002 xcodebuild[5374:33527] [MT] IDETestOperationsObserverDebug: 670.205 elapsed -- Testing started completed.
+2026-10-30T23:29:23.0025070Z 2026-10-30 23:29:23.002 xcodebuild[5374:33527] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-30T23:29:23.0025410Z 2026-10-30 23:29:23.002 xcodebuild[5374:33527] [MT] IDETestOperationsObserverDebug: 670.205 sec, +670.205 sec -- end
+2026-10-30T23:29:23.0193440Z Failing tests:
+2026-10-30T23:29:23.0193700Z 	TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()
+2026-10-30T23:29:23.0193920Z 
+2026-10-30T23:29:23.0193950Z ** TEST FAILED **
+2026-10-30T23:29:23.0194030Z 
+2026-10-30T23:29:25.6802760Z Testing started
+2026-10-30T23:29:26.7813740Z suite WaitingBannerTests Passed 5 tests
+2026-10-30T23:29:26.7813960Z suite MacSelectionTests Skipped 1 tests
+2026-10-30T23:29:26.7814200Z     Test skipped: The remembered Mac reads back nil on the iOS simulator in CI
+2026-10-30T23:29:26.7814450Z suite TerminalSurfaceFramePacingTests Failed 1 tests
+2026-10-30T23:29:26.7814890Z FAILED: CmuxMobileKit-Package / CmuxMobileTerminalTests / TerminalSurfaceFramePacingTests / busyOutputDrawsAtMostOneFramePerDisplayRefresh()
+2026-10-30T23:29:26.7815810Z     TerminalSurfaceFramePacingTests.swift:59: Expectation failed: (batches → 6) > (Int(refresh * 2) → 120): too few batches (6) to outrun the display: the test proves nothing
+2026-10-30T23:29:26.7816190Z iOS simulator test cases: Failed 1, Passed 1654, Skipped 1
+2026-10-30T23:29:26.7843120Z ##[error]Process completed with exit code 65.

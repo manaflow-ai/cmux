@@ -1,6 +1,6 @@
 {
   "name": "freestyle",
-  "version": "0.2.16",
+  "version": "0.2.21",
   "description": "Freestyle SDK and CLI — manage VMs, snapshots, VPCs, domains, and identities",
   "license": "MIT",
   "publishConfig": {
@@ -38,6 +38,7 @@
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
     "@types/yargs": "^17.0.33",
+    "@xterm/xterm": "^6.0.0",
     "typescript": "^5.7.0"
   },
   "optionalDependencies": {

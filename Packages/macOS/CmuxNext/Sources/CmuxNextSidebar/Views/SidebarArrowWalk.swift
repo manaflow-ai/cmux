@@ -64,11 +64,16 @@ import AppKit
     /// order (top to bottom, then leading to trailing).
     private static func items(in sidebar: SidebarView) -> (above: [SidebarItemRowView], below: [SidebarItemRowView]) {
         func ordered(_ regions: [SidebarRegionView]) -> [SidebarItemRowView] {
-            regions.flatMap { region in
-                region.itemViews.values.filter { !$0.isHiddenOrHasHiddenAncestor }.map { ($0, region.convert($0.frame, to: nil)) }
-                    .sorted { $0.1.maxY != $1.1.maxY ? $0.1.maxY > $1.1.maxY : $0.1.minX < $1.1.minX }
-                    .map(\.0)
+            let positioned: [(view: SidebarItemRowView, frame: NSRect)] = regions.flatMap { region in
+                region.itemViews.values.filter { !$0.isHiddenOrHasHiddenAncestor }.map {
+                    (view: $0, frame: region.convert($0.frame, to: nil))
+                }
             }
+            let sorted: [(view: SidebarItemRowView, frame: NSRect)] = positioned.sorted {
+                (lhs: (view: SidebarItemRowView, frame: NSRect), rhs: (view: SidebarItemRowView, frame: NSRect)) -> Bool in
+                lhs.frame.maxY != rhs.frame.maxY ? lhs.frame.maxY > rhs.frame.maxY : lhs.frame.minX < rhs.frame.minX
+            }
+            return sorted.map(\.view)
         }
         return (ordered([sidebar.aboveRegion]), ordered([sidebar.belowRegion, sidebar.footerRegion]))
     }

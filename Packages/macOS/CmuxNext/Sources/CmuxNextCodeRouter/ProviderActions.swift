@@ -19,6 +19,15 @@ public enum ReauthPlan: Sendable, Equatable {
         return argv.map(Self.quoted).joined(separator: " ")
     }
 
+    /// Types `.command` through `line` and opens `.page` through `page`; `.none` does nothing.
+    public func run(line: (String) -> Void, page: (URL) -> Void) {
+        switch self {
+        case .command: if let shellLine { line(shellLine) }
+        case .page(let url): page(url)
+        case .none: break
+        }
+    }
+
     static func quoted(_ word: String) -> String {
         let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./=:@"))
         if !word.isEmpty, word.unicodeScalars.allSatisfy(safe.contains) { return word }
@@ -56,6 +65,31 @@ extension AIProvider {
         case .openAI, .anthropic, .openRouter, .groq, .xai, .mistral, .deepseek:
             consoleURL.map(ReauthPlan.page) ?? .none
         case .ollama, .lmStudio, .openCodeGo: .none
+        }
+    }
+
+    /// How a provider signs out of this Mac: its CLI's own logout, run in a
+    /// visible terminal tab like ``reauthPlan``. `.none` when cmux has no
+    /// way to (a key page, a local server, a login with no logout command).
+    public var signOutPlan: ReauthPlan {
+        switch self {
+        case .codex: .command(["codex", "logout"])
+        case .claude: .command(["claude", "auth", "logout"])
+        default: .none
+        }
+    }
+
+    /// Whether ``signOutPlan`` removes the sign-in `source` names: only the
+    /// CLI's own sign-in, its file (`~/.codex/auth.json`,
+    /// `~/.claude/.credentials.json`) or its Keychain item. A Codex
+    /// config.toml provider, a Claude settings.json key or helper, or an API
+    /// key saved in `.claude.json` stays after the logout, so it offers none.
+    public func signOutRemoves(_ source: DetectionSource) -> Bool {
+        switch (self, source) {
+        case (.codex, .file(let path)): (path as NSString).lastPathComponent == "auth.json"
+        case (.claude, .file(let path)): (path as NSString).lastPathComponent == ".credentials.json"
+        case (.codex, .keychain), (.claude, .keychain): true
+        default: false
         }
     }
 

@@ -1,0 +1,40 @@
+{
+  "title": "Join consent: Settings > Devices on a Mac joined to a team, Screen sharing and Control off, then the one-time sheet",
+  "settings": {
+    "labs": {
+      "machineJoin": true
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "This Mac reads as joined (a fixture status): what it joined as, and both switches off",
+      "rpc": {
+        "method": "debug.join_consent",
+        "params": {
+          "team": "Example Team",
+          "name": "studio"
+        }
+      },
+      "wait": 3,
+      "optional": "debug.join_consent is DEBUG only"
+    },
+    {
+      "title": "The first refused screen request: the one-time sheet over the window",
+      "rpc": {
+        "method": "debug.join_consent",
+        "params": {
+          "ask": "build-vm",
+          "settings": false
+        }
+      },
+      "wait": 2,
+      "windows": true,
+      "optional": "debug.join_consent is DEBUG only"
+    }
+  ]
+}

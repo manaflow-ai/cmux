@@ -3,6 +3,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextIcons
 
 /// Where an icon picker session stores an Image or SVG asset: the picked object's owner, its
 /// daemon's blob store (`icon-assets-v1`). The daemon sanitizes and validates an SVG again and
@@ -13,7 +14,7 @@ struct IconAssetStore {
     /// The store of `daemon`, or nil when it has no blob store (an older or remote daemon): the
     /// picker then keeps its Image and SVG tabs off.
     @MainActor static func owner(_ daemon: DaemonService?) -> IconAssetStore? {
-        guard let daemon, daemon.supports(DaemonCapabilities.shared.iconAssets) else { return nil }
+        guard let daemon, daemon.supports(DaemonCapability.iconAssets.rawValue) else { return nil }
         return IconAssetStore { [weak daemon] mediaType, data in
             guard let connection = daemon?.connection else { throw DaemonError.notConnected }
             return try await IconAssetClient(connection).put(mediaType: mediaType, data: data).icon

@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "../src/domains/team-vm.ts"
 import type { SubmitResult } from "../src/owner-do.ts"
 import type { Env } from "../src/env.ts"
-import { FreestyleDriver, PRODUCTION_PLAN_GATE_LANDED, providerRefusal, teamVmDriver } from "../src/team-vm-driver.ts"
+import { PRODUCTION_PLAN_GATE_LANDED, providerRefusal, teamVmDriver } from "../src/team-vm-driver.ts"
+import { FreestyleDriver } from "../src/providers/freestyle/team-vm.ts"
 
 /** The RPC surface the tests use (the generated stub type does not carry these signatures). */
 interface TeamVmStub {

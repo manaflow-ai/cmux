@@ -44,6 +44,7 @@ struct HomePasteboardValue: HomePasteboardContents {
 
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool { types.contains(.fileURL) && !fileURLs.isEmpty }
     func data(forType type: NSPasteboard.PasteboardType) -> Data? { nil }
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { nil }
 }
 
 extension HomeNativeTranscriptView {
@@ -79,7 +80,11 @@ extension HomeNativeTranscriptView {
     /// The context menu's titles at the newest text bubble (the right-click's path).
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
-    public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// With the drop target's state: the draft's attachment count, drops on their way, the highlight (1 shown).
+    public func debugGeometry() -> [String: Double] {
+        transcript.debugGeometry().merging(["draftAttachments": Double(transcript.draftAttachments.count), "dropPending": Double(drop.pending),
+                                            "dropHighlighted": drop.highlight.isShowing ? 1 : 0]) { $1 }
+    }
     /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
     public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
     /// Moves the transcript by `dx`, `dy` points in this view (a pane on a fraction of a point).
@@ -108,6 +113,10 @@ extension HomeNativeTranscriptView {
     public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] { transcript.debugRowFrames() }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
+    public var debugStatusLine: String? { transcript.debugStatusLine }
+    public var debugRebuilds: Int { transcript.debugRebuilds }
+    public var debugStreamTexts: [String] { transcript.debugStreamTexts }
+    public var debugLineCloseAfterHandOffFires: Int? { transcript.debugLineCloseAfterHandOffFires }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
     /// The open thread's root (the transcript's id), nil when none is open.

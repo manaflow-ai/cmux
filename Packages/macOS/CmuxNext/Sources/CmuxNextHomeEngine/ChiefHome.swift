@@ -17,7 +17,8 @@ public import Foundation
 /// `com.cmuxterm.app.nightly.cmux-next`, RC, release) has its own home, so
 /// two NIGHTLY identities that run at the same time never share one Chief.
 /// A build's own home starts empty and never imports the old per-tag Chiefs
-/// (`ChiefMigration` runs only for a shared home).
+/// (`ChiefMigration` runs only for NIGHTLY's home, after its one-time
+/// backup, `ChiefAdoption`).
 ///
 /// Resolution, first match wins:
 /// 1. `CMUX_NEXT_CHIEF_HOME` (or the older `CMUX_NEXT_MUX_HOME`): that
@@ -64,18 +65,43 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     }
 
     /// Whether this home may take in the old per-tag Chiefs (`ChiefMigration`):
-    /// only a shared home (rule 1, or NIGHTLY's), never a DEV build's own.
-    public var importsOldChiefs: Bool { !isolated && !Self.hasOwnHome(bundleID: buildID) }
+    /// only NIGHTLY's (per-build isolation S6, cx-is1kf.7), never a build's
+    /// own home, an explicit test home (rule 1) or a home of no bundle.
+    public var importsOldChiefs: Bool { !isolated && buildID == Self.nightlyBundleID }
 
     /// `--mux-home` of the brain host: OptChat memory under `optchat/`,
     /// the single-writer host lock at `state/host.lock`.
     public var muxHome: URL { root }
     /// `CMUX_TUI_STATE_DIR` of the Chief's conversation owner.
     public var daemonStateDirectory: URL { root.appendingPathComponent("tui", isDirectory: true) }
+    /// Written by `cmux chief shutdown` (cmux-tui `cli/chief/shutdown.rs`):
+    /// while it is there the app starts no brain on its own, only when asked.
+    var shutdownMarker: URL { root.appendingPathComponent("state/shutdown") }
     /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).
     var settleStatusFile: URL { root.appendingPathComponent("state/settle.json") }
-    /// `ACPMUX_HOME` of the Chief's turn, compactor and subagent sessions.
+    /// `ACPMUX_HOME` of the Chief's own daemon, where its turn, compactor and subagent sessions
+    /// run unless it uses the app's (``usesAppAcpmux``).
     public var acpmuxHome: URL { root.appendingPathComponent("acpmux", isDirectory: true) }
+    /// Whether this Chief runs on the app's own acpmux (`~/.acpmux`, the one daemon of this
+    /// machine) instead of ``acpmuxHome``: NIGHTLY's home only, unless `CMUX_CHIEF_OWN_ACPMUX=1` in
+    /// the app's environment brings the old daemon back. The app then starts and hands off that
+    /// daemon; the Chief host only waits for it (`OPTCHAT_ACPMUX_SUPERVISED=1`) and never starts or
+    /// stops it, and the Chief's sessions stay apart by their tags (`cmux.chief`, `mux.parent`).
+    public var usesAppAcpmux: Bool {
+        Self.usesAppAcpmux(isolated: isolated, buildID: buildID, ownAcpmux: Self.ownAcpmuxAtLaunch)
+    }
+
+    /// `CMUX_CHIEF_OWN_ACPMUX=1`, read once from the process environment, so the tab wiring, the
+    /// error journal and the Chief host, which resolve at different points of the launch, agree.
+    private static let ownAcpmuxAtLaunch = ownAcpmux(ProcessInfo.processInfo.environment)
+
+    static func ownAcpmux(_ environment: [String: String]) -> Bool {
+        environment["CMUX_CHIEF_OWN_ACPMUX"] == "1"
+    }
+
+    static func usesAppAcpmux(isolated: Bool, buildID: String?, ownAcpmux: Bool) -> Bool {
+        !isolated && buildID == nightlyBundleID && !ownAcpmux
+    }
     /// The conversation owner's cmux-tui session (its socket name).
     public var session: String { Self.sessionName(root: root) }
 
@@ -94,7 +120,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
             return ChiefHome(root: URL(fileURLWithPath: explicit, isDirectory: true).standardizedFileURL, isolated: false)
         }
         let rootOverride = value("CMUX_NEXT_CHIEF_ROOT").map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
-        let base = rootOverride ?? userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+        let base = chiefRoot(environment: environment, userHome: userHome)
         let isolatedLaunch = value("CMUX_NEXT_CHIEF_ISOLATED") == "1" || value("CMUX_NEXT_NO_ACTIVATE") == "1"
             || value("CMUX_NEXT_SHOWCASE") == "1"
             || value("CMUX_NEXT_TEST_WINDOW_FRAME") != nil || value("CMUX_NEXT_TEST_WINDOW_SCREEN") != nil
@@ -111,6 +137,22 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         return ChiefHome(root: root, isolated: false, buildID: build)
     }
 
+    /// The directory that holds every Chief home of this user (rules 2 and 4):
+    /// `CMUX_NEXT_CHIEF_ROOT`, else `~/.cmux/chief`. Isolated homes are under its `isolated/`.
+    public static func chiefRoot(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                 userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        if let override = environment["CMUX_NEXT_CHIEF_ROOT"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        }
+        return userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+    }
+
+    /// Whether a Chief brain host holds this home now (the flock on `state/host.lock`). It reads
+    /// the disk: never on the main thread.
+    public var hostRuns: Bool {
+        ChiefMigration.lockHeld(at: root.appendingPathComponent("state/host.lock"))
+    }
+
     /// A Debug compile (DEV builds); NIGHTLY and Release compile as Release.
     public static var isDebugBuild: Bool {
         #if DEBUG
@@ -118,6 +160,20 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         #else
         false
         #endif
+    }
+
+    /// Every Chief home's agent tab host starts with it: `chief:<home id>`.
+    public static let tabHostPrefix = "chief:"
+
+    /// `chief:<home id>`, the agent tab host of the Chief home `muxHome`: its subagent tabs record
+    /// it. The id is optchat-chief `paths::home_id`: FNV-1a 32 of the path bytes.
+    public static func tabHost(muxHome: URL) -> String {
+        var hash: UInt32 = 0x811c_9dc5
+        for byte in muxHome.path.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 0x0100_0193
+        }
+        return tabHostPrefix + String(format: "%08x", hash)
     }
 
     /// `cmux-chief-<FNV-1a 32 of the root path>`: one owner per home, short

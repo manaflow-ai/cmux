@@ -12,6 +12,9 @@ nonisolated struct RustSectionID: Codable, Equatable {
         case let .machine(machine):
             kind = "machine"
             id = machine.rawValue
+        case let .custom(section):
+            kind = "custom"
+            id = section
         }
     }
 
@@ -19,6 +22,7 @@ nonisolated struct RustSectionID: Codable, Equatable {
         switch kind {
         case "pinned": .pinned
         case "machine": id.map(MachineID.init).map(SectionID.machine)
+        case "custom": id.map(SectionID.custom)
         default: nil
         }
     }

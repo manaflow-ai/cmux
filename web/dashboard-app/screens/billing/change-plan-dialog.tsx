@@ -47,7 +47,7 @@ export function ChangePlanDialog({
         data ? (
           <p>
             {data.direction === "upgrade"
-              ? t("change.upgradeBody", { plan: name, amount: money(data.amountDueToday), date, price: money(data.nextInvoiceAmount) })
+              ? t(data.interval === "year" ? "change.upgradeBodyYearly" : "change.upgradeBody", { plan: name, amount: money(data.amountDueToday), date, price: money(data.nextInvoiceAmount) })
               : t("change.downgradeBody", { plan: name, credit: money(data.credit), date, amount: money(data.nextInvoiceAmount) })}
           </p>
         ) : preview.isError ? (

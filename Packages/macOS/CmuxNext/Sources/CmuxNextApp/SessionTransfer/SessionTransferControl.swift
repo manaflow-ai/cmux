@@ -14,7 +14,12 @@ enum SessionTransferControl {
                     (transfer.localChats(), transfer.acpmuxEnvironment().map { (socket: $0.socketPath, home: $0.home.path) })
                 }
                 // The local daemon's workspaces only: `complete` closes on it.
-                let sessions = call.snapshot.topology.workspaces.filter { $0.machine == nil }.flatMap { workspace in
+                let workspaces = call.snapshot.topology.workspaces.filter { $0.machine == nil }
+                // Moving a terminal ends what runs in it, so each says whether it idles at its shell.
+                let terminals = workspaces.flatMap { $0.screens.flatMap(\.panes).flatMap(\.tabs) }
+                    .filter { $0.kind == "terminal" && $0.agentSessionID == nil }.map(\.surface)
+                let programs = await transfer.foregroundPrograms(terminals)
+                let sessions = workspaces.flatMap { workspace in
                     workspace.screens.flatMap(\.panes).flatMap { pane in
                         pane.tabs.compactMap { tab -> JSONValue? in
                             if let chat = chats[tab.id], let acpmux {
@@ -42,6 +47,10 @@ enum SessionTransferControl {
                                 "command": .null,
                                 "agent": .null,
                                 "agent_session": .null,
+                                // `idle` true: its shell only; false: `foreground_program` runs;
+                                // both null: no answer, which a taker treats as busy.
+                                "idle": programs[tab.surface].map { JSONValue.bool($0 == nil) } ?? .null,
+                                "foreground_program": .optional(programs[tab.surface].flatMap { $0 }),
                             ]
                         }
                     }
@@ -95,7 +104,12 @@ enum SessionTransferControl {
             .async("session.transfer.complete") { [transfer = services.sessionTransfer] call in
                 let surfaces = call.params["surfaces"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 guard !surfaces.isEmpty else { throw ControlError.invalidParams("surfaces is required") }
-                try await transfer.complete(surfaces: surfaces)
+                // `idle_only`: close none if one runs a program now (code `terminal_busy`).
+                do {
+                    try await transfer.complete(surfaces: surfaces, idleOnly: call.params["idle_only"]?.boolValue == true)
+                } catch SessionTransferService.Failure.terminalBusy(let reason) {
+                    throw controlError(SessionTransferService.Failure.terminalBusy(reason))
+                }
                 return ["closed": JSONValue(surfaces.count)]
             }.withDeadline(.fixed(.seconds(30))),
         ]
@@ -114,6 +128,7 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.chatFolderMissing: "unavailable"
     case SessionTransferService.Failure.chatInChats: "unavailable"
     case SessionTransferService.Failure.sourceAgentsStopped: "unavailable"
+    case SessionTransferService.Failure.terminalBusy: SessionTransferService.busyCode
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))

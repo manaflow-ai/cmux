@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextIcons
 import CmuxNextRemoteView
+import CmuxNextScreenshots
 import CmuxNextTabs
 import Foundation
 
@@ -38,6 +39,7 @@ enum BrowserTabIconState: Equatable {
         if HistoryPageAddress.matches(url) { return .history }
         if BookmarkPageAddress.matches(url) { return .bookmarkManager }
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
+        if ScreenshotsPageAddress.matches(url) { return .sitePermissionImages }
         if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return .machineRemote }
         if TabContentCache.isRemoteBrowserPage(url) { return .machineRemote }
         return nil

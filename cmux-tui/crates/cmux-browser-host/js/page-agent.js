@@ -20,9 +20,11 @@
 (function (global, injectedFactory, ariaCaches) {
   "use strict";
   const KEY = Symbol.for("cmux.browserRepl.agent");
-  if (global[KEY]) return;
-
   const document = global.document;
+  // A window keeps its global when it leaves its initial about:blank for a
+  // same-origin page (a window.open popup with an opener), so an agent found
+  // here may belong to the previous document; install again for this one.
+  if (global[KEY] && global[KEY].document === document) return;
 
   // The app's agent world sees closed shadow roots (WebKit's
   // allowAccessToClosedShadowRoots). WebKit's switch also opens user-agent
@@ -2230,6 +2232,8 @@
     reply,
     injected,
     adoptClosedRoot,
+    // The document this agent answers for (the install guard above).
+    document,
   };
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });
   // The drivers resolve handles for input.setFiles through this name, and

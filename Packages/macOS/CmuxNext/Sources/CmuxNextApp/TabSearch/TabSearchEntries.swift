@@ -32,7 +32,7 @@ nonisolated enum TabSearchEntries {
             let window = topology.windows.count > 1 ? windowNumber[workspace.id].map(TabSearchAppStrings.window) : nil
             for tab in workspace.panes.flatMap(\.tabs) where !facts.closing.contains(tab.id) {
                 entries.append(TabSearchEntry(
-                    id: tab.id, kind: kind(tab.kind), title: tab.title, url: tab.url, cwd: tab.cwd, process: tab.agent,
+                    id: tab.id, kind: kind(tab.kind), title: facts.titles[tab.id] ?? tab.title, url: tab.url, cwd: tab.cwd, process: tab.agent,
                     workspaceID: workspace.id, workspaceTitle: workspace.name, windowTitle: window, machine: machine,
                     order: entries.count, state: .open(isCurrent: tab.id == current, lastActive: facts.lastActive[tab.id])))
             }

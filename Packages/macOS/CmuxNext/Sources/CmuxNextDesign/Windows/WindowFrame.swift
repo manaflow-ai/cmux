@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
 import Darwin
 import Foundation
@@ -36,8 +36,9 @@ public nonisolated struct WindowFrame: Sendable {
         }
     }
 
-    /// Reads the window's composited image back to back until `until` ms after `start`.
-    @concurrent public static func record(_ window: CGWindowID, scale: Double, from start: ContinuousClock.Instant,
+    /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
+    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale.
+    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
                                          until: Double) async -> [WindowFrame] {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
@@ -48,7 +49,12 @@ public nonisolated struct WindowFrame: Sendable {
             // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | NominalResolution.
             guard let image = create(.null, 1 << 3, window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
             let at = elapsed(since: start)
-            if let frame = WindowFrame(image, scale: scale, at: at) { frames.append(frame) }
+            // A frame the crop cannot cut is dropped, so every frame of a strip has one size.
+            let kept = crop.map { unit in
+                image.cropping(to: CGRect(x: unit.minX * Double(image.width), y: unit.minY * Double(image.height),
+                                          width: unit.width * Double(image.width), height: unit.height * Double(image.height)).integral)
+            } ?? image
+            if let kept, let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
         }
         return frames
     }
@@ -133,13 +139,18 @@ public nonisolated struct WindowFrame: Sendable {
     /// The frames side by side, one gap apart, at their recorded size.
     public static func writeStrip(_ frames: [WindowFrame], to path: String) {
         guard let first = frames.first else { return }
-        let gap = 4, width = frames.count * (first.width + gap) - gap
-        guard let context = CGContext(data: nil, width: width, height: first.height, bitsPerComponent: 8, bytesPerRow: 0,
+        // Full-scale frames (their own PNGs) make an overview too wide to draw: it shrinks to 16k pixels.
+        let gap = 4, full = frames.count * (first.width + gap) - gap
+        let factor = min(1, 16_384 / Double(max(1, full)))
+        let cell = Double(first.width + gap) * factor
+        guard let context = CGContext(data: nil, width: Int((Double(full) * factor).rounded(.up)), height: max(1, Int((Double(first.height) * factor).rounded(.up))),
+                                      bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return }
+        context.interpolationQuality = .medium
         for (index, frame) in frames.enumerated() {
             guard let image = frame.image else { continue }
-            context.draw(image, in: CGRect(x: index * (first.width + gap), y: 0, width: frame.width, height: frame.height))
+            context.draw(image, in: CGRect(x: Double(index) * cell, y: 0, width: Double(frame.width) * factor, height: Double(frame.height) * factor))
         }
         if let strip = context.makeImage() { writePNG(strip, to: path) }
     }
@@ -149,6 +160,58 @@ public nonisolated struct WindowFrame: Sendable {
         else { return }
         CGImageDestinationAddImage(destination, image, nil)
         CGImageDestinationFinalize(destination)
+    }
+}
+
+/// A window and every window over it in its rect (its pages and the overlay panel that carries
+/// dialogs), as the screen shows them: `CmuxDialogCenter.frameStrip` (DEBUG builds) needs the
+/// dialog, which draws in the overlay panel, the pages and the window under it in one frame.
+nonisolated extension WindowFrame {
+    /// Reads `window` and every window above it, composited in `bounds` (global display
+    /// coordinates, top-left origin), back to back until `until` ms after `start`. Every frame has
+    /// the size of `bounds`, so frames before and after the overlay panel attaches compare pixel for
+    /// pixel. Another app's window over that rect would show too: record where none is.
+    @concurrent public static func recordAbove(_ window: CGWindowID, bounds: CGRect, scale: Double,
+                                              from start: ContinuousClock.Instant, until: Double) async -> [WindowFrame] {
+        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        var frames: [WindowFrame] = []
+        while elapsed(since: start) < until {
+            // kCGWindowListOptionOnScreenAboveWindow | IncludingWindow; BoundsIgnoreFraming | NominalResolution.
+            guard let image = create(bounds, (1 << 1) | (1 << 3), window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
+            if let frame = WindowFrame(image, scale: scale, at: elapsed(since: start)) { frames.append(frame) }
+        }
+        return frames
+    }
+
+    /// Writes each frame as `<prefix>-NNN.png` in `dir` and returns the file names.
+    public static func writeEach(_ frames: [WindowFrame], prefix: String, in dir: String) -> [String] {
+        frames.enumerated().map { index, frame in
+            let name = String(format: "%@-%03d.png", prefix, index)
+            if let image = frame.image { writePNG(image, to: (dir as NSString).appendingPathComponent(name)) }
+            return name
+        }
+    }
+
+    /// The mean per-channel color distance from `other` (0...255) over the pixels `within` a rect
+    /// (pixel coordinates, top-left origin) and outside `excluding`: a continuous measure of how far
+    /// a fade or scale has gone, where `difference` only counts pixels past a threshold.
+    public func meanDistance(from other: WindowFrame, within: CGRect? = nil, excluding: CGRect? = nil) -> Double {
+        guard width == other.width, height == other.height else { return 255 }
+        var total = 0, counted = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let point = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
+                if let within, !within.contains(point) { continue }
+                if let excluding, excluding.contains(point) { continue }
+                let i = (y * width + x) * 4
+                total += abs(Int(pixels[i]) - Int(other.pixels[i])) + abs(Int(pixels[i + 1]) - Int(other.pixels[i + 1]))
+                    + abs(Int(pixels[i + 2]) - Int(other.pixels[i + 2]))
+                counted += 3
+            }
+        }
+        return counted == 0 ? 0 : Double(total) / Double(counted)
     }
 }
 #endif

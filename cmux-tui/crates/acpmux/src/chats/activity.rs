@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::key_text;
 use crate::hub::{Hub, Session};
 use crate::store::SessionStatus;
+use cmux_json::JsonSet as _;
 
 /// The longest preview sent, in characters: one sidebar line and some.
 const PREVIEW_CHARS: usize = 160;
@@ -32,6 +33,8 @@ pub fn changes_activity(kind: &str) -> bool {
             | "permission_decision"
             | "permission_auto"
             | "purged"
+            // `spawnedBy` names the chat's parent (`Hub::spawned_by`).
+            | "tags"
     )
 }
 
@@ -80,11 +83,11 @@ pub fn activity_fields(session: &Session) -> Value {
 
 /// The `_acpmux/chat_changed` params of a session's chat activity, when the
 /// session continues an indexable chat.
-pub fn activity_change(session: &Session) -> Option<Value> {
+pub fn activity_change(hub: &Hub, session: &Session) -> Option<Value> {
     let key = session_chat_key(session)?;
-    let mut change = activity_fields(session);
-    change["kind"] = json!("activity");
-    change["key"] = json!(key_text(&key));
+    let mut change = hub.chat_activity_fields(session);
+    change.set("kind", json!("activity"));
+    change.set("key", json!(key_text(&key)));
     Some(change)
 }
 
@@ -93,7 +96,7 @@ pub fn activity_change(session: &Session) -> Option<Value> {
 pub struct ChatActivity(HashMap<String, (u64, Value)>);
 
 impl ChatActivity {
-    /// Adds `attention` and `preview` to a chat value (`chat_value`); a chat
+    /// Adds `attention`, `preview` and `parent` to a chat value (`chat_value`); a chat
     /// no session continues gets nulls, so a client clears what it had.
     pub fn decorate(&self, chat: &mut Value) {
         let fields = chat
@@ -101,7 +104,7 @@ impl ChatActivity {
             .and_then(Value::as_str)
             .and_then(|key| self.0.get(key))
             .map(|(_, fields)| fields.clone())
-            .unwrap_or_else(|| json!({"attention": null, "preview": null}));
+            .unwrap_or_else(|| json!({"attention": null, "preview": null, "parent": null}));
         if let (Some(chat), Value::Object(fields)) = (chat.as_object_mut(), fields) {
             chat.extend(fields);
         }
@@ -109,6 +112,21 @@ impl ChatActivity {
 }
 
 impl Hub {
+    /// A chat's `attention` and `preview`, and `parent`: the chat of the session that started
+    /// this one (`Hub::spawned_by`; its chat key, else its session id), so lists fold it under
+    /// that chat instead of listing it on its own (Leo 2026-10-13). Null for a chat nobody started.
+    pub fn chat_activity_fields(&self, session: &Session) -> Value {
+        let mut fields = activity_fields(session);
+        let parent = self.spawned_by(&session.meta()).map(|parent| match self.resolve(&parent) {
+            Ok(parent_session) => {
+                session_chat_key(&parent_session).map_or(parent, |key| key_text(&key))
+            }
+            Err(_) => parent,
+        });
+        fields.set("parent", json!(parent));
+        fields
+    }
+
     /// Every live session's chat activity; the newest session wins a chat
     /// two sessions continue.
     pub fn chat_activity(&self) -> ChatActivity {
@@ -118,7 +136,7 @@ impl Hub {
             let updated = session.meta().updated_at;
             let key = key_text(&key);
             if by_key.get(&key).is_none_or(|(newest, _)| updated >= *newest) {
-                by_key.insert(key, (updated, activity_fields(&session)));
+                by_key.insert(key, (updated, self.chat_activity_fields(&session)));
             }
         }
         ChatActivity(by_key)

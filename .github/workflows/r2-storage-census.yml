@@ -52,6 +52,7 @@ jobs:
           retention-days: 30
 
   cef:
+    environment: ci-cache-writer
     name: Census (cef)
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

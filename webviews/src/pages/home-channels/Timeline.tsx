@@ -3,6 +3,7 @@
 // start edge and a hairline), message rows, thread rows (one titled row per thread, ThreadRow)
 // and the running reply. Scrolling near the top asks the store for one older page. The keyboard's
 // current message (j/k) is kept in view (useKeepInView).
+import { WEB_SWAP_KEPT_SCROLL } from "../shared/webSwap";
 import { useMemo } from "react";
 import type { Strings } from "../shared/i18n";
 import { DraftRow, MessageRow } from "./MessageRow";
@@ -100,6 +101,8 @@ export function Timeline({
       <div
         ref={scroller}
         className="hc-timeline"
+        // WEB-SWAP: it opens at its end, so a reload waits only while it is scrolled up (webSwap.ts).
+        {...{ [WEB_SWAP_KEPT_SCROLL]: "end" }}
         onScroll={() => {
           if (onScroll()) onLoadOlder();
         }}

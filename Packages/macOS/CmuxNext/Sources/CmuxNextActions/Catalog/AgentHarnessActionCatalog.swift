@@ -10,7 +10,7 @@ nonisolated enum AgentHarnessActionCatalog: ActionCatalogGroup {
             ActionEnumCase(value: "acp", title: t("argument.agent.harness.protocol.acp", "ACP")),
             ActionEnumCase(value: "terminal", title: t("argument.agent.harness.protocol.terminal", "Terminal")),
         ])
-        return [
+        var actions = [
             // Without arguments (the palette, the model picker's +) it opens Settings > Agents >
             // Add; with a command, registry agent or example it writes the profile.
             ActionDescriptor(
@@ -63,17 +63,22 @@ nonisolated enum AgentHarnessActionCatalog: ActionCatalogGroup {
                 cliName: "agent check-harness",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
-            // Agent CLI health (cx-ny85): types every outdated agent CLI's own update into a
-            // terminal tab, like Settings > Agents > Update All; with nothing to update (or no
-            // window) it opens Settings > Agents.
+            // The native owner starts visible terminal jobs. Settings passes a profile id;
+            // the palette updates each observed outdated family on its captured machine.
             ActionDescriptor(
                 id: "agent.harness.updateAll", title: t("action.agent.harness.updateAll", "Update Agent CLIs"),
                 keywords: ["agent", "harness", "cli", "update", "upgrade", "version", "outdated", "npm", "brew", "codex", "claude", "gemini"],
                 category: .agents, symbol: "arrow.down.circle",
+                arguments: [id, ActionArgument(name: "intent", title: t("argument.agent.harness.intent", "Update intent"), kind: .string, isRequired: false)],
+                // A retained intent selects the original owner, family and key.
                 // A terminal tab the person watches: scripts run the updates themselves.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
         ]
+        for index in actions.indices where actions[index].id == "agent.harness.updateAll" {
+            actions[index].isPersonOnly = true
+        }
+        return actions
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {

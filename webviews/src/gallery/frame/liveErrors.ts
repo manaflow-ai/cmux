@@ -5,9 +5,11 @@
 // file's. A stage opened on its own (not in the shell) also reloads when its entry file changes;
 // the shell remounts its stages itself when the entry loads again.
 import { liveStatus, type LiveError } from "../liveStatus";
+// Bun's types also declare import.meta.hot (with argument-less listeners); these listeners are Vite's.
+import type { ViteHotContext } from "vite/types/hot.d.ts";
 
 export function watchStageErrors(entryPath: string | undefined): void {
-  const hot = import.meta.hot;
+  const hot = import.meta.hot as unknown as ViteHotContext | undefined;
   if (!hot) return;
   if (window.top === window)
     hot.on("cmux-gallery:entry", (data: { files: string[] }) => {

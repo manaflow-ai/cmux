@@ -16,8 +16,11 @@ struct SidebarGroupEditing {
     /// color panel) that still edits this group, so a new empty group stays.
     static let keepGroupItem = "sidebar.group.keep"
 
-    /// The editor's rows when the App gives none: the shared group actions.
-    static func standardItems() -> [[SidebarGroupEditorItem]] {
+    /// The editor's rows when the App gives none: the shared group actions. Pin and Move to Top
+    /// sit in the editor itself (Lawrence 2026-10-20); the rest are in the header's right-click
+    /// menu, which is flat, so the editor has no More Group Actions row. `pinned` titles the
+    /// pin row as the change it makes.
+    static func standardItems(pinned: Bool = false) -> [[SidebarGroupEditorItem]] {
         [
             [
                 SidebarGroupEditorItem(id: "workspaceGroup.newWorkspace", title: GroupEditorStrings.newWorkspace, icon: .workspaceNew),
@@ -25,9 +28,13 @@ struct SidebarGroupEditing {
                 SidebarGroupEditorItem(id: "workspaceGroup.closeWorkspaces", title: GroupEditorStrings.close, icon: .actionClose),
             ],
             [
+                SidebarGroupEditorItem(id: "workspaceGroup.togglePin", title: pinned ? GroupEditorStrings.unpin : GroupEditorStrings.pin,
+                                       icon: .actionPin),
+                SidebarGroupEditorItem(id: "workspaceGroup.moveToTop", title: GroupEditorStrings.moveToTop, icon: .navPreviousMatch),
+            ],
+            [
                 SidebarGroupEditorItem(id: "workspaceGroup.ungroup", title: GroupEditorStrings.ungroup, icon: .groupUngroup),
                 SidebarGroupEditorItem(id: "workspaceGroup.delete", title: GroupEditorStrings.delete, icon: .actionDelete),
-                SidebarGroupEditorItem(id: moreActionsItem, title: GroupEditorStrings.moreActions, icon: .actionMore),
             ],
         ]
     }
@@ -55,9 +62,20 @@ struct SidebarGroupEditing {
         }
     }
 
-    /// Opens the editor under the group's chip. A hidden sidebar, a drag or
-    /// a group not shown opens nothing.
-    func open(_ id: GroupID) {
+    /// What opened the group editor, which says where it opens (u2250: next to
+    /// the control the user clicked, not at the header bar's leading edge).
+    enum Opener {
+        /// The group's name (Return, Rename, a new group): under the name, on its leading edge.
+        case name
+        /// The header's more button: under the button, on its trailing edge.
+        case moreButton
+        /// A point in list coordinates: at that point.
+        case pointer(NSPoint)
+    }
+
+    /// Opens the editor next to what opened it (`opener`). A hidden sidebar,
+    /// a drag or a group not shown opens nothing.
+    func open(_ id: GroupID, from opener: Opener = .name) {
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
         // A click whose mouse-down closed this group's editor toggles it closed.
         if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
@@ -67,10 +85,14 @@ struct SidebarGroupEditing {
         view.layoutSubtreeIfNeeded()
         // The row's settled frame: a group made a moment ago may still be moving in.
         let rowFrame = list.displayed.row(for: .group(id)).map(list.frame(for:)) ?? view.frame
-        let chip = view.labelFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
-        let anchor = window.convertToScreen(list.convert(chip, to: nil))
+        let control: PopupAnchor = switch opener {
+        case .name: PopupAnchor(rect: view.nameHitFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY), edge: .leading)
+        case .moreButton: PopupAnchor(rect: view.moreButton.frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY), edge: .trailing)
+        case let .pointer(point): PopupAnchor(point: point)
+        }
+        let anchor = PopupAnchor(rect: window.convertToScreen(list.convert(control.rect, to: nil)), edge: control.edge, gap: control.gap)
         list.hoverCards.dismiss(.click)
-        list.groupEditor.show(group, items: list.groupEditorItems?(id) ?? Self.standardItems(), anchor: anchor, parent: window,
+        list.groupEditor.show(group, items: list.groupEditorItems?(id) ?? Self.standardItems(pinned: group.isPinned), anchor: anchor, parent: window,
                               themeAnchor: list)
         view.isEditing = true
     }
@@ -81,10 +103,11 @@ struct SidebarGroupEditing {
         open(group.id)
     }
 
-    /// The group's full menu under its chip: its more button, a right-click, the editor's last row.
+    /// The group's full menu under its more button, on the button's trailing
+    /// edge (the editor's More Group Actions row, VoiceOver's menu action).
     func showMenu(_ id: GroupID) {
         guard let menu = list.contextMenuProvider?(.group(id)), let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
-        _ = menu.popUp(positioning: nil, at: NSPoint(x: view.labelFrame.minX, y: view.labelFrame.maxY + Metrics.space1), in: view)
+        list.menuPresenter(menu, PopupAnchor(rect: view.moreButton.frame, edge: .trailing), view)
     }
 
     /// Keeps the open editor with its chip: a chip scrolled out of view closes it.
@@ -92,13 +115,6 @@ struct SidebarGroupEditing {
         guard let shown = list.groupEditor.shownGroup else { return }
         let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
         guard let row = list.displayed.row(for: .group(shown)), visible.intersects(list.frame(for: row)) else { return list.groupEditor.hide() }
-    }
-
-    /// Whether `point` (list coordinates) is on the group's name, off its chevron.
-    func isOnChip(_ point: NSPoint, group: GroupID) -> Bool {
-        guard let view = list.rowViews[.group(group)] as? GroupHeaderRowView else { return false }
-        let local = list.convert(point, to: view)
-        return view.nameHitFrame.contains(local) && !view.disclosureFrame.contains(local)
     }
 
     /// A group the store gave a new id (the home daemon names a group the

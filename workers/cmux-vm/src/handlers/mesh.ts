@@ -10,14 +10,14 @@
  */
 import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Duration, Effect, Option, Schema } from "effect";
+import { Clock, Duration, Effect, Option } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, PeerMap, TunnelConfig } from "../api/mesh.ts";
-import { TeamMembership } from "../auth/credentials.ts";
+import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, DeviceOverlayPolicy, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
-import { ApiKeyStore, AuditStore, OwnershipStore } from "../db/stores.ts";
+import type { OverlayServerRow } from "../db/overlay-servers.ts";
+import { AuditStore, OwnershipStore } from "../db/stores.ts";
 import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import {
@@ -32,7 +32,6 @@ import {
   vmNotFound,
 } from "../errors.ts";
 import {
-  ApiKeyId,
   UserId,
   randomIdBody,
   newDeviceId,
@@ -52,6 +51,8 @@ import { TenantLimits } from "../limits/service.ts";
 import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
+import { actorOf, ownerStillValid } from "../mesh/owner.ts";
+import { projectOverlayPeers } from "../mesh/overlay-policy.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
@@ -80,7 +81,7 @@ const gate = Effect.gen(function* () {
   return principal;
 });
 
-const withMeshCaller = <const S extends Scope, A, E, R>(
+export const withMeshCaller = <const S extends Scope, A, E, R>(
   scope: S,
   rateClass: RateClass,
   k: <C>(caller: Named<C, Principal>, granted: KeyHasScope<C, S>) => Effect.Effect<A, E, R>,
@@ -97,7 +98,7 @@ const withMeshCaller = <const S extends Scope, A, E, R>(
     );
   });
 
-const withOwnedMesh = <const S extends Scope, A, E, R>(
+export const withOwnedMesh = <const S extends Scope, A, E, R>(
   rawId: string,
   scope: S,
   rateClass: RateClass,
@@ -198,11 +199,13 @@ const toTunnel = (row: MeshDeviceRow, info: TunnelInfo) =>
 const EMPTY_ACL: AclDocument = { rules: [] };
 
 /** Compiles `document` against the mesh's live devices and VMs. Lenient: names that left the mesh are skipped. */
-const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: AclDocument, strict: boolean) =>
+const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: AclDocument, strict: boolean, additional: ReadonlyArray<OverlayServerRow> = []) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const config = yield* MeshConfig;
-    const devices = yield* store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
+    const gatewayDevices = yield* store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
+    const servers = yield* store.listOverlayServers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("overlay.list")));
+    const devices = [...gatewayDevices, ...servers, ...additional];
     const members = yield* store.listMembers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listMembers")));
     const deviceIpv6 = yield* store.deviceAddresses(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")));
     const recorded = yield* store.listRules(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
@@ -224,19 +227,23 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
     const result: CompileResult = compileAcl({
       document: effective,
       deviceIds,
+      sourceDeviceIds: gatewayDevices.map((device) => device.deviceId),
       vmIds,
       deviceIpv6,
       existingAddressKeys,
       rulesPerResource: config.budgets.rulesPerResource,
       rulesPerMesh: config.budgets.rulesPerMesh,
+      overlayRulesPerMesh: config.budgets.overlayRulesPerMesh,
+      overlayRulesPerDevice: config.budgets.overlayRulesPerDevice,
     });
-    return { result, members };
+    return { result, members, devices };
   });
 
 const compiled = (result: CompileResult) =>
   Effect.gen(function* () {
     if (result.ok) return result.rules;
     if (result.reason === "invalid") return yield* Effect.fail(new BadRequest({ message: result.message }));
+    if (result.reason === "overlayPerDevice" || result.reason === "overlayPerMesh") return yield* Effect.fail(new QuotaExceeded({ message: result.message }));
     return yield* Effect.fail(
       new QuotaExceeded({
         message: result.message,
@@ -244,6 +251,14 @@ const compiled = (result: CompileResult) =>
       }),
     );
   });
+
+/** Called under the writer before recording a destination that expands existing wildcards. */
+export const assertOverlayServerFits = (tenantId: Principal["tenantId"], row: OverlayServerRow) => Effect.gen(function* () {
+  const acl = yield* (yield* MeshStore).currentAcl(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+  const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
+  const { result } = yield* compileFor(tenantId, row.meshId, document, false, [row]);
+  yield* compiled(result);
+});
 
 const ruleCreateError = (error: { readonly status: number | null }) =>
   error.status === 409
@@ -382,7 +397,7 @@ const MESH_WRITER_WAIT_MS = 15_000;
  * join or a revocation) never plan from different ACL versions or create the
  * same rule twice. A change that cannot get the lock in 15 s is a 409.
  */
-const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>) =>
+export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const limits = yield* TenantLimits;
     const holder = crypto.randomUUID();
@@ -496,6 +511,49 @@ const peerMapOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshD
     });
   });
 
+/** Reads one identity inventory while holding the mesh's ACL/removal writer lock. */
+export const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: string, row: { readonly meshId: string }) =>
+  withMeshWriter(tenantId, row.meshId, Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const acl = yield* store.currentAcl(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+    const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
+    const { result, devices } = yield* compileFor(tenantId, row.meshId, document, false);
+    if (!result.ok) return yield* Effect.fail(unavailable());
+    // Re-read the subject under the lock: an earlier ownership proof may have
+    // raced a deletion or key rotation while waiting for the writer.
+    const subject = devices.find((device) => device.deviceId === deviceId);
+    if (subject === undefined || subject.installPublicKey === null) return yield* Effect.fail(deviceNotFound());
+    // Old writers know only gateway rows. If a rolling deployment creates a
+    // duplicate key across the two inventories, never attribute it to either id.
+    const keyCounts = new Map<string, number>();
+    for (const device of devices) keyCounts.set(device.wgPublicKey, (keyCounts.get(device.wgPublicKey) ?? 0) + 1);
+    if (keyCounts.get(subject.wgPublicKey) !== 1) return yield* Effect.fail(unavailable());
+    const owner = actorOf(subject.createdBy);
+    if (Option.isNone(owner) || !(yield* ownerStillValid(tenantId, owner.value, true))) return yield* Effect.fail(deviceNotFound());
+    const incident = new Set(result.overlayRules.flatMap((rule) => rule.sourceDeviceId === deviceId ? [rule.destinationDeviceId] : rule.destinationDeviceId === deviceId ? [rule.sourceDeviceId] : []));
+    const candidates = devices.filter((device) => incident.has(device.deviceId) && device.installPublicKey !== null && keyCounts.get(device.wgPublicKey) === 1);
+    const owners = [...new Set(candidates.map((device) => device.createdBy))];
+    const ownerValidity = new Map(yield* Effect.forEach(owners, (createdBy) => Effect.gen(function* () {
+      if (createdBy === subject.createdBy) return [createdBy, true] as const;
+      const actor = actorOf(createdBy);
+      return [createdBy, Option.isSome(actor) && (yield* ownerStillValid(tenantId, actor.value, true))] as const;
+    }), { concurrency: 8 }));
+    const identities = candidates.flatMap((device) => ownerValidity.get(device.createdBy) === true && device.installPublicKey !== null
+      ? [{ deviceId: device.deviceId, wgPublicKey: device.wgPublicKey, installPublicKey: device.installPublicKey }]
+      : []);
+    const projection = {
+      deviceId: DeviceId_(deviceId), meshId: MeshId_(row.meshId),
+      wgPublicKey: subject.wgPublicKey, installPublicKey: subject.installPublicKey,
+      aclVersion: Option.match(acl, { onNone: () => 0, onSome: (version) => version.version }),
+      peers: projectOverlayPeers(deviceId, identities, result.overlayRules).map((peer) => ({ ...peer, deviceId: DeviceId_(peer.deviceId) })),
+    };
+    const policyDigest = yield* sha256Hex(`cmux-device-overlay-policy-v1\n${JSON.stringify(projection)}`);
+    return new OverlayPolicy({ ...projection, policyDigest });
+  }));
+
+const deviceOverlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: string, row: { readonly meshId: string }) =>
+  overlayPolicyOf(tenantId, deviceId, row).pipe(Effect.map((policy) => new DeviceOverlayPolicy({ ...policy, tenantId })));
+
 /** The config of the tunnel `row` (the tunnel's device) owns, read from the provider; `notFound` is the route's 404. */
 const tunnelConfigOf = <C, T>(
   caller: Named<C, Principal>,
@@ -527,12 +585,14 @@ const rotateWith = <C, D>(
   row: MeshDeviceRow,
   newPublicKey: string,
 ) =>
-  Effect.gen(function* () {
+  withMeshWriter(caller.value.tenantId, row.meshId, Effect.gen(function* () {
     const tenantId = caller.value.tenantId;
     const store = yield* MeshStore;
     const upstream = yield* UpstreamMesh;
     const devices = yield* store.listDevices(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
-    if (devices.some((other) => other.wgPublicKey === newPublicKey)) {
+    const servers = yield* store.listOverlayServers(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("overlay.list")));
+    if (!devices.some((current) => current.deviceId === device.value)) return yield* Effect.fail(deviceNotFound());
+    if ([...devices, ...servers].some((other) => other.wgPublicKey === newPublicKey)) {
       return yield* Effect.fail(new Conflict({ message: "A device of this mesh already has this public key" }));
     }
     const info = yield* upstream.rotateTunnelKey(device, proofs).pipe(Effect.mapError((error) => (error.status === 404 ? deviceNotFound() : unavailable())));
@@ -544,7 +604,7 @@ const rotateWith = <C, D>(
       return yield* Effect.fail(unavailable());
     }
     return toTunnel({ ...row, wgPublicKey: newPublicKey }, info);
-  });
+  }));
 
 interface EnrollPayload {
   readonly name: string;
@@ -578,13 +638,14 @@ const createDevice = <C, M>(
   payload: EnrollPayload,
   holds: DeviceHoldsKey<C, M>,
 ) =>
-  Effect.gen(function* () {
+  withMeshWriter(caller.value.tenantId, mesh.value, Effect.gen(function* () {
     const principal = caller.value;
     const store = yield* MeshStore;
     const ownership = yield* OwnershipStore;
     const upstream = yield* UpstreamMesh;
     const existing = yield* store.listDevices(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
-    if (existing.some((device) => device.wgPublicKey === payload.wgPublicKey)) {
+    const servers = yield* store.listOverlayServers(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("overlay.list")));
+    if ([...existing, ...servers].some((device) => device.wgPublicKey === payload.wgPublicKey)) {
       return yield* Effect.fail(new Conflict({ message: "A device with this public key is already in the mesh" }));
     }
     const cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.cidrOf")));
@@ -632,7 +693,7 @@ const createDevice = <C, M>(
               Effect.mapError(() => unavailable()),
             );
             // ACL first, then config: the device's rules exist before it learns its endpoint.
-            yield* withMeshWriter(principal.tenantId, mesh.value, reconcileCurrent(caller, mesh, proofs.owns)).pipe(
+            yield* reconcileCurrent(caller, mesh, proofs.owns).pipe(
               Effect.tapError(() => undo("mesh_device_reconcile_failed")),
             );
             return new DeviceEnrollment({ device: toDevice(row), tunnel: toTunnel(row, created.info) });
@@ -640,7 +701,7 @@ const createDevice = <C, M>(
         ),
       ),
     );
-  });
+  }));
 
 /** Enrolls a device into `mesh` for `caller` (the credential route): the signature, then `createDevice`. */
 const enrollInto = <C, M>(
@@ -653,30 +714,6 @@ const enrollInto = <C, M>(
     const held = yield* verifyEnroll(caller, mesh, payload);
     if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
     return yield* createDevice(caller, mesh, proofs, payload, held.proof);
-  });
-
-/** The creator recorded on a code or a device (`user:<id>` or `key:<id>`), as the actor a request runs as. */
-const actorOf = (createdBy: string): Option.Option<Principal["actor"]> => {
-  const [kind, ...rest] = createdBy.split(":");
-  const id = rest.join(":");
-  if (kind === "user") return Option.map(Schema.decodeUnknownOption(UserId)(id), (userId) => ({ kind: "session" as const, userId }));
-  if (kind === "key") return Option.map(Schema.decodeUnknownOption(ApiKeyId)(id), (keyId) => ({ kind: "api_key" as const, keyId }));
-  return Option.none();
-};
-
-/**
- * Whether the principal a code or a device acts as can still act (M3): a user
- * must still be a member of the team, an API key must still be live (not
- * revoked, not expired). Checked at every use, so revoking the key or removing
- * the user ends its codes and its devices' signed requests at once.
- */
-const ownerStillValid = (tenantId: Principal["tenantId"], actor: Principal["actor"]) =>
-  Effect.gen(function* () {
-    if (actor.kind === "session") return yield* (yield* TeamMembership).isMember(tenantId, actor.userId).pipe(Effect.mapError(() => unavailable()));
-    // A service key (cx-b4h.13) holds no mesh scope, so it never owns a code or a device.
-    if (actor.kind === "service") return false;
-    const key = yield* (yield* ApiKeyStore).findActiveById(tenantId, actor.keyId, yield* now).pipe(Effect.catchAll(dependencyDown("api_keys.findById")));
-    return Option.isSome(key);
   });
 
 /**
@@ -851,14 +888,15 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
         audited(
           "mesh.delete",
           mesh.value,
-          Effect.gen(function* () {
+          withMeshWriter(caller.value.tenantId, mesh.value, Effect.gen(function* () {
             const principal = caller.value;
             yield* requireAdmin(principal, "mesh:write");
             const store = yield* MeshStore;
             const upstream = yield* UpstreamMesh;
             const devices = yield* store.listDevices(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
             const members = yield* store.listMembers(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listMembers")));
-            if (devices.length > 0 || members.length > 0) {
+            const servers = yield* store.listOverlayServers(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("overlay.list")));
+            if (devices.length > 0 || members.length > 0 || servers.length > 0) {
               return yield* Effect.fail(new Conflict({ message: "Remove the mesh's devices and VMs first" }));
             }
             yield* upstream.deleteNetwork(mesh, proofs).pipe(
@@ -868,7 +906,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const at = yield* now;
             yield* (yield* OwnershipStore).markDeleted(principal.tenantId, "mesh", mesh.value, at).pipe(Effect.catchAll(dependencyDown("ownership.delete")));
             yield* store.releaseSlot(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.releaseSlot")));
-          }),
+          })),
         ),
       ),
     )
@@ -970,6 +1008,9 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
     )
     .handle("getDevicePeers", ({ path }) =>
       withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => peerMapOf(caller.value.tenantId, device.value, row)),
+    )
+    .handle("getDeviceOverlayPolicy", ({ path }) =>
+      withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => deviceOverlayPolicyOf(caller.value.tenantId, device.value, row)),
     )
     .handle("getTunnel", ({ path }) =>
       withMeshCaller("mesh:read", "read", (caller, scope) =>
@@ -1151,6 +1192,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   rulesCreated: applied.created,
                   rulesDeleted: applied.deleted,
                   applyMs: Math.max(0, Math.round(finished - started)),
+                  ...(result.ok && result.overlayRules.length > 0 ? { overlayRuleCount: result.overlayRules.length } : {}),
                 });
               }),
             );
@@ -1161,7 +1203,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
 );
 
 interface SignedDeviceFields {
-  readonly purpose: "peers" | "tunnel" | "rotate-key" | "address";
+  readonly purpose: "peers" | "tunnel" | "rotate-key" | "address" | "overlay-policy";
   /** The WireGuard key the request registers: the new key on rotate-key, empty for the others. */
   readonly wgPublicKey: string;
   /** The message's name line: the address exactly as sent for address, empty for the others. */
@@ -1216,7 +1258,7 @@ const withSignedDevice = <A, E, R>(
     if (installPublicKey === null) return yield* Effect.fail(experimentOff());
     const owner = actorOf(row.createdBy);
     if (Option.isNone(owner)) return yield* Effect.fail(experimentOff());
-    if (!(yield* ownerStillValid(tenantId, owner.value))) return yield* Effect.fail(experimentOff());
+    if (!(yield* ownerStillValid(tenantId, owner.value, request.purpose === "overlay-policy"))) return yield* Effect.fail(experimentOff());
     const principal: Principal = {
       tenantId,
       actor: owner.value,
@@ -1252,6 +1294,11 @@ const withSignedDevice = <A, E, R>(
 /** The device-signed routes (M3): a device's own peer map, tunnel config and key rotation, without a credential. */
 export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", (handlers) =>
   handlers
+    .handle("signedDeviceOverlayPolicy", ({ path, payload }) =>
+      withSignedDevice(path.deviceId, { purpose: "overlay-policy", wgPublicKey: "", name: "", ...payload }, "read", (caller, device, _proofs, row) =>
+        deviceOverlayPolicyOf(caller.value.tenantId, device.value, row),
+      ),
+    )
     .handle("signedDevicePeers", ({ path, payload }) =>
       withSignedDevice(path.deviceId, { purpose: "peers", wgPublicKey: "", name: "", ...payload }, "read", (caller, device, _proofs, row) =>
         peerMapOf(caller.value.tenantId, device.value, row),
@@ -1372,6 +1419,7 @@ export const USER_DELETED_WEBHOOK_ACTOR = "system:stack-user-deleted-webhook";
 export interface RevocationResult {
   readonly devicesRevoked: number;
   readonly meshesReapplied: number;
+  readonly serversRevoked: number;
 }
 
 /**
@@ -1400,7 +1448,9 @@ export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: Use
   Effect.gen(function* () {
     const cache = yield* MembershipCache;
     yield* cache.revoke(tenantId, userId, eventAt).pipe(Effect.catchAll(dependencyDown("membership.revoke")));
-    const result: RevocationResult = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const devices = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const serversRevoked = yield* revokeUserOverlayServers(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const result: RevocationResult = { ...devices, serversRevoked };
     return result;
   });
 
@@ -1420,16 +1470,45 @@ export const revokeDeletedUser = (userId: UserId, listedTenants: ReadonlyArray<P
     const withDevices = yield* store
       .listTenantsWithDevicesCreatedBy(actorRef({ kind: "session", userId }))
       .pipe(Effect.catchAll(dependencyDown("mesh.listTenantsWithDevicesCreatedBy")));
-    const tenants = [...new Set([...listedTenants, ...withDevices])];
+    const withServers = yield* store
+      .listTenantsWithOverlayServersCreatedBy(actorRef({ kind: "session", userId }))
+      .pipe(Effect.catchAll(dependencyDown("overlay.listTenantsCreatedBy")));
+    const tenants = [...new Set([...listedTenants, ...withDevices, ...withServers])];
     let devicesRevoked = 0;
     let meshesReapplied = 0;
+    let serversRevoked = 0;
     for (const tenantId of tenants) {
       const done = yield* closeUserDevices(tenantId, userId, null, USER_DELETED_WEBHOOK_ACTOR);
       devicesRevoked += done.devicesRevoked;
       meshesReapplied += done.meshesReapplied;
+      serversRevoked += yield* revokeUserOverlayServers(tenantId, userId, null, USER_DELETED_WEBHOOK_ACTOR);
     }
-    const result: RevocationResult = { devicesRevoked, meshesReapplied };
+    const result: RevocationResult = { devicesRevoked, meshesReapplied, serversRevoked };
     return result;
+  });
+
+/**
+ * Revokes every live provider-free overlay server `userId` enrolled in
+ * `tenantId` (created at or before `cutoff`; null: all), one audit row per
+ * server as `auditActor` for the user. Servers have no tunnel or provider
+ * firewall rule, and policy reads compile live, so nothing is re-applied: the
+ * server leaves every peer's policy and its own signed reads answer 404, also
+ * after the user is added back.
+ */
+const revokeUserOverlayServers = (tenantId: Principal["tenantId"], userId: UserId, cutoff: Date | null, auditActor: string) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const audit = yield* AuditStore;
+    const ownerRef = actorRef({ kind: "session", userId });
+    const at = yield* now;
+    const revoked = yield* store.revokeOverlayServersCreatedBy(tenantId, ownerRef, cutoff, at).pipe(Effect.catchAll(dependencyDown("overlay.revokeCreatedBy")));
+    for (const row of revoked) {
+      const entry = { tenantId, actor: auditActor, ownerActor: ownerRef, action: "overlay_server.revoke", cmuxId: row.deviceId, outcome: "ok", at };
+      yield* audit.append(entry).pipe(
+        Effect.catchAll(() => Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: entry.at.toISOString() })))),
+      );
+    }
+    return revoked.length;
   });
 
 /**
@@ -1502,6 +1581,6 @@ const closeUserDevices = (tenantId: Principal["tenantId"], userId: UserId, cutof
         }
       }),
     );
-    const result: RevocationResult = { devicesRevoked: devices.length, meshesReapplied: meshes.size };
+    const result: Omit<RevocationResult, "serversRevoked"> = { devicesRevoked: devices.length, meshesReapplied: meshes.size };
     return result;
   });

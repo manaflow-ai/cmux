@@ -1,0 +1,27 @@
+{
+  "id": "multiplayer-a673-owner-acts",
+  "owner": "a673",
+  "channels": true,
+  "about": "the owner's own request in a shared group runs at once, with no approval question",
+  "history": [
+    {"kind": "user", "conv": "Launch", "author": "Leo", "text": "The pricing page still says $20, it should be $25."}
+  ],
+  "stubs": [
+    {"cmd": "spawn", "stdout": "a901: workspace ws_5e1c0ffee0 (cmux://workspace/ws_5e1c0ffee0)"}
+  ],
+  "turns": [
+    {
+      "conv": "Launch",
+      "author": "Lawrence",
+      "author_kind": "your owner",
+      "text": "@Chief get an agent on Leo's pricing fix, land it on feat-cmux-next.",
+      "checks": [
+        {"type": "called", "cmd": "spawn"},
+        {"type": "no_question"},
+        {"type": "reply_not_matches", "re": "(?i)(owner|lawrence).{0,40}(must|needs to) (confirm|approve)"},
+        {"type": "no_raw_ids"},
+        {"type": "max_words", "n": 60}
+      ]
+    }
+  ]
+}

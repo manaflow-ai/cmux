@@ -163,7 +163,21 @@ every socket says how it avoids SIGPIPE (check-crash-safety.sh).
 Every gate starts in ratchet mode: the tree stays green, a module or crate
 may never gain a hit, and a fix lowers the baseline in the same commit
 (`scripts/cmux-next/crash_ratchet.py --update-baseline`). A reviewed
-`// crash-allow: <reason>` on the line or the line above exempts one hit.
+`// crash-allow: <reason>` on the line or the line above makes one hit a waived
+hit: it is counted apart, per class and module, in the baseline's `waived`
+section, which may not grow either. So a new waiver is a baseline change the
+reviewer sees (`<class>.waived N -> M`), and a waiver added while code moves to
+another module cannot turn into a reduction (B1, ba5e6df99f9).
+
+The baseline only goes down. `--update-baseline` lowers rows and never raises
+one: a row the tree is over stays put, is printed, and the run exits 1, so
+recording a fix never records another change's regression. A new reviewed
+waiver is recorded with `--record-waivers` (waived rows only). A hit that moved
+to another module carries its row with `--update-baseline --base <the base
+commit>`: the same line must have left the other module, and only as many hits
+as that module's base row covers move (a hit the base was red on does not). The
+CI job and safe-push run `--baseline-against <base tree>`: a counted row above
+the base's (after proven moves) is red, a raised waived row is annotated.
 
 | Class | Rule | Gate (now) | Gate (next) | Containment |
 | --- | --- | --- | --- | --- |
@@ -195,11 +209,11 @@ aborts), plus a gate that forbids `shim.` calls outside it.
 | --- | --- |
 | At launch, `CrashRecoveryService` finds the previous run's `.ips` and writes cmux's own report | done |
 | Help > Show Crash Logs (palette, `cmux settings show-crash-logs`, restart notice): the newest log in TextEdit | done (94319dabd02, d20af6c17df) |
-| CEF `cef.log` is overwritten at each launch: keep the previous one (`cef.previous.log`) so the FATAL line survives a relaunch | next |
-| Consent: the restart notice asks once to send crash reports (off by default, setting `crashReports.send`) | proposed |
-| Upload: the report, the `.ips` (paths under the home folder replaced by `~`), the previous `cef.log` tail (FATAL lines only) to a crash endpoint (R2 write-only key, per-install id) | proposed |
-| CI symbolication: a workflow matches `usedImages` UUIDs to the cmux dSYM (Sentry debug files, uploaded by nightly.yml) and the CEF `-debug` archive (unstripped binary, function names only while symbol_level=0), then dedupes by the top 5 symbolicated frames and files or updates one GitHub issue per signature | proposed |
-| Release check: a nightly fails when the Sentry dSYM upload is skipped or when the arm64 cmux UUID is not in its upload list | proposed |
+| CEF `cef.log` is overwritten at each launch: keep the previous one (`cef.previous.log`) so the FATAL line survives a relaunch | done (#20754) |
+| Consent: the restart notice asks once to send crash reports (off by default, setting `crashReports.send`) | needs a call: Sentry (cx-urd.58) already sends crashes under `sendAnonymousTelemetry`, on until the user turns it off; an off-by-default switch would stop them from everyone who does not opt in |
+| Upload: the report, the `.ips` (paths under the home folder replaced by `~`), the previous `cef.log` tail (FATAL lines only) to a crash endpoint (R2 write-only key, per-install id) | superseded by Sentry (cx-urd.58), except the `cef.log` FATAL lines, which no channel sends yet |
+| CI symbolication: a workflow matches `usedImages` UUIDs to the cmux dSYM (Sentry debug files, uploaded by nightly.yml) and the CEF `-debug` archive (unstripped binary, function names only while symbol_level=0), then dedupes by the top 5 symbolicated frames and files or updates one GitHub issue per signature | symbolication and grouping superseded by Sentry; one GitHub issue per Sentry issue is not built yet |
+| Release check: a nightly fails when the Sentry dSYM upload is skipped or when the arm64 cmux UUID is not in its upload list | needs a call: `upload-sentry-dsyms.sh` never fails a nightly by design (runs 37531729976, 37535932538 lost nightlies to `curl: (28)`): a failed upload warns, a missing token skips silently. nightly-next builds also keep their dSYMs 90 days as an artifact |
 | Sentry (cx-urd.58): `CmuxNextCrashReporting` sends app crashes, Mach exceptions and uncaught Objective-C exceptions (every channel) to the shared `manaflow/cmuxterm-macos` project under the main app's consent rule (`sendAnonymousTelemetry`, forced `DisableTelemetry`). Labels: environments `nightly-next`, `rc-next`, `release-next`, `dev`; release `cmux-next@<version>+<build>`; tag `app=cmux-next`; fingerprint prefix `cmux-next`. DEV builds stay off unless `CMUX_NEXT_DEV_SENTRY=1`. Helper processes (cmux-tui daemon and hosts, acpmux, Chromium helpers) reach Sentry through the app forwarding their macOS crash reports; no SDK in the daemons | done |
 | Main-sync rule: on macOS, `Packages/Shared/CmuxSentryTelemetry/Package.swift` links `Sentry-Dynamic` (iOS keeps static `Sentry`). A static Sentry adds the Objective-C personality routine, one more than compact unwind encodes in the cmux-next app image (check-app-personalities.sh). The main -> feat-cmux-next sync owner keeps the dynamic product on macOS when main changes that file | rule |
 | CEF symbols: the `-debug` release asset holds the unstripped framework (function names only, symbol_level=0, no file:line). cmux.19 builds with `symbol_level=1`, runs dsymutil and archives the dSYM per release in R2, so the pipeline gives file:line | cmux.19 |
@@ -216,6 +230,10 @@ aborts), plus a gate that forbids `shim.` calls outside it.
 5. CRASH-PIPE: consent, upload, CI symbolication, dedupe, issues (section 4).
 
 ## 6. Rust daemon panics (phase 1, CORE window)
+
+Superseded by [rust-panic-free.md](rust-panic-free.md) (2026-10-22): the
+compiler-accurate panic ratchet, the supervisor and the fuzz targets live
+there; the lint step below is replaced by its section 3.
 
 Counts (production code, ratchet v2 at 406a70f2f39e): cmux-tui-core 2010
 (unwrap 1675, most of them `lock().unwrap()`), cmux-tui 696, acpmux 200,

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
@@ -9,12 +9,17 @@ import Darwin
 /// Recording grant and no focus change). Falls back to AppKit drawing the
 /// panel on a flat backdrop when the window server gives no image of it (the
 /// Cmd-Shift-P palette over an inactive app, cx-ytt0): drawing only the layer
-/// tree left the views' content out, a flat gray image.
+/// tree left the views' content out, a flat gray image. Also answers the palette's `query` and its
+/// `selected` row's title, so a real-key proof checks what Return will run before it presses it.
 enum DebugPaletteCapture {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
         guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
-        return capture(panel, to: path)
+        guard case .object(var result) = capture(panel, to: path) else { return capture(panel, to: path) }
+        let model = services.palette.model
+        result["query"] = .string(model.query)
+        result["selected"] = model.selectedItem.map { .string($0.title) } ?? .null
+        return .object(result)
     }
 
     /// Writes `panel` to `path`; `windowImage` is the window server's image of a window, if any.

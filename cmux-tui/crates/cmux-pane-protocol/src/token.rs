@@ -205,9 +205,12 @@ pub fn verify_signature(public_key: &[u8; 32], token: &str) -> Result<Claims, To
         return Err(TokenError::WrongHeader);
     }
     let signature = URL_SAFE_NO_PAD.decode(signature).map_err(|_| TokenError::Malformed)?;
-    let signed_len = header.len() + 1 + claims.len();
+    // The signed input is `<header>.<claims>`: everything before the last dot.
+    let Some((signed, _)) = token.rsplit_once('.') else {
+        return Err(TokenError::Malformed);
+    };
     UnparsedPublicKey::new(&ED25519, public_key)
-        .verify(&token.as_bytes()[..signed_len], &signature)
+        .verify(signed.as_bytes(), &signature)
         .map_err(|_| TokenError::BadSignature)?;
     let json = URL_SAFE_NO_PAD.decode(claims).map_err(|_| TokenError::Malformed)?;
     serde_json::from_slice(&json).map_err(|_| TokenError::Malformed)

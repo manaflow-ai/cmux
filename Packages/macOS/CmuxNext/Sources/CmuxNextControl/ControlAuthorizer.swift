@@ -7,7 +7,6 @@ import CmuxNextCompat
 struct ControlAuthorizer: Sendable {
     let configuration: ControlSocketServer.Configuration
     let peer: ControlSocketServer.Peer
-    var isPasswordAuthenticated = false
 
     init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer) {
         self.configuration = configuration
@@ -25,21 +24,7 @@ struct ControlAuthorizer: Sendable {
 
         let isJSON = line.hasPrefix("{")
         let loweredVerb = isJSON ? "" : line.split(separator: " ", maxSplits: 1).first.map { $0.lowercased() } ?? ""
-        if configuration.accessMode == .password {
-            if loweredVerb == "auth" {
-                return (loginV1(line), true)
-            }
-            if isJSON, case .success(let request) = ControlRouter.decode(line), request.method == "auth.login" {
-                return (loginV2(request), true)
-            }
-            if !isPasswordAuthenticated {
-                if isJSON {
-                    let id = (try? JSONValue.parse(Data(line.utf8)))?["id"]
-                    return (ControlRouter.encode(id: id, error: ControlError(code: "auth_required", message: ControlStrings.text("control.error.authRequired", "Authentication required. Send auth <password> first."))), true)
-                }
-                return ("ERROR: Authentication required — send auth <password> first", true)
-            }
-        } else if loweredVerb == "auth" {
+        if loweredVerb == "auth" {
             return ("OK: Authentication not required", true)
         } else if isJSON, case .success(let request) = ControlRouter.decode(line), request.method == "auth.login" {
             return (ControlRouter.encode(id: request.id, result: .success(["authenticated": true])), true)
@@ -47,11 +32,10 @@ struct ControlAuthorizer: Sendable {
         return (await router.response(forLine: line, connection: connection), true)
     }
 
-    /// The `events.stream` request in `rawLine`, when this connection may
-    /// run it now (admitted, and authenticated in password mode).
+    /// The `events.stream` request in `rawLine`, when this connection is admitted.
     func eventStreamRequest(_ rawLine: String) -> ControlRequest? {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard line.hasPrefix("{"), isPeerAdmitted, configuration.accessMode != .password || isPasswordAuthenticated,
+        guard line.hasPrefix("{"), isPeerAdmitted,
               case .success(let request) = ControlRouter.decode(line), request.method == ControlRouter.eventStreamMethod else { return nil }
         return request
     }
@@ -60,34 +44,13 @@ struct ControlAuthorizer: Sendable {
         switch configuration.accessMode {
         case .off:
             return false
-        case .allowAll:
-            return true
-        case .automation, .password:
+        case .automation:
             return peer.uid == getuid()
         case .cmuxOnly:
-            guard let pid = peer.pid else { return false }
+            guard peer.uid == getuid(), let pid = peer.pid else { return false }
             return ControlPeerAncestry.system.isInside(pid, ancestor: configuration.trustedAncestor,
                                                        executables: configuration.trustedExecutables)
         }
-    }
-
-    private mutating func loginV1(_ line: String) -> String {
-        let provided = line.count > 5 ? String(line.dropFirst(5)) : ""
-        guard !provided.isEmpty else { return "ERROR: Missing password. Usage: auth <password>" }
-        guard configuration.passwordVerifier?(provided) == true else { return "ERROR: Invalid password" }
-        isPasswordAuthenticated = true
-        return "OK: Authenticated"
-    }
-
-    private mutating func loginV2(_ request: ControlRequest) -> String {
-        guard let provided = request.params["password"]?.stringValue else {
-            return ControlRouter.encode(id: request.id, error: .invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "auth.login", "password")))
-        }
-        guard configuration.passwordVerifier?(provided) == true else {
-            return ControlRouter.encode(id: request.id, error: ControlError(code: "auth_failed", message: ControlStrings.text("control.error.invalidPassword", "Invalid password")))
-        }
-        isPasswordAuthenticated = true
-        return ControlRouter.encode(id: request.id, result: .success(["authenticated": true]))
     }
 
     /// Strips the CLI's optional line prefixes: the capability envelope

@@ -19,11 +19,11 @@ function shape(layer: IconLayer, key: number): ReactNode {
   const color = layer.accent ? ACCENT_COLOR : "currentColor";
   switch (layer.op) {
     case "fill":
-      return <path key={key} d={layer.d} fill={color} opacity={layer.alpha} />;
+      return <path key={key} d={layer.d} fill={color} fillRule={layer.rule} opacity={layer.alpha} />;
     case "stroke":
       return <path key={key} d={layer.d} fill="none" stroke={color} opacity={layer.alpha} {...strokeProps(layer)} />;
     case "clearFill":
-      return <path key={key} d={layer.d} fill="black" />;
+      return <path key={key} d={layer.d} fill="black" fillRule={layer.rule} />;
     case "clearStroke":
       return <path key={key} d={layer.d} fill="none" stroke="black" {...strokeProps(layer)} />;
   }

@@ -3,7 +3,7 @@
 //! removals for watchers. The cache file keeps per-file read offsets so a
 //! restart counts only new lines.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -55,6 +55,10 @@ struct CacheFile {
 pub struct ChatIndex {
     slots: Vec<Slot>,
     merged: BTreeMap<ChatKey, IndexedChat>,
+    /// Root entries the last change merged (see ``merge_visits``).
+    visits: usize,
+    /// A chat appeared or went away since the last ``take_structural_change``.
+    structural: bool,
 }
 
 impl ChatIndex {
@@ -75,7 +79,7 @@ impl ChatIndex {
             .into_iter()
             .map(|root| Slot { scan: saved.remove(&root.id()).unwrap_or_default(), root })
             .collect();
-        let mut index = Self { slots, merged: BTreeMap::new() };
+        let mut index = Self { slots, merged: BTreeMap::new(), visits: 0, structural: false };
         index.merged = index.merge();
         index
     }
@@ -130,6 +134,11 @@ impl ChatIndex {
     /// many of its store files the burst names: a store scan reads the
     /// whole database.
     pub fn paths_changed(&mut self, paths: &[PathBuf]) -> Vec<ChatChange> {
+        // The chats the burst touched: the old and new entries of each named
+        // transcript. Only those are merged again; a store scan can change
+        // any chat of its root, so it merges everything.
+        let mut touched: HashSet<String> = HashSet::new();
+        let mut full = false;
         for slot in &mut self.slots {
             let mut store_changed = false;
             let mut sessions = Vec::new();
@@ -144,15 +153,22 @@ impl ChatIndex {
             }
             if store_changed {
                 rescan(slot);
+                full = true;
             }
             // Database stores take their chats from the query only.
             if !slot.scan.database {
                 for spelled in &sessions {
-                    update_file(slot, spelled);
+                    touched.extend(update_file(slot, spelled));
                 }
             }
         }
-        self.remerge()
+        if full { self.remerge() } else { self.remerge_sessions(&touched) }
+    }
+
+    /// True once after a chat appeared or went away (the cache's chat set
+    /// changed), so a caller saves the cache only then.
+    pub fn take_structural_change(&mut self) -> bool {
+        std::mem::take(&mut self.structural)
     }
 
     /// Every chat, newest first.
@@ -164,10 +180,7 @@ impl ChatIndex {
                 .cmp(&a.entry.updated_ms)
                 // Ties: the key text (`<harness id>:<session id>`) ascending, the order
                 // clients keep (AcpmuxChatsStore), not the enum's declaration order.
-                .then_with(|| {
-                    let text = |e: &ChatEntry| format!("{}:{}", e.harness.id(), e.session_id);
-                    text(&a.entry).cmp(&text(&b.entry))
-                })
+                .then_with(|| key_text(&a.entry).cmp(key_text(&b.entry)))
         });
         chats
     }
@@ -176,16 +189,28 @@ impl ChatIndex {
         self.merged.get(key)
     }
 
+    /// How many root entries the last change merged: the cost of one watcher
+    /// burst. A burst that names one transcript merges that chat's copies
+    /// only, however many chats the index holds.
+    pub fn merge_visits(&self) -> usize {
+        self.visits
+    }
+
     fn remerge(&mut self) -> Vec<ChatChange> {
         let next = self.merge();
         let mut changes = Vec::new();
         for (key, chat) in &next {
-            if self.merged.get(key) != Some(chat) {
-                changes.push(ChatChange::Upsert { chat: Box::new(chat.clone()) });
+            match self.merged.get(key) {
+                Some(old) if old == chat => {}
+                old => {
+                    self.structural |= old.is_none();
+                    changes.push(ChatChange::Upsert { chat: Box::new(chat.clone()) });
+                }
             }
         }
         for key in self.merged.keys() {
             if !next.contains_key(key) {
+                self.structural = true;
                 changes.push(ChatChange::Removed { key: key.clone() });
             }
         }
@@ -193,15 +218,63 @@ impl ChatIndex {
         changes
     }
 
-    fn merge(&self) -> BTreeMap<ChatKey, IndexedChat> {
+    /// ``remerge`` for the chats whose session id is in `sessions` only: the
+    /// same result for those keys, every other chat left as it is.
+    fn remerge_sessions(&mut self, sessions: &HashSet<String>) -> Vec<ChatChange> {
+        if sessions.is_empty() {
+            self.visits = 0;
+            return Vec::new();
+        }
+        let next = self.merge_where(|entry| sessions.contains(entry.session_id.as_str()));
+        let stale: Vec<ChatKey> = self
+            .merged
+            .keys()
+            .filter(|key| sessions.contains(key.session_id.as_str()) && !next.contains_key(*key))
+            .cloned()
+            .collect();
+        let mut changes = Vec::new();
+        for (key, chat) in next {
+            match self.merged.get(&key) {
+                Some(old) if *old == chat => {}
+                old => {
+                    self.structural |= old.is_none();
+                    changes.push(ChatChange::Upsert { chat: Box::new(chat.clone()) });
+                    self.merged.insert(key, chat);
+                }
+            }
+        }
+        for key in stale {
+            self.merged.remove(&key);
+            self.structural = true;
+            changes.push(ChatChange::Removed { key });
+        }
+        changes
+    }
+
+    fn merge(&mut self) -> BTreeMap<ChatKey, IndexedChat> {
+        self.merge_where(|_| true)
+    }
+
+    /// Merges the root entries `include` accepts, in root order (the newest
+    /// copy of a chat wins, accounts and roots in root order).
+    fn merge_where(
+        &mut self,
+        include: impl Fn(&ChatEntry) -> bool,
+    ) -> BTreeMap<ChatKey, IndexedChat> {
+        let mut visits = 0;
         let mut merged: BTreeMap<ChatKey, IndexedChat> = BTreeMap::new();
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
             let root_id = slot.root.id();
             // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
             // session with no user message (Lawrence 2026-10-11).
-            for entry in slot.scan.entries.iter().filter(|entry| crate::scan::is_person_chat(entry))
+            for entry in slot
+                .scan
+                .entries
+                .iter()
+                .filter(|entry| include(entry) && crate::scan::is_person_chat(entry))
             {
+                visits += 1;
                 let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
                     entry: entry.clone(),
                     accounts: Vec::new(),
@@ -221,6 +294,7 @@ impl ChatIndex {
                 }
             }
         }
+        self.visits = visits;
         merged
     }
 }
@@ -232,19 +306,34 @@ fn rescan(slot: &mut Slot) {
     }
 }
 
-fn update_file(slot: &mut Slot, path: &Path) {
+/// Reads `path` again. Returns the session ids of its old and new entries.
+fn update_file(slot: &mut Slot, path: &Path) -> Vec<String> {
     let prev_at = slot.scan.files.iter().position(|(file, _)| file == path);
-    slot.scan.entries.retain(|entry| entry.source_path != path);
+    let mut sessions: Vec<String> = Vec::new();
+    slot.scan.entries.retain(|entry| {
+        let keep = entry.source_path != path;
+        if !keep {
+            sessions.push(entry.session_id.clone());
+        }
+        keep
+    });
     let prev = prev_at.map(|at| slot.scan.files.swap_remove(at).1);
     if !path.is_file() {
-        return;
+        return sessions;
     }
     if let Ok(read) = read_file(slot.root.harness, path, prev.as_ref()) {
         let mut entries: Vec<ChatEntry> = read.entry.into_iter().collect();
         crate::adapters::finish_file(slot.root.harness, &slot.root.path, &mut entries);
+        sessions.extend(entries.iter().map(|entry| entry.session_id.clone()));
         slot.scan.entries.extend(entries);
         slot.scan.files.push((path.to_path_buf(), read.state));
     }
+    sessions
+}
+
+/// The key as text (`<harness id>:<session id>`), compared without building it.
+fn key_text(entry: &ChatEntry) -> impl Iterator<Item = u8> + '_ {
+    entry.harness.id().bytes().chain(std::iter::once(b':')).chain(entry.session_id.bytes())
 }
 
 /// The spelling of `root` that `path` is under (its path, real path or an alias).

@@ -20,6 +20,8 @@ itself (no-activate, scratch config) and kills only that app.
 Usage: home-dogfood.py --tag <tag> [--out DIR] [--size 818x1060] [--app PATH]
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -104,7 +106,7 @@ try:
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
-           "CMUX_NEXT_TEST_WINDOW_FRAME": f"40,40,{WIDTH},{HEIGHT}"}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": f"40,40,{WIDTH},{HEIGHT}", **home_classic.ENV}
     if opts.activate:
         env.pop("CMUX_NEXT_NO_ACTIVATE")
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
@@ -112,6 +114,8 @@ try:
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180):
         sys.exit("the tagged app did not come up")
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     time.sleep(2)
     shot("01-home-chief-tab")
     print("fixture:", rpc("debug.home_native_fixture.open", {"attachments": True, "new": True}), flush=True)

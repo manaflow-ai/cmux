@@ -13,6 +13,10 @@ public nonisolated enum WindowBackgroundSetting {
     public static let materialPath = ["appearance", "backgroundBlur"]
     /// The opacity range, as Ghostty's `background-opacity`.
     public static let opacityRange: ClosedRange<Double> = 0...1
+    /// `appearance.inactiveWindowDim`: how much more of the theme color covers a window that is
+    /// not key, 0...1. 0 (the default): a window looks the same in front and behind.
+    public static let inactiveDimPath = ["appearance", "inactiveWindowDim"]
+    public static let inactiveDimRange: ClosedRange<Double> = 0...1
 
     /// The other window background key a write to `path` changes with it,
     /// so the pair is either Ghostty's or cmux's own: an opacity with
@@ -64,5 +68,16 @@ public nonisolated enum WindowBackgroundSetting {
             }
         }
         return WindowBackgroundOverride(opacity: opacity, material: material)
+    }
+
+    /// `appearance.inactiveWindowDim`; a missing key is 0, a bad value 0 plus a diagnostic.
+    static func parseInactiveDim(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Double {
+        guard let value = root.value(at: inactiveDimPath) else { return 0 }
+        guard let number = value.doubleValue, inactiveDimRange.contains(number) else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.inactiveWindowDim",
+                                                  message: "expected a number from 0 to 1, such as 0.15"))
+            return 0
+        }
+        return number
     }
 }

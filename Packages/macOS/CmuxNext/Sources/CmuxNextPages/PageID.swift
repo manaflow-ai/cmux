@@ -27,12 +27,13 @@ public nonisolated struct PageID {
 
     private static let registeredRoots = Mutex<[String: URL]>([:])
 
-    /// Names the bundled root of a first-party page whose files live in another module's resource
-    /// bundle (`cmux.agent` in CmuxNextAgentPane). Only a first-party id, only once: the first
-    /// registration wins, so a later caller cannot move a first-party origin to other files. An
-    /// app manifest has no Swift code and cannot call it.
+    /// Names the bundled root of a page the app ships whose files live in another module's resource
+    /// bundle (`cmux.agent` in CmuxNextAgentPane, `cmux.agent-activity` in CmuxNextAgentActivity).
+    /// Only a reserved (`cmux.`) id, only once: the first registration wins, so a later caller
+    /// cannot move a cmux origin to other files. An app manifest has no Swift code and cannot call
+    /// it. Registering a root grants no trust: that stays with ``firstParty``.
     public static func registerBundledRoot(_ root: URL, for id: String) {
-        guard isFirstParty(id) else { return }
+        guard isReserved(id) else { return }
         registeredRoots.withLock { roots in
             if roots[id.lowercased()] == nil { roots[id.lowercased()] = root }
         }
@@ -67,6 +68,7 @@ public extension PageDescriptor {
         if let reserved = namespaces.first(where: { PageID.isReserved($0) || !$0.lowercased().hasPrefix(host + ".") }) {
             throw .reservedNamespace(reserved)
         }
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces)
+        // An app's own content decides what sits under a click that only brings the window forward.
+        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, acceptsFirstMouse: false)
     }
 }

@@ -1,11 +1,13 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 /// The one mutation path for screens: the screen bar, the palette, context
 /// menus, shortcuts, and the CLI all call these (cmux-shared-behavior).
-/// Every change is one daemon command; the store echo updates the bar and
-/// the layout. Failures are logged and leave the daemon's state on screen.
+/// Every change is one daemon command; name, color, icon and pin show first
+/// as store intents, the rest when the store echo updates the bar and the layout.
 @MainActor
 enum ScreenCommands {
     // MARK: Selection
@@ -35,7 +37,7 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let extended = daemon.supports(DaemonCapabilities.shared.screenMetadata)
+        let extended = daemon.supports(DaemonCapability.screenMetadata.rawValue)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {
@@ -63,9 +65,17 @@ enum ScreenCommands {
     }
 
     /// Closes screens. Their terminals detach and are reaped after the grace
-    /// period, so Reopen Closed Screen can bring the first one back.
+    /// period. Several screens (Close Other Screens, to the Right, to the Left)
+    /// close in one `layout.bulk` request (`BulkClosePlan`): one closed group,
+    /// so one Reopen Closed brings every one of them back.
     static func close(_ screens: [ScreenModel], in workspace: WorkspaceModel, daemon: DaemonService, services: AppServices) {
-        for screen in screens {
+        let plan = BulkClosePlan(screens, servesBulk: daemon.servesBulkClose, id: \.resourceID,
+                                 hasTabs: { $0.panes.contains { !$0.tabs.isEmpty } })
+        if !plan.bulk.isEmpty {
+            let ids = plan.bulk.map(\.id)
+            daemon.send("close-screens") { try await $0.state.closeBulk(.screen, ids: ids) }
+        }
+        for screen in plan.each {
             let handle = screen.handle
             daemon.send("close-screen") { try await $0.closeScreen(handle) }
         }
@@ -73,9 +83,14 @@ enum ScreenCommands {
 
     // MARK: Metadata
 
-    static func rename(_ screen: ScreenModel, to name: String, daemon: DaemonService) {
+    // Name, color, icon and pin are store intents: the bar, the sidebar and every menu show the
+    // change in the input's turn, the reply settles it, a refusal puts it back and the registry
+    // says why (zero-latency.md, the budget contract). The caller settles the effect: an action
+    // handler returns it, a direct gesture hands it to `ActionRegistry.settle`.
+
+    static func rename(_ screen: ScreenModel, to name: String, daemon: DaemonService) -> ActionEffect {
         let handle = screen.handle
-        daemon.send("rename-screen") { try await $0.renameScreen(handle, to: name) }
+        return daemon.intentEffect("rename-screen", .renameScreen(screen: handle, name: name)) { try await $0.renameScreen(handle, to: name) }
     }
 
     /// The screen's public id when its daemon takes `screen.update` and
@@ -84,25 +99,25 @@ enum ScreenCommands {
         daemon.store.servesStateResources ? screen.resourceID : nil
     }
 
-    static func setColor(_ screen: ScreenModel, _ color: String?, daemon: DaemonService) {
+    static func setColor(_ screen: ScreenModel, _ color: String?, daemon: DaemonService) -> ActionEffect {
         let handle = screen.handle, resource = stateID(screen, daemon), update = color.map(FieldUpdate.set) ?? .clear
-        daemon.send("set-screen-metadata") {
+        return daemon.intentEffect("set-screen-metadata", .setScreenColor(screen: handle, color: color)) {
             if let resource { return try await $0.state.updateScreen(resource, color: update) }
             _ = try await $0.setScreenMetadata(handle, color: update)
         }
     }
 
-    static func setIcon(_ screen: ScreenModel, _ icon: String?, daemon: DaemonService) {
+    static func setIcon(_ screen: ScreenModel, _ icon: String?, daemon: DaemonService) -> ActionEffect {
         let handle = screen.handle, resource = stateID(screen, daemon), update = icon.map(FieldUpdate.set) ?? .clear
-        daemon.send("set-screen-metadata") {
+        return daemon.intentEffect("set-screen-metadata", .setScreenIcon(screen: handle, icon: icon)) {
             if let resource { return try await $0.state.updateScreen(resource, icon: update) }
             _ = try await $0.setScreenMetadata(handle, icon: update)
         }
     }
 
-    static func setPinned(_ screen: ScreenModel, _ pinned: Bool, daemon: DaemonService) {
+    static func setPinned(_ screen: ScreenModel, _ pinned: Bool, daemon: DaemonService) -> ActionEffect {
         let handle = screen.handle, resource = stateID(screen, daemon)
-        daemon.send("set-screen-pinned") {
+        return daemon.intentEffect("set-screen-pinned", .setScreenPinned(screen: handle, pinned: pinned)) {
             if let resource { return try await $0.state.updateScreen(resource, pinned: pinned) }
             _ = try await $0.setScreenPinned(handle, pinned)
         }

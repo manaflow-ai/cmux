@@ -26,7 +26,7 @@ public nonisolated enum TabSearchStyle: String, Sendable, CaseIterable, TunableC
 public nonisolated enum PaletteTunables {
     public static let tabSearchStyle = Tunable<TabSearchStyle>.choice(
         "palette.tabSearchStyle", .palette, "Search Tabs layout",
-        help: "Prototype layout of Search Tabs (Cmd-Shift-A). Applies the next time it opens.",
+        help: "Prototype layout of Search Tabs. Applies the next time it opens.",
         default: .recent, code: "PaletteTunables.tabSearchStyle")
 
     public static var all: [TunableDescriptor] { [tabSearchStyle.descriptor] + scopeDescriptors }

@@ -8,7 +8,7 @@ import Foundation
 public struct UngroupScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "ungroup-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public init(group: ScreenGroupID) { self.group = group }
 }
@@ -17,7 +17,7 @@ public struct UngroupScreenGroupRequest: DaemonRequest {
 public struct CloseScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "close-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public var endTerminals: Bool?
     public init(group: ScreenGroupID, endTerminals: Bool? = nil) {

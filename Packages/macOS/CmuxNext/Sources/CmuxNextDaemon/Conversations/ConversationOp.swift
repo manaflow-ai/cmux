@@ -15,6 +15,9 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
     case setTitle(String)
     /// `question.answer`: `answer` is `{selections}` (CmuxAgentQuestion's `conversationAnswer`).
     case answerQuestion(messageID: String, partIndex: Int, answer: JSONValue)
+    /// `thread.update` (conversation-thread-objects-v1): a root's title, status (`open` or `resolved`) or
+    /// owner; an empty title or owner clears it, at least one field.
+    case updateThread(root: String, title: String?, status: String?, owner: String?)
 
     public var kindName: String {
         switch self {
@@ -27,6 +30,7 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
         case .addParticipant: "participants.add"
         case .setTitle: "title.set"
         case .answerQuestion: "question.answer"
+        case .updateThread: "thread.update"
         }
     }
 
@@ -59,6 +63,11 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
             try c.encode(messageID, forKey: DynamicKey("message_id"))
             try c.encode(partIndex, forKey: DynamicKey("part_index"))
             try c.encode(answer, forKey: DynamicKey("answer"))
+        case .updateThread(let root, let title, let status, let owner):
+            try c.encode(root, forKey: DynamicKey("root"))
+            try c.encodeIfPresent(title, forKey: DynamicKey("title"))
+            try c.encodeIfPresent(status, forKey: DynamicKey("status"))
+            try c.encodeIfPresent(owner, forKey: DynamicKey("owner"))
         }
     }
 }

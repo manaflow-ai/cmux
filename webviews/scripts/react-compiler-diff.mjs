@@ -14,9 +14,10 @@ import { transform } from "esbuild";
 import { transformSync } from "oxc-transform-react";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { REACT_COMPILER_TARGET } from "../reactCompiler.mjs";
 
-const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../src");
+const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const outIndex = process.argv.indexOf("--out");
 const outDir = outIndex >= 0 ? path.resolve(process.argv[outIndex + 1]) : undefined;
 if (outDir) mkdirSync(outDir, { recursive: true });

@@ -196,6 +196,19 @@ class WiringTests(unittest.TestCase):
         self.assertIn("inputs.full_suite != 'true'", reuse_env)
         self.assertIn("(vars.CI_PACKAGE_RESULT_REUSE || '1') != '0'", reuse_env)
 
+    def test_the_fleet_dispatch_preflights_worker_access(self) -> None:
+        fleet = self.job.index("- name: Run Swift package tests on the build fleet")
+        dispatch = self.job.index('"$client" run', fleet)
+        preflight = self.job.index('"$client" workers', fleet)
+        self.assertLess(preflight, dispatch)
+        guard = self.job[preflight:dispatch]
+        self.assertIn('>"$preflight_log" 2>&1', guard)
+        self.assertIn('grep -Fq "compute.instances.get"', guard)
+        self.assertIn("No CI job was dispatched", guard)
+        self.assertIn("cmux-ci will report the dispatch result", guard)
+        self.assertNotIn("raw.githubusercontent.com", guard)
+        self.assertNotIn("fleet-instance-preflight.sh", guard)
+
     def test_the_new_scripts_are_job_inputs(self) -> None:
         select = load("select_package_tests")
         for path in ("scripts/ci/package_input_key.py", "scripts/ci/reuse_package_results.py"):

@@ -387,5 +387,43 @@
     true
    ]
   ]
+ },
+ {
+  "name": "a /btw reply's side session joins the scope",
+  "steps": [
+   {
+    "add": "s1"
+   },
+   {
+    "sent": {
+     "method": "_acpmux/btw",
+     "id": "7",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 7,
+     "result": {
+      "sessionId": "side1",
+      "model": "haiku",
+      "readOnly": "mode"
+     }
+    }
+   }
+  ],
+  "holds": [],
+  "contains": [
+   [
+    "s1",
+    true
+   ],
+   [
+    "side1",
+    true
+   ]
+  ]
  }
 ]

@@ -1,0 +1,5 @@
+<!doctype html><meta charset=utf-8><title>bu-scroll</title>
+<style>body{font:16px -apple-system;margin:40px}.item{padding:18px;margin:8px 0;background:#f1f5f9;border-radius:8px}</style>
+<h2>Feed</h2><div id=feed></div><div id=sentinel>loading…</div>
+<script>let n=0;function more(){for(let i=0;i<10;i++){const d=document.createElement('div');d.className='item';d.id='item'+(++n);d.textContent='Post #'+n;feed.appendChild(d)}}
+more();new IntersectionObserver(e=>{if(e[0].isIntersecting)more()}).observe(sentinel);</script>

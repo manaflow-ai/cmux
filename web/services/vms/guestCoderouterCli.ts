@@ -115,6 +115,7 @@ export const GUEST_CODEROUTER_USE_SHELL = `guest_coderouter_use() {
       team-account) cmux_use_reason="\$(cmux_message useReasonTeamAccount)" ;;
       no-team-account) cmux_use_reason="\$(cmux_message useReasonNoTeamAccount)" ;;
       team-unreachable) cmux_use_reason="\$(cmux_message useReasonTeamUnreachable)" ;;
+      shared-machine) cmux_use_reason="\$(cmux_message useReasonSharedMachine)" ;;
       *) cmux_use_reason="\$(cmux_message useReasonTeamUnknown)" ;;
     esac
     if [ "\$cmux_agent_auth_mode" = own ]; then

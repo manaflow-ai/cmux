@@ -42,6 +42,9 @@ pub(crate) enum LeaseProbe {
 pub(crate) enum GroupSignal {
     /// A graceful hangup (SIGHUP on Unix).
     Hangup,
+    /// A polite request to end, for programs that outlived the hangup
+    /// (SIGTERM on Unix).
+    Terminate,
     /// An unconditional kill (SIGKILL on Unix).
     Kill,
 }

@@ -122,4 +122,21 @@ extension URL {
     public static let browserExtensionWebStore = URL(string: "https://chromewebstore.google.com/category/extensions")
         ?? URL(fileURLWithPath: "/dev/null")
     public static let browserExtensionManagement = URL(string: "chrome://extensions/") ?? URL(fileURLWithPath: "/dev/null")
+
+    /// chrome://extensions with extension `id`'s details open (Chrome's "Manage Extension").
+    public static func browserExtensionDetails(_ id: String) -> URL {
+        URL(string: "chrome://extensions/?id=\(id)") ?? browserExtensionManagement
+    }
+
+    /// The Chrome Web Store page of extension `id`: Chrome's home page for a store extension
+    /// without its own `homepage_url`.
+    public static func browserExtensionWebStoreItem(_ id: String) -> URL {
+        URL(string: "https://chromewebstore.google.com/detail/\(id)") ?? browserExtensionWebStore
+    }
+
+    /// The site settings of extension `id`'s origin (Chrome's "View Web Permissions").
+    public static func browserExtensionWebPermissions(_ id: String) -> URL {
+        let site = "chrome-extension://\(id)".addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
+        return URL(string: "chrome://settings/content/siteDetails?site=\(site)") ?? browserExtensionManagement
+    }
 }

@@ -6,6 +6,16 @@ public struct ProxyCredential: Sendable, Hashable {
     public var username: String
     public var password: String
 
+    /// Creates a proxy credential received from an authenticated route owner.
+    ///
+    /// - Parameters:
+    ///   - username: The Basic authentication user name.
+    ///   - password: The Basic authentication password.
+    public init(username: String, password: String) {
+        self.username = username
+        self.password = password
+    }
+
     /// `bytes` random bytes as lowercase hex (SecRandomCopyBytes). If that call
     /// fails, the bytes come from SystemRandomNumberGenerator (arc4random_buf, also
     /// a cryptographically secure source on Darwin), so the secret stays unguessable.

@@ -52,8 +52,8 @@ pub const POLICY: &str = "deny-all";
 /// Longest one compactor prompt may take, the session's start included.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Days Claude Code keeps a compactor transcript that `end` could not
-/// delete (a crash); its minimum.
+/// Days the host keeps a compactor transcript that `end` could not delete
+/// (a crash): TurnRetention prunes the slot projects past it.
 pub const TRANSCRIPT_DAYS: u64 = 1;
 
 /// Claude Code's built-in tools, denied in each compactor slot's project
@@ -571,6 +571,9 @@ impl Timing {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The harness and model one node runs on instead of the compactor's.
+type NodeOverride = (Option<String>, Option<String>);
+
 pub struct AcpmuxCompactor {
     port: Arc<dyn AgentPort>,
     spec: CompactorSpec,
@@ -582,6 +585,10 @@ pub struct AcpmuxCompactor {
     prompts: AtomicU64,
     /// Image descriptions started (each gets its own node id).
     describes: AtomicU64,
+    /// The harness and model a node runs on instead of the compactor's
+    /// (a reaction classifier's, `ReactionJudge`); such a node never takes
+    /// or leaves a warm session.
+    overrides: Mutex<HashMap<NodeId, NodeOverride>>,
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
     /// Claude Code refused the node's cache marker (it placed a fourth
@@ -601,6 +608,8 @@ pub struct AcpmuxCompactor {
     alternate: Option<String>,
     exhausted_until: Mutex<Option<Instant>>,
     reaped: AtomicBool,
+    /// Probe sessions this host started: each gets its own name (cx-oqnw3).
+    probes: std::sync::atomic::AtomicU64,
     /// This compactor, when shared (`shared`): a warm session then starts on
     /// its own thread after the node returns.
     me: std::sync::Weak<AcpmuxCompactor>,
@@ -612,6 +621,9 @@ pub struct AcpmuxCompactor {
     /// Counts the nodes opened: an idle check that sees a newer count
     /// leaves the warm sessions alone.
     work: AtomicU64,
+    /// Parallel nodes with the same cached prefix: one writes it, the others
+    /// wait for its response to begin and read it (`single_flight`).
+    flight: crate::single_flight::SingleFlight,
 }
 
 impl AcpmuxCompactor {
@@ -628,7 +640,9 @@ impl AcpmuxCompactor {
             live: Mutex::new(HashMap::new()),
             held: Mutex::new(HashMap::new()),
             prompts: AtomicU64::new(0),
+            flight: crate::single_flight::SingleFlight::new(),
             describes: AtomicU64::new(0),
+            overrides: Mutex::new(HashMap::new()),
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
@@ -640,6 +654,7 @@ impl AcpmuxCompactor {
             exhausted_until: Mutex::new(None),
             warm: 0,
             reaped: AtomicBool::new(false),
+            probes: std::sync::atomic::AtomicU64::new(0),
             me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
@@ -872,7 +887,13 @@ impl AcpmuxCompactor {
 
     fn session_name(&self, node: NodeId) -> String {
         if node == PROBE_NODE {
-            format!("{}-probe", self.spec.name)
+            // Its own name per host and probe (cx-oqnw3): after a brain restart on
+            // the same Chief home the fixed `<name>-probe` was still taken in the
+            // shared acpmux although `start` ends a session it finds by that name
+            // (cause not known yet; `start` logs the sessions when a name is taken).
+            // The probe's session is purged when the probe ends.
+            let n = self.probes.fetch_add(1, Ordering::SeqCst);
+            format!("{}-probe-{}-{n}", self.spec.name, std::process::id())
         } else {
             format!("{}-{}", self.spec.name, node.name())
         }
@@ -956,6 +977,11 @@ impl AcpmuxCompactor {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
+        let overridden = self.node_override(node);
+        let model = overridden
+            .clone()
+            .and_then(|(_, m)| m)
+            .or_else(|| self.model());
         self.work.fetch_add(1, Ordering::SeqCst);
         self.reap_warm();
         let route = self.harness();
@@ -969,16 +995,20 @@ impl AcpmuxCompactor {
         let acquired = match kept {
             // A size retry: a ready warm session, else the slot its first
             // try held.
-            Some(k) => match (self.warm > 0).then(|| self.slots.take_warm(key)).flatten() {
+            Some(k) => match (self.warm > 0 && overridden.is_none())
+                .then(|| self.slots.take_warm(key))
+                .flatten()
+            {
                 Some(w) => {
                     self.slots.release_slot(k);
                     Acquired::Warm(w)
                 }
                 None => Acquired::Slot(k),
             },
-            None => self
-                .slots
-                .acquire((self.warm > 0).then_some(key), foreground),
+            None => self.slots.acquire(
+                (self.warm > 0 && overridden.is_none()).then_some(key),
+                foreground,
+            ),
         };
         let slot_wait = asked.elapsed();
         let got = Instant::now();
@@ -994,7 +1024,7 @@ impl AcpmuxCompactor {
                     Acquired::Warm(_) => unreachable!(),
                 };
                 let name = self.session_name(node);
-                match self.start(slot, &name, system, &admitted, ttl, ours) {
+                match self.start(slot, &name, system, &admitted, ttl, ours, model.clone()) {
                     Ok((id, cwd, preset)) => (id, slot, cwd, preset),
                     Err(e) => {
                         self.slots.give(slot);
@@ -1034,7 +1064,10 @@ impl AcpmuxCompactor {
     }
 
     fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
-        let harness = self.harness();
+        let harness = self
+            .node_override(node)
+            .and_then(|(h, _)| h)
+            .unwrap_or_else(|| self.harness());
         let refused = |reason: String, setup: bool| {
             self.say(&format!("compactor node {}: {reason}", node.name()));
             crate::harness_gate::trace_refusal(&self.trace, "compactor", &harness, &reason);
@@ -1057,7 +1090,10 @@ impl AcpmuxCompactor {
     }
 
     /// Starts a session named `name` in `slot` (held by the caller), with
-    /// `system` as the slot preset's system prompt: its id, cwd and preset.
+    /// `system` as the slot preset's system prompt and `model`: its id, cwd
+    /// and preset.
+    // Each argument is one fact of the session; a struct would only rename them.
+    #[allow(clippy::too_many_arguments)]
     fn start(
         &self,
         slot: usize,
@@ -1066,6 +1102,7 @@ impl AcpmuxCompactor {
         admitted: &crate::harness_gate::Admitted,
         ttl: CacheTtl,
         ours: bool,
+        model: Option<String>,
     ) -> Result<(String, PathBuf, String), ModelError> {
         let cwd = self.slot_dir(slot, ttl, ours).map_err(|e| {
             ModelError::new(format!("creating the compactor's working directory: {e}"))
@@ -1096,25 +1133,41 @@ impl AcpmuxCompactor {
         // A transcript left by a crash in this slot.
         self.delete_transcript(&cwd);
         self.wipe_codex(slot);
-        // Left by a host that stopped while the node was being built.
-        if let Ok(Some(old)) = self.port.find(name) {
-            let _ = self.port.end_session(&old);
+        // Left by a host that stopped while the node was being built. When the
+        // list does not name it, acpmux ends a session by its exact name too
+        // (`_acpmux/kill` resolves a name; cx-oqnw3: the list missed one).
+        match self.port.find(name) {
+            Ok(Some(old)) => {
+                let _ = self.port.end_session(&old);
+            }
+            _ => {
+                let _ = self.port.end_session(name);
+            }
         }
         let spec = SessionSpec {
             name: name.to_owned(),
             cwd: cwd.clone(),
             harness: admitted.profile.clone(),
             policy: POLICY.to_owned(),
-            model: self.model(),
+            model,
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
-            tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
+            tags: crate::acpmux::chief_tags(&self.spec.chief, crate::acpmux::COMPACTOR_ROLE),
             env: Default::default(),
             fast: self.spec.fast,
+            peer: None,
         };
         let id = self
             .port
             .new_session(&spec)
+            .inspect_err(|e| {
+                if e.contains("is taken") {
+                    let listed = self.port.find(name);
+                    self.say(&format!(
+                        "compactor: acpmux says the session name {name} is taken; acpmux finds it as {listed:?}"
+                    ));
+                }
+            })
             .and_then(|id| {
                 // The session's own harness is what answers (a name that is
                 // also a family resolves through acpmux's preference list).
@@ -1157,6 +1210,7 @@ impl AcpmuxCompactor {
                 &admitted,
                 ttl,
                 ours,
+                self.model(),
             )
         });
         match started {
@@ -1385,12 +1439,29 @@ impl AcpmuxCompactor {
             .blocks
             .iter()
             .any(|b| b.get("cache_control").is_some());
+        // A parallel node writing the same prefix: wait until its response
+        // begins, then read the entry it wrote (before taking a slot).
+        let model = self
+            .model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let seed = format!("{}\n{model:?}\n{}", self.spec.harness, layout.system);
+        let keys = crate::single_flight::keys(&seed, &layout.blocks);
+        let life = match ttl {
+            CacheTtl::FiveMinutes => Duration::from_secs(270),
+            CacheTtl::OneHour => Duration::from_secs(55 * 60),
+        };
+        let flight = self
+            .flight
+            .wait(&keys, life, crate::single_flight::MAX_WAIT);
         let session = self.open(node, Some(&layout.system), ttl, ours, !request.imported)?;
-        let has_marker = layout
-            .blocks
-            .iter()
-            .any(|b| b.get("cache_control").is_some());
-        match self.prompt(node, &session, layout.blocks, started) {
+        let has_marker = ours;
+        let began = || {
+            flight.begun();
+            started();
+        };
+        match self.prompt(node, &session, layout.blocks, &began) {
             Err(e) if has_marker && is_marker_limit_error(&e.message) => {
                 self.marker_refused.refused();
                 self.say(&format!(
@@ -1407,7 +1478,7 @@ impl AcpmuxCompactor {
                 }
                 let session =
                     self.open(node, Some(&layout.system), ttl, false, !request.imported)?;
-                self.prompt(node, &session, layout.blocks, started)
+                self.prompt(node, &session, layout.blocks, &began)
             }
             other => other,
         }
@@ -1614,8 +1685,11 @@ impl AcpmuxCompactor {
         self.delete_transcript(&live.cwd);
         self.wipe_codex(live.slot);
         // The next node's session starts now, in this slot, so it does not
-        // wait for one; else the slot goes back.
-        if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
+        // wait for one; else the slot goes back. Not after the start-up
+        // probe: no chat work follows it, and its warm Claude Code sat idle
+        // from launch until the idle reap (about 100 MB).
+        if self.warm > 0 && node != PROBE_NODE && !is_describe(node) && self.slots.rewarm(self.warm)
+        {
             // Off the node's path: starting Claude Code takes seconds, and
             // the node's line (and any turn waiting for it) must not wait.
             let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
@@ -1706,6 +1780,55 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
         reply.map(|r| r.text).map_err(|e| e.message)
+    }
+}
+
+impl AcpmuxCompactor {
+    /// The harness and model node `node` runs on instead of the compactor's.
+    fn node_override(&self, node: NodeId) -> Option<NodeOverride> {
+        self.overrides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&node)
+            .cloned()
+    }
+}
+
+/// The reaction classifier (brain/reaction_wake.rs, a416): one deny-all
+/// session per question on a compactor slot (its isolated configuration),
+/// with the asked model and, when set, the asked harness, which must be of
+/// the compactor's family (its slot presets are made for that family).
+impl crate::brain::reaction_wake::ReactionJudge for AcpmuxCompactor {
+    fn judge(&self, ask: &crate::brain::reaction_wake::JudgeAsk) -> Result<String, String> {
+        if let Some(h) = ask.harness.as_deref() {
+            let mine = self.harness();
+            let catalog = self.port.harness_catalog().unwrap_or(Value::Null);
+            let family = |name: &str| crate::acpmux::harness_family(&catalog, name).ok();
+            if h != mine && (family(h).is_none() || family(h) != family(&mine)) {
+                return Err(format!(
+                    "harness {h} is not of the compactor's family ({mine}); set a harness like {mine}, or leave it unset"
+                ));
+            }
+        }
+        let n = self.describes.fetch_add(1, Ordering::SeqCst);
+        let node = NodeId::new(0, u64::MAX - n);
+        self.overrides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(node, (ask.harness.clone(), Some(ask.model.clone())));
+        let answer = self
+            .open(node, None, self.cache_ttl.get(), false, true)
+            .map_err(|e| e.message)
+            .and_then(|session| {
+                let reply = self.prompt(node, &session, vec![text_block(&ask.prompt)], &|| {});
+                self.end_node(node);
+                reply.map(|r| r.text).map_err(|e| e.message)
+            });
+        self.overrides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node);
+        answer
     }
 }
 
@@ -1967,7 +2090,10 @@ pub fn compactor_settings_with(ttl: CacheTtl, ours: bool) -> Value {
         "disableBundledSkills": true,
         "promptCacheTtl": ttl.as_str(),
         "enableAllProjectMcpServers": false,
-        "cleanupPeriodDays": TRANSCRIPT_DAYS,
+        // No `cleanupPeriodDays`: the slot runs on the user's Claude home,
+        // whose every project the retention sweep would reach
+        // (session_dir::PROJECT_SETTINGS_STORE_WIDE_KEYS). `end` deletes the
+        // node's transcript; TurnRetention prunes what a crash left.
     });
     let mut env = serde_json::Map::new();
     if ttl == CacheTtl::FiveMinutes {
@@ -2105,6 +2231,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         SUBROUTER_SESSION_KEY_ENV.to_owned(),
         codex_cache_key(home, "compact"),
     );
+    env.insert(SUBROUTER_SESSION_HEADER_ENV.to_owned(), "1".to_owned());
     for key in [
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
@@ -2185,6 +2312,12 @@ pub fn is_model_unavailable(message: &str) -> bool {
         || (lower.contains("not_found_error") && lower.contains("model"))
 }
 
+/// The compactor's working directory for `home` (its slot directories
+/// are under it): `optchat-compact-<home id>` in the system temp dir.
+pub fn compactor_work(home: &Path) -> PathBuf {
+    std::env::temp_dir().join(format!("optchat-compact-{}", home_id(home)))
+}
+
 /// How the compactor's sessions start for `home`.
 pub fn compactor_spec(
     paths: &Paths,
@@ -2195,7 +2328,7 @@ pub fn compactor_spec(
 ) -> CompactorSpec {
     let name = format!("optchat-compact-{}", home_id(home));
     CompactorSpec {
-        work: std::env::temp_dir().join(&name),
+        work: compactor_work(home),
         transcript_dirs: vec![paths.compactor_config.clone(), user_claude_home()],
         preset: name.clone(),
         name,
@@ -2218,6 +2351,12 @@ pub use crate::codex_home::*;
 /// fresh per-turn Claude Code processes of one Chief share its prompt cache.
 /// Earlier `sr` builds ignore it.
 pub const SUBROUTER_SESSION_KEY_ENV: &str = "SUBROUTER_SESSION_KEY";
+
+/// `1`: acpmux sends [`SUBROUTER_SESSION_KEY_ENV`] as the
+/// `X-Subrouter-Session` header itself (acpmux `subrouter_session.rs`), so
+/// routes whose launcher ignores the key (`sr2 claude`) stay sticky too.
+/// Turns and compactor nodes opt in; subagents (one long session each) do not.
+pub const SUBROUTER_SESSION_HEADER_ENV: &str = "SUBROUTER_SESSION_HEADER";
 
 /// Which model builds the compactor's nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

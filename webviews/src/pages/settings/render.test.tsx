@@ -22,6 +22,8 @@ const allowedFills = new Set([
   "var(--input-bg)",
   "var(--accent)",
   "var(--row-focus)",
+  // A floating bar over the content (Appearance's Undo, Redo and Reset) is a popup surface.
+  "var(--surface-popup)",
 ]);
 const containerTags = new Set([
   "HTML",

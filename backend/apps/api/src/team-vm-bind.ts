@@ -119,9 +119,14 @@ export class TeamVmBinds {
 
   /** Spends the nonce (always) and says whether it was live and minted for exactly (epoch, vm). */
   consume(nonce: string, epoch: number, vm: string, now: number): boolean {
+    return this.takeNonce(nonce, epoch, vm, now) !== null
+  }
+
+  /** Spends the nonce before I/O and retains its deadline for verification after an await. */
+  takeNonce(nonce: string, epoch: number, vm: string, now: number): number | null {
     const row = this.sql.exec<{ epoch: number; vm: string; expires_at: number }>(`SELECT epoch, vm, expires_at FROM team_vm_bind_nonce WHERE nonce = ?`, nonce)[0]
     this.sql.exec(`DELETE FROM team_vm_bind_nonce WHERE nonce = ?`, nonce)
-    return Boolean(row) && row!.epoch === epoch && row!.vm === vm && row!.expires_at >= now
+    return row && row.epoch === epoch && row.vm === vm && row.expires_at >= now ? row.expires_at : null
   }
 
   /** May a bind for `epoch` run now (no attempt yet, or its backoff passed, under the attempt cap)? */
@@ -189,10 +194,16 @@ export const checkProof = async (
   binds: TeamVmBinds,
   proof: BindProof,
   want: { team: string; epoch: number; vm: string; nonce: string },
-  now: number
+  now: number,
+  instanceMatches?: (signedInstance: string) => Promise<boolean>,
+  currentTime: () => number = () => now
 ): Promise<{ ok: true } | { ok: false; code: string }> => {
-  if (!binds.consume(want.nonce, want.epoch, want.vm, now)) return { ok: false, code: "team_vm.bind_nonce" }
-  if (proof.instance_id !== want.vm) return { ok: false, code: "team_vm.bind_instance" }
+  const deadline = binds.takeNonce(want.nonce, want.epoch, want.vm, now)
+  if (deadline === null) return { ok: false, code: "team_vm.bind_nonce" }
+  const matches = instanceMatches ? await instanceMatches(proof.instance_id).catch(() => null) : proof.instance_id === want.vm
+  if (matches === null) return { ok: false, code: "team_vm.bind_instance_unavailable" }
+  if (!matches) return { ok: false, code: "team_vm.bind_instance" }
   const ok = await verifyInstallSignature(proof.public_jwk, bindMessage(want.team, want.epoch, proof.instance_id, want.nonce), proof.signature)
+  if (currentTime() > deadline) return { ok: false, code: "team_vm.bind_nonce" }
   return ok ? { ok: true } : { ok: false, code: "team_vm.bind_signature" }
 }

@@ -23,7 +23,7 @@ enum QuitUnsavedStep {
     /// unattended.
     static func resolve(_ origin: QuitOrigin, registry: QuitUnsavedRegistry, scope: CmuxDialogScope,
                         center: CmuxDialogCenter = .shared,
-                        writeDrafts: () async -> Void = { await RecoveryDraftStore.shared.writePending() }) async -> Bool {
+                        writeDrafts: () async -> Void) async -> Bool {
         switch origin {
         case .interactive, .explicit:
             return await resolveInteractive(registry, scope: scope, center: center)

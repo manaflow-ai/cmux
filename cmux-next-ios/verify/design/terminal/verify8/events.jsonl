@@ -1,0 +1,4 @@
+{"t": 1792055633.606, "hms": "02:13:53", "kind": "hold", "load": [23.36, 23.54, 37.61], "tag": "r8-hold-gd", "seconds": 90, "prunes": 0, "black_runs": [[14.7667, 14.7667]], "flashes": 0, "valid": false}
+{"t": 1792055910.087, "hms": "02:18:30", "kind": "hold", "load": [17.66, 19.5, 31.78], "tag": "r8-hold-gd2", "seconds": 90, "prunes": 0, "black_runs": [], "flashes": 0, "valid": false}
+{"t": 1792056079.417, "hms": "02:21:19", "kind": "jump", "load": [15.4, 18.25, 29.06], "tag": "r8-jump-gd", "trips": 12, "taps_v": [9.39, 15.26, 26.7, 32.91, 43.59, 49.58, 61.61, 67.52, 80.22, 85.81, 97.57, 103.45], "fling_bottom": 0, "black_runs": [[15.0667, 15.0667]], "valid": false}
+{"t": 1792069918.165, "hms": "06:11:58", "kind": "d11", "load": [16.39, 16.21, 16.61], "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8/d11-glyph.mp4"}

@@ -128,7 +128,7 @@ const validShortText = (value: unknown, maxBytes: number): boolean =>
  * Validates parts and returns them with only the known fields, as a serde
  * round trip in the Rust crate would.
  */
-export const validateParts = (parts: unknown, allowAttachments = false): ReadonlyArray<Part> => {
+export const validateParts = (parts: unknown, cloud = false, allowAttachments = cloud): ReadonlyArray<Part> => {
   if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_PARTS) return fail("invalid_parts")
   let textBytes = 0
   const out: Array<Part> = []
@@ -147,10 +147,9 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       const cleanRuns: Array<TextRun> = []
       for (const run of runs as Array<unknown>) {
         if (!isObject(run) || !isU32(run.start) || !isU32(run.length)) return fail("invalid_parts")
-        // A cloud head has no paired devices, so a `remote_` mention is refused there
-        // (`allowAttachments` is the cloud flag of apply()).
+        // A cloud head has no paired devices, so a `remote_` mention is refused there.
         const mentionOk =
-          run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention) && !(allowAttachments && run.mention.startsWith("remote_")))
+          run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention) && !(cloud && run.mention.startsWith("remote_")))
         const linkOk = run.link === undefined || validShortText(run.link, 2048)
         if (run.length === 0 || run.start + run.length > text.length || !mentionOk || !linkOk) fail("invalid_parts")
         cleanRuns.push({
@@ -184,7 +183,8 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       if (!clean) return fail("invalid_parts")
       out.push(clean)
     } else if (part.type === "attachment" && allowAttachments) {
-      // Cloud heads only: a local head (the Rust crate) has no attachment parts.
+      // Both owners on a send or an edit (the Rust crate's `valid_attachment_part`); each owner
+      // also checks the part against its own record of the hash. Imports take none.
       const clean = cleanAttachmentPart(part)
       if (!clean) return fail("invalid_parts")
       out.push(clean)

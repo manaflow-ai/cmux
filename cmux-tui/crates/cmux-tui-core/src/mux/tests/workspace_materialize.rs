@@ -416,7 +416,10 @@ fn key_close_cannot_rebind_a_live_durable_workspace_identity() {
     }
     let replacement_error =
         mux.create_empty_workspace(Some("replacement".into()), Some(key), None).unwrap_err();
-    assert!(replacement_error.to_string().contains("is already bound to public id"));
+    assert!(
+        replacement_error.to_string().contains("is already bound to public id"),
+        "{replacement_error:#}"
+    );
     drop(original_guard);
 
     let close_result = close_done_rx.recv().unwrap();
@@ -663,6 +666,7 @@ fn browser_tab_in_existing_workspace_pane_emits_selection_resync() {
             "about:blank#first".into(),
             Some((80, 24)),
             None,
+            None,
         )
         .unwrap();
     let events = mux.subscribe();
@@ -672,6 +676,7 @@ fn browser_tab_in_existing_workspace_pane_emits_selection_resync() {
             workspace.workspace,
             "about:blank#second".into(),
             Some((80, 24)),
+            None,
             None,
         )
         .unwrap();

@@ -1,0 +1,4 @@
+{
+  "$comment": "The native interface version the web bundles need (plans/cmux-next/web-ota.md). An app serves a web update only when the update's abi equals the abi of the bundles it shipped with. Bump it in the change that makes a web bundle need native code an older app lacks (a new or changed host op, page message or scheme path the web calls); web-only changes keep it. build-pages-web.sh ships it as pages/web-abi.json; scripts/cmux-next/web-ota-pointer.py signs it into each update pointer.",
+  "abi": 1
+}

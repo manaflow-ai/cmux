@@ -2,24 +2,35 @@ import type { Domain, EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/o
 import { CloudMachineList, planRequiredDetails } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
 import { DriverError } from "./team-vm-driver.ts"
-import { cloudApiOrigin, cloudConfig, cloudDriver, cloudEnvTag, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
+import { cloudApiOrigin, cloudConfig, cloudEnvTag, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
+import { cloudDriverFor } from "./cloud-vm-api-driver.ts"
+import type { CloudTransport } from "./cloud-vm-api-config.ts"
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit, who } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
-import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
+import { emptyFenceSettles, publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
+import { CloudEntitlementStore } from "./cloud-entitlements.ts"
 import { decodeParams } from "./domains/common.ts"
 import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, isApprovedRun, needsCloudApproval, wakeCloudApprovals, type CloudApprovalHost } from "./cloud-approvals.ts"
+import { buildEnvironmentSnapshot, EnvironmentBuildError, environmentBuildStartExec } from "@cmux/cloud-env"
+import { asWorkUser, GuardedCloudSandbox } from "./cloud-env-sandbox.ts"
+import { ENV_SETUP_TIMEOUT_MS, isEnvBuild, publicEnvironment, TABLE_ENVIRONMENT_ROWS, type EnvironmentRow } from "./domains/cloud-environment.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
 
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
-const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore"])
+const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.environment.boot", "cloud.environment.delete"])
+/** Limited per team like the provider ops, but answered at once: the alarm runs the build (minutes). */
+const BUILD_OPS: ReadonlySet<string> = new Set(["cloud.environment.build"])
+/** Ops that may start cost: the team's paid plan is refreshed first (cloud-entitlements.ts). */
+const PLAN_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.start", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.environment.build", "cloud.environment.boot"])
 /** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
 export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
 const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.provider_state", "cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
@@ -63,6 +74,9 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
   }
 
+  /** Client session identities waiting for their provider delete (CloudDO, cloud-client-session.ts); a no-op here. */
+  protected async sweepClientIdentities(_now: number, _first?: ReadonlyArray<string>): Promise<void> {}
+
   /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
   protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>
   protected abstract pauseSilent(now: number): Promise<void>
@@ -95,15 +109,22 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   }
   protected dropResults = 0
 
+  /** The team's paid plan for the reducers (cloud-entitlements.ts); the same object is in `config`. */
+  protected readonly entitlements: CloudEntitlementStore
+
   constructor(ctx: DurableObjectState, env: Env) {
     const clock = { skew: 0 }
-    super(ctx, env, cloudDomain(cloudConfig(env)) as Domain<CloudState>, "cloud", undefined, {
+    const entitlements = new CloudEntitlementStore(ctx.storage.sql, env, () => Date.now() + clock.skew)
+    // One config for the domain and the object, so both read the same entitlements.
+    const config: CloudConfig = { ...cloudConfig(env), entitlements }
+    super(ctx, env, cloudDomain(config) as Domain<CloudState>, "cloud", undefined, {
       now: () => Date.now() + clock.skew,
       rowMode: { snapshotTable: TABLE_MACHINE, snapshotTail: 0 },
       // P3-8: internal ops carry ledger keys and provider error text; subscribers see neither.
       redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView, params: (op, params) => (INTERNAL_OPS.has(op) ? {} : params) }
     })
-    this.config = cloudConfig(env)
+    this.config = config
+    this.entitlements = entitlements
     this.clock = clock
   }
 
@@ -160,6 +181,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         if (machine !== undefined && typeof machine !== "string") return { ok: false, code: "validation.invalid", message: "invalid machine" }
         const all = rows?.range<SnapshotRow>(TABLE_SNAPSHOT, { limit: 1000 }).map((r) => r.row) ?? []
         return { ok: true, value: { snapshots: all.filter((r) => machine === undefined || r.machine === machine).map(publicSnapshot) }, revision: "" }
+      }
+      case "cloud.environment.list": {
+        const all = rows?.range<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, { limit: 1000 }).map((r) => r.row) ?? []
+        return { ok: true, value: { environments: all.sort((a, b) => a.created_at - b.created_at).map((e) => publicEnvironment(this.config, rows, e)) }, revision: "" }
       }
       case "cloud.plan.get":
         return { ok: true, value: planView(teamPlan(this.config, state.team ?? principal.team), state, Date.now()), revision: "" }
@@ -222,13 +247,17 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     // cx-wb5.65: at most 10 starts per install per hour (check and reserve in one step; given back unless the start commits).
     const slot = fresh && frame.op === "cloud.machine.start" ? this.installStarts.reserve(principal.install!, Date.now()) : null
     if (slot && "until" in slot) return reject(entity, frame.idempotency_key, "cloud.rate_limited", "this device started machines 10 times in the last hour; retry later or start it from the dashboard", true, { retry_after_ms: Math.max(0, slot.until - Date.now()) })
-    const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
+    // Paid entitlements: the plan the reducer and the provider pass read is refreshed before an op that may cost money.
+    if (PLAN_OPS.has(frame.op)) await this.entitlements.refresh(entity, principal)
+    const limited = PROVIDER_OPS.has(frame.op) || BUILD_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
     const result = limited ?? (await super.submit(entity, principal, frame))
     const committed = result.frames.some((f) => f.t === "result" && !f.replayed)
     if (slot && "id" in slot && !committed) this.installStarts.release(slot.id)
     if (limited) return limited
     if (fresh && committed) this.audit.record({ op: frame.op, machine: (frame.params as { machine?: unknown } | null)?.machine ?? null, ...who(principal), at: Date.now() })
     await this.drainRevokes(Date.now() + this.skewMs)
+    // A deleted machine's client session identities go with it (never blocks the answer on a failed delete).
+    if (frame.op === "cloud.machine.delete" && committed) await this.sweepClientIdentities(Date.now() + this.skewMs).catch(() => undefined)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return result
@@ -245,6 +274,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (after?.state === "pending") return this.refuse(result.frames, "mutation.indeterminate", "the provider call was cut off; retry with the same key", true)
     // A plan refusal at call time (the allowlist changed after the intent) keeps its code and names the lifting plan.
     if (after?.state === "failed" && after.error?.code === "cloud.plan.required") return this.refuse(result.frames, "cloud.plan.required", after.error.message, false, planRequiredDetails())
+    if (after?.state === "cancelled" && row.op === "snapshot") return this.refuse(result.frames, "cloud.provider.unavailable", "the snapshot request was cancelled", false)
     if (after?.state === "failed") return this.refuse(result.frames, "cloud.provider.unavailable", after.error?.message ?? "the provider call failed", false)
     return result
   }
@@ -282,6 +312,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
 
   protected ledger(key: string): LedgerRow | undefined {
     return this.boundEngine?.rows.get<LedgerRow>(TABLE_LEDGER, key)?.row
+  }
+
+  protected driverFor(row: { readonly transport?: CloudTransport }, purpose: "operate" | "cleanup" = "operate", provision = false) {
+    const team = this.boundEntity()
+    return team ? cloudDriverFor(this.env, this.sqlStore, team, row, purpose, undefined, provision) : Promise.resolve(null)
   }
 
   /** Test only (fakeControl `unset`): configuration a test removes to prove a fail-closed path. */
@@ -323,31 +358,50 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         .filter(([, p]) => p.machine === machine)
         .map(([key, p]) => ({ p, r: engine.rows.get<LedgerRow>(TABLE_LEDGER, key) }))
         .filter((x) => x.r !== undefined)
+        // Builder and warm-up cleanup are independent: a backed-off delete must not starve its peer.
+        .filter((x) => x.r!.row.op !== "env_cleanup" || x.p.due_at <= Date.now() + this.skewMs)
         .sort((a, b) => (a.r!.n ?? 0) - (b.r!.n ?? 0))[0]
       if (!oldest) return
       const due = oldest.r!
       const row = due.row
       // N4: a request runs a call at once only for its first attempt; after a failure it waits for
       // the backoff like the alarm, so fast same-key retries cannot spend the attempts.
-      const dueLimit = dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
+      // A settled build creates cleanup during this pass, after the alarm's dueBy
+      // snapshot. Attempt that cleanup now while respecting its retry backoff.
+      const dueLimit = row.op === "env_cleanup" ? Date.now() + this.skewMs : dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
       if (oldest.p.due_at > dueLimit) return
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
-      const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
+      // Both cleanup rows are created in one revision; their results need distinct idempotency keys.
+      const commitKey = `driver:${due.n}:${row.op === "env_cleanup" ? `${row.provider_name}:` : ""}${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
-      const driver = cloudDriver(this.env, this.sqlStore)
-      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
-      if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
+      const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot" || row.op === "env_build") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
+      const captureRecovery = row.op === "snapshot" && row.transport === "vm-api"
+      const bindDenied = row.op === "create" && !row.cancel && !this.bindFileConfig()
+      let driver: GuardedCloudDriver | null = null
+      let routingError: DriverError | undefined
+      if ((!planDenied || captureRecovery) && !bindDenied) try {
+        driver = await this.driverFor(row, row.cancel || row.op === "delete" || row.op === "env_cleanup" || row.op === "snapshot_delete" || row.op === "pause" || (planDenied && captureRecovery) ? "cleanup" : "operate", row.op === "create" && !row.cancel)
+      } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
+      // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
+      if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
+      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number }; env_build?: { stage?: "boot" | "ready" | "setup" | "snapshot" | "warm"; log_tail?: string; timings?: { boot_ms: number; ready_ms: number; setup_ms: number; snapshot_ms: number; warm_ms: number; total_ms: number } } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      else if ((row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      if (planDenied && !captureRecovery) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
-      else if (row.op === "create" && !row.cancel && !this.bindFileConfig()) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
+      else if (bindDenied) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
+      else if (routingError) result = { key: row.key, ok: false, error: { code: routingError.code, message: routingError.message }, final: false }
+      else if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       else {
         try {
-          if (row.op === "create" && row.cancel) {
+          if (planDenied && captureRecovery && row.snapshot_name) {
+            const recovered = await driver.recoverSnapshot(row.provider_name, tag, row.snapshot_name)
+            if (!recovered) throw new VmApiSnapshotOutcome("pending")
+            result = { key: row.key, ok: true, provider_id: recovered.id }
+          } else if (row.op === "create" && row.cancel) {
             const found = await driver.findOwned(row.provider_name, tag)
             result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
           } else if (row.op === "create") {
-            // Freestyle's own timers are off (createBody): idle belongs to our policy and backstop.
+            // The provider's own timers are off (every provider's create): idle belongs to our policy and backstop.
             const m = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
             const fromSnapshot = m?.from_snapshot
@@ -360,11 +414,13 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const cfg = this.bindFileConfig()!
             await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, ...cfg }))
             const res = await driver.resourcesOf(row.provider_name, tag).catch(() => null)
+            await this.startEnvironmentSetup(driver, row.provider_name, tag, m)
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
           }
+          else if (row.op === "env_build") result = await this.runEnvironmentBuild(driver, row, tag)
           else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
           else if (row.op === "snapshot" && row.snapshot_name) result = { key: row.key, ok: true, provider_id: (await driver.snapshot(row.provider_name, tag, row.snapshot_name)).id }
-          else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name), { key: row.key, ok: true })
+          else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name, tag, emptyFenceSettles(row)), { key: row.key, ok: true })
           else if (row.op === "resize" && row.size) result = (await driver.resize(row.provider_name, tag, { cpu: row.size.cpu, memory: row.size.memory_mb, storage: row.size.disk_mb }), { key: row.key, ok: true })
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
         } catch (e) {
@@ -372,7 +428,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
           // Only the step, status and provider code: never the key or a provider message body.
           console.warn(JSON.stringify({ msg: "cloud provider call failed", stream: engine.stream, op: row.op, machine: row.machine, attempt: row.attempts + 1, code: err.code, error: err.message }))
           const res = row.op === "resize" && err.final ? await driver.resourcesOf(row.provider_name, tag).catch(() => null) : null
-          result = { key: row.key, ok: false, error: { code: err.code, message: err.message }, final: err.final, ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
+          result = { key: row.key, ok: false, error: { code: err.code, message: err.message }, final: err.final, ...(err instanceof VmApiSnapshotOutcome && err.outcome !== "pending" ? { snapshot_outcome: err.outcome } : {}), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
         }
       }
       if (this.env.ENVIRONMENT === "test" && this.dropResults > 0) {
@@ -380,8 +436,42 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         return
       }
       this.submitSystem("cloud.driver_result", result, commitKey)
-      if (!result.ok) return
+      if (!result.ok && row.op !== "env_cleanup" && !(row.op === "env_build" && result.final)) return
       if (row.op === "start" && driver) await this.edge.started(driver, tag.team, row.machine, engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row, Date.now() + this.skewMs)
+    }
+  }
+
+  /**
+   * One environment build (cloud-environments-DESIGN.md §2) through the CloudSandbox seam: builder from
+   * the deployment's image, detached setup, snapshot under the recorded slug, warm boot, builder deleted.
+   * A setup failure (non-zero exit or past its deadline) is final: the same script fails again. Every other failure retries.
+   */
+  protected async runEnvironmentBuild(driver: GuardedCloudDriver, row: LedgerRow, tag: { team: string; machine: string }) {
+    const env = row.environment ? this.boundEngine?.rows.get<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, row.environment)?.row : undefined
+    if (!env || !row.snapshot_name || !this.config.image) return { key: row.key, ok: false, error: { code: "cloud.environment.not_found", message: "the environment is gone" }, final: true }
+    const sandbox = new GuardedCloudSandbox(driver, tag, row.transport ?? "direct")
+    try {
+      const out = await buildEnvironmentSnapshot(sandbox, env.spec, { baseImage: this.config.image, builderName: row.provider_name, snapshotName: row.snapshot_name, ...(row.env_warm ? { warmName: row.env_warm } : { warmName: null }), setupTimeoutMs: ENV_SETUP_TIMEOUT_MS, ...(this.env.ENVIRONMENT === "test" ? { setupPollMs: 10, readyIntervalMs: 10 } : {}) })
+      const t = out.timings
+      const ms = (n: number) => Math.max(0, Math.round(n))
+      return { key: row.key, ok: true, provider_id: out.snapshotId, env_build: { timings: { boot_ms: ms(t.bootMs), ready_ms: ms(t.readyMs), setup_ms: ms(t.setupMs), snapshot_ms: ms(t.snapshotMs), warm_ms: ms(t.warmMs), total_ms: ms(t.totalMs) } } }
+    } catch (e) {
+      const err = e instanceof EnvironmentBuildError ? e : new EnvironmentBuildError("boot", String(e))
+      const setup = err.stage === "setup"
+      console.warn(JSON.stringify({ msg: "cloud environment build failed", stage: err.stage, environment: env.id, attempt: row.attempts + 1 }))
+      return { key: row.key, ok: false, error: { code: setup ? "cloud.environment.build_failed" : "cloud.provider.unavailable", message: err.message }, final: setup, env_build: { stage: err.stage, ...(err.logTail ? { log_tail: err.logTail } : {}) } }
+    }
+  }
+
+  /** A cold boot of an environment: starts its setup on the new machine, detached; a failure leaves the machine as it is. */
+  protected async startEnvironmentSetup(driver: GuardedCloudDriver, name: string, tag: { team: string; machine: string }, m: MachineRow | undefined) {
+    if (!m?.env_setup) return
+    const env = this.boundEngine?.rows.get<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, m.env_setup.environment)?.row
+    if (!env) return
+    try {
+      await driver.execStdin(name, tag, asWorkUser(environmentBuildStartExec(env.spec, m.env_setup.digest)), null, 60_000)
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: "cloud environment setup did not start", machine: m.id, error: e instanceof Error ? e.message : String(e) }))
     }
   }
 
@@ -409,12 +499,17 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const engine = this.boundEngine
     if (!engine) return
     const now = realNow + this.skewMs
-    const machines = new Set(Object.values(engine.currentState.pending).filter((p) => p.due_at <= now).map((p) => p.machine))
+    const due = Object.entries(engine.currentState.pending).filter(([, p]) => p.due_at <= now)
+    // Environment builds take minutes: every other machine's call runs first.
+    const builds = new Set(due.filter(([key]) => isEnvBuild(engine.rows, key)).map(([, p]) => p.machine))
+    const machines = new Set(due.map(([, p]) => p.machine).filter((m) => !builds.has(m)))
     for (const m of machines) await this.runMachine(m, now)
+    for (const m of builds) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
+    await this.sweepClientIdentities(now).catch(() => undefined)
     await this.pauseSilent(now)
     const entity = this.boundEntity()
     if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))
@@ -425,13 +520,23 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       this.vmStatus.markActivity(d.machine, d.report, now)
       await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
     }
-    const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team
-    if (!driver || !team) return
-    await this.lookUpCancelled(now, team, driver)
-    for (const m of this.edge.schedule.due(now)) await this.edge.refresh(driver, team, m, engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row, now)
+    if (!team) return
+    await this.lookUpCancelled(now, team)
+    for (const m of this.edge.schedule.due(now)) {
+      const row = engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row
+      const driver = row ? await this.driverFor(row) : null
+      if (driver) await this.edge.refresh(driver, team, m, row, now)
+      else this.edge.schedule.retry(m, now)
+    }
     // N5: only while the team has machine, ledger or tombstone rows.
-    if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, () => collectSuspects(driver, team, engine.rows))
+    if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, async () => {
+      const direct = await this.driverFor({ transport: "direct" }, "cleanup")
+      const api = await this.driverFor({ transport: "vm-api" }, "cleanup")
+      const recorded = [...engine.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }), ...engine.rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 })]
+      if ((!direct && recorded.some((r) => r.row.transport === undefined || r.row.transport === "direct")) || (!api && recorded.some((r) => r.row.transport === "vm-api"))) throw new DriverError("cloud.provider.unavailable", "an orphan-report transport is unavailable", false)
+      return [...(direct ? await collectSuspects(direct, team, engine.rows, "direct") : []), ...(api ? await collectSuspects(api, team, engine.rows, "vm-api") : [])]
+    })
   }
 
   /**
@@ -440,7 +545,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
    * there is reported (metadata_mismatch) and never deleted. Deletion is only by ledger name, never
    * from a list.
    */
-  protected async lookUpCancelled(now: number, team: string, driver: GuardedCloudDriver): Promise<void> {
+  protected async lookUpCancelled(now: number, team: string): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
     for (const [key, w] of Object.entries(engine.currentState.watch ?? {})) {
@@ -448,8 +553,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       const stored = engine.rows.get<LedgerRow>(TABLE_LEDGER, key)
       if (!stored) continue
       const l = stored.row
+      const driver = await this.driverFor(l, "cleanup")
       let outcome: "absent" | "deleted" | "mismatch" = "absent"
       try {
+        if (!driver) throw new DriverError("cloud.provider.unavailable", "recorded transport is unavailable", false)
         const vm = await driver.peek(l.provider_name)
         if (vm && vm.tag.cmux_next_team === team && vm.tag.cmux_next_machine === l.machine) {
           await driver.remove(l.provider_name, { team, machine: l.machine })

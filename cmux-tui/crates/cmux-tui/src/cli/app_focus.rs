@@ -16,6 +16,7 @@
 //! (`not_found`), or whose shown workspace is not in the reply, leaves the
 //! daemon's answer as it is. Without an app nothing changes.
 
+use std::collections::HashSet;
 use std::os::unix::net::UnixStream;
 
 use serde_json::{Value, json};
@@ -108,23 +109,54 @@ pub(super) fn focus_in_app(
     }
 }
 
-fn is_not_found(error: &Value) -> bool {
+pub(super) fn is_not_found(error: &Value) -> bool {
     matches!(error.get("code").and_then(Value::as_str), Some("not_found" | "target.not_found"))
 }
 
-/// The workspace the app's focused window shows (`snapshot.get`).
-pub(super) fn app_focused_workspace(stream: &mut UnixStream) -> Option<String> {
+/// What the app's windows show: the focused window's workspace and every
+/// workspace the app has (`snapshot.get`).
+pub(super) struct AppWorkspaces {
+    /// The workspace the app's focused window shows.
+    pub(super) shown: String,
+    /// Every workspace in the app's topology; empty when the app sent none.
+    pub(super) known: HashSet<String>,
+}
+
+impl AppWorkspaces {
+    /// The app shows `shown` and lists no workspaces of its own.
+    pub(super) fn showing(shown: &str) -> Self {
+        Self { shown: shown.to_owned(), known: HashSet::new() }
+    }
+}
+
+/// What the app's windows show (`snapshot.get`).
+pub(super) fn app_workspaces(stream: &mut UnixStream) -> Option<AppWorkspaces> {
     let reply = super::app::request(stream, "snapshot.get", json!({}), super::app::READ_TIMEOUT)
         .ok()?
         .ok()?;
-    reply.pointer("/topology/focus/workspace").and_then(Value::as_str).map(str::to_owned)
+    let shown = reply.pointer("/topology/focus/workspace").and_then(Value::as_str)?.to_owned();
+    let known = reply
+        .pointer("/topology/workspaces")
+        .and_then(Value::as_array)
+        .map(|workspaces| {
+            workspaces
+                .iter()
+                .filter_map(|workspace| workspace.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(AppWorkspaces { shown, known })
 }
 
-/// Sets `focused` on every workspace record in `value` (an object with a
-/// `ws_` id and a `focused` field) to whether it is `shown`, when `shown`
-/// is one of them; otherwise the app does not own this session and `value`
-/// stays as it is. Returns whether it changed the records.
-pub(super) fn overlay_focused(value: &mut Value, shown: &str) -> bool {
+/// Sets `focused` on the workspace records in `value` (objects with a `ws_`
+/// id and a `focused` field) to whether the app's window shows them. A
+/// record the app has (`app.known`) always takes the app's answer, also a
+/// single `workspace <id> show`; when the app lists no workspaces, the
+/// records take it only when `app.shown` is one of them. Records of another
+/// session stay as the daemon said. Returns whether it changed the records.
+pub(super) fn overlay_focused(value: &mut Value, app: &AppWorkspaces) -> bool {
+    let shown = app.shown.as_str();
     fn ids(value: &Value, out: &mut Vec<String>) {
         match value {
             Value::Object(map) => {
@@ -140,33 +172,39 @@ pub(super) fn overlay_focused(value: &mut Value, shown: &str) -> bool {
             _ => {}
         }
     }
-    fn set(value: &mut Value, shown: &str) {
+    fn set(value: &mut Value, shown: &str, owned: &dyn Fn(&str) -> bool) {
         match value {
             Value::Object(map) => {
-                let is_workspace =
-                    map.get("id").and_then(Value::as_str).is_some_and(|id| id.starts_with("ws_"))
-                        && map.get("focused").is_some_and(Value::is_boolean);
-                if is_workspace {
-                    let focused = map.get("id").and_then(Value::as_str) == Some(shown);
-                    map.insert("focused".into(), Value::Bool(focused));
+                let id = map.get("id").and_then(Value::as_str).map(str::to_owned);
+                let is_workspace = id.as_deref().is_some_and(|id| id.starts_with("ws_"))
+                    && map.get("focused").is_some_and(Value::is_boolean);
+                if is_workspace && let Some(id) = id.as_deref().filter(|id| owned(id)) {
+                    map.insert("focused".into(), Value::Bool(id == shown));
                 }
-                map.values_mut().for_each(|v| set(v, shown));
+                map.values_mut().for_each(|v| set(v, shown, owned));
             }
-            Value::Array(items) => items.iter_mut().for_each(|v| set(v, shown)),
+            Value::Array(items) => items.iter_mut().for_each(|v| set(v, shown, owned)),
             _ => {}
         }
     }
     let mut found = Vec::new();
     ids(value, &mut found);
-    if !found.iter().any(|id| id == shown) {
+    if app.known.is_empty() {
+        if !found.iter().any(|id| id == shown) {
+            return false;
+        }
+        set(value, shown, &|_| true);
+        return true;
+    }
+    if !found.iter().any(|id| app.known.contains(id)) {
         return false;
     }
-    set(value, shown);
+    set(value, shown, &|id| app.known.contains(id));
     true
 }
 
 /// The id a focus op's reply names (`value.id`, else `id`).
-fn reply_id(result: &Value) -> Option<String> {
+pub(super) fn reply_id(result: &Value) -> Option<String> {
     result
         .pointer("/value/id")
         .or_else(|| result.get("id"))
@@ -202,8 +240,8 @@ pub(super) fn after_daemon_with(
             focus_in_app(stream, focus, &id)
         }
         Follow::Focused => {
-            if let Some(shown) = app_focused_workspace(stream) {
-                overlay_focused(result, &shown);
+            if let Some(app) = app_workspaces(stream) {
+                overlay_focused(result, &app);
             }
             Ok(())
         }

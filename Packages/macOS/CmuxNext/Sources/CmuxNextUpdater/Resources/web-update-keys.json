@@ -1,0 +1,10 @@
+{
+  "$comment": "The ed25519 keys a cmux-next web update pointer may be signed with (plans/cmux-next/web-ota.md). The app trusts only these; scripts/cmux-next/web-ota-pointer.py verify reads the same file in CI. id is the first 16 hex digits of the SHA-256 of the raw 32-byte key. The private key of each is the CMUX_WEB_OTA_SIGNING_KEY secret of the artifacts environment. To rotate: add the new key here, ship it in a nightly, then switch the secret and remove the old key.",
+  "keys": [
+    {
+      "id": "e5d7bbcacc70703d",
+      "ed25519": "uroy2ajE6JWnMjkx3FNdn88SJN4DCMfLpqZjkwx45WY=",
+      "added": "2026-10-20"
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 # cmux Customization Examples
 
-This file is the catalog of shipped workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
+This file is the catalog of workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
 
-Merge only the relevant top-level keys into the file named above each block. Unlabeled JSON targets `cmux.json`. Preserve unrelated sections, then run `cmux settings reload-configuration`. Prefer project-local `.cmux/cmux.json` for team workflows and global `~/.config/cmux/cmux.json` for personal preferences.
+Most recipes here were written for classic cmux. cmux-next reads `~/.config/cmux/cmux-next.json` only, and does not yet run `workspaceCommand` or `workspace` actions, `commands` layouts, `ui.newWorkspace.*`, Dock files or project-local `.cmux/cmux.json`; see [the skill](../SKILL.md#choose-the-right-surface). Use a recipe on cmux-next only when it needs none of those.
+
+Merge only the relevant top-level keys into `~/.config/cmux/cmux-next.json` (classic recipes name `cmux.json` or `.cmux/cmux.json`). Preserve unrelated sections, then run `cmux settings reload-configuration`.
 
 ## Worktree Agents
 
@@ -162,6 +164,32 @@ Agent buttons alongside the default terminal and browser buttons.
   }
 }
 ```
+
+### Prompt Snippets
+
+Text actions paste reusable prompts into the focused terminal, preserving newlines and indentation. Add `"submit": true` to send Enter afterwards. The receiving shell or agent controls how pasted newlines behave. Snippets defined in a project-local config go through the same trust prompt as a project `type: "command"`, whether or not they submit; snippets in the global config never prompt.
+
+```json
+{
+  "actions": {
+    "review-prompt": {
+      "type": "text",
+      "title": "Review Prompt",
+      "keywords": ["review", "snippet"],
+      "shortcut": "cmd+shift+r",
+      "text": "Review the staged diff for:\n  - regressions\n  - missing tests\n  - naming that hides intent"
+    },
+    "run-tests": {
+      "type": "text",
+      "title": "Run Tests",
+      "text": "npm test -- --watch=false",
+      "submit": true
+    }
+  }
+}
+```
+
+Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action.
 
 ## CI Watch
 

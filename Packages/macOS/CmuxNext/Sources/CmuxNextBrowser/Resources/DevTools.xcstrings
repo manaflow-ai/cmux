@@ -1,0 +1,1447 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "devtools.limit.browserTabOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل في علامات تبويب المتصفح فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi samo u karticama preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Virker kun i browserfaner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funktioniert nur in Browser-Tabs."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Works in browser tabs only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo funciona en pestañas del navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonctionne uniquement dans les onglets du navigateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funziona solo nelle schede del browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザタブでのみ使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការតែក្នុងផ្ទាំងកម្មវិធីរុករកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저 탭에서만 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fungerer bare i nettleserfaner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa tylko w kartach przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funciona somente em abas do navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Работает только во вкладках браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้ได้เฉพาะในแท็บเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca tarayıcı sekmelerinde çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Працює лише у вкладках браузера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ hoạt động trong tab trình duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅适用于浏览器标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅適用於瀏覽器分頁。"
+          }
+        }
+      }
+    },
+    "devtools.limit.chromiumOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium فقط. استخدم الفتح في Chromium لهذه الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo Chromium. Koristite Otvori u Chromiumu za ovu stranicu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun Chromium. Brug Åbn i Chromium til denne side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur Chromium. Verwende „In Chromium öffnen“ für diese Seite."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium only. Use Open in Chromium for this page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo Chromium. Usa Abrir en Chromium para esta página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium uniquement. Utilisez Ouvrir dans Chromium pour cette page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo Chromium. Usa Apri in Chromium per questa pagina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium のみ。このページには「Chromium で開く」を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium តែប៉ុណ្ណោះ។ ប្រើ បើកក្នុង Chromium សម្រាប់ទំព័រនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 전용입니다. 이 페이지에는 Chromium에서 열기를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare Chromium. Bruk Åpne i Chromium for denne siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko Chromium. Użyj Otwórz w Chromium dla tej strony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente Chromium. Use Abrir no Chromium para esta página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только Chromium. Для этой страницы используйте «Открыть в Chromium»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium เท่านั้น ใช้เปิดใน Chromium สำหรับหน้านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca Chromium. Bu sayfa için Chromium'da Aç'ı kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише Chromium. Для цієї сторінки використайте «Відкрити в Chromium»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ Chromium. Hãy dùng Mở trong Chromium cho trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅限 Chromium。请对此页面使用“在 Chromium 中打开”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅限 Chromium。請對此頁面使用「在 Chromium 中開啟」。"
+          }
+        }
+      }
+    },
+    "devtools.limit.noWebView": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقر في علامة تبويب متصفح أو عرض ويب آخر أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo kliknite u karticu preglednika ili drugi web prikaz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klik først i en browserfane eller en anden webvisning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klicke zuerst in einen Browser-Tab oder eine andere Webansicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click in a browser tab or another web view first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primero haz clic en una pestaña del navegador u otra vista web."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cliquez d’abord dans un onglet du navigateur ou une autre vue web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai prima clic in una scheda del browser o in un’altra vista web."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "先にブラウザタブか他の Web ビューをクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចុចក្នុងផ្ទាំងកម្មវិធីរុករក ឬទិដ្ឋភាពវេបផ្សេងទៀតជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 브라우저 탭이나 다른 웹 보기를 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klikk først i en nettleserfane eller en annen nettvisning."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw kliknij kartę przeglądarki lub inny widok WWW."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primeiro clique em uma aba do navegador ou outra visualização web."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала нажмите во вкладке браузера или другом веб-представлении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลิกในแท็บเบราว์เซอร์หรือมุมมองเว็บอื่นก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce bir tarayıcı sekmesine veya başka bir web görünümüne tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спочатку клацніть у вкладці браузера або іншому веб-поданні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trước tiên, hãy bấm vào một tab trình duyệt hoặc chế độ xem web khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先点按浏览器标签页或其他网页视图。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先點按瀏覽器分頁或其他網頁顯示方式。"
+          }
+        }
+      }
+    },
+    "devtools.limit.useConsoleSaveAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقر بزر الماوس الأيمن في وحدة التحكم واختر حفظ باسم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kliknite desnim klikom u Konzoli i odaberite Spremi kao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højreklik i Konsol, og vælg Gem som."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klicke mit der rechten Maustaste in die Konsole und wähle „Speichern unter“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-click in the Console and choose Save as."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Haz clic derecho en la Consola y elige Guardar como."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faites un clic droit dans la Console et choisissez Enregistrer sous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai clic con il pulsante destro nella Console e scegli Salva con nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コンソールを右クリックし、「名前を付けて保存」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចុចខាងស្ដាំក្នុង Console ហើយជ្រើស Save as។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "콘솔에서 마우스 오른쪽 버튼을 클릭하고 다른 이름으로 저장을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyreklikk i Konsoll og velg Lagre som."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kliknij prawym przyciskiem w Konsoli i wybierz Zapisz jako."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clique com o botão direito no Console e escolha Salvar como."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нажмите правой кнопкой в Консоли и выберите «Сохранить как»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลิกขวาในคอนโซลแล้วเลือกบันทึกเป็น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konsol'da sağ tıklayın ve Farklı kaydet'i seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клацніть правою кнопкою в Консолі й виберіть «Зберегти як»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bấm chuột phải trong Bảng điều khiển và chọn Lưu thành."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在控制台中右键点按并选择“另存为”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在控制台中按右鍵並選擇「另存新檔」。"
+          }
+        }
+      }
+    },
+    "devtools.limit.useHeapSnapshotButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح لوحة الذاكرة وانقر على التقاط لقطة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvorite panel Memorija i kliknite Napravi snimak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn panelet Hukommelse, og klik på Tag snapshot."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffne das Arbeitsspeicherfeld und klicke auf „Snapshot erstellen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the Memory panel and click Take snapshot."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre el panel Memoria y haz clic en Tomar instantánea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrez le panneau Mémoire et cliquez sur Prendre un instantané."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri il pannello Memoria e fai clic su Acquisisci snapshot."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メモリパネルを開いて「スナップショットを撮る」をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកផ្ទាំង Memory ហើយចុច Take snapshot។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메모리 패널을 열고 스냅샷 찍기를 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne Minne-panelet og klikk på Ta øyeblikksbilde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz panel Pamięć i kliknij Zrób zrzut."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra o painel Memória e clique em Criar snapshot."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откройте панель «Память» и нажмите «Сделать снимок»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดแผงหน่วยความจำแล้วคลิกถ่ายสแนปชอต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bellek panelini açın ve Anlık görüntü al'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрийте панель «Пам'ять» і натисніть «Зробити знімок»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở bảng Bộ nhớ và bấm Chụp nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开“内存”面板并点按“拍摄快照”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟「記憶體」面板並點按「擷取快照」。"
+          }
+        }
+      }
+    },
+    "devtools.limit.useNodeMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في العناصر، انقر بزر الماوس الأيمن على عقدة واختر التقاط لقطة شاشة للعقدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U Elementima kliknite desnim klikom na čvor i odaberite Snimi ekran čvora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I Elementer skal du højreklikke på en node og vælge Tag skærmbillede af node."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klicke unter „Elemente“ mit der rechten Maustaste auf einen Knoten und wähle „Screenshot des Knotens erstellen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Elements, right-click a node and choose Capture node screenshot."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En Elementos, haz clic derecho en un nodo y elige Capturar pantalla del nodo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans Éléments, faites un clic droit sur un nœud et choisissez Faire une capture d’écran du nœud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In Elementi, fai clic con il pulsante destro su un nodo e scegli Acquisisci screenshot del nodo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要素パネルでノードを右クリックし、「ノードのスクリーンショットをキャプチャ」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្នុង Elements ចុចខាងស្ដាំលើថ្នាំង ហើយជ្រើស Capture node screenshot។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "요소에서 노드를 마우스 오른쪽 버튼으로 클릭하고 노드 스크린샷 캡처를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I Elementer høyreklikker du på en node og velger Ta skjermbilde av node."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W Elementach kliknij węzeł prawym przyciskiem i wybierz Zrób zrzut ekranu węzła."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em Elementos, clique com o botão direito em um nó e escolha Capturar captura de tela do nó."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В «Элементах» нажмите правой кнопкой на узел и выберите «Сделать скриншот узла»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ในองค์ประกอบ คลิกขวาที่โหนดแล้วเลือกจับภาพหน้าจอโหนด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öğeler'de bir düğüme sağ tıklayın ve Düğüm ekran görüntüsü al'ı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В «Елементах» клацніть правою кнопкою на вузол і виберіть «Зробити знімок екрана вузла»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong Phần tử, bấm chuột phải vào một nút và chọn Chụp ảnh màn hình nút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在“元素”中右键点按节点，然后选择“截取节点屏幕截图”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在「元素」中以右鍵點按節點，然後選擇「擷取節點螢幕截圖」。"
+          }
+        }
+      }
+    },
+    "devtools.limit.useRecordButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح لوحة الأداء وانقر على تسجيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvorite panel Performanse i kliknite Snimi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn panelet Ydeevne, og klik på Optag."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffne das Leistungsfeld und klicke auf „Aufzeichnen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the Performance panel and click Record."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre el panel Rendimiento y haz clic en Grabar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrez le panneau Performances et cliquez sur Enregistrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri il pannello Prestazioni e fai clic su Registra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パフォーマンスパネルを開いて「記録」をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកផ្ទាំង Performance ហើយចុច Record។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "성능 패널을 열고 기록을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne Ytelse-panelet og klikk på Ta opp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz panel Wydajność i kliknij Nagraj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra o painel Desempenho e clique em Gravar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откройте панель «Производительность» и нажмите «Записать»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดแผงประสิทธิภาพแล้วคลิกบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Performans panelini açın ve Kaydet'e tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрийте панель «Продуктивність» і натисніть «Записати»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở bảng Hiệu suất và bấm Ghi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开“性能”面板并点按“录制”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟「效能」面板並點按「錄製」。"
+          }
+        }
+      }
+    },
+    "devtools.limit.webKitDockSide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحدد مفتش الويب جانبه بنفسه. استخدم أزرار التثبيت الخاصة به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web Inspector sam bira stranu. Koristite njegova dugmad za sidrenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webinspektør vælger selv sin side. Brug dens forankringsknapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Web-Inspector legt seine Seite selbst fest. Verwende seine Andock-Tasten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Web Inspector sets its own side. Use its dock buttons."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Inspector web elige su propio lado. Usa sus botones de acoplamiento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’Inspecteur web choisit son propre côté. Utilisez ses boutons d’ancrage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web Inspector sceglie il proprio lato. Usa i suoi pulsanti di ancoraggio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webインスペクタは配置を自分で決めます。Webインスペクタのドッキングボタンを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web Inspector កំណត់ចំហៀងរបស់វាដោយខ្លួនឯង។ ប្រើប៊ូតុងភ្ជាប់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹 속성 검사기는 위치를 직접 정합니다. 해당 도킹 버튼을 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webinspektør velger sin egen side. Bruk forankringsknappene der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspektor www sam wybiera stronę. Użyj jego przycisków dokowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Inspetor Web define o próprio lado. Use os botões de encaixe dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-инспектор сам выбирает сторону. Используйте его кнопки закрепления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวตรวจสอบเว็บกำหนดด้านเอง ใช้ปุ่มเชื่อมติดของตัวตรวจสอบเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web İnceleyici kendi tarafını belirler. Onun yerleştirme düğmelerini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-інспектор сам вибирає бік. Використайте його кнопки закріплення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình kiểm tra web tự chọn cạnh. Hãy dùng các nút neo của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网页检查器会自行决定停靠位置。请使用它的停靠按钮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網頁檢閱器會自行決定停駐位置。請使用其停駐按鈕。"
+          }
+        }
+      }
+    },
+    "devtools.limit.webKitNoPanelCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لـ WebKit فتح علامة التبويب هذه مباشرة. افتح مفتش الويب وانقر على علامة التبويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit ne može direktno otvoriti ovu karticu. Otvorite Web Inspector i kliknite karticu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit kan ikke åbne denne fane direkte. Åbn Webinspektør, og klik på fanen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit kann diesen Tab nicht direkt öffnen. Öffne den Web-Inspector und klicke auf den Tab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit cannot open this tab directly. Open the Web Inspector and click the tab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit no puede abrir esta pestaña directamente. Abre el Inspector web y haz clic en la pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit ne peut pas ouvrir cet onglet directement. Ouvrez l’Inspecteur web et cliquez sur l’onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit non può aprire direttamente questa scheda. Apri Web Inspector e fai clic sulla scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit ではこのタブを直接開けません。Webインスペクタを開いてタブをクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit មិនអាចបើកផ្ទាំងនេះដោយផ្ទាល់បានទេ។ បើក Web Inspector ហើយចុចផ្ទាំងនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit은 이 탭을 직접 열 수 없습니다. 웹 속성 검사기를 열고 탭을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit kan ikke åpne denne fanen direkte. Åpne Webinspektør og klikk på fanen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit nie może bezpośrednio otworzyć tej karty. Otwórz Inspektor www i kliknij kartę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O WebKit não consegue abrir esta aba diretamente. Abra o Inspetor Web e clique na aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit не может открыть эту вкладку напрямую. Откройте Веб-инспектор и нажмите на вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit เปิดแท็บนี้โดยตรงไม่ได้ เปิดตัวตรวจสอบเว็บแล้วคลิกแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit bu sekmeyi doğrudan açamaz. Web İnceleyici'yi açın ve sekmeye tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit не може відкрити цю вкладку напряму. Відкрийте Веб-інспектор і клацніть вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit không thể mở trực tiếp tab này. Hãy mở Trình kiểm tra web và bấm vào tab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit 无法直接打开此标签页。请打开网页检查器并点按该标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit 無法直接開啟此分頁。請開啟網頁檢閱器並點按該分頁。"
+          }
+        }
+      }
+    },
+    "devtools.limit.webKitUseNodeMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في مفتش الويب، انقر بزر الماوس الأيمن على عقدة واختر التقاط لقطة شاشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U Web Inspectoru kliknite desnim klikom na čvor i odaberite Snimi ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I Webinspektør skal du højreklikke på en node og vælge Tag skærmbillede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klicke im Web-Inspector mit der rechten Maustaste auf einen Knoten und wähle „Bildschirmfoto aufnehmen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the Web Inspector, right-click a node and choose Capture Screenshot."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En el Inspector web, haz clic derecho en un nodo y elige Capturar pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans l’Inspecteur web, faites un clic droit sur un nœud et choisissez Capture d’écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In Web Inspector, fai clic con il pulsante destro su un nodo e scegli Acquisisci screenshot."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webインスペクタでノードを右クリックし、「スクリーンショットを撮る」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្នុង Web Inspector ចុចខាងស្ដាំលើថ្នាំង ហើយជ្រើស Capture Screenshot។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹 속성 검사기에서 노드를 마우스 오른쪽 버튼으로 클릭하고 스크린샷 캡처를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I Webinspektør høyreklikker du på en node og velger Ta skjermbilde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W Inspektorze www kliknij węzeł prawym przyciskiem i wybierz Zrób zrzut ekranu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No Inspetor Web, clique com o botão direito em um nó e escolha Capturar Tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В Веб-инспекторе нажмите правой кнопкой на узел и выберите «Сделать снимок экрана»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ในตัวตรวจสอบเว็บ คลิกขวาที่โหนดแล้วเลือกจับภาพหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web İnceleyici'de bir düğüme sağ tıklayın ve Ekran Görüntüsü Al'ı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У Веб-інспекторі клацніть правою кнопкою на вузол і виберіть «Зробити знімок екрана»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong Trình kiểm tra web, bấm chuột phải vào một nút và chọn Chụp ảnh màn hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在网页检查器中右键点按节点，然后选择“拍摄屏幕快照”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在網頁檢閱器中以右鍵點按節點，然後選擇「擷取螢幕快照」。"
+          }
+        }
+      }
+    },
+    "devtools.limit.webKitUseTimelines": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الذاكرة في علامة تبويب المخططات الزمنية في مفتش الويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimite memoriju na kartici Vremenske linije u Web Inspectoru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optag hukommelse på fanen Tidslinjer i Webinspektør."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeichne Arbeitsspeicher im Tab „Zeitleisten“ des Web-Inspectors auf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record memory in the Web Inspector's Timelines tab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Graba la memoria en la pestaña Líneas de tiempo del Inspector web."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrez la mémoire dans l’onglet Chronologies de l’Inspecteur web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registra la memoria nella scheda Timeline di Web Inspector."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webインスペクタの「タイムライン」タブでメモリを記録してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតអង្គចងចាំក្នុងផ្ទាំង Timelines របស់ Web Inspector។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹 속성 검사기의 타임라인 탭에서 메모리를 기록하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta opp minne i Tidslinjer-fanen i Webinspektør."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nagraj pamięć na karcie Osie czasu w Inspektorze www."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grave a memória na aba Linhas do Tempo do Inspetor Web."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запишите память во вкладке «Временные шкалы» Веб-инспектора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึกหน่วยความจำในแท็บไทม์ไลน์ของตัวตรวจสอบเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Belleği Web İnceleyici'nin Zaman Çizelgeleri sekmesinde kaydedin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запишіть пам'ять у вкладці «Часові шкали» Веб-інспектора."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghi bộ nhớ trong tab Dòng thời gian của Trình kiểm tra web."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在网页检查器的“时间线”标签页中录制内存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在網頁檢閱器的「時間列」分頁中錄製記憶體。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

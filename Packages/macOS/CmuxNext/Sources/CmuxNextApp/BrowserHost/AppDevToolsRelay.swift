@@ -28,7 +28,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func prepareRelay(targetID: String) async -> Bool {
-        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
+        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTabOnAnyMachine(targetID),
               tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
         marking?.agentWillDrive(targetID: targetID)
         guard let page = await agentReadyPage(tab) else { return false }
@@ -66,7 +66,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
             case is DeferredBrowserTab:
                 cache.startDeferred(key, url: nil)
             case nil:
-                guard let model = services.locateTab(key)?.0 else { return nil }
+                guard let model = services.locateTabOnAnyMachine(key)?.0 else { return nil }
                 _ = cache.browser(for: model)
             default:
                 // A WebKit page for a Chromium record: CEF is not available.

@@ -1,0 +1,49 @@
+.shell-step-gallery {
+  --ssg-space-22: 22px;
+  --ssg-space-8: 8px;
+  --ssg-space-10: 10px;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: var(--ssg-space-22);
+  color: var(--cv-text, #222);
+  background: var(--cv-page, #f4f5f7);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.shell-step-gallery[data-mode="light"] {
+  --cv-page: #f4f5f7;
+  --cv-text: #22252b;
+  --cv-card-ring: color-mix(in srgb, #22252b 10%, transparent);
+  --cv-card-fill: color-mix(in srgb, #22252b 4%, transparent);
+  --cv-text-muted: #626a76;
+  --cv-tool-strong: #30343b;
+}
+.shell-step-gallery[data-mode="dark"] {
+  --cv-page: #17181d;
+  --cv-text: #f4f5f7;
+}
+.shell-step-gallery .cv-tools {
+  margin: 0;
+}
+/* A command block apart from the output: its own inset fill, no hairline. */
+.shell-step-gallery[data-look="split"] .cv-shell__command {
+  padding: var(--ssg-space-8) var(--ssg-space-10);
+  border: 0;
+  border-radius: var(--ssg-space-8);
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}
+.shell-step-gallery[data-look="split"] .cv-shell__command + .cv-shell__body {
+  margin-top: var(--ssg-space-10);
+}
+/* A "$" gutter: every line of the command and of the output starts after it. */
+.shell-step-gallery[data-look="gutter"] .cv-shell__command .cv-line {
+  position: relative;
+  padding-inline-start: 2ch;
+  text-indent: 0;
+}
+.shell-step-gallery[data-look="gutter"] .cv-shell__prompt {
+  position: absolute;
+  inset-inline-start: 0;
+}
+.shell-step-gallery[data-look="gutter"] .cv-shell__body {
+  padding-inline-start: 2ch;
+}

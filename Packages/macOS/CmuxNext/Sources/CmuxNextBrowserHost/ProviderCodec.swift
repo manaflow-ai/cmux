@@ -121,15 +121,20 @@ public nonisolated struct ProviderCodec {
     }
 
     static func announceObject(_ tab: ProviderTabAnnounce) -> [String: Any] {
-        ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
-         "url": tab.url, "title": tab.title, "visible": tab.visible]
+        var object: [String: Any] = ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
+                                     "url": tab.url, "title": tab.title, "visible": tab.visible]
+        if tab.inputScale != 1 { object["inputScale"] = tab.inputScale }
+        if tab.touch { object["touch"] = true }
+        return object
     }
 
     static func announce(_ f: Fields) throws(ProviderCodecError) -> ProviderTabAnnounce {
         ProviderTabAnnounce(targetID: try f.string("targetId"), engine: try f.string("engine"),
                             workspace: try f.string("workspace"), profile: try f.string("profile"),
                             url: try f.string("url"), title: (try? f.string("title")) ?? "",
-                            visible: (try? f.bool("visible")) ?? false)
+                            visible: (try? f.bool("visible")) ?? false,
+                            inputScale: (f.object["inputScale"] as? NSNumber)?.doubleValue ?? 1,
+                            touch: (f.object["touch"] as? Bool) ?? false)
     }
 
     static func leaseObject(_ lease: ProviderLease) -> [String: Any] {

@@ -24,8 +24,14 @@
   min-width: 0;
 }
 
+/* In a narrow pane the actions wrap under the title, never over it or off the edge. */
+.pw-title-row {
+  flex-wrap: wrap;
+}
+
 .pw-title {
-  flex: 1;
+  flex: 1 0 auto;
+  max-width: 100%;
   min-width: 0;
   margin: 0;
   font-size: 20px;
@@ -35,11 +41,19 @@
   text-overflow: ellipsis;
 }
 
+/* One height for every control in the header's rows. */
+.pw-search,
+.pw-select,
+.pw-button {
+  box-sizing: border-box;
+  height: 28px;
+}
+
 .pw-search {
   flex: 1;
   min-width: 0;
   font-size: 15px;
-  padding: 6px 10px;
+  padding: 0 10px;
   border-radius: 7px;
   border: 1px solid var(--page-separator);
   background: transparent;
@@ -138,8 +152,12 @@
   border-radius: 6px;
 }
 
-.pw-row:hover {
-  background: var(--page-hover);
+/* A login keeps a readable username: in a narrow pane its badges, last-used and actions wrap under
+   it instead of squeezing it to one letter. Passkey and exception rows stay one line: their site
+   name ellipsizes. */
+.pw-site .pw-row {
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 
 .pw-site .pw-row {
@@ -167,7 +185,7 @@
 }
 
 .pw-username {
-  flex: 1;
+  flex: 1 1 8em;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -181,7 +199,7 @@
 
 .pw-username-form {
   display: flex;
-  flex: 1;
+  flex: 1 1 8em;
   min-width: 0;
   margin: 0;
 }

@@ -21,15 +21,21 @@ public struct TabGroupDropResolution: Equatable, Sendable {
 /// `start`, because the real slots still contain the dragged item's space.
 public struct TabGroupDropMath {
     public init() {}
-    /// Resolves index and group membership for a tab whose leading edge is
-    /// at `draggedMinX`.
+    /// Resolves index and group membership for a dragged tab probed at
+    /// `draggedMinX`.
     ///
-    /// The candidate edge nearest to the leading edge wins. A position
-    /// between two members of a group (or right after its chip) is inside it.
-    /// A position after a group's last member is ambiguous; the tab stays in
-    /// its current membership until its leading edge passes the group edge
-    /// by `hysteresis`, so it does not flicker in and out at the boundary.
-    /// Positions inside a collapsed group are never chosen.
+    /// The probe is the card's leading edge for a reorder within one strip,
+    /// and the pointer for a tab dropped from elsewhere, so that drop lands
+    /// after a tab once the pointer passes its midpoint.
+    ///
+    /// The candidate edge nearest to the probe wins. A position between two
+    /// members of a group (or right after its chip) is inside it. A position
+    /// after a group's last member is ambiguous; the tab stays in its current
+    /// membership until the probe passes the group edge by `hysteresis`, so
+    /// it does not flicker in and out at the boundary. A last member narrower
+    /// than twice `hysteresis` leaves no room for that, so membership changes
+    /// only at the next slot. Positions inside a collapsed group are never
+    /// chosen.
     public static func resolveTab(
         entries: [TabLayoutSlot],
         start: CGFloat,

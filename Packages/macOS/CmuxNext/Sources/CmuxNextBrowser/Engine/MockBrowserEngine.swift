@@ -108,6 +108,11 @@ public final class MockBrowserTab: BrowserTab {
     public var showsExtensionToolbar = false
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
     @ObservationIgnored public let extensionBackend = MockExtensionBackend()
+    // Extension omnibox keywords (`BrowserOmniboxKeywordProviding`, MockBrowserTab+Omnibox).
+    /// The keywords the page's extensions offer; none by default.
+    @ObservationIgnored public var omniboxKeywordsFake: [OmnibarKeyword] = []
+    /// Each keyword session's Enter (`omniboxKeywordEntered`), in order.
+    @ObservationIgnored public internal(set) var enteredOmniboxKeywords: [(extensionID: String, text: String)] = []
     @ObservationIgnored public private(set) lazy var extensionStore = BrowserExtensionStore(
         profile: profileID, backend: extensionBackend
     )
@@ -151,6 +156,16 @@ public final class MockBrowserTab: BrowserTab {
 
     public func emit(_ intent: BrowserTabIntent) {
         delegate?.browserTab(self, didRequest: intent)
+    }
+
+    /// Queues a prompt as an engine's tab does: answering it removes it.
+    func enqueuePrompt(_ kind: BrowserPromptKind, origin: String, completion: @escaping (BrowserPromptResponse) -> Void) {
+        var prompt: BrowserPrompt?
+        prompt = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
+            self?.pendingPrompts.removeAll { $0 === prompt }
+            completion(response)
+        }
+        if let prompt { pendingPrompts.append(prompt) }
     }
 
     // MARK: BrowserTab
@@ -213,7 +228,7 @@ public final class MockBrowserTab: BrowserTab {
         return image
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
         commands.append(.evaluate(script))
         return evaluationResult
@@ -301,7 +316,7 @@ final class MockPageView: NSView {
 }
 
 /// Records restores; saves `navigation` (else the shown page) with the
-/// measured scroll position on the shown entry.
+/// page's reported, else measured, scroll position on the shown entry.
 extension MockBrowserTab: BrowserSessionRestoring {
     public func restoreSession(_ entries: [BrowserSavedEntry], current: Int) {
         restoredSessions.append(BrowserSavedSession(entries: entries, current: current))
@@ -314,6 +329,8 @@ extension MockBrowserTab: BrowserSessionRestoring {
         guard let url = state.url else { return nil }
         var session = BrowserRestoredHistory.empty.session(around: navigation, shown: BrowserNavigationEntry(url: url, title: state.title))
         guard session.entries.indices.contains(session.current) else { return nil }
+        // As BrowserRestoredSession: the page's own report, then a measure over it.
+        if let report = state.scrollReport, report.url == url { session.entries[session.current].scrollY = report.y }
         if let y { session.entries[session.current].scrollY = y }
         return session
     }
@@ -328,4 +345,9 @@ extension MockBrowserTab: BrowserBackForwardListing {
         commands.append(.goToEntry(offset))
         return navigation != nil
     }
+}
+
+/// Mute as the real engines report it: the state follows at once.
+extension MockBrowserTab: BrowserAudioMuting {
+    public func setAudioMuted(_ muted: Bool) { simulate(.audioMutedChanged(muted)) }
 }

@@ -1,17 +1,48 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextFocus
 
 // The focus topology of the shown workspace and the helpers creation paths
 // use to ask for focus on something that lands later.
 extension WorkspaceContentController {
-    /// Tells the coordinator the current panes, tabs and selections.
-    func sendTopology() {
-        guard !isParked else { return }
+    /// Tells the coordinator the current panes, tabs and selections. While
+    /// `apply` runs it sends once, at its end. The coordinator drops a
+    /// topology equal to the one it holds.
+    func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
+        guard !isParked, !isApplying else { return }
+        focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
+        debugTopologySends &+= 1
+        DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
+        rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
+    }
+
+    /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
+    /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
+    func rekeySurfaceWait() {
+        guard let wait = focus.state.expectation, case .surface(let raw) = wait.key, let value = UInt64(raw),
+              let tab = daemon.store.tab(surface: SurfaceID(rawValue: value)) else { return }
+        focus.expect(.tab(tab.id), target: wait.target, awayFrom: wait.awayFrom, generation: wait.generation)
+    }
+
+    /// A pane's part of the topology changed: every pane that changes in this main-actor turn
+    /// shares one build and send (`FocusCoordinator.setNeedsTopology`), not one each (I4).
+    func setNeedsTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
+        guard !isParked, !isApplying else { return }
+        focus.setNeedsTopology(owner: self) { [weak self] in
+            guard let self, !self.isParked, !self.isApplying else { return nil }
+            #if DEBUG
+            DebugLayoutCounters.topologySends &+= 1
+            self.debugTopologySends &+= 1
+            DebugLayoutCounters.note("topology", file, line)
+            #endif
+            self.rekeySurfaceWait() // lands on this topology when it adds the tab (the reducer keeps the wait)
+            return self.focusTopology()
+        }
     }
 
     /// Panes in layout order (every screen, in screen order). A pane whose
@@ -25,7 +56,7 @@ extension WorkspaceContentController {
                 continue
             }
             guard let handle = handles.panes[id], let model = daemon.store.pane(handle) else { continue }
-            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: String($0.surface.rawValue), kind: .of($0)) }
+            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, kind: .of($0)) }
             let selected = state.selection.selection(in: model.id).flatMap { id in tabs.contains { $0.id == id } ? id : nil }
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
@@ -42,7 +73,14 @@ extension WorkspaceContentController {
 
     /// The shown workspace's focus history, newest first (focus.md 4a).
     var recentPanes: [LayoutPaneID] {
-        focus.state.recentPanes.map(LayoutPaneID.init(rawValue:))
+        focus.recentPanes().map(LayoutPaneID.init(rawValue:))
+    }
+
+    /// The daemon pane shown as layout pane `key` (its controller's, else the store's).
+    func paneModel(key: String) -> PaneModel? {
+        let id = LayoutPaneID(key)
+        if let controller = panes[id] { return controller.pane }
+        return handles.panes[id].flatMap(daemon.store.pane)
     }
 
     /// Focuses the most recently focused pane of `screen`, else its first.
@@ -65,8 +103,28 @@ extension WorkspaceContentController {
     /// once it left that pane (a tab created there and moved away).
     func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
                      generation: UInt64? = nil) {
-        focus.expect(.surface(String(surface.rawValue)), target: target, awayFrom: paneKey, generation: generation)
-        applyCurrent()
+        // The coordinator lands an expectation against the topology it holds at once (reducer
+        // `Expect`), and again on each later topology: no re-apply or topology send here.
+        // The topology names tabs by id: a tab the store has goes by its id; else `rekeySurfaceWait` later.
+        let key: FocusState.Expectation.Key = daemon.store.tab(surface: surface).map { .tab($0.id) } ?? .surface(String(surface.rawValue))
+        focus.expect(key, target: target, awayFrom: paneKey, generation: generation)
+    }
+}
+
+extension FocusTopology {
+    /// This topology without `pane`, as the daemon's tree without it will show it: its column keeps
+    /// its id and loses the pane, and a column left empty goes (`PaneController.showPaneClose`).
+    func removing(pane id: String) -> FocusTopology {
+        var topology = self
+        topology.panes.removeAll { $0.id == id }
+        topology.screens = screens.map { columns in
+            columns.compactMap { column in
+                var column = column
+                column.panes.removeAll { $0 == id }
+                return column.panes.isEmpty ? nil : column
+            }
+        }
+        return topology
     }
 }
 
@@ -98,8 +156,7 @@ extension PaneController {
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
-            guard let tab = byID[id] else { return FocusTopology.Tab(id: id, kind: .other) }
-            return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
+            return byID[id].map { FocusTopology.Tab(id: id, kind: .of($0)) } ?? FocusTopology.Tab(id: id, kind: .other)
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
     }

@@ -21,11 +21,14 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     public var attention: String?
     /// That session's latest reply, one line; nil without a live session.
     public var preview: String?
+    /// The chat whose agent started this one (acpmux `parent`): it folds under that chat and is
+    /// never listed on its own (Leo 2026-10-13).
+    public var parent: String?
 
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
                 roots: [String] = [], sourcePath: String? = nil, brand: String? = nil, attention: String? = nil,
-                preview: String? = nil) {
+                preview: String? = nil, parent: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -40,6 +43,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.brand = brand
         self.attention = attention
         self.preview = preview
+        self.parent = parent
     }
 
     /// Decodes the daemon's `chat_value` object. Unknown optional fields are ignored.
@@ -57,7 +61,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   messageCount: (json["messageCount"] as? NSNumber).map { $0.intValue },
                   accounts: json["accounts"] as? [String] ?? [], roots: json["roots"] as? [String] ?? [],
                   sourcePath: json["sourcePath"] as? String, brand: json["brand"] as? String,
-                  attention: json["attention"] as? String, preview: json["preview"] as? String)
+                  attention: json["attention"] as? String, preview: json["preview"] as? String,
+                  parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     private static func milliseconds(_ value: Any?) -> Double? {

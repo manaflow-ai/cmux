@@ -2,8 +2,10 @@
 
 import importlib.util
 import pathlib
+import subprocess
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/package_bisect.py"
@@ -184,6 +186,32 @@ class SaveTests(unittest.TestCase):
                 self.assertEqual(MODULE.State.load("Pkg").probes[shas[0]].run_id, 100)
             finally:
                 MODULE.State.path = original
+
+
+class JobLogTests(unittest.TestCase):
+    """gh 2.45 refuses --allow-escape-sequences as an unknown flag and reads nothing (2026-10-30)."""
+
+    def answers(self, *results):
+        calls = []
+
+        def fake(argv, **_):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, *results[len(calls) - 1])
+        return calls, mock.patch.object(MODULE.subprocess, "run", side_effect=fake)
+
+    def test_an_old_gh_is_asked_again_without_the_flag(self):
+        calls, patch = self.answers((1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
+                                    (0, "the log", ""))
+        with patch:
+            self.assertEqual(MODULE.job_log(5), "the log")
+        route = f"repos/{MODULE.REPO}/actions/jobs/5/logs"
+        self.assertEqual(calls, [["gh", "api", "--allow-escape-sequences", route], ("gh", "api", route)])
+
+    def test_any_other_failure_exits_with_no_retry(self):
+        calls, patch = self.answers((1, "", "gh: Not Found (HTTP 404)"))
+        with patch, self.assertRaises(SystemExit):
+            MODULE.job_log(5)
+        self.assertEqual(len(calls), 1)
 
 
 class OverlayTests(unittest.TestCase):

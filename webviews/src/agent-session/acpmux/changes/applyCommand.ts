@@ -46,5 +46,6 @@ export function applyCommand(changeSet: ChangeSet): string | undefined {
   // A patch line equal to the marker would end the here-document early.
   if (patch.split("\n").includes(MARKER)) return undefined;
   // From a subdirectory, git apply would skip every path outside it and still succeed.
+  // l10n-allow: a shell command the user copies, not prose
   return `git -C "$(git rev-parse --show-toplevel)" apply <<'${MARKER}'\n${patch}${MARKER}\n`;
 }

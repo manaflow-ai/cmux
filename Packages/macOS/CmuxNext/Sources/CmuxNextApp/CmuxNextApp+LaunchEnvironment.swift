@@ -15,7 +15,12 @@ extension CmuxNextApp {
     static func prepareLaunchEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
         // Cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
-        LaunchIdentity.stripInheritedEnvironment(environmentGuard: environmentGuard)
+        let stripped = LaunchIdentity.stripInheritedEnvironment(environmentGuard: environmentGuard)
+        // The names only (never values), so a launch knob lost to another
+        // cmux's terminal shows in the app's log.
+        if !stripped.isEmpty {
+            FileHandle.standardError.write(Data("cmux: ignored inherited \(stripped.joined(separator: " "))\n".utf8))
+        }
 #if DEBUG
         applyConfigFileArgument(environmentGuard: environmentGuard)
 #endif

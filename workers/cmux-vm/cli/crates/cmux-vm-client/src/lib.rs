@@ -98,6 +98,27 @@ pub fn authenticated_raw_client(
     Ok(raw::Client::new_with_client(&base_url, http))
 }
 
+/// A signed invitation request carries no account headers and never follows
+/// redirects, which could forward its one-time code to another origin.
+pub fn unauthenticated_raw_client(
+    base_url: &str,
+    user_agent: &str,
+) -> Result<raw::Client, ClientBuildError> {
+    let base_url = base_url.trim_end_matches('/');
+    match reqwest::Url::parse(base_url) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") && url.has_host() => {}
+        _ => return Err(ClientBuildError::InvalidBaseUrl(base_url.to_owned())),
+    }
+    let http = reqwest::Client::builder()
+        .user_agent(user_agent)
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(ClientBuildError::Http)?;
+    Ok(raw::Client::new_with_client(base_url, http))
+}
+
 fn authenticated_http(
     base_url: &str,
     api_key: &str,

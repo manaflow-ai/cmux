@@ -40,7 +40,7 @@ import Testing
     @Test func theCertificateViewersSelectedSegmentIsTheThemeSelection() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                             failure: nil)
+                                             failure: nil, activeLook: nil)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)
@@ -81,8 +81,12 @@ import Testing
         spinner.isWindowVisible = !visible
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         #expect(spinner.isWindowVisible == visible, "the spinner follows its window's occlusion (visible: \(visible))")
-        if visible, StatusIndicatorAppearance.shared.config.animatesLoops {
-            #expect(spinner.indicator.runningAnimation == .step, "the native spokes step once the window shows")
+        let config = StatusIndicatorAppearance.shared.config
+        if visible, config.animatesLoops {
+            // The configured loading glyph, the same one tabs and rows draw (synced spinners, 2026-10-20).
+            let busy = StatusIndicatorPlan.make(.busy, style: config.style(hint: nil), animates: true,
+                                                set: config.iconSet, isStatic: config.isStatic)
+            #expect(spinner.indicator.runningAnimation == busy.animation, "the spinner moves once the window shows")
         }
     }
 
@@ -93,7 +97,7 @@ import Testing
                           animated: false)
         for scope in [light, try ThemedOverlayColorsTests.purpleRoom()] {
             let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                                 failure: nil)
+                                                 failure: nil, activeLook: nil)
             window.isReleasedWhenClosed = false
             defer { window.close() }
             scope.adopt(window)
@@ -113,7 +117,7 @@ import Testing
     @Test func theSelectedSegmentsLabelDrawsInItsInkAndDimsWhenDisabled() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                             failure: nil)
+                                             failure: nil, activeLook: nil)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)

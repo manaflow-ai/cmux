@@ -6,17 +6,27 @@ public import Foundation
 /// descriptor does not admit; params arrive without an `origin` (the context has it).
 @MainActor
 public protocol PageProvider: AnyObject {
+    var eventsAfterSubscribeReply: Bool { get }
     /// Answers one call or throws ``PageError``.
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue
     /// Starts an event stream with the page's `filter` (an object, possibly empty); `onEvent` runs
     /// on the main actor for each event, in order.
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription
+
+    func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?)
+    var eventDeliveryID: UInt64? { get }
 }
 
 public extension PageProvider {
+    var eventsAfterSubscribeReply: Bool { false }
+
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         throw PageError.unknownOp(stream)
     }
+
+    var eventDeliveryID: UInt64? { nil }
+    func eventDeliveryDropped(stream: String, data: JSONValue) {}
+    func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?) {}
 }

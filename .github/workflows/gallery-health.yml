@@ -1,0 +1,223 @@
+name: gallery health
+
+# Every gallery state must render (scripts/gallery-matrix/health.ts): a state that errors, never
+# reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
+# scripts/gallery-matrix/broken-allowlist.json names it with why. On a pull request, a red state that is red the
+# same way on the base it merged with is the base's: the check warns on it and passes (base reds
+# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request, and each push to
+# feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
+# a change to the checker). A schedule here would never fire: GitHub runs schedules only from the
+# default branch (main), and this workflow lives on feat-cmux-next.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened]
+    paths:
+      - "webviews/**"
+      - "scripts/gallery-matrix/**"
+      - "bun.lock"
+      - ".github/workflows/gallery-health.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "webviews/**"
+      - "scripts/gallery-matrix/**"
+      - "bun.lock"
+      - ".github/workflows/gallery-health.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  # A push renders only what it touched, so a later push must not cancel it.
+  group: gallery-health-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  health:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
+      # a branch cut before a base fix must not keep failing on what base already fixed. A push
+      # renders the pushed commit.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Resolve the head and the merge
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          merge=$(git rev-parse HEAD)
+          if [ "$EVENT" = pull_request ]; then
+            # The merge ref moves with each push; a stale one renders another head.
+            [ "$(git rev-parse HEAD^2)" = "$PR_HEAD" ] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again"; exit 1; }
+            head=$PR_HEAD
+            base=$(git rev-parse HEAD^1)
+          else
+            head=$merge
+            base=
+          fi
+          { echo "head_sha=$head"; echo "merge_sha=$merge"; echo "base_sha=$base"; } >> "$GITHUB_OUTPUT"
+          echo "head $head, rendering $merge${base:+ (merged with base $base)}"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Choose the entries to render
+        id: entries
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          cd webviews
+          bun install --frozen-lockfile
+          if [ "$EVENT" = pull_request ]; then
+            # The merge's first parent is the base it was merged with: the diff is the pull request's change.
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            git diff --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
+          else
+            # A new branch tip with no previous commit to compare: render everything.
+            echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
+          fi
+          if [ -s "$RUNNER_TEMP/changed.txt" ]; then
+            bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+            # The checker itself changed: render everything with it.
+            if grep -q '^scripts/gallery-matrix/\|^\.github/workflows/gallery-health\.yml$' "$RUNNER_TEMP/changed.txt"; then
+              echo 'all=true' >> "$GITHUB_OUTPUT"
+            else
+              echo "all=$(jq -r .all "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
+            fi
+            echo "ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
+          else
+            echo 'all=false' >> "$GITHUB_OUTPUT"
+            echo 'ids=' >> "$GITHUB_OUTPUT"
+          fi
+
+      # A red here is judged state by state against the base in the next step, so the step goes on.
+      - name: Render the gallery and judge it
+        id: render
+        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        continue-on-error: true
+        env:
+          ALL: ${{ steps.entries.outputs.all }}
+          IDS: ${{ steps.entries.outputs.ids }}
+          SHARD: ${{ matrix.shard }}
+          CMUX_GALLERY_IN_VM: "1"
+        run: |
+          set -euo pipefail
+          cd webviews
+          if [ "$ALL" = true ]; then
+            bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
+          else
+            bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
+          fi
+          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+          bun install --frozen-lockfile
+          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+          bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
+            --output-dir "$RUNNER_TEMP/health" --shard-count 4 --shard-index "$SHARD"
+
+      # The rulebook's base reds are warnings: each red state of a pull request is rendered again on
+      # the base it merged with (the merge's first parent), by the same checker, budgets and
+      # allowlist, and scripts/ci/test_reds.py (the one per-test classifier) compares them state by
+      # state. A state red the same way on the base is a warning; any other red state, a crashed
+      # render, a health.json that is missing or cut short, a base render that gives no whole
+      # result, and any red on a push (it has no base to compare with) fail the check.
+      - name: Judge the red states against the base
+        if: ${{ !cancelled() && steps.render.outcome == 'failure' }}
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          # health.ts renders only on CI or a VM; without this it stops before it writes a verdict.
+          CMUX_GALLERY_IN_VM: "1"
+        run: |
+          set -euo pipefail
+          classify="$RUNNER_TEMP/test_reds.py"
+          cp scripts/ci/test_reds.py "$classify"
+          head="$RUNNER_TEMP/health/health.json"
+          if [ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]; then
+            echo "::error::gallery health is red on this $EVENT, which has no base to compare with"
+            exit 1
+          fi
+          rc=0
+          entries=$(python3 "$classify" gallery --head "$head" --entries) || rc=$?
+          if [ "$rc" = 2 ]; then
+            echo "::error::the render step failed but health.json names no red state: a setup or tool failure, never a base red"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || exit 1
+          echo "replaying on base $BASE_SHA: $entries"
+          # Everything but the checker goes back to the base, so only the webviews tree differs.
+          git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
+          cd webviews
+          bun install --frozen-lockfile
+          bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-manifest.json"
+          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+          # Red on the base is the point here: its exit says so, and its verdict is read from health.json
+          # below. A replay that wrote no health.json gave no verdict, and says so here.
+          rc=0
+          bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
+            --output-dir "$RUNNER_TEMP/health/base" || rc=$?
+          if [ ! -s "$RUNNER_TEMP/health/base/health.json" ]; then
+            echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
+            exit 1
+          fi
+          rc=0
+          python3 "$classify" gallery --head "$head" --base "$RUNNER_TEMP/health/base/health.json" \
+            --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
+          grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
+
+      - name: Record what was rendered
+        if: ${{ always() && steps.resolve.outcome == 'success' }}
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          MERGE_SHA: ${{ steps.resolve.outputs.merge_sha }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/health"
+          # The head the pull request shows, beside the merge commit actually rendered.
+          jq -n --arg head "$HEAD_SHA" --arg merge "$MERGE_SHA" --arg base "$BASE_SHA" \
+            '{head_sha: $head, rendered_sha: $merge, base_sha: $base}' > "$RUNNER_TEMP/health/source.json"
+
+      - name: Upload the health run
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-health-${{ matrix.shard }}
+          path: ${{ runner.temp }}/health
+          if-no-files-found: ignore
+          retention-days: 7

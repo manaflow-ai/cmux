@@ -43,7 +43,7 @@ fn startup_child_cleanup_reports_group_signal_failure() {
 
 #[test]
 fn default_host_cell_metrics_initialize_both_terminal_backends() {
-    let size = pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap();
+    let size = pty_size(80, 24, DEFAULT_CELL_PIXELS);
     assert_eq!((size.cols, size.rows, size.pixel_width, size.pixel_height), (80, 24, 640, 384));
 
     let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
@@ -56,17 +56,17 @@ fn default_host_cell_metrics_initialize_both_terminal_backends() {
 }
 
 #[test]
-fn pty_size_rejects_pixel_dimension_overflow() {
+fn pty_size_saturates_pixel_dimension_overflow() {
     let maximum_cols = u16::MAX / DEFAULT_CELL_PIXELS.0;
-    let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS).unwrap();
+    let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS);
     assert_eq!(boundary.pixel_width, maximum_cols * DEFAULT_CELL_PIXELS.0);
 
-    let width_error = pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS).unwrap_err();
-    assert!(width_error.to_string().contains("pixel width"));
+    let wide = pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS);
+    assert_eq!((wide.cols, wide.pixel_width), (maximum_cols + 1, u16::MAX));
 
     let maximum_rows = u16::MAX / DEFAULT_CELL_PIXELS.1;
-    let height_error = pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS).unwrap_err();
-    assert!(height_error.to_string().contains("pixel height"));
+    let tall = pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS);
+    assert_eq!((tall.rows, tall.pixel_height), (maximum_rows + 1, u16::MAX));
 }
 
 #[test]
@@ -102,6 +102,7 @@ fn launch_round_trip_preserves_ghostty_defaults() {
             placements: 20,
         },
         seed: b"seeded".to_vec(),
+        workspace_key: String::new(),
     };
 
     let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
@@ -153,6 +154,7 @@ fn launch_failure_is_reported_before_bootstrap_pipe_closes() {
         default_colors: DefaultColors::default(),
         kitty_graphics_limits: KittyGraphicsLimits::default(),
         seed: Vec::new(),
+        workspace_key: String::new(),
     };
     let mut input = Vec::new();
     write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
@@ -229,6 +231,7 @@ fn snapshot_payload_round_trip_preserves_kitty_image_alias_section() {
         cwd: Some("/tmp".into()),
         osc_progress: String::new(),
         program_status: None,
+        shell_activity: None,
     };
     let payload = encode_snapshot(&snapshot).unwrap();
 
@@ -259,6 +262,7 @@ fn snapshot_payload_round_trip_preserves_negotiated_terminal_metadata() {
         cwd: None,
         osc_progress: "4;1;50".into(),
         program_status: None,
+        shell_activity: None,
     };
     let payload = encode_snapshot_for_version(&snapshot, PROTOCOL_VERSION, true).unwrap();
     let decoded = decode_snapshot_for_version(&payload, PROTOCOL_VERSION, true).unwrap();
@@ -313,6 +317,7 @@ fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
         cwd: None,
         osc_progress: String::new(),
         program_status: None,
+        shell_activity: None,
     };
 
     assert_eq!(
@@ -341,6 +346,7 @@ fn legacy_snapshots_and_resizes_decode_without_newer_tails() {
         cwd: Some("/tmp".into()),
         osc_progress: String::new(),
         program_status: None,
+        shell_activity: None,
     };
     let snapshot_payload = encode_snapshot(&snapshot).unwrap();
     let v2_snapshot_len = snapshot_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
@@ -500,6 +506,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
             cwd: None,
             osc_progress: String::new(),
             program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
@@ -508,6 +515,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

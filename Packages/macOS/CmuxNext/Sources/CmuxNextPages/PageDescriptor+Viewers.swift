@@ -40,8 +40,9 @@ public nonisolated struct DiffPageCommand {
 }
 
 /// The markdown page's host commands (diff-host.md S6, webviews/src/pages/markdown/README.md): the
-/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `link` (Cmd-K) and
-/// the zoom commands while a markdown page has the keyboard; the page reads no chord itself.
+/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `reload` (Cmd-R),
+/// `link` (Cmd-K) and the zoom commands while a markdown page has the keyboard; the page reads no
+/// chord itself. The omnibar's buttons and field send `back`, `forward`, `reload` and `open`.
 public nonisolated struct MarkdownPageCommand {
     public nonisolated init() {}
     public static let zoomIn = "zoomIn"
@@ -49,15 +50,30 @@ public nonisolated struct MarkdownPageCommand {
     public static let zoomReset = "zoomReset"
     /// Saves the document (Cmd-S, the `markdownSave` action).
     public static let save = "save"
+    /// Reads the file from disk again and shows it at the same scroll (Cmd-R, `markdownReload`).
+    public static let reload = "reload"
+    /// Opens the absolute markdown path in `text` as the page's next history entry (typed in the omnibar).
+    public static let open = "open"
     /// Inserts or edits a link at the selection (Cmd-K, `markdownLink`).
     public static let link = "link"
+    /// Forgets every table's column widths in the open file (`markdownResetTableWidths`).
+    public static let resetTableWidths = "resetTableWidths"
+    /// Forgets the column widths of the table the user right-clicked (the page's context menu).
+    public static let resetContextTableWidths = "resetContextTableWidths"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link]
+    /// The file's viewer comments changed: `text` is the new `{v, comments}` JSON (the page redraws its markers).
+    public static let comments = "comments"
+    /// Scrolls the document to its top (`markdownGoToTop`; a user's `g g` in a read-only page, K1).
+    public static let goToTop = "goToTop"
+    public static let all: Set<String> = [
+        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    ]
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
         "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
-        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
+        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward", "markdownReload": reload,
+        "markdownResetTableWidths": resetTableWidths, "markdownGoToTop": goToTop,
     ]
 }
 
@@ -121,22 +137,27 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(DiffPageCommand.all),
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
-        entry: diffEntry, dynamicPrefixes: ["__patch"])
+        entry: diffEntry, dynamicPrefixes: ["__patch"],
+        // Push (cmux.diff.git.push) acts on one click: not on a click that only brings the window forward.
+        acceptsFirstMouse: false)
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
-    /// highlighting Shiki's JavaScript engine), with images and libraries from its own origin.
+    /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
+    /// compiler (a WebAssembly module with no imports), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
         id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
-        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), entry: markdownEntry,
+        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(script: ["'wasm-unsafe-eval'"], inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
 
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus
     /// `'wasm-unsafe-eval'` for Shiki's Oniguruma engine; no `connect-src` and no `'unsafe-eval'`.
     /// Its worker is a same-origin module, which `script-src 'self'` allows.
+    /// Its one app action is the native command palette: Monaco's own palette (F1, the context
+    /// menu's Command Palette) opens it instead, so no web view has a palette of its own.
     static let editor = PageDescriptor(
         id: "cmux.editor", resource: diffResource, namespaces: ["cmux.editor."],
-        nativeOps: [PageNativeOp.clipboardWrite],
+        nativeOps: [PageNativeOp.clipboardWrite, PageNativeOp.actionRun], actions: ["commandPalette"],
         commands: PageNativeOp.commands.union(EditorPageCommand.all),
         csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)
 }

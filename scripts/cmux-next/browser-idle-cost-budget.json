@@ -1,0 +1,9 @@
+{
+ "_doc": "Limits for scripts/cmux-next/browser-idle-cost-live.py --budget (perf100 browser lane). Page and extension console output never reaches cef.log; cef.log grows by native warnings only.",
+ "console_marker_lines_on_disk": 0,
+ "phases": {
+  "static": {"cef_log_bytes_per_min": 2000},
+  "loading": {"cef_log_bytes_per_min": 2000},
+  "chatty": {"cef_log_bytes_per_min": 2000}
+ }
+}
