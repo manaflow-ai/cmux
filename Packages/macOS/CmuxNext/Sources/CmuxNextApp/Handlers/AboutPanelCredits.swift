@@ -11,7 +11,8 @@ struct AboutPanelCredits {
     let bundle: Bundle
 
     private var includedPRs: String? {
-        guard let url = Bundle.module.url(forResource: "DevBuildIncludedPRs", withExtension: "txt"),
+        guard let url = Bundle.module.url(forResource: "DevBuildIncludedPRs", withExtension: "txt")
+                ?? bundle.url(forResource: "DevBuildIncludedPRs", withExtension: "txt"),
               let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
         guard !lines.isEmpty else { return nil }
