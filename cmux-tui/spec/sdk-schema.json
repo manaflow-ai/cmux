@@ -7260,6 +7260,14 @@
      "presence": "optional",
      "nullable": false
     },
+    "thread": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationThreadState"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
     "created_at": {
      "type": {
       "kind": "scalar",
@@ -7291,6 +7299,66 @@
        "kind": "ref",
        "name": "ConversationReaction"
       }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationThreadState": {
+   "kind": "object",
+   "fields": {
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "resolved": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationThreadResolution"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationThreadResolution": {
+   "kind": "object",
+   "fields": {
+    "by": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
      },
      "presence": "required",
      "nullable": false
@@ -7343,9 +7411,56 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "status": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationThreadStatus"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "resolved_by": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "resolved_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false
+  },
+  "ConversationThreadStatus": {
+   "kind": "enum",
+   "values": [
+    "open",
+    "resolved"
+   ]
   },
   "ConversationImportMessage": {
    "kind": "object",

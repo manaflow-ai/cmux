@@ -285,7 +285,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const root = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, q.root)?.row
     // One code for unknown, a reply, and below the floor: no existence probe.
     if (!root || root.thread_root !== undefined || root.seq <= floor) return { ok: false, code: "unknown_message", message: "no such thread root in this conversation" }
-    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root.id) }, revision: "" }
+    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root) }, revision: "" }
   }
 
   /**

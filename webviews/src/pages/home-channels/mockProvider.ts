@@ -316,6 +316,21 @@ export class MockHomeProvider implements PageClient {
         this.data.messages.set(created.id, []);
         return { conversation: created.id } as R;
       }
+      case HomeOps.updateThread: {
+        const list = this.data.messages.get(id) ?? [];
+        const index = list.findIndex((m) => m.id === params.root && !threadOf(m));
+        if (index < 0) throw pageError("cmux.home.not_found", String(params.root));
+        const old = list[index]!;
+        const thread = { ...old.thread };
+        if (typeof params.title === "string") thread.title = params.title || undefined;
+        if (typeof params.owner === "string") thread.owner = params.owner || undefined;
+        if (params.status === "resolved") thread.resolved = { by: me.id, at: Date.now(), seq: list.length };
+        if (params.status === "open") thread.resolved = undefined;
+        const empty = !thread.title && !thread.owner && !thread.resolved;
+        list[index] = { ...old, thread: empty ? undefined : thread };
+        this.emit({ messages: [list[index]!] });
+        return {} as R;
+      }
       case HomeOps.search:
         return { hits: [] } as R;
       default:

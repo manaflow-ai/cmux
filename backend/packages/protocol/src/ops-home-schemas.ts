@@ -125,6 +125,18 @@ export const ReactionKind = Schema.Union([
 
 export const Reaction = Schema.Struct({ author: ParticipantId, part_index: PartIndex, kind: ReactionKind, at: Timestamp }).annotate({ identifier: "HomeReaction" })
 
+export const ThreadStatus = Schema.Literals(["open", "resolved"]).annotate({ identifier: "HomeThreadStatus" })
+
+/** The thread object a root message carries (thread.update, conversation-thread-objects-v1). */
+export const ThreadState = Schema.Struct({
+  title: Schema.optionalKey(Schema.String),
+  owner: Schema.optionalKey(ParticipantId),
+  resolved: Schema.optionalKey(Schema.Struct({ by: ParticipantId, at: Timestamp, seq: Seq }))
+}).annotate({
+  identifier: "HomeThreadState",
+  description: "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+})
+
 export const Message = Schema.Struct({
   id: MessageId,
   conversation: ConversationId,
@@ -134,6 +146,7 @@ export const Message = Schema.Struct({
   parts: Schema.Array(Part),
   reply_to: Schema.optionalKey(PartRef),
   thread_root: Schema.optionalKey(MessageId),
+  thread: Schema.optionalKey(ThreadState),
   created_at: Timestamp,
   edited_at: Schema.optionalKey(Timestamp),
   retracted_at: Schema.optionalKey(Timestamp),
@@ -149,8 +162,16 @@ export const ThreadSummary = Schema.Struct({
   reply_count: Seq,
   last_reply_seq: Schema.NullOr(Seq),
   last_reply_at: Schema.NullOr(Timestamp),
-  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3))
-}).annotate({ identifier: "HomeThreadSummary" })
+  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3)),
+  status: Schema.optionalKey(ThreadStatus),
+  title: Schema.optionalKey(Schema.String),
+  owner: Schema.optionalKey(ParticipantId),
+  resolved_by: Schema.optionalKey(ParticipantId),
+  resolved_at: Schema.optionalKey(Timestamp)
+}).annotate({
+  identifier: "HomeThreadSummary",
+  description: "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
+})
 
 export const DeliveryState = Schema.Literals(["queued", "sent", "delivered", "bounced", "complained", "failed", "suppressed", "refused_env"]).annotate({ identifier: "HomeDeliveryState" })
 

@@ -5,7 +5,14 @@
 // not retracted) plus the loaded replies the stats did not count yet; without stats, from the
 // loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
-import type { HomeConversation, HomeMessage, HomePart, HomeThreadStats } from "./types";
+import type {
+  HomeConversation,
+  HomeMessage,
+  HomePart,
+  HomeThreadObject,
+  HomeThreadStats,
+  HomeThreadStatus,
+} from "./types";
 
 /** Messages closer than this from the same author share one head. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -55,6 +62,18 @@ export function conversationName(conversation: HomeConversation, me: string | un
   if (conversation.title) return conversation.title;
   const names = conversation.participants.filter((p) => p.id !== me).map((p) => p.name);
   return names.join(", ");
+}
+
+/** A thread's status from its root's object and the newest live reply's seq (the owner's rule):
+ * resolved only while no reply came after the resolution. */
+export function threadStatus(thread: HomeThreadObject | undefined, lastReplySeq: number | undefined): HomeThreadStatus {
+  const resolved = thread?.resolved;
+  return resolved && (lastReplySeq === undefined || lastReplySeq <= resolved.seq) ? "resolved" : "open";
+}
+
+/** A thread's title: its own, else the root's first line. */
+export function threadTitle(root: HomeMessage): string {
+  return root.thread?.title || messageText(root).split("\n", 1)[0]!.trim();
 }
 
 /** The thread a message belongs to (its root's id), or undefined for a top-level message. */

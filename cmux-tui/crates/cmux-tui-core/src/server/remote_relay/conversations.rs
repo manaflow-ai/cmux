@@ -130,7 +130,11 @@ fn remote_op_allowed(op: &Op) -> bool {
         | Op::ReadCursorSet { .. } => true,
         // Paired installs do not see question parts yet (project.rs), so
         // they cannot answer one; allow it with the question projection.
-        Op::ParticipantsAdd { .. } | Op::TitleSet { .. } | Op::QuestionAnswer { .. } => false,
+        // Thread objects are not projected to paired installs yet either.
+        Op::ParticipantsAdd { .. }
+        | Op::TitleSet { .. }
+        | Op::QuestionAnswer { .. }
+        | Op::ThreadUpdate { .. } => false,
     }
 }
 

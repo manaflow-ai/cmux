@@ -475,7 +475,7 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   so the e2e Team plan has the per-seat price only), so one run can cross both included amounts with a
   little real usage (the development daily provider cap is 5 USD). The e2e uses the agent's personal team (Pro, per team) and
   its shared e2e team (sign-in service team e8733fff-8ce2-457b-9d6a-d20223d46a71, team id
-  team_d68c2131970b3ebbd449, cmuxPlan=team on the development sign-in project only; on the development
+  team_34bccc85e7a38258be69, cmuxPlan=team on the development sign-in project only; on the development
   INFERENCE_ALLOWED_TEAMS) set per seat with 2 seats, on one test clock.
 - Order at renewal (S5 follow-up review P2): the sync sends the closed period's final level before it
   adds or moves the usage item for the new period.

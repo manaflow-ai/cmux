@@ -172,9 +172,12 @@ def main():
         result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_BRANCH="op-next-idle-caret")
         _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out and "claim" not in log,
                f"a feat-cmux-next push builds a key a {status} branch run owns ({out.strip()!r}, {log.strip()!r})")
+    # The most common lane flow: safe-push fast-forwards the side-branch
+    # commit, so the branch owner builds the same commit. The publish jobs
+    # keep whichever write-once publication lands first (cx-a1q4d).
     result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_OWNER_SHA="f" * 40)
-    _check(result.returncode == 0 and "takeover=false" in out,
-           f"a branch run building the same commit keeps it: two builds race on its write-once prefix ({out.strip()!r})")
+    _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out,
+           f"a feat-cmux-next push builds the same commit a live branch run owns ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret")
     _check("feat_builder=true" in out, f"the run that takes over says it builds the key ({out.strip()!r})")
     builder_marks = [s for s in job("tree-owner-wait")["steps"] if "upload-artifact" in str(s.get("uses", ""))]

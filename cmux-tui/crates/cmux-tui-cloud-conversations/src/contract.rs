@@ -21,6 +21,7 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "reaction.remove",
     "read_cursor.set",
     "title.set",
+    "thread.update",
     "invite.create",
 ];
 
