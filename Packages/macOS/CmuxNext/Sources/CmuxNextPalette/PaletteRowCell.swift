@@ -192,7 +192,7 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights)
-            swatch.colors = ball.map { [$0.color.ballRGB(marksContent: $0.marksContent)] } ?? swatches
+            swatch.colors = ball.map { [$0.color.ballRGB] } ?? swatches
         }
     }
 

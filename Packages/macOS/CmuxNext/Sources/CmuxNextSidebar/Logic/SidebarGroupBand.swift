@@ -44,7 +44,7 @@ nonisolated struct SidebarGroupBand: Sendable {
         return Hit(anchor: anchor, fraction: (y - row.y) / row.height)
     }
 
-    /// The first color of the theme order no group in `sections` uses yet,
+    /// The first color of the automatic order no group in `sections` uses yet,
     /// so a new group stands apart; never blue or grey.
     static func newGroupColor(in sections: [SidebarSection]) -> GroupColor {
         // The app's own pick follows the no-blue rule (GroupColor.automatic); when every
