@@ -3778,11 +3778,18 @@ jobs:
       contents: write
       issues: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 80
+    # TEMPORARY (hq-a3, 2026-10-14; bead cx-x7hwx follow-up): Apple's notary
+    # queue takes 90+ min, so this copy waits up to
+    # NIGHTLY_LEGACY_NOTARY_WAIT_MIN (default 150) minutes inside a 200-minute
+    # job. The next nightly-next run can wait that long behind it in the
+    # workflow concurrency group. Lower the variable (and this limit) when
+    # Apple's queue is normal again.
+    timeout-minutes: 200
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      LEGACY_NOTARY_WAIT_MIN: ${{ vars.NIGHTLY_LEGACY_NOTARY_WAIT_MIN || '150' }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
       # Release asset names of the cmux NIGHTLY-identity copies. They start with
@@ -3900,10 +3907,12 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
+          [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] && [ "$LEGACY_NOTARY_WAIT_MIN" -ge 10 ] && [ "$LEGACY_NOTARY_WAIT_MIN" -le 165 ] \
+            || { echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2; exit 1; }
           mkdir -p legacy-out
           : > "$RUNNER_TEMP/unused-helper-state"
           CMUX_CHANNEL=nightly \
-            CMUX_NOTARY_WAIT_TIMEOUT=45m \
+            CMUX_NOTARY_WAIT_TIMEOUT="${LEGACY_NOTARY_WAIT_MIN}m" \
             CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
             CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
             CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/legacy.notarization.state" \

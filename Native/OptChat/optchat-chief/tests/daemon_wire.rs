@@ -102,6 +102,7 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
             token_file: Some(token),
             display_name: "Ada".into(),
             title: "Chief".into(),
+            participant: "agent_mux".into(),
         },
         Arc::new(move |e| tx.lock().unwrap().send(e).unwrap()),
         Arc::new(|_: &str| {}),

@@ -1,7 +1,8 @@
 //! The conversation owner's side (home.md section 2): the port the brain
 //! writes through, and the link that connects with cmux-sdk, finds or
 //! creates the Chief conversation exactly as mux/host does, binds as
-//! `agent_mux`, subscribes, and reconnects after a loss.
+//! `agent_mux` (or the Chief's own participant, `membership`), subscribes,
+//! and reconnects after a loss.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -253,6 +254,13 @@ pub struct MuxWake {
 /// (HomeService.mux, HomeChiefName.createRequest), so the owner replays the
 /// app's create (one conversation, the app's Chief tab).
 pub fn participants(display_name: &str) -> Vec<Participant> {
+    chief_participants(display_name, AGENT_MUX, CHIEF_DISPLAY_NAME)
+}
+
+/// The participants of a Chief's own conversation: the person and the Chief
+/// `chief` named `chief_name`; the default Chief is [`participants`].
+pub fn chief_participants(display_name: &str, chief: &str, chief_name: &str) -> Vec<Participant> {
+    let default = chief == AGENT_MUX;
     vec![
         Participant {
             id: USER_LOCAL.into(),
@@ -263,11 +271,11 @@ pub fn participants(display_name: &str) -> Vec<Participant> {
             person: None,
         },
         Participant {
-            id: AGENT_MUX.into(),
+            id: chief.into(),
             kind: ParticipantKind::Agent,
-            display_name: CHIEF_DISPLAY_NAME.into(),
+            display_name: chief_name.into(),
             agent_class: Some(AgentClass::Mux),
-            acp_session: Some(MUX_SESSION_NAME.into()),
+            acp_session: default.then(|| MUX_SESSION_NAME.into()),
             person: None,
         },
     ]
@@ -344,7 +352,7 @@ impl SdkPreviewPort {
             })?;
             client
                 .conversation_bind(ConversationBindRequest {
-                    participant: AGENT_MUX.into(),
+                    participant: self.config.participant.clone(),
                     token,
                 })
                 .map_err(sdk_error)?;
@@ -434,7 +442,7 @@ impl ConversationPort for SdkConversations {
         let data = self
             .client
             .conversation_op(ConversationOpRequest {
-                actor: Optional::Value(AGENT_MUX.into()),
+                actor: Optional::Value(self.config.participant.clone()),
                 conversation: conversation.into(),
                 idempotency_key: key.into(),
                 op: Nullable::value(op),
@@ -472,7 +480,7 @@ impl ConversationPort for SdkConversations {
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
         self.client
             .conversation_typing(ConversationTypingRequest {
-                actor: Optional::Value(AGENT_MUX.into()),
+                actor: Optional::Value(self.config.participant.clone()),
                 conversation: conversation.into(),
                 on,
             })
@@ -482,6 +490,14 @@ impl ConversationPort for SdkConversations {
 
     fn supports(&self, capability: &str) -> bool {
         self.capabilities.iter().any(|c| c == capability)
+    }
+
+    /// The local owner has no wake queue (`membership`): the brain's saved
+    /// floor of each side conversation is the only record, so there is
+    /// nothing to ack.
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        let _ = (conversation, seq);
+        Ok(())
     }
 
     fn preview_port(&self) -> Option<Box<dyn PreviewPort>> {
@@ -527,8 +543,11 @@ pub struct LinkConfig {
     pub socket: PathBuf,
     pub token_file: Option<PathBuf>,
     pub display_name: String,
-    /// The create request's title: the app's (localized) Chief name.
+    /// The create request's title: the app's (localized) Chief name; for a
+    /// Chief that is not the default, also its participant name.
     pub title: String,
+    /// The participant the link binds as (`membership`; default agent_mux).
+    pub participant: String,
 }
 
 impl LinkConfig {
@@ -548,9 +567,27 @@ impl LinkConfig {
 /// (HomeChiefName.select, select_chief_conversation): the oldest conversation
 /// with agent_mux, by created_at, then id.
 pub fn select_chief(conversations: Vec<Summary>) -> Option<Summary> {
+    select_chief_of(conversations, AGENT_MUX)
+}
+
+/// [`select_chief`] for the Chief `chief`. A Chief that is not agent_mux
+/// answers in its oldest DM with the person (the person and the Chief only);
+/// None when it has none, so the link creates it (a channel never becomes a
+/// Chief's main conversation).
+pub fn select_chief_of(conversations: Vec<Summary>, chief: &str) -> Option<Summary> {
+    if chief != AGENT_MUX {
+        return conversations
+            .into_iter()
+            .filter(|c| {
+                c.participants.len() == 2
+                    && c.participants.iter().any(|p| p.id == chief)
+                    && c.participants.iter().any(|p| p.id == USER_LOCAL)
+            })
+            .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)));
+    }
     conversations
         .into_iter()
-        .filter(|c| c.participants.iter().any(|p| p.id == AGENT_MUX))
+        .filter(|c| c.participants.iter().any(|p| p.id == chief))
         .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
 }
 
@@ -597,15 +634,26 @@ fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
         .map_err(other)?;
     let listed: Vec<Summary> = rewire(&listed.conversations, "conversation-list")
         .map_err(|e| ConnectError::Other(e.to_string()))?;
-    let summary = match select_chief(listed) {
+    let summary = match select_chief_of(listed, &config.participant) {
         Some(found) => found,
         None => {
-            let participants = serde_json::to_value(participants(&config.display_name))
+            let (participants, key) = if config.participant == AGENT_MUX {
+                (
+                    participants(&config.display_name),
+                    DEFAULT_CONVERSATION_KEY.to_owned(),
+                )
+            } else {
+                (
+                    chief_participants(&config.display_name, &config.participant, &config.title),
+                    format!("{DEFAULT_CONVERSATION_KEY}-{}", config.participant),
+                )
+            };
+            let participants = serde_json::to_value(participants)
                 .map_err(|e| ConnectError::Other(format!("participants: {e}")))?;
             let created = client
                 .conversation_create(ConversationCreateRequest {
                     actor: Optional::Value(USER_LOCAL.into()),
-                    idempotency_key: DEFAULT_CONVERSATION_KEY.into(),
+                    idempotency_key: key,
                     participants: Nullable::value(participants),
                     title: config.title.clone(),
                 })
@@ -619,7 +667,7 @@ fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
         Some(token) => {
             client
                 .conversation_bind(ConversationBindRequest {
-                    participant: AGENT_MUX.into(),
+                    participant: config.participant.clone(),
                     token,
                 })
                 .map_err(other)?;

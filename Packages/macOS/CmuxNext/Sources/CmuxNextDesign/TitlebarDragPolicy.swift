@@ -53,8 +53,9 @@ public struct TitlebarDragPolicy {
     /// What a left mouse-down at `windowPoint` does to `window`.
     public static func decide(at windowPoint: CGPoint, in window: NSWindow) -> TitlebarPress {
         let band = bandRect(in: window)
-        // Only the band and the top row's strips (a strip can be taller than the band) can move the window.
-        guard band.height > 0, windowPoint.y >= min(band.minY, band.maxY - Metrics.tabStripHeight), let frameView = window.contentView?.superview,
+        // Only the band, the top row's strips and the sidebar header (either can be taller than the band) can move the window.
+        let row = max(Metrics.tabStripHeight, Metrics.titlebarHeight)
+        guard band.height > 0, windowPoint.y >= min(band.minY, band.maxY - row), let frameView = window.contentView?.superview,
               let hit = frameView.hitTest(frameView.convert(windowPoint, from: nil)) else { return .staysPut }
         var view: NSView? = hit
         var background = true

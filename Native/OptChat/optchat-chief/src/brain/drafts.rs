@@ -16,6 +16,14 @@ impl Brain {
         else {
             return;
         };
+        // A Chief that acts on its own may answer NO_REPLY in a channel:
+        // no live text there, only the final draft that clears it.
+        if self.settings.membership.acts_on_its_own()
+            && !draft.done
+            && self.state.conversation.as_deref() != Some(conversation.as_str())
+        {
+            return;
+        }
         self.publish_draft(&conversation, draft);
     }
 
