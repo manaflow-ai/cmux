@@ -26,7 +26,7 @@ nonisolated extension BrowserMediaState {
         (() => {
           if (window.__cmuxMedia) return;
           window.__cmuxMedia = true;
-          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false;
+          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // The elements the tab's mute muted, which Unmute unmutes.
           const hushed = new WeakSet();
           const media = (e) => !!e && (e.tagName === 'VIDEO' || e.tagName === 'AUDIO');
@@ -59,7 +59,13 @@ nonisolated extension BrowserMediaState {
               artwork: artwork(meta), playing: !element.paused && !element.ended,
               muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', tabMuted, actions,
             };
-            const key = JSON.stringify(state);
+            // The position leaves the key: the heartbeat carries it on, and a seek reports at once.
+            const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
+              + (seeked ? '#' + Math.round(element.currentTime) : '');
+            seeked = false;
+            state.position = element.currentTime;
+            state.duration = isFinite(element.duration) ? element.duration : null;
+            state.rate = element.playbackRate;
             // Again every few seconds while it plays: another frame's
             // report may have replaced it.
             if (key === last && !heartbeat) return;
@@ -68,8 +74,11 @@ nonisolated extension BrowserMediaState {
             reported = true;
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
-          for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata']) {
+          for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange']) {
             addEventListener(type, schedule, true);
+          }
+          for (const type of ['seeked', 'ratechange']) {
+            addEventListener(type, () => { seeked = true; schedule(); }, true);
           }
           for (const type of ['play', 'volumechange', 'loadedmetadata']) {
             addEventListener(type, (event) => { if (media(event.target)) hush(event.target); }, true);
@@ -153,6 +162,9 @@ nonisolated extension BrowserMediaCommand {
             return ("(() => { \(element)e.pause(); return true; })()", .isolated)
         case .toggleMute:
             return ("(() => { \(element)e.muted = !e.muted; return true; })()", .isolated)
+        case .seek(let seconds):
+            let to = seconds.isFinite ? max(0, seconds) : 0
+            return ("(() => { \(element)e.currentTime = \(to); return true; })()", .isolated)
         case .muteTab(let on):
             return ("(() => { document.dispatchEvent(new CustomEvent('cmux-media-mute', { detail: \(on) })); return true; })()", .isolated)
         case .previousTrack:

@@ -124,7 +124,11 @@ public struct Metrics {
     /// chrome line.
     public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
     /// Inset of a tab's icon from its pill's leading edge.
-    public static var tabContentLeadingInset: CGFloat { scale(ChromeTunables.tabContentLeadingInset.value) }
+    public static var tabContentLeadingInset: CGFloat {
+        scale((compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).value)
+    }
+    /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
+    public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
     /// The chrome line: tab pills and toolbar button shapes, from the
     /// content border's left edge.
     public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
