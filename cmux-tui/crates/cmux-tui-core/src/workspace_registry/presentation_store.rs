@@ -885,7 +885,12 @@ pub(crate) fn write_workspace_presentation(
             "pinned": record.pinned,
             "marked_unread": record.marked_unread,
         }),
-    )
+    )?;
+    if update.pinned.is_some() {
+        // sidebar-doc-v1: the old pin flag pins or unpins in the document.
+        crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
+    Ok(())
 }
 
 impl WorkspaceRegistry {

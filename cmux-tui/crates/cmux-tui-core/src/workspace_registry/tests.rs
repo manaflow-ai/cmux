@@ -1124,7 +1124,14 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     let c = events.batches[0].changes.as_array().unwrap();
     assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
     assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
-    assert!(c[0].get("event").is_none() && c.len() == 2);
+    assert!(c[0].get("event").is_none());
+    // Then the new workspace's sidebar document item and the document
+    // revision (sidebar-doc-v1).
+    assert!(
+        c[2..].iter().all(|change| change["kind"] == "state_upsert"
+            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+        "{c:?}"
+    );
     assert_eq!(
         registry
             .connection

@@ -57,6 +57,10 @@ enum Strings {
     static var activityNeedsInput: String { String(localized: "sidebar.a11y.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var activityError: String { String(localized: "sidebar.a11y.error", defaultValue: "Error", bundle: .module) }
     static var activityDone: String { String(localized: "sidebar.a11y.done", defaultValue: "Done", bundle: .module) }
+    /// The line under the built-in hover card when the user's card failed to render.
+    static func customCardError(_ message: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.customError", defaultValue: "Custom card error: %@", bundle: .module), message)
+    }
     static var activityPaused: String { String(localized: "sidebar.a11y.paused", defaultValue: "Paused", bundle: .module) }
     static func activityProgress(_ percent: Int) -> String {
         String(format: String(localized: "sidebar.a11y.progress", defaultValue: "%d%% done", bundle: .module), percent)

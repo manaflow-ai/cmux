@@ -275,6 +275,9 @@ export class MockHomeProvider implements PageClient {
           String(params.text ?? ""),
           thread ? { threadRoot: thread, ...(parent ? { replyTo: { message: parent, partIndex: 0 } } : {}) } : {},
         );
+        // The owner keeps the sender's idempotency key as the message's client id (the page's
+        // pending send ends on it).
+        if (typeof params.idempotencyKey === "string") message.clientMessageId = params.idempotencyKey;
         list.push(message);
         this.data.messages.set(id, list);
         this.emit({ messages: [message] });

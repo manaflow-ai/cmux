@@ -67,6 +67,10 @@ class BrowserProviderAuthentication(str, Enum):
     NONE = 'none'
     BEARER = 'bearer'
 
+class BrowserProviderHosting(str, Enum):
+    DAEMON = 'daemon'
+    NATIVE = 'native'
+
 class ClientTransport(str, Enum):
     LOCAL = 'local'
     UNIX = 'unix'
@@ -337,6 +341,7 @@ class AgentRecord:
     state: AgentState
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
+    last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
 
 
@@ -442,6 +447,7 @@ class BrowserProviderSnapshot:
     authentication: Union[BrowserProviderAuthentication, MissingType] = field(default=MISSING)
     clients: Union[int, MissingType] = field(default=MISSING)
     endpoint: Union[str, MissingType] = field(default=MISSING)
+    hosting: Union[BrowserProviderHosting, MissingType] = field(default=MISSING)
     provider_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -3697,6 +3703,7 @@ class RegisterBrowserProviderRequest:
     provider_id: str
     targets: List[BrowserProviderTarget]
     bearer_token: Union[str, None, MissingType] = field(default=MISSING)
+    hosting: Union[BrowserProviderHosting, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4503,6 +4510,7 @@ class AgentChangedEvent(EventBase):
     state: AgentState
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
+    last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5351,6 +5359,7 @@ __all__ = [
     'AgentSource',
     'AgentState',
     'BrowserProviderAuthentication',
+    'BrowserProviderHosting',
     'ClientTransport',
     'CloseReason',
     'ConversationThreadStatus',

@@ -152,6 +152,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.hide"
                         | "palette_usage.forget"
                         | "sidebar_layout.update"
+                        // The sidebar document (sidebar-doc-v1) is the app's
+                        // too; the CLI has no sidebar verbs yet.
+                        | "sidebar.adopt"
+                        | "sidebar.apply"
+                        | "sidebar.get"
+                        | "sidebar.group.create"
+                        | "sidebar.group.ungroup"
+                        | "sidebar.group.update"
+                        | "sidebar.item.add"
+                        | "sidebar.item.remove"
+                        | "sidebar.item.update"
+                        | "sidebar.move"
+                        | "sidebar.pin"
+                        | "sidebar.section.add"
+                        | "sidebar.section.move"
+                        | "sidebar.section.remove"
+                        | "sidebar.section.update"
+                        | "sidebar.unpin"
                         // The project list is the app's and its importers'
                         // (plans/cmux-next/projects.md); no CLI verb yet.
                         | "project.list"

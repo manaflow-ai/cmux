@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e";
+inline constexpr std::string_view kProtocolIrSha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -35,6 +35,7 @@ struct BookmarkImportNode;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
+enum class BrowserProviderHosting;
 struct BrowserProviderSnapshot;
 struct BrowserProviderTarget;
 struct BrowserProviderUnregisterResult;
@@ -685,6 +686,7 @@ enum class AgentState {
 
 struct AgentChangedEvent {
     Field<std::string> agent{};
+    Field<std::string> last_prompt{};
     std::optional<std::string> session{};
     std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
@@ -718,6 +720,7 @@ struct AgentPresenceChangedEvent {
 
 struct AgentRecord {
     Field<std::string> agent{};
+    Field<std::string> last_prompt{};
     std::optional<std::string> session{};
     std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
@@ -1022,6 +1025,11 @@ enum class BrowserProviderAuthentication {
     bearer,
 };
 
+enum class BrowserProviderHosting {
+    daemon,
+    native,
+};
+
 struct BrowserProviderTarget {
     std::string tab_id{};
     std::string target_id{};
@@ -1033,6 +1041,7 @@ struct BrowserProviderSnapshot {
     bool available{};
     std::optional<std::uint64_t> clients{};
     std::optional<std::string> endpoint{};
+    std::optional<BrowserProviderHosting> hosting{};
     std::optional<std::string> provider_id{};
     std::uint64_t revision{};
     std::vector<BrowserProviderTarget> targets{};
@@ -3816,6 +3825,7 @@ struct RegisterBrowserProviderRequest {
     BrowserProviderAuthentication authentication{};
     Field<std::string> bearer_token{};
     std::string endpoint{};
+    Field<BrowserProviderHosting> hosting{};
     std::string provider_id{};
     std::vector<BrowserProviderTarget> targets{};
     friend bool operator==(const RegisterBrowserProviderRequest&, const RegisterBrowserProviderRequest&) = default;
@@ -5493,6 +5503,12 @@ template <>
 struct Codec<BrowserProviderAuthentication> {
     static Result<Json> encode(const BrowserProviderAuthentication& value);
     static Result<BrowserProviderAuthentication> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserProviderHosting> {
+    static Result<Json> encode(const BrowserProviderHosting& value);
+    static Result<BrowserProviderHosting> decode(const Json& value);
 };
 
 template <>

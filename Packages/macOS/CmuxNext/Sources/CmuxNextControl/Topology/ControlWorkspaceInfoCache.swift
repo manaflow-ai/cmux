@@ -1,5 +1,4 @@
-import CmuxNextControl
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Observation
 import CmuxNextCompat
 
@@ -11,7 +10,10 @@ import CmuxNextCompat
 /// Entries hold only daemon-mirror facts (all @Observable). App facts that
 /// Observation does not track (the tab a window shows for a pane, app-only
 /// page tabs, page titles) are applied on every publish by
-/// `ControlTopologyMapper.applyAppFacts`, as before the cache.
+/// `ControlTopologyMapper.applyAppFacts`, as before the cache, from the
+/// panes and page tabs the entry captured (`ControlPaneSlot`): a publish
+/// reads no tree property of an unchanged workspace, so its Observation
+/// access list does not grow with every tab (cx-1ox9m).
 ///
 /// Each entry is built inside its own Observation tracking; the first change
 /// to anything the build read (the workspace, its panes and tabs, the pane's
@@ -21,10 +23,11 @@ import CmuxNextCompat
 /// model's identity cannot be reused while the entry exists; entries of
 /// models no longer listed are dropped on each publish.
 @MainActor
-final class ControlWorkspaceInfoCache {
+public final class ControlWorkspaceInfoCache {
     private struct Entry {
         let model: WorkspaceModel
         let info: ControlWorkspaceInfo
+        let slots: [[ControlPaneSlot]]
         let generation: UInt64
     }
 
@@ -34,30 +37,34 @@ final class ControlWorkspaceInfoCache {
     private nonisolated let stale = Mutex<Set<UInt64>>([])
     /// Runs after an entry went stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
-    var onStale: @MainActor () -> Void = {}
+    public var onStale: @MainActor () -> Void = {}
 
-    /// The control value of `model`, from the cache when nothing it read changed.
-    func info(for model: WorkspaceModel, build: (WorkspaceModel) -> ControlWorkspaceInfo) -> ControlWorkspaceInfo {
+    public init() {}
+
+    /// The control value of `model` and its pane slots, from the cache when
+    /// nothing their build read changed.
+    func info(for model: WorkspaceModel, build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]))
+        -> (info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]]) {
         let key = ObjectIdentifier(model)
         if let entry = entries[key], entry.model === model,
            !stale.withLock({ $0.contains(entry.generation) }) {
-            return entry.info
+            return (entry.info, entry.slots)
         }
         if let old = entries[key] { stale.withLock { _ = $0.remove(old.generation) } }
         nextGeneration += 1
         let generation = nextGeneration
-        let info = withObservationTracking { build(model) } onChange: { [weak self] in
+        let (info, slots) = withObservationTracking { build(model) } onChange: { [weak self] in
             self?.stale.withLock { _ = $0.insert(generation) }
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.onStale() }
         }
-        entries[key] = Entry(model: model, info: info, generation: generation)
-        return info
+        entries[key] = Entry(model: model, info: info, slots: slots, generation: generation)
+        return (info, slots)
     }
 
     /// Drops the entries of models not in `live` (closed workspaces, a
     /// reconnect that replaced the models).
-    func retain(_ live: [WorkspaceModel]) {
+    public func retain(_ live: [WorkspaceModel]) {
         let keep = Set(live.map(ObjectIdentifier.init))
         let dropped = entries.filter { !keep.contains($0.key) }
         guard !dropped.isEmpty else { return }

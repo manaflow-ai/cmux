@@ -96,6 +96,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::agent_message_store::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
+    super::sidebar_doc_store::create_sidebar_doc_schema(transaction)?;
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
@@ -315,6 +316,7 @@ pub(crate) fn state_snapshot(connection: &Connection) -> anyhow::Result<Value> {
         "workspace_status": super::workspace_status_store::status_snapshots(connection)?,
         "window_records": super::window_record_store::record_snapshots(connection)?,
         "sidebar_layout": super::sidebar_layout_store::snapshot(connection)?,
+        "sidebar": super::sidebar_doc_store::snapshot(connection)?,
     }))
 }
 

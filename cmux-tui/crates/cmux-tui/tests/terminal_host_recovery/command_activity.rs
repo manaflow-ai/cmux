@@ -362,3 +362,72 @@ fn an_agent_keeps_when_its_state_began_until_the_state_changes() {
         "a new state starts after the last working report: {blocked} {again}"
     );
 }
+
+/// Every file under `dir` whose bytes contain `needle` (the daemon's state: journal, database,
+/// checkpoints, logs).
+fn files_containing(dir: &Path, needle: &[u8]) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else { return found };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // No symlinks or FIFOs: only real folders and regular files.
+        let Ok(meta) = fs::symlink_metadata(&path) else { continue };
+        if meta.is_dir() {
+            found.extend(files_containing(&path, needle));
+        } else if meta.is_file()
+            && fs::read(&path).is_ok_and(|bytes| bytes.windows(needle.len()).any(|w| w == needle))
+        {
+            found.push(path);
+        }
+    }
+    found
+}
+
+#[test]
+fn an_agent_keeps_its_last_prompt_in_memory_only() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("command-activity-agent-prompt");
+    let helper = env!("CARGO_BIN_EXE_cmux-tui");
+    // A distinctive prompt longer than the 200 kept characters.
+    let marker = "hovercard-prompt-marker";
+    let prompt = format!("{marker} {}", "x".repeat(300));
+    // The hook's stdin comes from a file outside the daemon's folders, so the prompt reaches the
+    // daemon only through the hook (the run command's argv does not carry it).
+    let payload_dir = std::env::temp_dir().join(format!("cmux-prompt-{}", std::process::id()));
+    fs::create_dir_all(&payload_dir).unwrap();
+    let payload = payload_dir.join("hook.json");
+    fs::write(
+        &payload,
+        serde_json::json!({"session_id":"prompt-1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":prompt})
+            .to_string(),
+    )
+    .unwrap();
+    let script = format!(
+        "[ -n \"$CMUX_TUI_TERMINAL_ID\" ] && printf 'agent\\r\\n'; read step; \
+         '{helper}' __agent-hook claude UserPromptSubmit < '{}'; printf 'turn\\r\\n'; sleep 600",
+        payload.display()
+    );
+    let (surface, _) = run_script(&harness, "command-activity-agent-prompt", &script, "agent");
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "turn").contains("turn"));
+    let agents = wait_for_agent_state(&harness, "working");
+    let kept = agents["agents"][0]["last_prompt"].as_str().unwrap_or_default().to_owned();
+    assert!(kept.starts_with(marker), "list-agents carries the prompt: {agents}");
+    assert!(
+        kept.chars().count() <= 200,
+        "the prompt is cut to 200 characters: {}",
+        kept.chars().count()
+    );
+    // Memory only: no daemon state file holds it (journal, database, checkpoints), also after
+    // a checkpoint flushes the journal.
+    resource_request(
+        &harness.socket,
+        "agent-prompt-checkpoint",
+        "session.journal.checkpoint.create",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("agent-prompt-checkpoint"),
+    );
+    let leaked = files_containing(&harness.dir, marker.as_bytes());
+    let _ = fs::remove_dir_all(&payload_dir);
+    assert!(leaked.is_empty(), "the prompt reached disk: {leaked:?}");
+}

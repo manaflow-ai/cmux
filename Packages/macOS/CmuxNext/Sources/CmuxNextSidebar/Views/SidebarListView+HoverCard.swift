@@ -54,6 +54,12 @@ extension SidebarView {
         set { list.hoverCards = newValue }
     }
 
+    /// The user's customization: its hover card replaces the built-in one (cx-swovq.1).
+    public var customization: (any SidebarCustomization)? {
+        get { list.hoverCard.customization }
+        set { list.hoverCard.customization = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 

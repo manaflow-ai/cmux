@@ -32,6 +32,11 @@ pub struct Session {
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
+    /// Agent permission requests read but not yet past their group
+    /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
+    /// last one lands. A group is not shown while one is on its way.
+    pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
+    pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).

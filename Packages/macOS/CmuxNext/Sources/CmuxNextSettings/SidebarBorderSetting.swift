@@ -8,8 +8,10 @@ public nonisolated struct SidebarBorderSetting {
     public static let borderPath = ["sidebar", "border"]
     public static let widthPath = ["sidebar", "borderWidth"]
 
-    static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> SidebarBorder {
-        var border = SidebarBorder()
+    /// `defaultShows` is the border when `sidebar.border` is unset (the
+    /// `appearance.chromeStyle` default).
+    static func parse(_ root: JSONValue, defaultShows: Bool = false, diagnostics: inout [SettingsDiagnostic]) -> SidebarBorder {
+        var border = SidebarBorder(shows: defaultShows)
         if let value = root.value(at: borderPath) {
             if let shows = value.boolValue {
                 border.shows = shows

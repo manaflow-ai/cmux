@@ -74,7 +74,10 @@ export function useSummaryCard(sessionId: string | undefined, hasSubagents: bool
     (next: SummaryCardState) => (sessionId ? save(sessionId, next) : setLocal(next)),
     [sessionId],
   );
-  const toggle = useCallback(() => set({ shown: !shown, collapsed: shown ? collapsed : false }), [set, shown, collapsed]);
+  const toggle = useCallback(
+    () => set({ shown: !shown, collapsed: shown ? collapsed : false }),
+    [set, shown, collapsed],
+  );
   const show = useCallback(() => set({ shown: true, collapsed: false }), [set]);
   const close = useCallback(() => set({ shown: false, collapsed }), [set, collapsed]);
   const fold = useCallback((next: boolean) => set({ shown: true, collapsed: next }), [set]);

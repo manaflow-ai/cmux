@@ -200,21 +200,37 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.closeOtherWorkspaces", defaultValue: "Close Other Workspaces", bundle: .module),
                 keywords: ["remove"], category: .workspace, symbol: "xmark.square.fill",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace close-other",
-                mainMenu: .file
+                mainMenu: .file, destructive: true
             ),
             ActionDescriptor(
                 id: "palette.closeWorkspacesBelow",
                 title: String(localized: "action.palette.closeWorkspacesBelow", defaultValue: "Close Workspaces Below", bundle: .module),
                 keywords: ["remove"], category: .workspace, symbol: "arrow.down.to.line",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace close-below",
-                mainMenu: .file
+                mainMenu: .file, destructive: true
             ),
             ActionDescriptor(
                 id: "palette.closeWorkspacesAbove",
                 title: String(localized: "action.palette.closeWorkspacesAbove", defaultValue: "Close Workspaces Above", bundle: .module),
                 keywords: ["remove"], category: .workspace, symbol: "arrow.up.to.line",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace close-above",
-                mainMenu: .file
+                mainMenu: .file, destructive: true
+            ),
+            // Every workspace the window lists (the `window` argument, else the
+            // active window); the window closes with its last one (WindowRegistry).
+            ActionDescriptor(
+                id: "workspace.closeAll",
+                title: String(localized: "action.workspace.closeAll", defaultValue: "Close All Workspaces", bundle: .module),
+                keywords: ["remove", "all", "window", "clear"], category: .workspace, symbol: "xmark.square.fill",
+                surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.windowWindow.optional],
+                cliName: "workspace close-all", mainMenu: .file, destructive: true
+            ),
+            ActionDescriptor(
+                id: "workspace.closeAllInAllWindows",
+                title: String(localized: "action.workspace.closeAllInAllWindows", defaultValue: "Close All Workspaces in All Windows",
+                              bundle: .module),
+                keywords: ["remove", "all", "windows", "everything", "clear"], category: .workspace, symbol: "xmark.rectangle.portrait",
+                surfaces: [.palette, .menu], cliName: "workspace close-all-in-all-windows", mainMenu: .file, destructive: true
             ),
             ActionDescriptor(
                 id: "palette.toggleWorkspacePin",

@@ -724,6 +724,8 @@ pub(super) fn start_browser_resource_attach(
                     sequence = sequence.saturating_add(1);
                 }
             }
+            // Release the frame claim before the detach can resize the page.
+            drop(start.frames);
             finish_resource_surface_attach(
                 &worker_mux,
                 client,

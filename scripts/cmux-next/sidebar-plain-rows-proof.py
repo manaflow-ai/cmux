@@ -9,7 +9,8 @@ never opens Home or the Chief pane) on a GUI host and builds one sidebar:
   terminal     a plain terminal workspace
   agent        a terminal whose agent (claude) reports working
   web          a terminal tab, then a browser tab in front on a local page with a favicon
-  mixed        the same, plus a second terminal tab: three tab rows
+  mixed        the same, plus a second terminal tab: three tab rows; the first terminal posts
+               a notification (OSC 9) while another tab is in front, so its tab row is unread
   custom icon  a workspace the user gave an icon (`workspace update --icon`)
   group        two workspaces in a group, collapsed while it holds the active workspace (the
                active member stays listed under the header with the selection fill)
@@ -216,8 +217,11 @@ try:
     check(bool(open_page("web")), "the web workspace shows its page (and its favicon on this branch)")
 
     new_workspace("mixed")
+    first_terminal = focused_terminal()
     action("newSurface")
     check(bool(open_page("mixed")), "the mixed workspace has a browser tab (and its favicon on this branch)")
+    # A background tab's notification: its tab row is unread (the muted dot on this branch).
+    cli("terminal", first_terminal or "", "write", "--text", "printf '\\033]9;build finished\\007'\n")
 
     new_workspace("custom icon")
     cli("workspace", "current", "update", "--icon", "\U0001F680")

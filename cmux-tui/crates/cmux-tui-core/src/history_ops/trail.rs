@@ -130,10 +130,11 @@ pub(super) struct Step<'a> {
 }
 
 impl TrailDocument {
-    /// Records one step; the entry it landed in and whether the document
-    /// changed.
-    fn record(&mut self, step: Step<'_>) -> (u64, bool) {
+    /// Records one step; the entry it landed in, whether the document
+    /// changed, and which step rule applied (the daemon log names it).
+    fn record(&mut self, step: Step<'_>) -> (u64, bool, &'static str) {
         let Step { window, location, at_ms, workspace_steps, jump } = step;
+        let mut quick_pass = false;
         if let Some(newest) = self.entries.last_mut() {
             let same_place = newest.place() == place(&location);
             // A jump is the base rule only (Swift `recordJump`): never a sidebar replace.
@@ -143,17 +144,20 @@ impl TrailDocument {
                 let changed = newest.location != location || newest.window != window;
                 newest.location = location;
                 window.clone_into(&mut newest.window);
-                return (newest.id, changed);
+                let rule = if same_place { "same place" } else { "same sidebar item" };
+                return (newest.id, changed, rule);
             }
             if !jump && at_ms.saturating_sub(newest.at_ms) < COALESCE_MS {
                 // A quick pass: the newest entry was only passed through.
                 self.entries.pop();
+                quick_pass = true;
                 if let Some(previous) = self.entries.last_mut()
                     && previous.place() == place(&location)
                 {
                     previous.location = location;
                     window.clone_into(&mut previous.window);
-                    return (previous.id, true);
+                    let rule = "quick pass (< 750 ms): newest dropped, previous refreshed";
+                    return (previous.id, true, rule);
                 }
             }
         }
@@ -163,7 +167,7 @@ impl TrailDocument {
         self.entries.push(TrailEntry { id, window: window.to_owned(), at_ms, location });
         let excess = self.entries.len().saturating_sub(CAPACITY);
         self.entries.drain(..excess);
-        (id, true)
+        (id, true, if quick_pass { "quick pass (< 750 ms): newest replaced" } else { "appended" })
     }
 
     /// Removes every entry of the places the ids name; answers the count.
@@ -289,6 +293,7 @@ fn change<T>(
     let mut last_error = None;
     for _ in 0..MAX_ATTEMPTS {
         let (mut document, revision) = load(mux)?;
+        let adopted = document.entries.len();
         let (answer, changed) = apply(&mut document);
         if !changed {
             return Ok(answer);
@@ -305,7 +310,12 @@ fn change<T>(
             Some(revision),
             &value,
         ) {
-            Ok(_) => return Ok(answer),
+            Ok(_) => {
+                if revision == 0 && adopted > 0 {
+                    log(mux, format!("adopted the app's older history.trail ({adopted} entries)"));
+                }
+                return Ok(answer);
+            }
             Err(error) if error.to_string().contains("projection revision conflict") => {
                 last_error = Some(error);
             }
@@ -391,16 +401,29 @@ pub(super) fn record(
             .ok_or_else(|| invalid("at_ms", "at_ms must be an unsigned decimal string"))?,
     };
     // Incognito steps never reach the disk (the app keeps them in memory).
+    let (machine, tab) = place(&location);
+    let what = format!("window {window} machine {machine} tab {tab} at_ms {at_ms} jump {jump}");
     if flag("incognito")? {
+        log(mux, format!("dropped (incognito, never stored): {what}"));
         return Ok((json!({"recorded": false}), false));
     }
-    let (id, changed) = change(mux, key, actor, |document| {
+    let (id, changed, rule) = change(mux, key, actor, |document| {
         let step = Step { window, location: location.clone(), at_ms, workspace_steps, jump };
-        let (id, changed) = document.record(step);
-        ((id, changed), changed)
+        let (id, changed, rule) = document.record(step);
+        ((id, changed, rule), changed)
     })
     .map_err(|error| super::store_failed(OPERATION, format!("{error:#}")))?;
+    let outcome = if changed { "accepted" } else { "unchanged" };
+    log(mux, format!("{outcome} location:{id} ({rule}): {what}"));
     Ok((json!({"id": format!("location:{id}"), "recorded": changed}), changed))
+}
+
+/// One line of the trail's failure log (cx-hnmbt.14) in the daemon log
+/// (the owner's client log): each `history.trail.record` accept, drop or
+/// refusal with the step rule or reason. Places are machine and tab ids,
+/// never titles or paths.
+pub(crate) fn log(mux: &Mux, message: impl std::fmt::Display) {
+    mux.report_internal_diagnostic(format!("{}: {message}", super::TRAIL_RECORD_OPERATION));
 }
 
 /// The entry ids of `location:<n>` ids (others are not trail ids).

@@ -287,8 +287,10 @@ final class SidebarResizeHandle: NSView {
     }
 
     /// The hairline shows at rest when the sidebar border is on, else only
-    /// on hover or while dragging.
-    var isLineVisible: Bool { isHovered || isDragging || restingLineWidth > 0 }
+    /// on hover or while dragging, and never as hover feedback beside the
+    /// curved main pane: the card's edge is the seam there. The hit area and
+    /// the resize cursor stay.
+    var isLineVisible: Bool { restingLineWidth > 0 || ((isHovered || isDragging) && !Metrics.mainPaneCurved) }
 
     /// The drawn width: the border's, else the divider hairline.
     var lineWidth: CGFloat { restingLineWidth > 0 ? restingLineWidth : Metrics.lineWidth(Metrics.dividerThickness) }

@@ -227,7 +227,10 @@ pub(super) fn mutate(
         "history.entries.remove" => remove(mux, key, actor, fields, now_ms, day_start_ms),
         "history.clear" => clear(mux, key, actor, fields, now_ms, day_start_ms),
         "history.trail.record" => {
-            let (value, changed) = trail::record(mux, key, actor, fields, now_ms)?;
+            let (value, changed) =
+                trail::record(mux, key, actor, fields, now_ms).inspect_err(|error| {
+                    trail::log(mux, format!("refused ({}: {})", error.code, error.message));
+                })?;
             Ok((value, if changed { vec![HistoryKind::Location] } else { Vec::new() }))
         }
         _ => pages_only(mux),

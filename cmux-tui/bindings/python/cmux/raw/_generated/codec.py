@@ -565,6 +565,7 @@ ENUM_BY_PATH = {
     'types/AgentSource': models.AgentSource,
     'types/AgentState': models.AgentState,
     'types/BrowserProviderAuthentication': models.BrowserProviderAuthentication,
+    'types/BrowserProviderHosting': models.BrowserProviderHosting,
     'types/ClientTransport': models.ClientTransport,
     'types/CloseReason': models.CloseReason,
     'types/ConversationThreadStatus': models.ConversationThreadStatus,

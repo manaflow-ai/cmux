@@ -3,8 +3,7 @@
 // the person either pastes the instance's credential or pairs this browser with a code they approve
 // in cmux; the credential stays in this tab's sessionStorage, never in the URL. In the app the host
 // hands the endpoint and the daemon's own credential (`cmux.host.credential.load`, a host verb).
-// Then the page runs on the daemon's real conversations, and the instance bar controls that
-// instance (a new workspace). A dropped connection reconnects with capped backoff and the same
+// Then the page runs on the daemon's real conversations. A dropped connection reconnects with capped backoff and the same
 // credential; each connection gets a fresh store (spec transports.md "Reconnect").
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
@@ -210,56 +209,5 @@ export function DaemonGate({
         </form>
       )}
     </section>
-  );
-}
-
-/** One control of the connected instance: its workspace count and a new workspace. */
-export function InstanceBar({
-  daemon,
-  strings,
-  pageUrl,
-}: {
-  daemon: DaemonSocket;
-  strings: Strings;
-  pageUrl?: string;
-}) {
-  const { t, format } = strings;
-  const [count, setCount] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const refresh = () =>
-    daemon
-      .request<{ workspaces?: unknown[] }>("list-workspaces")
-      .then((tree) => setCount(tree.workspaces?.length ?? 0))
-      .catch(() => setCount(null));
-
-  useEffect(() => {
-    void refresh();
-    // The tree changes reach every subscriber; one reread per change keeps the count true.
-    return daemon.onEvent((event) => {
-      if (event.event === "tree-changed" || event.event === "workspace-changed") void refresh();
-    });
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- refresh is rebuilt each render; one subscription per daemon.
-  }, [daemon]);
-
-  return (
-    <div className="hc-instance" role="toolbar" aria-label={t("instance.label")}>
-      <span>{count === null ? t("instance.label") : format("instance.workspaces", String(count))}</span>
-      {/* In the app: the address a browser opens this page at (the person copies it). */}
-      {pageUrl && <span className="hc-instance-url">{pageUrl}</span>}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          void daemon
-            .request("new-workspace", {})
-            .then(refresh)
-            .finally(() => setBusy(false));
-        }}
-      >
-        {t("instance.newWorkspace")}
-      </button>
-    </div>
   );
 }

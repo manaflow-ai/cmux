@@ -116,6 +116,25 @@ export default agentPaneEntry({
           throw new Error("Integrate a harness shows with a harness installed");
       },
     },
+    // The chip's model picker opens whole: the card does not clip it to its search field
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the picker, not the page.
+    "model-picker-open": {
+      note: "The New Tab chip's model picker, open: at least its search field and about six rows, never cut by the card.",
+      ready: newTab(),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+          if (!menu || menu.style.visibility !== "visible") return false;
+          const box = menu.getBoundingClientRect();
+          if (box.height < 219) return false;
+          const x = box.left + box.width / 2;
+          return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
+        });
+      },
+    },
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),

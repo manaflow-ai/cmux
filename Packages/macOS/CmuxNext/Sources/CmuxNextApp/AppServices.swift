@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -100,6 +101,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).

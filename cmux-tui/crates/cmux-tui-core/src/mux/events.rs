@@ -64,6 +64,8 @@ pub enum MuxEvent {
         updated_at_ms: u64,
         /// When the agent entered `state` (Unix ms).
         since_ms: u64,
+        /// The agent's last prompt (at most 200 characters), memory only.
+        last_prompt: Option<Arc<str>>,
     },
     /// What the agent in one surface's terminal is touching now; `None`
     /// clears it (`agent-presence-v1`).

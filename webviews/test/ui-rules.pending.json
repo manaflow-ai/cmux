@@ -58,7 +58,6 @@
   "pages/debug-settings/TunableControl.tsx": 2,
   "pages/history/HistoryPage.tsx": 7,
   "pages/home-channels/Composer.tsx": 1,
-  "pages/home-channels/DaemonGate.tsx": 1,
   "pages/home-channels/useHomeKeys.ts": 1,
   "pages/keybindings/KeybindingsPage.tsx": 5,
   "pages/keybindings/mockProvider.ts": 1,

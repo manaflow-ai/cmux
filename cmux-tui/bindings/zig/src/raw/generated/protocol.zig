@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e";
+pub const ir_sha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -56,6 +56,8 @@ pub const AgentPresenceActivity = enum {
 pub const AgentRecord = struct {
     /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
     agent: wire.Field([]const u8) = .absent,
+    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
+    last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
     /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
     since_ms: ?u64 = null,
@@ -262,11 +264,30 @@ pub const BrowserProviderAuthentication = enum {
     }
 };
 
+pub const BrowserProviderHosting = enum {
+    daemon,
+    native,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        if (std.mem.eql(u8, value, "native")) return .native;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .daemon => "daemon",
+            .native => "native",
+        };
+    }
+};
+
 pub const BrowserProviderSnapshot = struct {
     authentication: ?BrowserProviderAuthentication = null,
     available: bool,
     clients: ?u64 = null,
     endpoint: ?[]const u8 = null,
+    hosting: ?BrowserProviderHosting = null,
     provider_id: ?[]const u8 = null,
     revision: u64,
     targets: []const BrowserProviderTarget,
@@ -275,6 +296,7 @@ pub const BrowserProviderSnapshot = struct {
         "authentication",
         "clients",
         "endpoint",
+        "hosting",
         "provider_id",
     };
 };
@@ -6924,6 +6946,7 @@ pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
     endpoint: []const u8,
+    hosting: wire.Field(BrowserProviderHosting) = .absent,
     provider_id: []const u8,
     targets: []const BrowserProviderTarget,
 };
@@ -6938,6 +6961,9 @@ pub fn registerBrowserProvider(client: anytype, request: RegisterBrowserProvider
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
+            .fields = &.{
+                .{ .name = "hosting", .since = null, .capability = "browser-provider-native-hosting-v1" },
+            },
         },
         request,
     );
@@ -9004,6 +9030,8 @@ pub const AgentChangedEvent = struct {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     agent: wire.Field([]const u8) = .absent,
     event: []const u8,
+    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
+    last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
     /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
     since_ms: ?u64 = null,

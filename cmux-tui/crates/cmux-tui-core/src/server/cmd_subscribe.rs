@@ -220,6 +220,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             agent,
             updated_at_ms,
             since_ms,
+            last_prompt,
         } => json!({
             "event": "agent-changed",
             "surface": surface,
@@ -229,6 +230,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
             "since_ms": since_ms,
+            "last_prompt": last_prompt.as_deref(),
         }),
         MuxEvent::AgentPresenceChanged { surface, presence } => {
             let presence = presence.as_deref();

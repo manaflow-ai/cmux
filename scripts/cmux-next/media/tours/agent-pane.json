@@ -1,0 +1,10 @@
+{
+  "title": "Agent pane",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
+     "optional": "agent backend unavailable on this runner"},
+    {"title": "Queue a second chat", "cmux": ["agent", "new-chat"], "wait": 2,
+     "optional": "agent backend unavailable on this runner"}
+  ]
+}

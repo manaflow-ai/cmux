@@ -254,11 +254,17 @@ impl BrowserSurface {
         else {
             return Ok((self.frame_epoch.advance(), BrowserWorkerSuccess::LocallySettled));
         };
-        if let Err(error) =
-            session.runtime.client.set_device_metrics(&session.session_id, width, height)
+        // A natively hosted page keeps its native geometry; only the frames
+        // a viewer receives follow the new size.
+        if !session.runtime.native_hosted()
+            && let Err(error) =
+                session.runtime.client.set_device_metrics(&session.session_id, width, height)
         {
             let definitely_unchanged = !is_cdp_timeout_error(&error.to_string());
             return Err(BrowserReconfigureCommandError { error, definitely_unchanged });
+        }
+        if self.screencast_paused() {
+            return Ok((self.frame_epoch.advance(), BrowserWorkerSuccess::LocallySettled));
         }
         let _ = session.runtime.client.stop_screencast(&session.session_id);
         session

@@ -1,0 +1,24 @@
+{
+  "name": "cmux.hovercard/1",
+  "version": 1,
+  "docs": "The hover card of a sidebar row. The render export gets the hovered row as ctx.target ({kind: \"workspace\", id}) and returns the card's view; a failed render shows its error on the built-in card. Honored from the user's own local/customize app only, which also gets ctx.card (the built-in card's fields).",
+  "props": {
+    "targets": "string?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "targets": {
+        "type": "array",
+        "items": { "enum": ["workspace"] },
+        "description": "The rows whose card this app draws; workspace rows by default."
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

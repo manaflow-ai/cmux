@@ -41,6 +41,25 @@ export interface ThreadView {
   loading: boolean;
 }
 
+/** A message I sent that the owner has not shown yet (optimistic): it shows at once, marked
+ * sending; the owner's event with the same client message id replaces it. A failed send stays,
+ * marked, until it is retried (same idempotency key) or discarded. */
+export interface PendingSend {
+  key: string;
+  conversation: string;
+  text: string;
+  threadRoot?: string;
+  replyTo?: string;
+  createdAt: number;
+  failed: boolean;
+}
+
+/** Pending sends that outlive one store: the page makes a new store on every reconnect, and a
+ * send that failed with the old connection keeps its "Not sent" row and Retry in the new one. */
+export class PendingCarry {
+  entries: readonly PendingSend[] = [];
+}
+
 export interface HomeSnapshot {
   connection: Connection;
   loading: boolean;
@@ -68,6 +87,11 @@ export interface HomeSnapshot {
   draft?: HomeDraft;
   /** The message a link opened: the timeline or thread panel scrolls to it and marks it. */
   highlight?: string;
+  /** My sends the owner has not shown yet, oldest first. */
+  pending: readonly PendingSend[];
+  /** Participants typing or writing a reply, by conversation (every conversation, not only the
+   * open one): a Chief's row shows it as working. */
+  activity: ReadonlyMap<string, ReadonlySet<string>>;
   error?: string;
 }
 
@@ -83,8 +107,13 @@ export class HomeChannelsStore {
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
   private readonly drafts = new DraftBook();
+  /** Who types in each conversation (typing events); activity adds the running drafts. */
+  private readonly typingBy = new Map<string, Set<string>>();
 
-  constructor(private readonly client: PageClient | null) {
+  constructor(
+    private readonly client: PageClient | null,
+    private readonly carry: PendingCarry = new PendingCarry(),
+  ) {
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -95,7 +124,12 @@ export class HomeChannelsStore {
       typing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
+      // A send still in flight on the old connection did not reach the owner as far as this
+      // store knows: it shows as failed, with Retry (the same idempotency key, never twice).
+      pending: carry.entries.map((entry) => ({ ...entry, failed: true })),
+      activity: new Map(),
     };
+    carry.entries = this.snapshot.pending;
   }
 
   getSnapshot = (): HomeSnapshot => this.snapshot;
@@ -271,9 +305,11 @@ export class HomeChannelsStore {
       const live = this.drafts.draft(id);
       const reply = live && messages.find((m) => m.clientMessageId === live.turn && m.author === live.participant);
       if (reply) this.drafts.posted(reply);
+      if (reply) this.set({ activity: this.currentActivity() });
       this.set({
         conversations,
         messages,
+        pending: this.settled(messages) ?? this.snapshot.pending,
         hasOlder: (messages[0]?.seq ?? 1) > 1,
         unseen,
         draft: this.drafts.draft(id),
@@ -354,24 +390,70 @@ export class HomeChannelsStore {
   }
 
   /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
-   * or any reply: threads nest without a limit). The owner's event shows it. */
+   * or any reply: threads nest without a limit). Optimistic: the message shows at once as pending
+   * and the composer clears; the owner's event replaces it. Resolves false only when nothing was
+   * sent (no conversation, empty text). */
   async send(text: string, thread?: string, parent?: string): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || !trimmed) return false;
+    const pending: PendingSend = {
+      key: this.key("send"),
+      conversation,
+      text: trimmed,
+      createdAt: Date.now(),
+      failed: false,
+      ...(thread ? { threadRoot: thread } : {}),
+      ...(parent ? { replyTo: parent } : {}),
+    };
+    this.set({ pending: [...this.snapshot.pending, pending] });
+    void this.deliver(pending);
+    return true;
+  }
+
+  /** Sends a failed pending message again with its own idempotency key (never twice). */
+  retry(key: string): void {
+    const pending = this.snapshot.pending.find((entry) => entry.key === key);
+    if (!pending) return;
+    const again = { ...pending, failed: false };
+    this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)) });
+    void this.deliver(again);
+  }
+
+  discard(key: string): void {
+    this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
+  }
+
+  private async deliver(pending: PendingSend): Promise<void> {
+    if (!this.client) return;
     try {
       await this.client.call(HomeOps.send, {
-        conversation,
-        text: trimmed,
-        threadRoot: thread,
-        replyTo: parent,
-        idempotencyKey: this.key("send"),
+        conversation: pending.conversation,
+        text: pending.text,
+        threadRoot: pending.threadRoot,
+        replyTo: pending.replyTo,
+        idempotencyKey: pending.key,
       });
-      return true;
+      // The owner's event may have come first (or a retry was a replay of a message already in
+      // the window): settle from what the page holds now.
+      const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
+      const left = this.settled(held);
+      if (left) this.set({ pending: left });
     } catch (error) {
-      this.set({ error: describe(error) });
-      return false;
+      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return;
+      this.set({
+        error: describe(error),
+        pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
+      });
     }
+  }
+
+  /** Drops the pending sends these owner messages show (same client message id). */
+  private settled(messages: readonly HomeMessage[]): readonly PendingSend[] | undefined {
+    if (this.snapshot.pending.length === 0 || messages.length === 0) return undefined;
+    const keys = new Set(messages.map((message) => message.clientMessageId).filter(Boolean));
+    const left = this.snapshot.pending.filter((entry) => !keys.has(entry.key));
+    return left.length === this.snapshot.pending.length ? undefined : left;
   }
 
   /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
@@ -513,6 +595,10 @@ export class HomeChannelsStore {
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
     if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
+    const left = this.settled(batch.messages ?? []);
+    if (left) patch.pending = left;
+    const activity = this.activityAfter(batch);
+    if (activity) patch.activity = activity;
     // The open thread's view takes its root and replies from events too (a reply, an edit).
     const view = this.snapshot.threadView;
     const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
@@ -545,12 +631,46 @@ export class HomeChannelsStore {
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
   }
 
+  /** Who types or writes a reply in each conversation after this batch (undefined: no change).
+   * Rebuilt from the typing map and the live drafts each time, so a draft that ends with no
+   * posted message, or a reply that ends its draft through a page reload, clears it too. */
+  private activityAfter(batch: HomeEventBatch): ReadonlyMap<string, ReadonlySet<string>> | undefined {
+    // A reconnect or an inbox refetch ends every indicator (typing is ephemeral).
+    if (batch.connection || batch.inboxStale) this.typingBy.clear();
+    for (const entry of batch.typing ?? []) {
+      const people = this.typingBy.get(entry.conversation) ?? new Set<string>();
+      if (entry.on) people.add(entry.participant);
+      else people.delete(entry.participant);
+      if (people.size > 0) this.typingBy.set(entry.conversation, people);
+      else this.typingBy.delete(entry.conversation);
+    }
+    // A posted message ends its author's typing.
+    for (const message of batch.messages ?? []) this.typingBy.get(message.conversation)?.delete(message.author);
+    const touched =
+      batch.connection || batch.inboxStale || batch.typing?.length || batch.drafts?.length || batch.messages?.length;
+    return touched ? this.currentActivity() : undefined;
+  }
+
+  /** Typing plus the running drafts, by conversation. */
+  private currentActivity(): ReadonlyMap<string, ReadonlySet<string>> {
+    const next = new Map<string, ReadonlySet<string>>();
+    const conversations = new Set([...this.typingBy.keys(), ...this.snapshot.conversations.keys()]);
+    for (const conversation of conversations) {
+      const people = new Set(this.typingBy.get(conversation) ?? []);
+      const draft = this.drafts.draft(conversation);
+      if (draft) people.add(draft.participant);
+      if (people.size > 0) next.set(conversation, people);
+    }
+    return next;
+  }
+
   private key(kind: string): string {
     return `home-channels-${kind}-${Date.now().toString(36)}-${(this.nextKey++).toString(36)}`;
   }
 
   private set(patch: Partial<HomeSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
+    if (patch.pending) this.carry.entries = patch.pending;
     for (const listener of this.listeners) listener();
   }
 }

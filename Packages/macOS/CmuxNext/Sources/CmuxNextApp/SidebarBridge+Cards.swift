@@ -167,13 +167,12 @@ enum SidebarCardFeed {
     /// title, detail and actions.
     static func notice(_ shown: UpdateCardPresentation) -> SidebarNoticeCard {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
-        // A found update's x offers Hide Until a Newer Version and Remind Me Later; a result's x just closes.
+        // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
         let closes = shown.actions.contains(.update)
-        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines,
-                                 progress: progress,
+        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
                                  dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
-                                 dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [])
+                                 dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [])
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).
@@ -191,6 +190,7 @@ enum SidebarCardFeed {
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
                                            moreTitle: notes.moreTitle, moreURL: notes.moreURL),
-            closeLabel: card.isInstalling ? nil : UpdaterService.updateCloseLabel, closeMenu: UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init))
+            closeTitle: card.isInstalling ? nil : UpdaterService.updateHideTitle, closeLabel: UpdaterService.updateCloseLabel,
+            closeAction: UpdaterService.updateHideAction, closeMenu: UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init))
     }
 }

@@ -49,6 +49,11 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     public var shortcut: String?
     /// The x's tooltip and VoiceOver label; nil shows no x.
     public var dismissLabel: String?
+    /// With a title, a small text button with it ("Hide", the found-update
+    /// notice, UPDATE-CARD-CLOSE) takes the x's place: one click dismisses at
+    /// once (`dismissNotice`), `dismissLabel` is its tooltip and VoiceOver
+    /// label, and `dismissMenu` is only on the right-click menu.
+    public var dismissTitle: String?
     /// With items, the x opens this menu (the tip's Hide / Mute / Never)
     /// instead of dismissing; an item sends `noticeAction` with its id.
     public var dismissMenu: [Action]
@@ -61,7 +66,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,
-                dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil) {
+                dismissTitle: String? = nil, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
@@ -72,6 +77,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.actions = actions
         self.shortcut = shortcut
         self.dismissLabel = dismissLabel
+        self.dismissTitle = dismissTitle
         self.dismissMenu = dismissMenu
         self.shownAction = shownAction
         self.hiddenAction = hiddenAction

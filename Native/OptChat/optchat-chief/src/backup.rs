@@ -60,15 +60,18 @@ pub struct BackupConfig {
     pub allow: PathBuf,
 }
 
-/// A DEV or staging build's own Chief home (one Chief per build,
-/// `~/.cmux/chief/com.cmuxterm.app.debug.<tag>`): like a tagged home, its
-/// remote backup stays off unless configured, so dogfood tags make no repositories.
+/// A build's own Chief home (one Chief per build: every cmux bundle but
+/// NIGHTLY, `~/.cmux/chief/<bundle id>[.<account>]`, cmux-tui
+/// `cli/chief/home.rs`): like a tagged home, its remote backup stays off
+/// unless configured, so dogfood tags and second identities make no
+/// repositories. NIGHTLY's shared home is `~/.cmux/chief/<account>`.
 fn is_dev_build_home(home: &Path) -> bool {
-    home.file_name().and_then(|n| n.to_str()).is_some_and(|name| {
-        ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
-            .iter()
-            .any(|base| name == *base || name.starts_with(&format!("{base}.")))
-    })
+    home.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|name| {
+            (name == "com.cmuxterm.app" || name.starts_with("com.cmuxterm.app."))
+                && name != "com.cmuxterm.app.nightly"
+        })
 }
 
 fn on_off(text: &str) -> Option<bool> {

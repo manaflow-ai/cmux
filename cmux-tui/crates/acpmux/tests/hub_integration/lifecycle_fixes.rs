@@ -493,7 +493,6 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     std::fs::write(&gate, b"").unwrap();
     let env = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
-    hub.config.write().await.agent_start_timeout_ms = Some(1_500);
     let created = c
         .request(
             method::SESSION_NEW,
@@ -505,6 +504,10 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     // Stop the agent; the next prompt starts a fresh one that never reads.
     c.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
     std::fs::remove_file(&gate).unwrap();
+    // The short budget bounds only the start that never answers. The healthy
+    // starts keep the default: one took 0.3-2.5 s while this binary ran its
+    // tests at once on rbx, past a 1.5 s budget (cx-nx5mb).
+    hub.config.write().await.agent_start_timeout_ms = Some(1_500);
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]});
     let refused = c
         .request(method::SESSION_PROMPT, prompt.clone())
@@ -513,6 +516,7 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     assert!(refused.contains("agent_start did not finish within"), "{refused}");
     // The agent answers from now on: the same session prompts normally.
     std::fs::write(&gate, b"").unwrap();
+    hub.config.write().await.agent_start_timeout_ms = None;
     let answered = c.request(method::SESSION_PROMPT, prompt).await.unwrap();
     assert!(answered["stopReason"].is_string(), "{answered}");
     let _ = std::fs::remove_file(&gate);

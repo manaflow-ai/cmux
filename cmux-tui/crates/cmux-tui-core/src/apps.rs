@@ -34,6 +34,8 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod local_reload;
+#[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;

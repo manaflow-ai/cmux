@@ -6,7 +6,8 @@ public import AppKit
 /// anchor or above it (``PopupPlacement``), as a Mac menu does. The page keeps its own menu,
 /// invisible, so the keyboard, focus and accessibility stay its own: arrows move its highlight and
 /// it sends ``update(_:)``; a click or hover here goes back as an event (`pick`, `highlight`), and
-/// a click outside the page or the app going inactive as `dismiss`.
+/// a click outside the page or the app going inactive as `dismiss`. Placement, motion and the
+/// dismiss rules are the shared ``NativePopupHost``'s.
 @MainActor
 public final class WebPopupHost {
     /// One row of the page's menu.
@@ -63,12 +64,9 @@ public final class WebPopupHost {
     private weak var webView: NSView?
     private let zoom: () -> CGFloat
     private let send: ([String: Any]) -> Void
-    private var panel: WebPopupPanel?
+    private var popup: NativePopupHost?
+    private var panel: WebPopupPanel? { popup?.panel as? WebPopupPanel }
     private var model: Model?
-    /// The control the menu opened from (screen), which its close shrinks toward.
-    private var anchor: CGRect = .zero
-    private var observers: [NSObjectProtocol] = []
-    private var monitor: Any?
 
     public init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void) {
         self.webView = webView
@@ -77,16 +75,16 @@ public final class WebPopupHost {
     }
 
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
-    public var shownFrame: CGRect? { panel?.isVisible == true && model != nil ? panel?.cardFrame : nil }
+    public var shownFrame: CGRect? { popup?.isShown == true && model != nil ? popup?.cardFrame : nil }
 
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
     public func show(_ model: Model) -> [String: Any] {
         guard let webView, let window = webView.window, window.isVisible else { return ["shown": false] }
         self.model = model
-        let panel = self.panel ?? WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
-                                                onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) })
-        self.panel = panel
+        let popup = self.popup ?? makePopup()
+        self.popup = popup
+        guard let panel = popup.panel as? WebPopupPanel else { return ["shown": false] }
         panel.ignoresMouseEvents = model.tooltip
         panel.rows.plain = model.tooltip
         panel.rows.update(model.items, highlighted: model.highlighted)
@@ -96,27 +94,30 @@ public final class WebPopupHost {
         let flipped = webView.isFlipped ? local : CGRect(x: local.minX, y: webView.bounds.height - local.maxY,
                                                          width: local.width, height: local.height)
         let anchor = window.convertToScreen(webView.convert(flipped, to: nil))
-        guard let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return ["shown": false] }
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
-        let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: model.side,
-                                                 trailing: model.trailing, screen: screen.visibleFrame)
-        panel.generation += 1
+        guard let placed = popup.show(size: size, anchor: anchor, in: window, preferred: model.side,
+                                      trailing: model.trailing) else { return ["shown": false] }
         panel.isClosing = false
-        self.anchor = anchor
-        let opening = !panel.isVisible || panel.alphaValue < 1
-        panel.setFrame(PopupStyle.standard.windowFrame(forCard: frame), display: true)
-        if panel.parent !== window {
-            panel.parent?.removeChildWindow(panel)
-            window.addChildWindow(panel, ordered: .above)
-        }
-        panel.level = window.level
-        // Opens like every native popup (POLISH: no flash); new rows in an open menu stay put.
-        if opening, !panel.isVisible { panel.alphaValue = 0 }
-        panel.orderFront(nil)
-        if opening { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) }
-        watch(window)
-        return ["shown": true, "side": side == .below ? "bottom" : "top",
+        let frame = placed.frame
+        return ["shown": true, "side": placed.side == .below ? "bottom" : "top",
                 "frame": [frame.minX, frame.minY, frame.width, frame.height]]
+    }
+
+    private func makePopup() -> NativePopupHost {
+        let popup = NativePopupHost(panel: WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
+                                                         onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) }))
+        // The page closes its own menu on a click in it.
+        popup.keepsOpen = { [weak self] event in
+            guard let webView = self?.webView, event.window === webView.window else { return false }
+            return webView.bounds.contains(webView.convert(event.locationInWindow, from: nil))
+        }
+        popup.onDismiss = { [weak self] in
+            guard let self, model != nil else { return }
+            model = nil
+            panel?.isClosing = true
+            send(["type": "dismiss"])
+        }
+        return popup
     }
 
     /// New rows or a new highlight (the page's arrows, its filter); the place stays.
@@ -130,20 +131,8 @@ public final class WebPopupHost {
 
     public func hide() {
         model = nil
-        unwatch()
-        guard let panel, panel.isVisible else { return }
-        panel.generation += 1
-        panel.isClosing = true
-        let closing = panel.generation
-        // The panel leaves even when its host goes during the fade (its tab closed).
-        panel.closePopup(pivot: panel.popupPivot(toward: anchor)) { [panel] in
-            // A show during the close keeps the panel.
-            guard panel.generation == closing else { return }
-            panel.isClosing = false
-            panel.parent?.removeChildWindow(panel)
-            panel.orderOut(nil)
-            panel.resetPopupScale()
-        }
+        panel?.isClosing = true
+        popup?.hide()
     }
 
     private func picked(_ id: String) {
@@ -158,37 +147,6 @@ public final class WebPopupHost {
         send(["type": "dismiss"])
         hide()
     }
-
-    /// A click anywhere but the menu and the page (the page closes its own menu on a click in it),
-    /// the app going inactive, or the window moving, resizing or closing ends the menu.
-    private func watch(_ window: NSWindow) {
-        guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
-        let names: [(NSNotification.Name, AnyObject?)] = [
-            (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
-            (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
-            (NSWindow.didMiniaturizeNotification, window),
-        ]
-        observers = names.map { name, object in
-            center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.dismiss() }
-            }
-        }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            guard let self, let panel = self.panel, event.window !== panel else { return event }
-            if let webView = self.webView, event.window === webView.window,
-               webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) { return event }
-            self.dismiss()
-            return event
-        }
-    }
-
-    private func unwatch() {
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-    }
 }
 
 /// The child panel a page's menu shows in past the window's edge (`debug.window_list` kind
@@ -199,8 +157,6 @@ public final class WebPopupPanel: ContentChildPanel {
     /// that scrolls.
     public var rowCount: Int { rows.itemCount }
     public var contentHeight: CGFloat { rows.contentHeight }
-    /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
-    var generation = 0
     /// Fading out after a hide: gone for the page and for `debug.page_popup`.
     public internal(set) var isClosing = false
 

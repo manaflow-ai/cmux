@@ -5,6 +5,7 @@
 
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
 use crate::browser_provider::BrowserProviderAuthentication;
+use crate::browser_provider::BrowserProviderHosting;
 use crate::browser_provider::BrowserProviderRegistration;
 use crate::browser_provider::BrowserProviderSnapshot;
 use crate::resource::TabPublicId;
@@ -25,25 +26,33 @@ pub(super) fn browser_host_provider(mux: &Arc<Mux>, client: u64) -> anyhow::Resu
     browser_host_command::run(mux, client)
 }
 
+/// The wire fields of one `register-browser-provider` request.
+pub(super) struct BrowserProviderRequest {
+    pub(super) provider_id: String,
+    pub(super) endpoint: String,
+    pub(super) authentication: String,
+    pub(super) bearer_token: Option<String>,
+    pub(super) hosting: Option<String>,
+    pub(super) targets: Vec<BrowserProviderTargetRequest>,
+}
+
 pub(super) fn register_browser_provider(
     mux: &Arc<Mux>,
     client: u64,
-    provider_id: String,
-    endpoint: String,
-    authentication: String,
-    bearer_token: Option<String>,
-    targets: Vec<BrowserProviderTargetRequest>,
+    request: BrowserProviderRequest,
 ) -> anyhow::Result<Value> {
     if !mux.control_clients.is_unix(client) {
         anyhow::bail!("browser provider registration requires a trusted local connection");
     }
-    let registration = browser_provider_registration(
-        provider_id,
-        endpoint,
-        authentication,
-        bearer_token,
-        targets,
+    let hosting = browser_provider_hosting(request.hosting.as_deref())?;
+    let mut registration = browser_provider_registration(
+        request.provider_id,
+        request.endpoint,
+        request.authentication,
+        request.bearer_token,
+        request.targets,
     )?;
+    registration.hosting = hosting;
     let snapshot = mux.register_browser_provider(client, registration)?;
     Ok(browser_provider_json(Some(snapshot)))
 }
@@ -124,6 +133,7 @@ fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
         "provider_id":snapshot.provider_id,
         "endpoint":snapshot.endpoint,
         "authentication":snapshot.authentication.name(),
+        "hosting":snapshot.hosting.name(),
         "revision":snapshot.revision,
         "clients":snapshot.clients,
         "targets":targets,
@@ -147,6 +157,14 @@ fn handle_browser_frame_presented(
     let owner = mux.control_clients.browser_pointer_owner(client)?;
     let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
     Ok(json!({ "accepted": accepted }))
+}
+
+fn browser_provider_hosting(hosting: Option<&str>) -> anyhow::Result<BrowserProviderHosting> {
+    match hosting {
+        None | Some("daemon") => Ok(BrowserProviderHosting::Daemon),
+        Some("native") => Ok(BrowserProviderHosting::Native),
+        Some(other) => anyhow::bail!("unsupported browser provider hosting {other:?}"),
+    }
 }
 
 pub(super) fn browser_provider_registration(
@@ -227,6 +245,7 @@ pub(super) fn browser_provider_registration(
         provider_id,
         endpoint: parsed.to_string(),
         authentication,
+        hosting: BrowserProviderHosting::Daemon,
         targets: parsed_targets,
     })
 }

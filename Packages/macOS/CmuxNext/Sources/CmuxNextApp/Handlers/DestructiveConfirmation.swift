@@ -10,8 +10,8 @@ import os
 /// before it runs. Scripted runs never get here (they pass `confirm`).
 ///
 /// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
-/// and an undo toast offers them back). Closing a workspace, a group's
-/// workspaces or a space asks only while one of its terminals runs a
+/// and an undo toast offers them back; bulk closes, `WorkspaceBulkClose`).
+/// Closing a workspace, a group's workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
@@ -39,6 +39,7 @@ enum DestructiveConfirmation {
     /// The question for this invocation, or nil to run without asking.
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ services: AppServices) async -> Prompt? {
         let context = AppActionContext(services: services)
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         switch id {
         case "cloudKillMachine":
             return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
@@ -52,16 +53,11 @@ enum DestructiveConfirmation {
         case "workspaceGroup.closeWorkspaces":
             // No question of its own (an undo toast offers the workspaces back):
             // only a foreground program in them asks, as for Close Workspace.
-            guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-                  let group = try? context.group(invocation) else { return nil }
-            let members = WorkspaceGroupClose.members(of: group, context)
-            var programs: [String] = []
-            for (workspace, daemon) in members { programs += await runningPrograms(in: workspace, on: daemon) }
-            guard !programs.isEmpty else { return nil }
-            let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-            return Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name),
-                          body: ConfirmationStrings.stillRunning(Set(programs).sorted().joined(separator: ", ")),
-                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+            guard let group = try? context.group(invocation) else { return nil }
+            return await WorkspaceBulkClose.prompt(WorkspaceGroupClose.members(of: group, context), warn: warn,
+                                                   title: ConfirmationStrings.closeGroupWorkspacesTitle(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name))
+        case let id where WorkspaceBulkClose.ids.contains(id):
+            return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
         case "browserProfile.delete":
             return await BrowserProfileDeletePrompt.prompt(invocation, context)
         case "browser.allowAgentWithExtensions":
@@ -76,14 +72,8 @@ enum DestructiveConfirmation {
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
             return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
         case "closeWorkspace":
-            guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-                  let workspace = context.scope(invocation).workspace,
-                  let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
-            let programs = await runningPrograms(in: workspace, on: daemon)
-            guard !programs.isEmpty else { return nil }
-            return Prompt(title: ConfirmationStrings.closeWorkspaceTitle(workspace.displayName),
-                          body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
-                          suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+            guard let workspace = context.scope(invocation).workspace, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
+            return await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
         default:
             return nil
         }

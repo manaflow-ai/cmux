@@ -252,6 +252,22 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::SidebarGet
+        | Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
         | Op::BrowserDevicesList
         | Op::BrowserDevicesAddCustom
         | Op::BrowserDevicesRemoveCustom

@@ -495,3 +495,27 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   the same request. Route test "a retried level is the same request".
 - Test clocks: a meter event dated more than a few minutes after the customer's clock time is refused,
   so the e2e moves its clock up to real time before a sync in the running period.
+- Open P3 (test mode only): a period that was running when event_ts was added has an old event dated at
+  push time; a seat-only change in that same period can be dated before it. Fix if it matters:
+  use pushed_at + 1 s when event_ts is null.
+
+## 17. Per-team and per-seat test-clock e2e, side by side (2026-10-14)
+
+Development Worker at 55c505de22e6 (backend.yml 38524457745 green). One test clock
+`clock_1UQLoBLbtiW1udY8GKDCmiNR`, two teams, `stripe-usage-e2e.ts` phases a, more, b, c, cleanup:
+
+| team | mode | plan item | level | included | meter summary | invoice usage | total | check |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| personal team_6774f37212cb1152d2a9 | per team (graduated, `cmux_ai_usage`) | Pro x1, 50.00 | 1.217035 | 1.00 | 1.217035 | Tier 1 0.00 + 0.217035 x 1.00 = 0.22 | 50.22 | pass |
+| shared team_34bccc85e7a38258be69 | per seat (operator setting, flat, `cmux_ai_usage_above_included`) | Team x2, 120.00 | 1.577405 | 2 x 0.50 | 0.577405 | 0.577405 x 1.00 = 0.58 | 120.58 | pass |
+
+- The per-seat setting was made through `POST /v1/internal/billing/team-mode` before the subscription
+  started, so it was in force from the first period; the per-team team needed no setting.
+- Before the first sync the shared team was not billable: its first call got 402
+  `usage.included_reached` (the stop); the sync added both usage items and marked both billable.
+- Usage 10 minutes before the period end and after the renewal (draft invoices) reached both invoices.
+- Finding fixed on the way: the deterministic event timestamp (section 16, e2e finding).
+- Cleanup: both subscriptions canceled, the clock deleted by exact id, the shared team's setting set
+  back to per team (actor e2e-hq-84), VM secrets shredded, Freestyle VM
+  vm-0ac15ef11f3c4a91be39d4b92bbfd50e deleted by exact id. The shared e2e team stays as the standing
+  e2e team on the development sign-in project. Real provider spend about 2 USD.

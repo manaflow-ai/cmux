@@ -2096,7 +2096,12 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # Not vars.MACOS_RUNNER_26: that is the pull request macOS pool
+    # (blacksmith-12vcpu-macos-26, same as MACOS_RUNNER_PR), and a signing or
+    # notarization job queued behind PR CI held nightly-next for hours on
+    # 2026-10-14. recover-nightly-next-notarization, publish-nightly-identity-legacy
+    # and generate-nightly-deltas use this pool too.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -3116,7 +3121,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       actions: read
@@ -3770,7 +3775,7 @@ jobs:
     permissions:
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 80
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -4034,7 +4039,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     strategy:
       fail-fast: false
       matrix:

@@ -1,5 +1,4 @@
-import AppKit
-import CmuxNextLayout
+public import AppKit
 
 /// Divider hit areas over Chromium pages.
 ///
@@ -13,29 +12,30 @@ import CmuxNextLayout
 /// edge to edge under it.
 ///
 /// Panels are `NSPanel`s at the overlay's level, so `WindowOverlayLayer`
-/// keeps them above page windows with its other app panels.
+/// keeps them above page windows with its other app panels. Lives here, not
+/// in CmuxNextApp (code-quality.md SW14).
 @MainActor
-final class DividerMouseCatchers {
+public final class DividerMouseCatchers {
     private unowned let window: NSWindow
     private var panels: [String: DividerMousePanel] = [:]
     /// Called with (divider id, hovered) for the divider's hover line.
-    var onHover: ((String, Bool) -> Void)?
+    public var onHover: ((String, Bool) -> Void)?
 
-    init(window: NSWindow) {
+    public init(window: NSWindow) {
         self.window = window
     }
 
     /// Window numbers of the panels shown: they pass divider hover through.
-    var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
+    public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
 
     /// Frames of the panels shown, in window coordinates (`debug.layers`).
-    var framesInWindow: [String: CGRect] {
+    public var framesInWindow: [String: CGRect] {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }
     }
 
     /// Shows one panel per area (window coordinates), or none when `active`
     /// is false (no page window is visible).
-    func update(_ areas: [LayoutMouseArea], active: Bool) {
+    public func update(_ areas: [LayoutMouseArea], active: Bool) {
         let wanted = active && window.isVisible ? areas : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
@@ -53,7 +53,7 @@ final class DividerMouseCatchers {
         }
     }
 
-    func teardown() {
+    public func teardown() {
         update([], active: false)
     }
 

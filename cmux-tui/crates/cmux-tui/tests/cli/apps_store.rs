@@ -56,7 +56,8 @@ impl Apps {
             .env("CMUX_APP_HOST_BIN", self.dir.join("app-host"))
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
-            .env("CMUX_APPS_DIRS", self.dir.join("bundled"));
+            .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
+            .env("CMUX_CUSTOMIZE_DIR", self.dir.join("customize"));
         // By default a daemon with no login session (cx-9mmyz: rbx, containers,
         // cron) has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
         // for a socket path: app servers must still get a socket folder.
@@ -1042,4 +1043,61 @@ fn the_apps_page_reads_panels_and_changes_apps_only_for_the_person() {
         "user",
     );
     assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+}
+
+/// The user's customization folder (cx-swovq.1): its `local/customize` app
+/// installs itself with its required scopes, and a changed file reloads it
+/// with no restart and no command.
+#[test]
+fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
+    let apps = Apps::new("customize");
+    let customize = |version: &str| {
+        write_app(
+            &apps.dir,
+            "local",
+            "customize",
+            json!({
+                "version": version,
+                "runtime": { "main": "main.js" },
+                "implements": { "cmux.hovercard/1": { "export": "renderCard" } },
+                "scopes": { "agent:read": "Shows what the hovered row's agent does." },
+            }),
+        );
+        std::fs::write(
+            apps.dir.join("customize/main.js"),
+            "globalThis.__cmuxAppExports = { renderCard: () => Text('hi') }\n",
+        )
+        .unwrap();
+    };
+    customize("1.0.0");
+    apps.start();
+    let mut client = apps.agent();
+    let mut entry_at = |version: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let list = client.rpc(json!({ "cmd": "apps-list" }));
+            let found = list["data"]["apps"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|app| app["id"] == "local/customize" && app["version"] == version)
+                .cloned();
+            if let Some(found) = found {
+                return found;
+            }
+            assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let first = entry_at("1.0.0");
+    assert_eq!(first["installed"], true, "{first}");
+    assert_eq!(first["enabled"], true, "{first}");
+    assert!(
+        first["grants"].as_array().is_some_and(|g| g.iter().any(|s| s == "agent:read")),
+        "its read scope is granted: {first}"
+    );
+    assert_eq!(first["sandboxed"], true, "it runs sandboxed as any unverified app: {first}");
+    customize("1.0.1");
+    let reloaded = entry_at("1.0.1");
+    assert_eq!(reloaded["installed"], true, "still installed after the reload: {reloaded}");
 }
