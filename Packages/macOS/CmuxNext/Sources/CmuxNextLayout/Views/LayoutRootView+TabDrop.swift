@@ -42,13 +42,13 @@ extension LayoutRootView {
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
         let style = context.style
-        // Pane zones trace the rounded pane rect (already inset by the
-        // padding); without pane chrome the highlight floats inside the pane.
-        let traces = style.hasPaneChrome && hit.target.isPaneZone
+        // Pane zones carry classic's 4 pt padding already (`classicPaneHighlight`); gaps and dock bands float
+        // inside their region. The radius is classic's 8 pt unless the tunable follows the pane (-1).
+        let paneZone = hit.target.isPaneZone
         let tunedRadius = CGFloat(DropOverlayTunables.cornerRadius.value)
         let radius = tunedRadius >= 0 ? tunedRadius
-            : traces ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
-        let inset = traces ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
+            : style.hasPaneChrome && paneZone ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
+        let inset = paneZone ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
         if highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
                           inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),
                           animated: canAnimate) { driver.start() }
@@ -65,7 +65,7 @@ extension LayoutRootView {
         tabDropHit = nil
         let radius = min(context.style.panelCornerRadius, rect.height / 2)
         if highlight.show(rect, region: rect, zone: .center, text: "", inset: 0, cornerRadius: radius,
-                          pointer: CGPoint(x: rect.midX, y: rect.midY), animated: canAnimate) { driver.start() }
+                          pointer: CGPoint(x: rect.midX, y: rect.midY), animated: canAnimate, fills: false) { driver.start() }
     }
 
     /// Hides the drop highlight `updateTabDrag` showed, for a zone the App
@@ -107,7 +107,8 @@ extension LayoutRootView {
         tabDropHit = nil
         tabDragEdge = nil
         tabDragDwellDeadline = nil
-        if highlight.hide(animated: canAnimate) { driver.start() }
+        // Classic hides the overlay at once on a drop, a cancel or an exit.
+        if highlight.hide(animated: false) { driver.start() }
     }
 
     // MARK: NSDraggingDestination

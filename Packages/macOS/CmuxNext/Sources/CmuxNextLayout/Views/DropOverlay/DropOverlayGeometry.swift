@@ -51,10 +51,15 @@ public nonisolated struct DropOverlayFrame: Equatable, Sendable {
     /// The overlay may move to `finalTarget` with an animation (self-driven
     /// styles animate on the compositor; the others get every frame).
     public var animated: Bool
+    /// The target is a pane, gap or dock region that classic fills; false
+    /// for a tab strip's insert slot (`showTabDragOutline`), which stays a border.
+    public var fills: Bool
 
     public init(target: CGRect, finalTarget: CGRect? = nil, region: CGRect, zone: DropOverlayZone, bounds: CGRect,
-                cornerRadius: CGFloat, label: String, showsLabel: Bool, refused: Bool = false, animated: Bool = false) {
+                cornerRadius: CGFloat, label: String, showsLabel: Bool, refused: Bool = false, animated: Bool = false,
+                fills: Bool = true) {
         self.refused = refused
+        self.fills = fills
         self.animated = animated
         self.target = target
         self.finalTarget = finalTarget ?? target

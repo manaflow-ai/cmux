@@ -13,8 +13,12 @@ nonisolated extension ColumnScrollState {
         var effects = ColumnScrollEffects()
         switch event {
         case let .sync(strip, focused, source, animated, reveals, anchor):
-            sync(strip, focused: focused, source: source, reveals: reveals, anchor: anchor)
-            finish(animated: animated, into: &effects)
+            let before = spring.target
+            let shift = sync(strip, focused: focused, source: source, reveals: reveals, anchor: anchor)
+            // A sync that leaves the target where the camera shift put it never snaps: a fling or
+            // wheel spring in flight keeps moving while pane layout motion is off (motion.md rule 9).
+            let moved = abs(strip.clamp(spring.target) - (before + shift)) > 0.25
+            finish(animated: animated || !moved, into: &effects)
         case let .center(pane, animated):
             guard gesture == nil, let strip, let index = strip.index(ofPane: pane) else { return effects }
             spring.target = ColumnViewOffset.center(strip.columns[index].frame, current: spring.target, strip: strip)
@@ -84,7 +88,9 @@ nonisolated extension ColumnScrollState {
         effects.needsFrames = spring.value != spring.target || spring.velocity != 0
     }
 
-    private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?) {
+    /// Returns the camera shift it applied to the value and the target (step 1).
+    @discardableResult
+    private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?) -> CGFloat {
         let old = strip
         let oldPane = focusedPane
         let oldColumn = focusedColumn
@@ -102,7 +108,7 @@ nonisolated extension ColumnScrollState {
                 spring.target = ColumnViewOffset.target(column: index, pane: focused, current: spring.target, mode: mode, previous: nil, strip: new)
             }
             spring.snap()
-            return
+            return 0
         }
 
         // 1. Camera: keep the previously focused column (or the column under
@@ -147,16 +153,16 @@ nonisolated extension ColumnScrollState {
 
         // 3. Reveal. A live gesture owns the target; its end keeps the
         //    focused column visible.
-        guard gesture == nil else { return }
+        guard gesture == nil else { return delta }
         guard reveals else {
             revealDeferred = true
-            return
+            return delta
         }
         let deferred = revealDeferred
         revealDeferred = false
-        guard let index else { return }
+        guard let index else { return delta }
         let columnChanged = focusedColumn != oldColumn
-        guard focused != oldPane || old != new || restored || deferred else { return }
+        guard focused != oldPane || old != new || restored || deferred else { return delta }
         var effectiveMode = source == .pointer || source == .scroll ? .never : mode
         if !columnChanged && focused == oldPane && effectiveMode == .always,
            let before = oldColumn.flatMap(old.index(of:)),
@@ -169,6 +175,7 @@ nonisolated extension ColumnScrollState {
         let previous = columnChanged ? oldColumn.flatMap(new.index(of:)) : nil
         spring.target = ColumnViewOffset.target(column: index, pane: focused, current: spring.target,
                                                 mode: effectiveMode, previous: previous, strip: new)
+        return delta
     }
 
     private mutating func moveFocusAfterScroll(to target: CGFloat, snaps: [ColumnViewOffset.Snap], forward: Bool, into effects: inout ColumnScrollEffects) {

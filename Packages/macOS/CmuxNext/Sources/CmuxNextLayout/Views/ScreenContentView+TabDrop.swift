@@ -31,6 +31,15 @@ extension ScreenContentView {
         }
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
+        // A pane zone draws as classic: the body below the tab bar, inset 4 pt, the half the split gives.
+        if case let .pane(pane, zone) = target, let cell = geometry.panes[pane],
+           let content = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) {
+            let shown = geometry.scrolls(pane: pane) ? cell.offsetBy(dx: geometry.viewShift(offset: scroll.value), dy: 0) : cell
+            let top = max(content.minY, shown.minY + DropZoneGeometry.header(of: pane, in: cell, headers, context.style))
+            let bottom = min(content.maxY, shown.maxY - DropZoneGeometry.footer(of: pane, in: cell, footers, context.style))
+            let body = CGRect(x: content.minX, y: top, width: content.width, height: max(0, bottom - top))
+            rect = DropZoneGeometry.classicPaneHighlight(body: body, zone: zone)
+        }
         // A strip target's highlight never draws over a docked column.
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
         guard !rect.isNull else { return nil }
