@@ -487,3 +487,11 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   started. In live mode a period start is never in the future. The e2e makes the setting before it
   creates the clock.
 - The stop's seats come only from a billable subscription whose period ended at most 35 days ago.
+- e2e finding (2026-10-14, fixed): the sync used the meter event identifier as the idempotency key but
+  dated the event at real time, so after one failed send every retry of the same level was a different
+  request with the same key, and the payment service refused it ("Keys for idempotent requests can only
+  be used with the same parameters") until the level changed. Now the event is dated at the level's last
+  fact, after the period's previous event (`usage_push.event_ts`) and inside the period, so a retry is
+  the same request. Route test "a retried level is the same request".
+- Test clocks: a meter event dated more than a few minutes after the customer's clock time is refused,
+  so the e2e moves its clock up to real time before a sync in the running period.

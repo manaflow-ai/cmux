@@ -161,10 +161,11 @@ impl Mux {
     pub(crate) fn reopen_terminal_spawn(
         &self,
         tab: &Value,
-    ) -> (TerminalSpawnOptions, SeedGuard<'_>) {
+    ) -> (TerminalSpawnOptions, SeedGuard<'_>, Option<(u16, u16)>) {
         let (cwd, env) = crate::workspace_registry::relaunch_store::replay(tab);
         let mut spawn = TerminalSpawnOptions::new(cwd, env);
         let mut guard = SeedGuard { mux: self, terminal_id: None };
+        let mut size = None;
         #[cfg(any(unix, windows))]
         if let Some(seed) =
             tab["terminal_id"].as_str().and_then(|id| self.archived_terminal_seed(id))
@@ -174,8 +175,21 @@ impl Mux {
             self.terminal_respawns.stash_seed(&reserved, seed);
             spawn.terminal_id = Some(reserved.clone());
             guard.terminal_id = Some(reserved);
+            size = tab["terminal_id"].as_str().and_then(|id| self.archived_terminal_size(id));
         }
-        (spawn, guard)
+        (spawn, guard, size)
+    }
+
+    /// The archived terminal's original viewport, used to seed the new PTY
+    /// before the frontend resizes it to the current pane.
+    #[cfg(any(unix, windows))]
+    fn archived_terminal_size(&self, closed_terminal: &str) -> Option<(u16, u16)> {
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        registry
+            .terminal_archive(closed_terminal)
+            .ok()
+            .flatten()
+            .map(|archive| (archive.cols, archive.rows))
     }
 
     /// The seed of a reopened archived terminal: its screen, and one dim

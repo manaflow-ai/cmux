@@ -38,12 +38,12 @@ const file = (path: string, additions: number) =>
 
 async function sourcesRows(outputs: never[], changed: never[]) {
   const { createRoot } = await import("react-dom/client");
-  const { SummaryPopover } = await import("../src/agent-session/acpmux/summary/SummaryPopover");
+  const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
   act(() => root?.unmount());
   root = createRoot(host);
   const summary = { scheduled: [], pullRequests: [], outputs, subagents: [], sources: [], backgroundTasks: [] };
   const changes = { additions: 1, deletions: 0, files: changed };
-  await act(async () => root!.render(<SummaryPopover summary={summary} changes={changes} onOpenChanges={() => {}} />));
+  await act(async () => root!.render(<SummaryBody summary={summary} changes={changes} onOpenChanges={() => {}} />));
   const sections: Record<string, string[]> = Object.fromEntries(
     [...host.querySelectorAll("section")].map((section) => [
       section.getAttribute("aria-label") ?? section.querySelector("h3")?.textContent,

@@ -17,6 +17,9 @@ type FakeSub = { id: string; status: string; customer: string; metadata: Record<
 export const fakeStripe = (period: { start: number; end: number }) => {
   const calls: Call[] = []
   const events: Array<Record<string, string>> = []
+  /** Every meter event request, failed or accepted. */
+  const attempts: Array<Record<string, string>> = []
+  const control = { failMeterEvents: 0 }
   const subs: FakeSub[] = []
   const seen = new Map<string, unknown>()
   const addSub = (id: string, customer: string, metadata: Record<string, string>, planLookup: string, extra: Array<any> = []) => {
@@ -55,12 +58,19 @@ export const fakeStripe = (period: { start: number; end: number }) => {
       return ok({ ...structuredClone(item), current_period_start: period.start, current_period_end: period.end })
     }
     if (method === "POST" && url.pathname === "/v1/billing/meter_events") {
+      // `failMeterEvents`: the next N sends fail as a 500 (the request is still seen, as a payment service may record it).
+      if (control.failMeterEvents > 0) {
+        control.failMeterEvents--
+        attempts.push(form)
+        return Response.json({ error: { type: "api_error", message: "try again" } }, { status: 500 })
+      }
+      attempts.push(form)
       events.push(form)
       return ok({ object: "billing.meter_event", identifier: form.identifier })
     }
     return Response.json({ error: { code: "resource_missing", message: `no fake for ${method} ${url.pathname}` } }, { status: 404 })
   }
-  return { calls, events, subs, addSub, period, handle }
+  return { calls, events, attempts, control, subs, addSub, period, handle }
 }
 
 /** Fakes both boundaries: the model provider answers `cost`, the payment service is `stripe`. */

@@ -361,6 +361,10 @@ final class SidebarResizeHandle: NSView {
         Motion.set(line, "opacity", to: target, fade: .hover)
     }
 
+    /// A press here resizes the sidebar, also in the titlebar band: it never moves the window
+    /// (`TitlebarDragPolicy`).
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func mouseDown(with event: NSEvent) {
         isDragging = true
         startX = event.locationInWindow.x

@@ -17,6 +17,11 @@ export const SubagentHarnessContext = createContext<string | undefined>(undefine
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
 
+/// Shows a subagent in a pane of its own right of the chat, or in this pane when none opens
+/// (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
+/// in place.
+export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
+
 /// Avatars drawn before "+N".
 const STACK = 3;
 
@@ -121,7 +126,9 @@ export function SubagentGroupHeader({
 /// and time. `edge` rounds the list's first and last rows. A click opens its own view.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const open = useContext(SubagentNavContext);
+  const nav = useContext(SubagentNavContext);
+  const pane = useContext(SubagentPaneContext);
+  const open = pane ?? nav;
   const agent = row.subagents?.[0];
   const now = useNow(agent ? running(agent) : false);
   if (!agent) return null;

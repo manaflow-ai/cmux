@@ -44,6 +44,14 @@ bool IsWebStoreURL(const std::string& url) {
          CefString(&parts.host).ToString() == "chromewebstore.google.com";
 }
 
+bool IsWebStoreCrxURL(const std::string& url) {
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) return false;
+  return CefString(&parts.scheme).ToString() == "https" &&
+         CefString(&parts.host).ToString() == "clients2.google.com" &&
+         CefString(&parts.path).ToString() == "/service/update2/crx";
+}
+
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url) {
   static CefRefPtr<CefResourceRequestHandler> handler = new WebStoreHeaders();
   return IsWebStoreURL(url) ? handler : nullptr;

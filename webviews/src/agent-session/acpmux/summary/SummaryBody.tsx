@@ -18,7 +18,8 @@ const ROW_ICON = rowIconSize(12);
 /// an output opens the changes view at that file. A file the last turn changed is listed under
 /// Changes only. Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
-/// subagents acpmux reports shows their Lineage (subagents/Lineage.tsx) in the Subagents place.
+/// subagents acpmux reports lists them with their live state (SubagentStatusList.tsx) in the
+/// Subagents place. The summary card (SummaryCard.tsx) draws it.
 const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
   running: "bgTask.state.running",
   completed: "bgTask.state.completed",
@@ -34,7 +35,7 @@ export type SummaryChanges = {
   files?: readonly Pick<TurnFile, "path" | "displayPath" | "additions" | "deletions" | "created">[];
 };
 
-export function SummaryPopover({
+export function SummaryBody({
   summary,
   galleryCount = 0,
   changes,
@@ -42,7 +43,7 @@ export function SummaryPopover({
   onOpenOutput,
   onOpenGallery,
   onFollow,
-  lineage,
+  subagents,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -52,7 +53,8 @@ export function SummaryPopover({
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
-  lineage?: ReactNode;
+  /// The Subagents section, when acpmux reports the chat's subagents.
+  subagents?: ReactNode;
 }) {
   const t = useT();
   // A file the last turn changed shows once, under Changes (as in Codex); Outputs keeps the rest.
@@ -98,7 +100,7 @@ export function SummaryPopover({
           )
         }
       />
-      {lineage ?? (
+      {subagents ?? (
         <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
           <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
           <ul className="acpmux-summary-list">
