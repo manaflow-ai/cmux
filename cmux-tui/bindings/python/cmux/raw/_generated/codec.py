@@ -256,6 +256,8 @@ MODEL_BY_PATH = {
     'commands/conversation-history/result': models.ConversationHistoryResult,
     'commands/conversation-import/request': models.ConversationImportRequest,
     'commands/conversation-import/result': models.ConversationImportResult,
+    'commands/conversation-link-resolve/request': models.ConversationLinkResolveRequest,
+    'commands/conversation-link-resolve/result': models.ConversationLinkResolveResult,
     'commands/conversation-list/request': models.ConversationListRequest,
     'commands/conversation-list/result': models.ConversationListResult,
     'commands/conversation-op/request': models.ConversationOpRequest,

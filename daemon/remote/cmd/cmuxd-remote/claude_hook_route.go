@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -37,41 +36,10 @@ type claudeProcessTree interface {
 	argv(pid int) []string
 }
 
-// procClaudeProcessTree reads /proc. Hosts without it report no processes,
-// which only means the hook falls back to the environment it was given.
+// procClaudeProcessTree reads the host's process table: /proc on Linux,
+// sysctl on macOS (claude_hook_proc_*.go). A process it cannot inspect
+// reports parent 0 and no argv.
 type procClaudeProcessTree struct{}
-
-// parent reads the parent PID from /proc/<pid>/stat.
-func (procClaudeProcessTree) parent(pid int) int {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return 0
-	}
-	// The command name can contain spaces and parentheses; fields resume
-	// after the last ')': state, then ppid.
-	closing := bytes.LastIndexByte(data, ')')
-	if closing < 0 {
-		return 0
-	}
-	fields := strings.Fields(string(data[closing+1:]))
-	if len(fields) < 2 {
-		return 0
-	}
-	parent, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return 0
-	}
-	return parent
-}
-
-// argv reads the NUL-separated argv from /proc/<pid>/cmdline.
-func (procClaudeProcessTree) argv(pid int) []string {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
-	if err != nil || len(data) == 0 {
-		return nil
-	}
-	return strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
-}
 
 var claudeRelayProcessTree claudeProcessTree = procClaudeProcessTree{}
 
@@ -137,14 +105,23 @@ type claudeHookTmuxProbe struct {
 	// liveRelay maps a client's relay address to the one currently serving
 	// its persistent slot; nil keeps the address.
 	liveRelay func(socketPath string, clientPID int) string
+	// logf records why no route was found; nil discards it.
+	logf func(format string, args ...any)
+}
+
+func (probe claudeHookTmuxProbe) log(format string, args ...any) {
+	if probe.logf != nil {
+		probe.logf(format, args...)
+	}
 }
 
 // defaultClaudeHookTmuxProbe runs the host's tmux under the hook's deadline
-// and reads client environments from /proc.
+// and reads client environments from the process table.
 func defaultClaudeHookTmuxProbe(deadline time.Time) claudeHookTmuxProbe {
 	return claudeHookTmuxProbe{
 		run:     func(args ...string) (string, error) { return runClaudeHookTmux(deadline, args...) },
 		environ: readProcEnviron,
+		logf:    logClaudeHookDrop,
 		liveRelay: func(socketPath string, clientPID int) string {
 			home, err := os.UserHomeDir()
 			if err != nil || home == "" {
@@ -171,22 +148,6 @@ func runClaudeHookTmux(deadline time.Time, args ...string) (string, error) {
 	return string(output), err
 }
 
-// readProcEnviron parses /proc/<pid>/environ. It is readable only for
-// processes of the same user.
-func readProcEnviron(pid int) map[string]string {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
-	if err != nil {
-		return nil
-	}
-	environment := map[string]string{}
-	for _, entry := range strings.Split(string(data), "\x00") {
-		if key, value, ok := strings.Cut(entry, "="); ok && key != "" {
-			environment[key] = value
-		}
-	}
-	return environment
-}
-
 // discoverClaudeHookTmuxRoute finds the cmux surface attached to the tmux
 // session this hook runs in. Clients of the pane's session, or of a session
 // grouped with it, are candidates. A client whose current window holds the
@@ -202,16 +163,19 @@ func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmu
 	}
 	paneOutput, err := probe.run(append(displayArgs, "#{session_id}\t#{session_group}\t#{window_id}")...)
 	if err != nil {
+		probe.log("tmux display-message failed: %v", err)
 		return claudeHookTmuxRoute{}, false
 	}
 	paneLine := strings.TrimRight(paneOutput, "\n")
 	paneFields := strings.Split(paneLine, "\t")
 	if len(paneFields) != 3 || paneFields[0] == "" || strings.Contains(paneLine, "\n") {
+		probe.log("tmux display-message returned %q", paneLine)
 		return claudeHookTmuxRoute{}, false
 	}
 	paneSession, paneGroup, paneWindow := paneFields[0], paneFields[1], paneFields[2]
 	clientOutput, err := probe.run("list-clients", "-F", "#{client_pid}\t#{client_tty}\t#{client_activity}\t#{session_id}\t#{session_group}\t#{window_id}")
 	if err != nil {
+		probe.log("tmux list-clients failed: %v", err)
 		return claudeHookTmuxRoute{}, false
 	}
 	type client struct {
@@ -243,8 +207,16 @@ func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmu
 		}
 		return clients[i].activity > clients[j].activity
 	})
+	if len(clients) == 0 {
+		probe.log("no tmux client is attached to session %s", paneSession)
+		return claudeHookTmuxRoute{}, false
+	}
 	for _, candidate := range clients {
 		environment := probe.environ(candidate.pid)
+		if environment == nil {
+			probe.log("could not read the environment of tmux client pid %d", candidate.pid)
+			continue
+		}
 		route := claudeHookTmuxRoute{
 			socketPath:  strings.TrimSpace(environment["CMUX_SOCKET_PATH"]),
 			workspaceID: strings.TrimSpace(environment["CMUX_WORKSPACE_ID"]),
@@ -258,6 +230,7 @@ func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmu
 			return route, true
 		}
 	}
+	probe.log("none of %d tmux clients of session %s carries a cmux surface", len(clients), paneSession)
 	return claudeHookTmuxRoute{}, false
 }
 

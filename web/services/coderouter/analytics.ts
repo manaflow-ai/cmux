@@ -99,7 +99,7 @@ export type CoderouterRawEvent = {
 };
 
 /** Property keys a raw event may carry; anything else is dropped. */
-const RAW_EVENT_KEY = /^(\$ai_[a-z_]+|\$exception_[a-z_]+|coderouter_[a-z_]+|trace_id|vercel_request_id|team_id|upstream_kind|upstream_account_id|provider|agent|attempt|attempts|status|outcome|failure_stage|failure_code|healthy|total|sticky|cooldown_ms|forced|surface|reason|alert_key|severity|title|count|threshold|window_minutes)$/;
+const RAW_EVENT_KEY = /^(\$ai_[a-z_]+|\$exception_[a-z_]+|coderouter_[a-z_]+|operation|trace_id|vercel_request_id|team_id|upstream_kind|upstream_account_id|provider|agent|attempt|attempts|status|outcome|failure_stage|failure_code|healthy|total|sticky|cooldown_ms|forced|surface|reason|alert_key|severity|title|count|threshold|window_minutes)$/;
 
 /**
  * Sends one batch of operational exception/alert events. Same gate, config, identity and

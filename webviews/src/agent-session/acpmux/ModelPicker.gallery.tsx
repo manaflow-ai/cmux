@@ -158,8 +158,13 @@ export default componentEntry<ModelPickerProps>({
         label: "Claude Code",
         catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z"),
       },
+      // An empty list never collapses the menu to its search field (Lawrence 2026-10-13).
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+          return !!menu && menu.style.visibility === "visible" && menu.getBoundingClientRect().height >= 219;
+        });
       },
     },
     curated: { props: curated, play: openModels },

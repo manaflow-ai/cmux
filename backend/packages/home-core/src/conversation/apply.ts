@@ -71,18 +71,24 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       // Only an agent posts a question, and only a pending one (Rust `bad_question`).
       if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
       const replyTo = op.reply_to
+      let parent: Message | undefined
       if (replyTo !== undefined) {
         const replied = request.reply_target
         if (!replied || replied.id !== replyTo.message_id || replied.conversation !== head.id) fail("unknown_message")
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
+        parent = replied!
       }
       // A null thread_root is no thread (as serde reads it in Rust).
-      const threadRoot = op.thread_root ?? undefined
-      if (threadRoot !== undefined) {
+      const namedRoot = op.thread_root ?? undefined
+      if (namedRoot !== undefined) {
         const root = request.thread_target
-        // A thread has one level: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
-        if (!root || root.id !== threadRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
+        // thread_root is always the top root: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
+        if (!root || root.id !== namedRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
       }
+      // Threads nest without a limit (conversation-tree-v1, Rust reducer.rs): reply_to is the parent;
+      // a parent in a thread passes its root on; a named root must be the parent's own.
+      if (namedRoot !== undefined && parent !== undefined && parent.id !== namedRoot && parent.thread_root !== namedRoot) fail("invalid_thread_root")
+      const threadRoot = namedRoot ?? parent?.thread_root
       const nowMs = parseRfc3339Millis(now) ?? 0
       // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
       // turns). A head written before the counters existed falls back to the row window once.

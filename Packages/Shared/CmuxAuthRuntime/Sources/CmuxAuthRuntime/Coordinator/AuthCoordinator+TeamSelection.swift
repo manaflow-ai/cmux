@@ -67,9 +67,11 @@ public extension AuthCoordinator {
               isAuthenticated else {
             throw AuthError.unauthorized
         }
-        var refreshed = try await runPhase(.listTeams, timeout: timeouts.network) {
+        // The team already exists; a failed membership read must not fail the
+        // create, or a retry would make a second team.
+        var refreshed = (try? await runPhase(.listTeams, timeout: timeouts.network) {
             try await client.listTeams()
-        }
+        }) ?? availableTeams
         guard generation == sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {

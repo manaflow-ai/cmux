@@ -261,8 +261,6 @@ def restore_aggregate(repository, artifact_id, run_id, expected_digest, destinat
             or not isinstance(size, int) or not 0 < size <= MAX_BYTES
             or not isinstance(producer, dict) or producer.get("id") != run_id):
         raise TransportError("artifact does not match this run's pinned product")
-    if destination.exists():
-        destination.rmdir()  # Only an empty placeholder; never merge into stale products.
     destination.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="cmux-parallel-artifact-", dir=destination.parent) as work:
@@ -274,6 +272,8 @@ def restore_aggregate(repository, artifact_id, run_id, expected_digest, destinat
             raise TransportError("provider ZIP digest mismatch")
         unpack_single_member(zip_path, staging / "products", allowed={member})
         zip_path.unlink()
+        if destination.exists():
+            destination.rmdir()  # Only an empty placeholder; never merge into stale products.
         (staging / "products").rename(destination)
     elapsed = time.monotonic() - started
     return {

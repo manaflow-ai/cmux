@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { CloudTelemetrySpan } from "./cloudTelemetryContract";
+import type { CloudTelemetryAuth, CloudTelemetrySpan } from "./cloudTelemetryContract";
 import type { StoredCloudDiagnostic } from "./cloudTelemetryRepository";
 
 export type CloudAxiomConfiguration = {
@@ -49,9 +49,10 @@ export async function exportCloudDiagnostics(
   if (rows.length === 0) return;
   const resourceSpans = rows.filter((row) => row.payload.source !== "server").map((row) => ({
     resource: { attributes: otlpAttributes(resourceAttributes(row, configuration)) },
-    scopeSpans: [{ scope: { name: "cmux-cloud-native", version: "1" }, spans: [cloudSpanToOtlp(row.payload.span)] }],
+    scopeSpans: [{ scope: { name: "cmux-cloud-native", version: "1" }, spans: [cloudSpanToOtlp(row.payload.span, row.payload.sampleWeight)] }],
   }));
-  const errors = rows.filter((row) => ["failure", "timeout"].includes(row.payload.span.outcome)).map((row) => ({
+  // Sign-in rate-limit records are auth signals, not Cloud errors; they live only in traces.
+  const errors = rows.filter((row) => !row.payload.span.auth && ["failure", "timeout"].includes(row.payload.span.outcome)).map((row) => ({
     _time: new Date(row.payload.span.endedAtMs).toISOString(),
     client_channel: row.payload.client.channel,
     client_tag: row.payload.client.tag,
@@ -113,6 +114,7 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
     "cmux.backend.source_sha256": row.payload.backend?.sourceSha256,
     "cmux.client.channel": client.channel, "cmux.client.tag": client.tag, "cmux.client.build": client.build,
     "cmux.client.revision": client.revision,
+    "service.instance.id": row.payload.source === "server" ? undefined : client.instanceId,
     "os.version": row.payload.source === "server" ? undefined : client.osVersion,
     "host.arch": row.payload.source === "server" ? undefined : client.architecture,
     "cmux.account_key": createHmac("sha256", configuration.identityKey).update(row.userId).digest("hex"),
@@ -120,8 +122,20 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
   };
 }
 
-/** Preserve the originating span, including time and parent, through the HTTP gateway. */
-export function cloudSpanToOtlp(span: CloudTelemetrySpan) {
+/**
+ * Preserve the originating span, including time and parent, through the HTTP gateway.
+ * `cmux.telemetry.sample_weight` is how many submitted spans this one stands for after
+ * ingest sampling; estimate counts with `sum(sample_weight)`, not `count()`.
+ */
+type OtlpSpan = {
+  readonly traceId: string; readonly spanId: string; readonly parentSpanId?: string;
+  readonly name: string; readonly kind: number;
+  readonly startTimeUnixNano: string; readonly endTimeUnixNano: string;
+  readonly attributes: ReturnType<typeof otlpAttributes>; readonly status: { readonly code: number };
+};
+
+export function cloudSpanToOtlp(span: CloudTelemetrySpan, sampleWeight = 1): OtlpSpan {
+  if (span.auth) return authSpanToOtlp(span, span.auth, sampleWeight);
   const attributes = {
     "cmux.subsystem": "vm-cloud", "cmux.observation.source": "client",
     "cmux.event_id": span.eventId, "cmux.operation_id": span.operationId,
@@ -130,6 +144,7 @@ export function cloudSpanToOtlp(span: CloudTelemetrySpan) {
     "error.type": span.failure, "http.response.status_code": span.httpStatus,
     "cmux.error_number": span.errorNumber, "cmux.telemetry.dropped_count": span.droppedCount,
     "code.file.name": span.sourceFile, "code.line.number": span.sourceLine,
+    "cmux.telemetry.sample_weight": sampleWeight,
   };
   return {
     traceId: span.traceId, spanId: span.spanId,
@@ -140,6 +155,31 @@ export function cloudSpanToOtlp(span: CloudTelemetrySpan) {
     endTimeUnixNano: (BigInt(span.endedAtMs) * BigInt(1_000_000)).toString(),
     attributes: otlpAttributes(attributes),
     status: { code: span.outcome === "failure" || span.outcome === "timeout" ? 2 : 1 },
+  };
+}
+
+/**
+ * A sign-in service rate-limit record. The span name and `cmux.auth.*` attributes are the
+ * contract of the "cmux Stack Auth health" dashboard and the client rate-limit monitor.
+ */
+function authSpanToOtlp(span: CloudTelemetrySpan, auth: CloudTelemetryAuth, sampleWeight: number): OtlpSpan {
+  const limited = auth.event === "stack_rate_limited";
+  const attributes = {
+    "cmux.observation.source": "client", "cmux.event_id": span.eventId,
+    "cmux.auth.phase": auth.phase,
+    "cmux.auth.retry_after_s": auth.retryAfterS, "cmux.auth.backoff_s": auth.backoffS,
+    "cmux.auth.attempt": limited ? span.attempt : undefined,
+    "cmux.auth.body_kind": auth.bodyKind, "http.status_code": limited ? span.httpStatus : undefined,
+    "cmux.auth.endpoint": auth.endpoint, "cmux.auth.limited_for_s": auth.limitedForS,
+    "cmux.telemetry.dropped_count": span.droppedCount, "cmux.telemetry.sample_weight": sampleWeight,
+  };
+  return {
+    traceId: span.traceId, spanId: span.spanId,
+    name: `cmux.auth.${auth.event}`, kind: 3,
+    startTimeUnixNano: (BigInt(span.startedAtMs) * BigInt(1_000_000)).toString(),
+    endTimeUnixNano: (BigInt(span.endedAtMs) * BigInt(1_000_000)).toString(),
+    attributes: otlpAttributes(attributes),
+    status: { code: limited ? 2 : 1 },
   };
 }
 

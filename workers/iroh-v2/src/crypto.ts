@@ -106,6 +106,17 @@ export function requestSigningInput(device: DeviceDescriptor, requestId: string,
   return canonicalJSON({ purpose: "cmux-iroh-v2-request", identity: device.identity, endpointId: device.endpointId, identityGeneration: device.identityGeneration, requestId, issuedAt, nonce, body });
 }
 
+/**
+ * Account directory proofs use their own purpose, so a signature made for a
+ * team request can never be replayed against the account object, or the
+ * reverse. Same fields and canonical encoding as `requestSigningInput`.
+ */
+export const ACCOUNT_REQUEST_PURPOSE = "cmux-iroh-v2-account-request";
+
+export function accountRequestSigningInput(device: DeviceDescriptor, requestId: string, issuedAt: number, body: unknown, nonce: string): string {
+  return canonicalJSON({ purpose: ACCOUNT_REQUEST_PURPOSE, identity: device.identity, endpointId: device.endpointId, identityGeneration: device.identityGeneration, requestId, issuedAt, nonce, body });
+}
+
 export async function verifyDeviceSignature(endpoint: string, value: string, signature: string): Promise<void> {
   try {
     endpointID.parse(endpoint);

@@ -42,8 +42,10 @@ export const teamUsageLine = async (env: Env, team: string, plan: string | null)
   // plan or no plan copy has none to show (its calls stop at the plan gate, never at the included amount).
   const usagePlan = includedPlanOf(plan)
   const paid = plan !== null && (INFERENCE_PERSONAL_PLAN_IDS.has(plan) || INFERENCE_TEAM_PLAN_IDS.has(plan))
-  const included = usagePlan ? usageIncludedUsd(usagePlan, usagePriceSet(env)) : paid ? 0 : null
+  const perSeat = usage?.unbilled.mode === "per_seat"
+  const seats = perSeat ? usage!.unbilled.seats : 1
+  const included = usagePlan ? usageIncludedUsd(usagePlan, usagePriceSet(env)) * seats : paid ? 0 : null
   const spent = usage ? usage.month_spent_usd : -1
   const stopApplies = env.USAGE_HARD_STOP_UNBILLED === "1"
-  return { billed: false, included_usd: included, per_seat: false, seats: 1, spent_usd: spent, period_start: monthStart(now), period_end: nextMonthStart(now), stop_applies: stopApplies, stopped: stopApplies && included !== null && spent >= 0 && spent >= included }
+  return { billed: false, included_usd: included, per_seat: perSeat, seats, spent_usd: spent, period_start: monthStart(now), period_end: nextMonthStart(now), stop_applies: stopApplies, stopped: stopApplies && included !== null && spent >= 0 && spent >= included }
 }

@@ -3,55 +3,65 @@ import type { Event } from "@sentry/nextjs";
 
 import {
   scrubSentryEvent,
-  shouldSendCoderouterSentryEvent,
+  shouldSendSentryEvent,
 } from "../services/sentry";
 import { isSensitiveObservabilityKey } from "../services/observability/report";
 
 describe("coderouter Sentry privacy", () => {
-  test("isolates the shared cmux deployment to coderouter events", () => {
+  test("drops raw request errors that are not coderouter's", () => {
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         request: { url: "https://coderouter.dev/v1/responses" },
       }),
     ).toBe(true);
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         tags: { subsystem: "coderouter" },
       }),
     ).toBe(true);
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         contexts: { cmux: { service: "coderouter" } },
       }),
     ).toBe(true);
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         request: { url: "https://cmux.com/api/devices" },
       }),
     ).toBe(false);
   });
 
+  test("billing reports pass the filter", () => {
+    expect(
+      shouldSendSentryEvent({
+        tags: { subsystem: "billing" },
+        exception: { values: [{ value: "Stripe webhook processing failed" }] },
+      }),
+    ).toBe(true);
+  });
+
   test("cloud VM operator-fault reports pass the filter", () => {
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         contexts: { cmux: { subsystem: "cloud_vm_api", code: "vm_image_config_error" } },
       }),
     ).toBe(true);
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         contexts: { cmux: { subsystem: "cloud_vm_alerts" } },
       }),
     ).toBe(true);
+    // reportError always sets the cmux context, so any deliberate report passes.
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         contexts: { cmux: { subsystem: "billing" } },
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("rate-limit rule reports pass the shared operational filter", () => {
     expect(
-      shouldSendCoderouterSentryEvent({
+      shouldSendSentryEvent({
         contexts: { cmux: { subsystem: "rate_limit", route: "/api/feedback" } },
       }),
     ).toBe(true);

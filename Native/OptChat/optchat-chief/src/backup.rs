@@ -16,8 +16,9 @@
 //! Configuration per Chief home: `OPTCHAT_BACKUP_REMOTE=on|off`, else
 //! `optchat/settings.json` `{"backup": {"remote": true|false}}`, else on
 //! when `gh auth status` succeeds, except for a tagged dev home
-//! (`.../tags/<tag>`), which stays off unless configured: every dogfood tag
-//! has its own home and would otherwise make its own repository.
+//! (`.../tags/<tag>`, or a DEV build's own `.../com.cmuxterm.app.debug.<tag>`),
+//! which stays off unless configured: every dogfood tag has its own home
+//! and would otherwise make its own repository.
 //! `OPTCHAT_BACKUP_URL` pushes to another remote instead (a local bare
 //! repository in tests).
 
@@ -59,6 +60,17 @@ pub struct BackupConfig {
     pub allow: PathBuf,
 }
 
+/// A DEV or staging build's own Chief home (one Chief per build,
+/// `~/.cmux/chief/com.cmuxterm.app.debug.<tag>`): like a tagged home, its
+/// remote backup stays off unless configured, so dogfood tags make no repositories.
+fn is_dev_build_home(home: &Path) -> bool {
+    home.file_name().and_then(|n| n.to_str()).is_some_and(|name| {
+        ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
+            .iter()
+            .any(|base| name == *base || name.starts_with(&format!("{base}.")))
+    })
+}
+
 fn on_off(text: &str) -> Option<bool> {
     match text.trim().to_ascii_lowercase().as_str() {
         "on" | "1" | "true" | "yes" => Some(true),
@@ -81,7 +93,8 @@ impl BackupConfig {
             .home
             .parent()
             .and_then(Path::file_name)
-            .is_some_and(|n| n == "tags");
+            .is_some_and(|n| n == "tags")
+            || is_dev_build_home(&paths.home);
         BackupConfig {
             remote,
             tagged,

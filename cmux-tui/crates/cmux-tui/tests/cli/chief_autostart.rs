@@ -108,7 +108,6 @@ impl Sandbox {
 
     fn chief_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         let child = Command::new(bin())
-            .envs(env.iter().copied())
             .arg("chief")
             .args(args)
             .env("LC_ALL", "C")
@@ -119,6 +118,17 @@ impl Sandbox {
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_CHIEF_HOME")
             .env_remove("CMUX_NEXT_CHIEF_HOME")
+            .env_remove("CMUX_NEXT_MUX_HOME")
+            .env_remove("CMUX_NEXT_CHIEF_ROOT")
+            .env_remove("CMUX_NEXT_CHIEF_ACCOUNT")
+            .env_remove("CMUX_NEXT_CHIEF_BUILD_ID")
+            .env_remove("CMUX_NEXT_CHIEF_ISOLATED")
+            .env_remove("CMUX_NEXT_NO_ACTIVATE")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
+            // The test's own variables last, so no removal above drops one.
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -153,15 +163,28 @@ impl Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
-        let home = self.isolated();
-        if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
-            && let Ok(pid) = pid.trim().parse::<i32>()
-        {
-            // SAFETY: kill(2) of the stand-in brain this test started.
-            unsafe { libc::kill(pid, libc::SIGKILL) };
+        // The isolated home and every per-build home under the sandbox's ~/.cmux/chief.
+        let chiefs = fs::read_dir(self.dir.join("home/.cmux/chief"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path());
+        let homes: Vec<PathBuf> = std::iter::once(self.isolated()).chain(chiefs).collect();
+        for home in &homes {
+            if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
+                && let Ok(pid) = pid.trim().parse::<i32>()
+            {
+                // SAFETY: kill(2) of the stand-in brain this test started.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
         }
-        // The daemon the CLI started for the home ends with its terminals.
-        let started = fs::read_to_string(home.join("daemon-socket")).ok().map(PathBuf::from);
+        // The daemons the CLI started for the homes end with their terminals
+        // (on macOS their sockets are in the Darwin temp directory, not run/).
+        let started: Vec<PathBuf> = homes
+            .iter()
+            .filter_map(|home| fs::read_to_string(home.join("daemon-socket")).ok())
+            .map(PathBuf::from)
+            .collect();
         for socket in sockets(&self.dir.join("run")).into_iter().chain(started) {
             // shutdown-daemon names the daemon's pid and generation (identify).
             let identity =
@@ -221,6 +244,43 @@ fn chief_starts_its_daemon_and_brain_when_none_runs() {
 
     // The isolated home never touched the default Chief.
     assert!(!sandbox.dir.join("home/.cmux/chief/default").exists());
+}
+
+#[test]
+fn chief_opens_the_chief_of_the_app_build_it_belongs_to() {
+    // One Chief per build: the CLI in a DEV build's terminal (CMUX_BUNDLE_ID)
+    // starts that build's own Chief; NIGHTLY's CLI the shared home it keeps.
+    let sandbox = Sandbox::new("chief-per-build");
+    let chiefs = sandbox.dir.join("home/.cmux/chief");
+    let dev_home = chiefs.join("com.cmuxterm.app.debug.t1");
+    let nightly_home = chiefs.join("default");
+    let dev =
+        sandbox.chief_with(&["-p", "dev"], &[("CMUX_BUNDLE_ID", "com.cmuxterm.app.debug.t1")]);
+    let dev_ok = dev.status.success();
+    let dev_brains = brain_starts(&dev_home);
+    let nightly_before = nightly_home.exists();
+    let nightly =
+        sandbox.chief_with(&["-p", "nightly"], &[("CMUX_BUNDLE_ID", "com.cmuxterm.app.nightly")]);
+    let nightly_ok = nightly.status.success();
+    let nightly_brains = brain_starts(&nightly_home);
+    let dev_brains_after = brain_starts(&dev_home);
+    // Stop both stand-in brains before any assertion can fail.
+    for home in [&dev_home, &nightly_home] {
+        if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
+            && let Ok(pid) = pid.trim().parse::<i32>()
+        {
+            // SAFETY: kill(2) of a stand-in brain this test started.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+    assert!(dev_ok, "{}", stderr_of(&dev));
+    assert_eq!(String::from_utf8_lossy(&dev.stdout), "echo: dev\n");
+    assert_eq!(dev_brains, 1, "the DEV build's CLI starts the DEV build's Chief");
+    assert!(!nightly_before, "the DEV build's CLI never touches NIGHTLY's home");
+    assert!(nightly_ok, "{}", stderr_of(&nightly));
+    assert_eq!(String::from_utf8_lossy(&nightly.stdout), "echo: nightly\n");
+    assert_eq!(nightly_brains, 1, "NIGHTLY's CLI starts the Chief of the shared home");
+    assert_eq!(dev_brains_after, 1, "never a second brain in the DEV home");
 }
 
 #[test]

@@ -9,6 +9,7 @@ import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
 import { databaseTeamSeatQueue, TEAM_SEATS_BUSY, type TeamSeatQueue } from "./teamSeatQueue";
 import { billingPlanIdFromMetadata } from "./teamResolution";
+import { planItem } from "./subscriptionItems";
 
 /**
  * Seat rules for a Team subscription. Every current member is a billed seat,
@@ -161,7 +162,7 @@ async function updateStripeQuantity(
 ): Promise<{ changed: boolean; value: number | null }> {
   const client = dependencies.stripe ?? defaultTeamSeatStripeClient();
   const live = await client.retrieve(subscriptionId);
-  const item = live.items?.data?.[0];
+  const item = planItem(live);
   const current = typeof item?.quantity === "number" ? item.quantity : null;
   if (!item || !(ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(live.status)) {
     return { changed: false, value: current };
@@ -169,7 +170,7 @@ async function updateStripeQuantity(
   if (current === to) return { changed: false, value: current };
   const updated = await client.updateQuantity(subscriptionId, item.id, to);
   await (dependencies.apply ?? applySubscriptionUpdate)(updated);
-  return { changed: true, value: updated.items?.data?.[0]?.quantity ?? to };
+  return { changed: true, value: planItem(updated)?.quantity ?? to };
 }
 
 async function activeTeamSubscriptionRow(stackTeamId: string): Promise<ActiveTeamSubscriptionRow | null> {

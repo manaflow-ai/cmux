@@ -8,6 +8,42 @@ Home state, its one owner, where it is durable, which components hold copies, an
 rebuilt. It is consistent with home.md, home-mac.md, home-messaging.md, chief-mac.md, optchat.md
 and chief-done.md; section 5 lists the two places where it changes them.
 
+## 0. One Chief per build (2026-10-14, supersedes "one per account" below)
+
+Lawrence, 2026-10-14: "we need a chief per build, should not overlap. i will be daily using cmux
+nightly chief, so we need to be careful with that one." The shared home let any build's quit stop
+the one brain (his NIGHTLY sat with a dead Chief after a DEV quit) and let DEV builds read and
+write his Chief. Now:
+
+- Every DEV and staging build has its own Chief home, keyed by bundle id:
+  `~/.cmux/chief/<bundle id>` (plus `.<account>` for an account other than `default`). It never
+  starts, stops or reads another build's brain, acpmux, tools socket or memory; its quit stops only
+  its own Chief.
+- NIGHTLY (`com.cmuxterm.app.nightly` and cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`) keeps
+  the home all builds shared, `~/.cmux/chief/<account>` (`default`), where it is: nothing is moved
+  or copied, so its memory, conversation owner session (the session name is the hash of the path)
+  and backup repository stay the same. Release and RC (no Chief runs there) resolve that path too,
+  so the `cmux chief` CLI in their terminals still reaches NIGHTLY's Chief. If both NIGHTLY
+  identities are installed and running, they share that one Chief.
+- Every other build starts with an empty home and never imports the old per-tag Chiefs (section 7
+  runs only for a shared home). Its remote memory backup stays off unless configured.
+- Builds from before this change still resolve `~/.cmux/chief/default`. They do not corrupt
+  NIGHTLY's memory: the brain's flock on `state/host.lock` keeps one writer, and when an older
+  build's quit stops the brain, NIGHTLY starts it again (`ChiefBrainWatch`, the app waits on the
+  brain's exit event). Risk: an older DEV build from a feat-cmux-next head newer than NIGHTLY can
+  move `memory.sqlite3` (or the owner's stores) to a newer schema; NIGHTLY then refuses the file
+  (optchat-host `schema.rs`) until NIGHTLY updates. No data is lost. Rebuild or quit the older DEV
+  builds once this change lands.
+- The `cmux chief` CLI resolves the home of the app it belongs to: `CMUX_CHIEF_HOME` in the app's
+  terminals and in the brain's environment, else the bundle id (`CMUX_BUNDLE_ID`, else the bundle
+  around the executable) with the same rule. A CLI outside any app resolves
+  `~/.cmux/chief/<account>`.
+- Tests: `CMUX_NEXT_CHIEF_ROOT` puts the per-build rule under another directory (isolation markers
+  ignored), and a DEBUG build may name another bundle id in `CMUX_NEXT_CHIEF_BUILD_ID`.
+
+The sections below describe the shared home as it was designed on 2026-10-05; read "the Chief
+home" there as "a build's Chief home".
+
 ## 1. The split before this branch, and the fix
 
 On 2026-10-05 Lawrence's laptop had three Chiefs (read-only count, `scripts/cmux-next/chief-home-migrate.py

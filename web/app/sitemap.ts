@@ -136,6 +136,7 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
+    { path: "/art", lastModified: "2026-10-12", changeFrequency: "monthly" as const, priority: 0.5 },
     // SEO landing/guide pages: localized, not in the main nav.
     { path: "/guides", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/compare", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.7 },

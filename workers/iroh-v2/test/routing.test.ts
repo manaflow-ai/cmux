@@ -25,6 +25,7 @@ function fixture() {
       expect(internal.setup.device).toEqual(device);
       return Response.json({ path: internal.path, issueTicket: internal.issueTicket });
     },
+    dispatchAccount: async () => { throw new Error("team routes must never reach an account object"); },
   };
   return { calls, dependencies };
 }

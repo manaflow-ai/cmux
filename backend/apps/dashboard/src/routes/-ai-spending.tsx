@@ -3,7 +3,7 @@ import { aiLimitText, usd } from "../lib/ai-limit-strings"
 import { useLoad } from "../lib/hooks"
 import { newKey, setSignedIn } from "../lib/session"
 import { useTeamApi } from "../lib/team-api"
-import { AI_USAGE_VARIANTS, AiUsageView, type AiUsageLine, type AiUsageVariant } from "./-ai-usage-view"
+import { AiUsageView, type AiUsageLine } from "./-ai-usage-view"
 
 /** team.ai_limit.get (cx-ds09i): members only for team admins and billing members. */
 export interface AiLimitMember {
@@ -69,12 +69,6 @@ export const memberLabel = (names: ReadonlyMap<string, string>, user: string): s
   return shared || name === "Member" ? `${name} (${user})` : name
 }
 
-/** The design in use until Lawrence picks one (cx-y79zh.1): `?ai_view=ledger` shows the other one. */
-const viewVariant = (): AiUsageVariant => {
-  const asked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("ai_view")
-  return AI_USAGE_VARIANTS.find((v) => v === asked) ?? "meter"
-}
-
 /**
  * The "AI usage" section above Members: for admins the usage view (-ai-usage-view.tsx: the team's usage,
  * each member's spend and limit with an inline edit, the team default) and the recent limit changes;
@@ -112,7 +106,6 @@ export function AiSpendingSection({ ai, names }: { readonly ai: AiLimits; readon
       <AiUsageView
         data={{ default_usd: v.default_usd, is_default: v.is_default, resets_at: v.resets_at, members, ...(v.team_usage ? { team_usage: v.team_usage } : {}) }}
         locale={locale}
-        variant={viewVariant()}
         actions={{ setDefault: (value) => write("team.ai_limit.set", { default_usd: value }), setMember: (member, value) => write("team.ai_limit.member.set", { member, limit_usd: value }) }}
       />
       <div className="card">

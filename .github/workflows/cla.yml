@@ -34,9 +34,12 @@ jobs:
         )
       )
     # A fork pull request, or a comment on one, runs this job with a write
-    # token. Neither event says whether the head is a fork, so no runner
-    # variable may pick the machine: LINUX_RUNNER can name owned hosts.
-    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests
+    # token. Neither event says whether the head is a fork, so the job must
+    # run on a VM that is destroyed after one job. CI_TRUSTED_RUNNER can pick
+    # only GitHub-hosted ubuntu-24.04 or a Blacksmith Ubuntu VM, never an
+    # owned host, so either provider can carry this check while the other is
+    # down. validate-cla-policy.rb pins these exact bytes.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.
@@ -55,6 +58,14 @@ jobs:
       # Read the trusted merge status on catch-up merge commits.
       statuses: read
     steps:
+      # Blacksmith reports itself as self-hosted. Refuse any runner that is
+      # neither GitHub-hosted nor a Blacksmith VM for the labels above.
+      - name: Require GitHub-hosted or Blacksmith runner
+        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
+        run: |
+          set -euo pipefail
+          echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
+          exit 1
       - name: "CLA Assistant"
         id: cla
         uses: manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96

@@ -266,13 +266,14 @@ export class MockHomeProvider implements PageClient {
       case HomeOps.send: {
         const list = this.data.messages.get(id) ?? [];
         const thread = typeof params.threadRoot === "string" ? params.threadRoot : undefined;
+        const parent = typeof params.replyTo === "string" ? params.replyTo : undefined;
         const message = text(
           id,
           list.length + 1,
           me,
           Date.now(),
           String(params.text ?? ""),
-          thread ? { threadRoot: thread } : {},
+          thread ? { threadRoot: thread, ...(parent ? { replyTo: { message: parent, partIndex: 0 } } : {}) } : {},
         );
         list.push(message);
         this.data.messages.set(id, list);

@@ -652,6 +652,14 @@ async fn the_shutdown_command_ends_every_agent_host_and_reports_the_counts() {
     assert_eq!(report["agentHosts"]["left"], json!([]), "{report}");
 }
 
+/// The pid of the setsid helper that harness `harness` started
+/// (`FAKE_SETSID_CHILD`).
+fn helper_of(file: &Path, harness: i64) -> i64 {
+    let path = format!("{}.{harness}", file.display());
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    text.trim().parse().unwrap()
+}
+
 fn kinds<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
     events.iter().filter(|e| e["dir"] == "mux" && e["kind"] == kind).collect()
 }
@@ -743,7 +751,9 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
     wait_pool_ready(&mut rpc, "fakeb").await;
     let r = daemon.pool_records().pop().expect("a pooled host");
     let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
-    let helper: i64 = std::fs::read_to_string(&helper_file).unwrap().trim().parse().unwrap();
+    // The helper of this host's harness: the model probe's harness starts
+    // one too, in its own file.
+    let helper = helper_of(&helper_file, harness);
     // SAFETY: the exact pooled host this test's daemon started (its record).
     unsafe { libc::kill(host as i32, libc::SIGSTOP) };
     let (id, took) = new_session(&mut rpc, &home, "fakeb").await;

@@ -180,6 +180,9 @@ class GeneratedClientMixin:
     def conversation_import(self, conversation: str, messages: List[ConversationImportMessage]) -> ConversationImportResult:
         return self._invoke_command('conversation-import', ConversationImportRequest(conversation=conversation, messages=messages))
 
+    def conversation_link_resolve(self, url: str) -> ConversationLinkResolveResult:
+        return self._invoke_command('conversation-link-resolve', ConversationLinkResolveRequest(url=url))
+
     def conversation_list(self) -> ConversationListResult:
         return self._invoke_command('conversation-list', ConversationListRequest())
 
@@ -837,6 +840,7 @@ GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversati
 GeneratedClientMixin.conversation_draft.__cmux_command__ = COMMANDS['conversation-draft']
 GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
 GeneratedClientMixin.conversation_import.__cmux_command__ = COMMANDS['conversation-import']
+GeneratedClientMixin.conversation_link_resolve.__cmux_command__ = COMMANDS['conversation-link-resolve']
 GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']

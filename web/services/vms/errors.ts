@@ -177,10 +177,20 @@ export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly reason: string;
 }> {}
 
+/** One machine the active-VM limit counted, so the refusal can name it. */
+export interface VmActiveLimitMachine {
+  /** Provider machine id, or the row id while provisioning has none yet. */
+  readonly id: string;
+  readonly name: string;
+  readonly status: "provisioning" | "running";
+}
+
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{
   readonly kind: "active_vms";
   readonly billingTeamId: string;
   readonly limit: number;
+  /** The machines the count saw, oldest first; capped, so it can be shorter than the count. */
+  readonly activeMachines?: readonly VmActiveLimitMachine[];
 }> {}
 
 /**
@@ -269,6 +279,19 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * The route's answer deadline passed while the provider had not answered.
+ * A mutation (`mutating`) may still complete at the provider, so the answer
+ * says it is in progress and the caller checks status; a read answers that
+ * the provider is slow. See routeDeadline.ts.
+ */
+export class VmOperationDeadlineError extends Data.TaggedError("VmOperationDeadlineError")<{
+  readonly operation: string;
+  readonly mutating: boolean;
+  readonly waitedMs: number;
+  readonly cause?: unknown;
+}> {}
+
 export type VmWorkflowError =
   | VmMemoryPlanError
   | VmResizePlanLimitError
@@ -306,7 +329,8 @@ export type VmWorkflowError =
   | VmAccessGrantRevokedError
   | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
-  | VmModelPlaneError;
+  | VmModelPlaneError
+  | VmOperationDeadlineError;
 
 export function isVmPrivateNetworkUnavailableError(
   err: unknown,
@@ -467,6 +491,7 @@ const vmWorkflowErrorTagRecord = {
   VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
+  VmOperationDeadlineError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));

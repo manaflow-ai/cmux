@@ -15,6 +15,7 @@ export const HomeOps = {
   edit: "cmux.home.edit",
   retract: "cmux.home.retract",
   createGroup: "cmux.home.createGroup",
+  resolveLink: "cmux.home.resolveLink",
   events: "cmux.home.events",
 } as const;
 
@@ -163,4 +164,13 @@ export interface HomeEventBatch {
 export interface HomeSearchHit {
   conversation: string;
   message: HomeMessage;
+}
+
+/** `cmux.home.resolveLink`: what a conversation or message link opens (the daemon's
+ * `conversation-link-resolve`). `path` runs from the thread root down to the message. */
+export interface HomeResolvedLink {
+  conversation: string;
+  message?: HomeMessage;
+  threadRoot?: string;
+  path: string[];
 }

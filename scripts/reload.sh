@@ -1979,13 +1979,12 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
-BIN_DIR="$APP_PATH/Contents/Resources/bin"
-CMUX_CUA_DEST="$BIN_DIR/cmux-cua"
-if [[ -x "$CMUX_CUA_DEST" ]]; then
-  echo "Preserving Xcode-built cmux Computer Use client at $CMUX_CUA_DEST"
+CMUX_CUA_HELPER_APP="$APP_PATH/Contents/Library/cmux Computer Use.app"
+if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
+  echo "Preserving Xcode-built cmux Computer Use helper at $CMUX_CUA_HELPER_APP"
 else
-  mkdir -p "$BIN_DIR"
-  "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
+  "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
+    --helper-app "$CMUX_CUA_HELPER_APP"
 fi
 # A dev build uses a Developer ID helper from an installed release, NIGHTLY or
 # RC, or none. Drop an ad-hoc helper an older build left in this app.

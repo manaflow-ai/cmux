@@ -24,7 +24,7 @@ describe("CodeRouter account management", () => {
     const teams = await authorizedCoderouterTeams({
       id: "user-1",
       teams: [{ id: "team-1", displayName: "Team One" }],
-    } as never);
+    } as never, new AbortController().signal);
     const team = teams.find((candidate) => candidate.teamId === "team-1");
     expect(team).toMatchObject({ use: true, manageAccounts: true, manageApiKeys: false });
   });

@@ -2574,6 +2574,23 @@ class ConversationImportResult:
 
 
 @dataclass(frozen=True)
+class ConversationLinkResolveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-link-resolve/request'
+    url: str
+
+
+@dataclass(frozen=True)
+class ConversationLinkResolveResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-link-resolve/result'
+    conversation: ConversationSummary
+    path: List[str]
+    url: str
+    message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+    thread_root: Union[str, MissingType] = field(default=MISSING)
+    truncated: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/request'
     pass
@@ -5572,6 +5589,8 @@ __all__ = [
     'ConversationHistoryResult',
     'ConversationImportRequest',
     'ConversationImportResult',
+    'ConversationLinkResolveRequest',
+    'ConversationLinkResolveResult',
     'ConversationListRequest',
     'ConversationListResult',
     'ConversationOpRequest',

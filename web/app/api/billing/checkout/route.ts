@@ -340,11 +340,13 @@ async function stripePersonalCheckout(
     // currently active row (even behind a newer canceled one) means the portal
     // is the right destination; the portal also recovers past-due/unpaid and
     // cancel-at-period-end states, but it cannot start a new subscription
-    // after a terminal cancellation.
+    // after a terminal cancellation. A plan switch keeps a scheduled
+    // cancellation, so a cancelling subscriber gets the plain portal and Renew.
     if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       if (
         plan !== GO_PLAN_ID && stripeBillingStatus.hasActiveSubscription &&
+        !stripeBillingStatus.cancelAtPeriodEnd &&
         stripeBillingStatus.activePlanId !== plan
       ) {
         portalURL.searchParams.set("flow", "switch_plan");
@@ -392,7 +394,7 @@ async function stripePersonalCheckout(
       line_items: [
         {
           price: plan === MAX_PLAN_ID
-            ? await resolveMaxPrice()
+            ? await resolveMaxPrice(interval)
             : plan === GO_PLAN_ID
               ? await resolveGoPrice()
               : await resolveProPrice(interval),
@@ -750,14 +752,14 @@ function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null 
   return null;
 }
 
-/** Pro alone sells a yearly Price; every other plan refuses `interval=year`. */
+/** Pro and Max sell yearly Prices; Go and Team remain monthly-only. */
 function unavailableIntervalResponse(
   request: NextRequest,
   plan: ReturnType<typeof checkoutPlan>,
 ): NextResponse | null {
   const raw = request.nextUrl.searchParams.get("interval");
   if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
-  if (raw === "year" && plan === "pro") return null;
+  if (raw === "year" && (plan === "pro" || plan === "max")) return null;
   const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
   return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
 }
@@ -766,7 +768,7 @@ function checkoutInterval(
   request: NextRequest,
   plan: ReturnType<typeof checkoutPlan>,
 ): BillingInterval {
-  return plan === "pro" && request.nextUrl.searchParams.get("interval") === "year"
+  return (plan === "pro" || plan === "max") && request.nextUrl.searchParams.get("interval") === "year"
     ? "year"
     : CHECKOUT_BILLING_INTERVAL;
 }

@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer and Tasks preview"
+description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview and window focus rules"
 
 [workspace]
 
@@ -13,6 +13,7 @@ description = "C ABI for the pure cmux sidebar drop resolver, section layout red
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 serde = { version = "1", features = ["derive"] }

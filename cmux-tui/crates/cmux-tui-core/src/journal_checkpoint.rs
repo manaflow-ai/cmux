@@ -14,7 +14,13 @@ use crate::{JournalCheckpoint, JournalContentRef, JournalReplayPolicy, Mux, Sess
 pub(crate) const JOURNAL_REDUCER_VERSION: u32 = 1;
 const MAX_CHECKPOINT_TERMINALS: usize = 4096;
 const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+const CHECKPOINT_REPLAY_RETRY_BUDGETS: [usize; 3] = [
+    crate::surface::VT_REPLAY_MAX_BYTES,
+    crate::surface::VT_REPLAY_MAX_BYTES * 2,
+    crate::surface::VT_REPLAY_MAX_BYTES * 4,
+];
 const MAX_UNSUPPORTED_PREVIEW_RECORDS: usize = 1024;
+pub(crate) const MAX_CHECKPOINT_CAPTURE_ATTEMPTS: usize = 4;
 const RESOURCE_COLLECTIONS: [&str; 10] = [
     "workspaces",
     "screens",
@@ -109,6 +115,18 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     })
 }
 
+pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    [
+        "session changed during checkpoint capture",
+        "session journal changed during checkpoint capture",
+        "terminal changed during replay capture",
+        "terminal journal ingress is unsettled during replay capture",
+    ]
+    .iter()
+    .any(|reason| message.contains(reason))
+}
+
 /// Capture one terminal's bounded `cmux.vt-replay.v1` blob from its live
 /// runtime surface. The terminal's journal ingress must be settled (flush
 /// first) so the replay and the journaled output stream describe the same
@@ -124,11 +142,41 @@ pub(crate) fn terminal_replay_blob(
         epoch_before & 1 == 0,
         "terminal journal ingress is unsettled during replay capture"
     );
-    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-        terminal
-            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-            .map(|replay| (terminal.cols(), terminal.rows(), replay))
-    })??;
+    let (cols, rows, replay) = {
+        let mut last_error = None;
+        let mut captured = None;
+        for budget in CHECKPOINT_REPLAY_RETRY_BUDGETS {
+            let result = surface
+                .try_with_terminal(|terminal| {
+                    terminal
+                        .vt_replay_bounded(budget)
+                        .map(|replay| (terminal.cols(), terminal.rows(), replay))
+                })
+                .with_context(|| format!("terminal {terminal_id} replay capture"))?;
+            match result {
+                Ok(value) => {
+                    captured = Some(value);
+                    break;
+                }
+                Err(ghostty_vt::Error::OutOfSpace) => {
+                    last_error = Some(anyhow::Error::new(ghostty_vt::Error::OutOfSpace));
+                }
+                Err(error) => {
+                    return Err(anyhow::anyhow!(
+                        "terminal {terminal_id} replay capture failed: {error}"
+                    ));
+                }
+            }
+        }
+        captured.ok_or_else(|| {
+            anyhow::anyhow!(
+                "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
+                last_error
+                    .map(|error| error.to_string())
+                    .unwrap_or_else(|| "buffer too small".into())
+            )
+        })?
+    };
     let epoch_after = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -1194,6 +1242,25 @@ mod tests {
             "producer_1",
         )
         .unwrap();
+        for index in 0..1_100 {
+            mux.append_journal_ingress(
+                &crate::JournalIngress {
+                    producer_id: "segment_test".into(),
+                    manifest_version: 1,
+                    kind: "plugin.segment_test.event".into(),
+                    schema_version: 1,
+                    occurred_at_ms: None,
+                    subjects: vec![],
+                    sensitivity: None,
+                    payload: json!({"index": index}),
+                    causation_id: None,
+                    correlation_id: None,
+                },
+                "client_test",
+                &format!("segment_event_{index}"),
+            )
+            .unwrap();
+        }
         let checkpoint = mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
         let before = mux.session_journal_after(0, 1024).unwrap().records;
         let seal = mux
@@ -1203,11 +1270,22 @@ mod tests {
                 "segment_1",
             )
             .unwrap();
-        assert_eq!(seal.through_sequence, checkpoint.checkpoint.source_sequence);
+        assert!(seal.through_sequence < checkpoint.checkpoint.source_sequence);
+        assert!(seal.segments.iter().all(|segment| segment.record_count <= 1_024));
         assert!(!seal.segments.is_empty());
+        let stored_segments = mux.journal_segments().unwrap();
+        assert_eq!(stored_segments.len(), seal.segments.len());
+        assert!(stored_segments.iter().all(|segment| segment.record_count <= 1_024));
+        let second_seal = mux
+            .seal_journal_segments(
+                checkpoint.checkpoint.source_sequence,
+                "client_test",
+                "segment_2",
+            )
+            .unwrap();
+        assert_eq!(second_seal.through_sequence, checkpoint.checkpoint.source_sequence);
         let after = mux.session_journal_after(0, 1024).unwrap().records;
         assert_eq!(&after[..before.len()], before.as_slice());
-        assert_eq!(after.last().unwrap().kind, "journal.segment.sealed");
         let preview = mux.journal_restore_preview("latest").unwrap();
         assert_eq!(preview["fully_reducible"], true);
 

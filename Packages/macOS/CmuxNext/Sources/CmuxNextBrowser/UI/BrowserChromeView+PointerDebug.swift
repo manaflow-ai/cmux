@@ -33,6 +33,10 @@ public struct BrowserPointerDebug: Sendable, Equatable {
     /// AppKit rebuilds them lazily for the key window, so this can lag in a
     /// window that is never key.
     public var installedTextCursor: String?
+    /// The cursor the toolbar row last set on a pointer move (`arrow`,
+    /// `iBeam`); nil before the first move. The row sets it in any window
+    /// state, also while a Chromium page window has the key.
+    public var trackedCursor: String?
     /// Part name to frame (x, y, width, height).
     public var frames: [String: CGRect]
 }
@@ -46,6 +50,7 @@ extension BrowserChromeView {
         object["probe_region"] = report.probeRegion ?? NSNull()
         object["probe_cursor"] = report.probeCursor ?? NSNull()
         object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
+        object["tracked_cursor"] = report.trackedCursor ?? NSNull()
         #if DEBUG
         object["omnibar_trace"] = addressBar.controller.trace
         #endif
@@ -88,6 +93,7 @@ extension BrowserChromeView {
             probeRegion: probed?.rawValue ?? (probe == nil ? nil : "outside"),
             probeCursor: probed.map { OmnibarPointer.cursor($0).rawValue },
             installedTextCursor: addressBar.field.installedCursor?.rawValue,
+            trackedCursor: toolbar.trackedCursor?.rawValue,
             frames: frames
         )
     }

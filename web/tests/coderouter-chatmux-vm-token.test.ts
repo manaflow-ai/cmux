@@ -126,7 +126,7 @@ describe("chatmux machines in request authentication", () => {
           return { teamId: "t", stackUserId: "u" };
         },
       );
-      expect(result).toEqual({ ok: false, reason: "invalid_route_token" });
+      expect(result).toEqual({ ok: false, reason: "invalid_route_token", detail: "chatmux_unverified" });
       expect(lookups).toBe(0);
     }
   });

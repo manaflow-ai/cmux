@@ -156,6 +156,21 @@ describe("claude upstream input validation", () => {
 });
 
 describe("claude upstream accounts service", () => {
+  test("hasActive answers from metadata alone: an active account, never a disabled one", async () => {
+    const { service: svc, store } = service();
+    expect(await svc.hasActive("team-1")).toBe(false);
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    expect(await svc.hasActive("team-1")).toBe(true);
+    expect(await svc.hasActive("team-2")).toBe(false);
+    await svc.update("team-1", a.id, { state: "disabled" });
+    // A row that cannot be decrypted does not matter: nothing is decrypted.
+    const row = store.rows.get(a.id)!;
+    store.rows.set(a.id, { ...row, state: "active", ciphertext: "garbage" });
+    expect(await svc.hasActive("team-1")).toBe(true);
+    store.rows.set(a.id, { ...row, state: "disabled" });
+    expect(await svc.hasActive("team-1")).toBe(false);
+  });
+
   test("stores many accounts of mixed kinds and lists them without secrets", async () => {
     const { service: svc, store } = service();
     const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY, label: "prod" });
@@ -378,6 +393,25 @@ describe("claude upstream routes", () => {
       body: JSON.stringify(body),
     });
   const params = (accountId: string) => ({ params: Promise.resolve({ accountId }) });
+
+  test("an organization import with no visibility is shared; a personal one stays private", async () => {
+    const visibilityFor = async (teamId: string, body: Record<string, unknown>) => {
+      const { service: svc } = service();
+      const add = mock(svc.add);
+      const { collection } = { collection: makeClaudeUpstreamHandlers({
+        resolveUsageTeam: mock(async () => ({ ok: true as const, teamId, stackUserId: "user_1" })) as never,
+        resolveContext: mock(async () => ({ ...context, value: { ...context.value, team: { ...context.value.team, teamId } } })) as never,
+        list: svc.list,
+        add: add as never,
+        removeAll: svc.removeAll,
+      }) };
+      expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY, ...body }))).status).toBe(201);
+      return (add.mock.calls[0] as unknown[])[3];
+    };
+    expect(await visibilityFor("team_1", {})).toBe("team");
+    expect(await visibilityFor("user_1", {})).toBe("private");
+    expect(await visibilityFor("team_1", { visibility: "private" })).toBe("private");
+  });
 
   test("requires manage permission for writes", async () => {
     const { collection, single } = handlers({ manage: false });

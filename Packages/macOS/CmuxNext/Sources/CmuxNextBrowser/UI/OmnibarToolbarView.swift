@@ -5,8 +5,9 @@ import CmuxNextDesign
 /// browser page: the New Tab page shows it on top (cx-e2aa), so Cmd-L there types an address in
 /// the same omnibar a browser tab has (one implementation: `AddressBarView`, its suggestions and
 /// its state machine). The bar sits at the toolbar's height, top padding and side insets; its
-/// suggestion card opens flush under it, clipped to `cardClip`.
-public final class OmnibarToolbarView: NSView {
+/// suggestion card opens flush under it, clipped to `cardClip`. The cursor follows the browser
+/// toolbar's rules (`ArrowCursorView`, `OmnibarPointer`).
+public final class OmnibarToolbarView: ArrowCursorView {
     public let addressBar: AddressBarView
     /// The surface the suggestion card is clipped to (the page under the row); the window when nil.
     public weak var cardClip: NSView?
@@ -37,11 +38,6 @@ public final class OmnibarToolbarView: NSView {
     }
 
     public override var isFlipped: Bool { true }
-
-    /// The arrow over the row, as the browser toolbar shows (`OmnibarPointer`).
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
-    }
 
     public override func layout() {
         super.layout()

@@ -72,6 +72,7 @@ export async function runBaseRoute(input: {
     imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
       kind: parsed.body.kind,
       memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+      callerUserId: user.id,
     });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
@@ -182,6 +183,7 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId,
         retryAction: operation === "reset"
           ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."

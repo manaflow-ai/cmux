@@ -19,6 +19,11 @@ def main() -> int:
         description="Run a command with a deadline and terminate its process tree on timeout."
     )
     parser.add_argument("--timeout-seconds", type=int, required=True)
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Inherit stdin and the controlling terminal for interactive commands.",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -29,8 +34,8 @@ def main() -> int:
 
     process = subprocess.Popen(
         command,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        stdin=None if args.foreground else subprocess.DEVNULL,
+        start_new_session=not args.foreground,
     )
 
     def handle_signal(signum: int, _frame: object) -> None:
@@ -49,8 +54,10 @@ def main() -> int:
     try:
         return process.wait(timeout=args.timeout_seconds)
     except subprocess.TimeoutExpired:
+        # Interactive broker arguments may contain private routing details.
+        description = command[0] if args.foreground else shlex.join(command)
         print(
-            f"::error::command timed out after {args.timeout_seconds}s: {shlex.join(command)}",
+            f"::error::command timed out after {args.timeout_seconds}s: {description}",
             file=sys.stderr,
             flush=True,
         )

@@ -45,6 +45,12 @@ class FlagLinterScopeTests(unittest.TestCase):
 
     def test_every_discovered_flag_is_linted(self):
         flags, _ = self.linter.collect_flags()
+        keys = {flag["key"] for flag in flags}
+        self.assertNotIn(
+            "cloud-machines-enabled-release",
+            keys,
+            "the retired Cloud rollout key must not remain a registered flag",
+        )
         for flag in flags:
             self.assertTrue(flag["source"], "each flag must be attributed to its own file")
 

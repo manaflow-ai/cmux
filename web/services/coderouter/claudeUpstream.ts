@@ -341,6 +341,11 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     return described;
   }
 
+  /** Whether the caller can be served at all: one active account. A metadata read; nothing is decrypted or written. */
+  async function hasActive(teamId: string, access?: CoderouterAccountAccess): Promise<boolean> {
+    return (await store.list(teamId, undefined, access)).some((row) => row.state === "active");
+  }
+
   async function add(
     teamId: string,
     stackUserId: string,
@@ -443,7 +448,7 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     await store.touchUsed(accountId, now(), signal);
   }
 
-  return { list, add, update, remove, removeAll, select, cooldown, touchUsed };
+  return { list, hasActive, add, update, remove, removeAll, select, cooldown, touchUsed };
 }
 
 function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
@@ -733,6 +738,7 @@ export const claudeAccountStore: ClaudeAccountStore = drizzleStore;
 const defaultService = createClaudeUpstreamService({ store: drizzleStore });
 
 export const listClaudeAccounts = defaultService.list;
+export const hasActiveClaudeAccount = defaultService.hasActive;
 export const addClaudeAccount = defaultService.add;
 export const updateClaudeAccount = defaultService.update;
 export const removeClaudeAccount = defaultService.remove;

@@ -60,6 +60,32 @@ describe("independent Cloud VM limits", () => {
     }
   });
 
+  dbTest("the active-limit error names only the running and provisioning machines it counted", async () => {
+    const team = "team-limit-names";
+    await sql`delete from cloud_vms where billing_team_id = ${team}`;
+    try {
+      const input = {
+        userId: "user-limit-names", billingTeamId: team, billingPlanId: "pro",
+        provider: "freestyle" as const, image: "snapshot-test", maxActiveVms: 2,
+        resourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
+      };
+      for (const key of ["named-a", "named-b", "named-paused"]) {
+        await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: key, maxActiveVms: 3 }));
+      }
+      await sql`update cloud_vms set status = 'paused' where billing_team_id = ${team} and idempotency_key = 'named-paused'`;
+      await sql`update cloud_vms set status = 'running', provider_vm_id = 'pvm-' || idempotency_key, display_name = 'Box A'
+        where billing_team_id = ${team} and idempotency_key = 'named-a'`;
+      const failure = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "named-over" }).pipe(Effect.flip));
+      expect(failure).toMatchObject({ _tag: "VmLimitExceededError", limit: 2 });
+      const machines = (failure as { activeMachines?: readonly { name: string; status: string }[] }).activeMachines ?? [];
+      expect(machines.map(machine => machine.status).sort()).toEqual(["provisioning", "running"]);
+      expect(machines.find(machine => machine.status === "running")?.name).toBe("Box A");
+      expect(machines.every(machine => machine.name.length > 0)).toBe(true);
+    } finally {
+      await sql`delete from cloud_vms where billing_team_id = ${team}`;
+    }
+  });
+
   dbTest("Base open and reset work beside machines exceeding every former pool", async () => {
     const team = "team-independent-base";
     const input = {

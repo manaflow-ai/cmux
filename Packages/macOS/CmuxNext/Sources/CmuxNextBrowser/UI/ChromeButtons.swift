@@ -15,13 +15,18 @@ final class ChromeIconButton: NSButton {
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
+    /// False for the navigation buttons (Back, Forward, Reload/Stop): their
+    /// icons say what they do, so hover shows no tooltip (Lawrence
+    /// 2026-10-13). The accessibility label stays.
+    private let showsToolTip: Bool
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
-    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
+    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
+        showsToolTip = toolTip
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
@@ -31,7 +36,7 @@ final class ChromeIconButton: NSButton {
         iconLabel = label
         self.action = action
         self.target = target
-        themedToolTip = label
+        themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
@@ -66,7 +71,7 @@ final class ChromeIconButton: NSButton {
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
-        themedToolTip = label
+        themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
     }
 

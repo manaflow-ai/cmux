@@ -7,7 +7,8 @@
 // Scroll position has one narrow layout effect: a conversation opens at its newest message; while
 // the reader is at the bottom it follows new content (a new message, a growing draft); otherwise
 // the row at the top of the viewport keeps its place when rows above it change height or older
-// messages are prepended.
+// messages are prepended. A `focus` row (a message a link opened) is scrolled to the middle once,
+// after layout, and the reader stops following the bottom.
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 
 const NEAR_BOTTOM_PX = 48;
@@ -107,7 +108,11 @@ function layout(rows: readonly WindowRow[], heights: ReadonlyMap<string, number>
   return { starts, total };
 }
 
-export function useTimelineWindow(rows: readonly WindowRow[], conversation: string | undefined): TimelineWindow {
+export function useTimelineWindow(
+  rows: readonly WindowRow[],
+  conversation: string | undefined,
+  focus?: string,
+): TimelineWindow {
   const [metrics] = useState(() => new TimelineMetrics());
   const snapshot = useSyncExternalStore(metrics.subscribe, metrics.getSnapshot);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -128,6 +133,7 @@ export function useTimelineWindow(rows: readonly WindowRow[], conversation: stri
     conversation: undefined as string | undefined,
     atBottom: true,
     anchor: undefined as { key: string; offset: number } | undefined,
+    focused: undefined as string | undefined,
   });
   const anchorFor = (element: HTMLElement) => {
     const top = element.scrollTop;
@@ -147,7 +153,14 @@ export function useTimelineWindow(rows: readonly WindowRow[], conversation: stri
       // The new rows re-render from estimates and re-measure; this effect runs again after that.
       if (!first) metrics.reset();
     }
-    if (state.atBottom) {
+    const focusIndex = focus && focus !== state.focused ? rows.findIndex((row) => row.key === focus) : -1;
+    if (focusIndex >= 0) {
+      // Once per focus: the row's middle at the viewport's middle; then the anchor keeps it there.
+      state.focused = focus;
+      state.atBottom = false;
+      const end = focusIndex + 1 < rows.length ? starts[focusIndex + 1]! : total;
+      element.scrollTop = Math.max(0, (starts[focusIndex]! + end - element.clientHeight) / 2);
+    } else if (state.atBottom) {
       element.scrollTop = element.scrollHeight;
     } else if (state.anchor) {
       const index = rows.findIndex((row) => row.key === state.anchor!.key);

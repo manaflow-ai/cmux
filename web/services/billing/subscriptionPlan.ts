@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { MAX_PRICING_USD } from "./plans";
+import { planItem } from "./subscriptionItems";
 
 export function personalPlanIdForSubscription(
   subscription: Pick<Stripe.Subscription, "items" | "metadata">,
@@ -7,7 +8,7 @@ export function personalPlanIdForSubscription(
 ): "go" | "pro" | "max" | null {
   // Verified legacy Founder purchases carry this explicit entitlement marker.
   if (subscription.metadata?.founders_edition === "true") return "pro";
-  const lookupKey = subscription.items?.data?.[0]?.price?.lookup_key;
+  const lookupKey = planItem(subscription)?.price?.lookup_key;
   if (typeof lookupKey === "string") {
     if (lookupKey === "cmux-go-monthly-10" || lookupKey.startsWith("cmux-go-")) return "go";
     if (lookupKey === MAX_PRICING_USD.month.lookupKey || lookupKey.startsWith("cmux-max-")) {

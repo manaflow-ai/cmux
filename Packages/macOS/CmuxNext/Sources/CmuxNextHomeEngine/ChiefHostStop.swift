@@ -2,9 +2,10 @@ import CmuxNextAgentPane
 import Darwin
 public import Foundation
 
-/// Quit, end sessions: the Chief home's brain host ends with the other
-/// sessions (home-state-ownership.md section 3). A quit that keeps sessions
-/// keeps it running, so any build reattaches to the same Chief.
+/// Quit, end sessions: this build's Chief home's brain host ends with the
+/// other sessions (home-state-ownership.md section 3). Every build has its
+/// own Chief home (`ChiefHome`), so a quit never stops another build's
+/// Chief. A quit that keeps sessions keeps it running for the next launch.
 public nonisolated enum ChiefHostStop {
     /// Sends SIGTERM to the host that holds the Chief home's lock; returns
     /// its pid, or nil when none runs. The pid comes from the lock's text and

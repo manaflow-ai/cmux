@@ -33,6 +33,9 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
     /// The user cancelled an interactive flow (e.g. dismissed the OAuth sheet).
     /// Surfaces no description so callers can silently ignore it.
     case cancelled
+    /// The sign-in service answered 429 (too many requests from this
+    /// network). The session is untouched; the flow retries on its own.
+    case rateLimited
 
     public var errorDescription: String? {
         switch self {
@@ -92,6 +95,12 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
             )
         case .cancelled:
             return nil
+        case .rateLimited:
+            return String(
+                localized: "auth.error.rate_limited",
+                defaultValue: "Too many sign-in requests from this network. cmux retries automatically.",
+                bundle: .main
+            )
         }
     }
 }

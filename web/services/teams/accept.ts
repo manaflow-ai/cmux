@@ -8,6 +8,7 @@ import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import {
   defaultTeamStackApp,
   withStackDeadline,
+  type StackContactChannel,
   type StackSentInvitation,
   type StackTeam,
   type StackUser,
@@ -136,12 +137,17 @@ export function consumedInvitation(
 
 export async function userVerifiedEmails(user: StackUser): Promise<Set<string>> {
   const channels = await withStackDeadline(() => user.listContactChannels());
-  const emails = new Set(
+  const emails = verifiedChannelEmails(channels);
+  if (user.primaryEmail && user.primaryEmailVerified) emails.add(normalizeInviteEmail(user.primaryEmail));
+  return emails;
+}
+
+/** Normalized verified email addresses among a user's contact channels. */
+export function verifiedChannelEmails(channels: readonly StackContactChannel[]): Set<string> {
+  return new Set(
     channels.filter((channel) => channel.type === "email" && channel.isVerified)
       .map((channel) => normalizeInviteEmail(channel.value)),
   );
-  if (user.primaryEmail && user.primaryEmailVerified) emails.add(normalizeInviteEmail(user.primaryEmail));
-  return emails;
 }
 
 /** Stack may refresh the session while reading it; use the authoritative token. */

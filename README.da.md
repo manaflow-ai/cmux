@@ -152,7 +152,9 @@ For mere information om konfiguration af cmux, [se vores dokumentation](https://
 
 | Genvej | Handling |
 |----------|--------|
-| ⌘ N | Nyt workspace |
+| ⌘ N | Nyt lokalt arbejdsområde |
+| ⌘ Y | Nyt Cloud-arbejdsområde på den senest brugbare Cloud-kontekst; åbner New Cloud Machine, hvis ingen findes |
+| ⌘ ⇧ Y | Ny cloud-maskine |
 | ⌘ 1–8 | Hop til workspace 1–8 |
 | ⌘ 9 | Hop til sidste workspace |
 | ⌃ ⌘ ] | Næste workspace |

@@ -140,6 +140,7 @@ describe("VM alert checks", () => {
       createFailures: { triggered: true, count: 3 },
       stuckProvisioning: { triggered: true, count: 1 },
       expiredUnrevokedLeases: { triggered: true, count: 51 },
+      tlsRuleCapacity: null,
       alertSink: { configured: false, droppedAlerts: 0 },
     });
     expect(alerts.map((alert) => alert.key)).toEqual([

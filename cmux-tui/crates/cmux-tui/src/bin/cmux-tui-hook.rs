@@ -163,7 +163,7 @@ mod inbox;
 /// (Muse Code), the values of the agent process the hook runs under; or, for
 /// an agent in a tmux session started outside cmux-tui (which has none), the
 /// cmux-tui terminal attached to the pane's tmux session.
-fn session_route(source: &str) -> Option<(PathBuf, Option<String>)> {
+pub(crate) fn session_route(source: &str) -> Option<(PathBuf, Option<String>)> {
     if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
         return Some((PathBuf::from(socket), terminal));

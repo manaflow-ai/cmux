@@ -1,29 +1,18 @@
 import { billingPlanIdFromMetadata, billingSeatsFromMetadata } from "../billing/teamResolution";
 import { hasActiveTeamSubscriptionForTeam } from "../billing/pro";
-import { memberRole, type TeamAccess } from "./access";
+import { type TeamAccess } from "./access";
 import { TeamServiceUnavailableError } from "./errors";
 import { listTeamInvitations } from "./invitations";
 import { listTeamInviteLinks } from "./links";
+import { toTeamMember } from "./members";
 import { memberLimitForTeam } from "./seats";
 import type { TeamInviteStore } from "./repository";
-import type { StackTeamMember } from "./stack";
-import type { TeamDetail, TeamMember } from "./types";
+import type { TeamDetail } from "./types";
 
 export type TeamDetailDependencies = {
   readonly store?: TeamInviteStore;
   readonly hasActiveSubscription?: (teamId: string) => Promise<boolean>;
 };
-
-function toMember(access: TeamAccess, member: StackTeamMember): TeamMember {
-  return {
-    userId: member.id,
-    displayName: member.teamProfile?.displayName ?? member.displayName ?? null,
-    email: member.primaryEmail ?? null,
-    profileImageUrl: member.teamProfile?.profileImageUrl ?? member.profileImageUrl ?? null,
-    role: memberRole(access, member.id),
-    isViewer: member.id === access.userId,
-  };
-}
 
 /**
  * Everything the team settings pages render, from one access check. The
@@ -52,7 +41,7 @@ export async function loadTeamDetail(access: TeamAccess, dependencies: TeamDetai
       profileImageUrl: access.team.profileImageUrl ?? null,
     },
     viewer: { userId: access.userId, role: access.role, permissions: access.permissions },
-    members: visibleMembers.map((member) => toMember(access, member)),
+    members: visibleMembers.map((member) => toTeamMember(access, member)),
     invitations,
     links,
     billing: {

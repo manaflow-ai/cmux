@@ -7,6 +7,8 @@ import CmuxNextDesign
 public struct TabStripMetrics: Equatable, Sendable {
     /// Widest an unpinned tab gets (the standard width).
     public var maxTabWidth: CGFloat
+    /// Narrowest a tab fitted to its title gets while the strip has room.
+    public var minFitTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat
     /// The selected tab never gets narrower than this, so it keeps room for
@@ -49,8 +51,6 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var scrollFadeWidth: CGFloat
     /// Inset of the tab background from the tab frame, so neighbors read as separate.
     public var tabBackgroundInset: CGFloat
-    /// Height of the 1 px separator between tabs.
-    public var separatorHeight: CGFloat
     /// Vertical distance outside the strip that hands a dragged tab to the drag session.
     public var tearOffDistance: CGFloat
 
@@ -99,6 +99,7 @@ public struct TabStripMetrics: Equatable, Sendable {
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
         minInactiveTabWidth = Metrics.tabMinWidth
+        minFitTabWidth = TabTunables.minFitTabWidth.value
         pinnedTabWidth = Metrics.tabMinWidth
         compactTabWidth = TabTunables.compactTabWidth.value
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
@@ -122,7 +123,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
-        separatorHeight = TabTunables.separatorHeight.value
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
         groupChipOuterInset = Metrics.space1
@@ -132,6 +132,14 @@ public struct TabStripMetrics: Equatable, Sendable {
         groupChipMaxNameWidth = (Metrics.tabMaxWidth / 2).rounded()
         groupChipCountSpacing = Metrics.space2
         groupUnderlineHeight = TabTunables.groupUnderlineHeight.value
+    }
+
+    /// A tab's slot width that fits a title `titleWidth` wide: icon, title
+    /// and the close button's room (reserved, so hover and selection never
+    /// resize it), plus the gap after the pill.
+    public func naturalTabWidth(titleWidth: CGFloat) -> CGFloat {
+        (contentLeadingInset + iconSize + iconTitleSpacing + titleWidth + titleCloseSpacing + closeButtonSize
+            + contentTrailingInset + 2 * tabBackgroundInset).rounded(.up)
     }
 
     /// Token-derived metrics for the current density.

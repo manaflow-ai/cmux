@@ -371,6 +371,7 @@ pub struct Terminal {
     c1_normalizer: C1Normalizer,
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
+    empty_kitty_probe_filter: EmptyKittyProbeFilter,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -478,6 +479,7 @@ impl Terminal {
             color_overrides: ColorOverrideTracker::default(),
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
+            empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
         // SAFETY: `callbacks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -554,6 +556,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
+        let normalized = self.empty_kitty_probe_filter.write(normalized);
         self.kitty_inflight.write(&normalized);
         self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);

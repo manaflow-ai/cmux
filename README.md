@@ -159,7 +159,9 @@ For shell watcher churn and managed-Mac process audit volume, see the supported
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ N | New workspace |
+| ⌘ N | New local workspace |
+| ⌘ Y | New Cloud workspace on the last usable Cloud context; opens New Cloud Machine when none is available |
+| ⌘ ⇧ Y | New Cloud machine |
 | ⌘ 1–8 | Jump to workspace 1–8 |
 | ⌘ 9 | Jump to last workspace |
 | ⌃ ⌘ ] | Next workspace |

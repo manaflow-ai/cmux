@@ -615,18 +615,20 @@ def main():
                 effort["currentValue"] = params.get("value")
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [effort]}})
             continue
-        # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
-        # start a child that leaves this process group (setsid), as a harness that
-        # daemonizes a helper does, and write its pid to that file.
+        # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
+        # process group (setsid), as a harness that daemonizes a helper does, and
+        # write its pid to <path>.<this harness pid>. Every harness with the env
+        # does it (the daemon's model probe too), so one file per harness: a test
+        # reads the file of the exact harness it checks.
         if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
             import subprocess
             helper = subprocess.Popen(
                 [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            tmp = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}.tmp"
-            with open(tmp, "w") as f:
+            out = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
                 f.write(str(helper.pid))
-            os.replace(tmp, os.environ["FAKE_SETSID_CHILD"])
+            os.replace(f"{out}.tmp", out)
         # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:

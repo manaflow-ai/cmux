@@ -152,7 +152,9 @@ cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [doküma
 
 | Kısayol | Eylem |
 |----------|--------|
-| ⌘ N | Yeni çalışma alanı |
+| ⌘ N | Yeni yerel çalışma alanı |
+| ⌘ Y | Son kullanılabilir Cloud bağlamında yeni Cloud çalışma alanı; hiçbiri yoksa New Cloud Machine açılır |
+| ⌘ ⇧ Y | Yeni Cloud makinesi |
 | ⌘ 1–8 | Çalışma alanı 1–8'e atla |
 | ⌘ 9 | Son çalışma alanına atla |
 | ⌃ ⌘ ] | Sonraki çalışma alanı |

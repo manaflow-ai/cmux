@@ -1,4 +1,5 @@
 import { accountAccessForIdentity } from "./accountAccess";
+import { noAccountConfiguredMessage } from "./noAccountMessage";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -518,11 +519,13 @@ async function routeRounds(
         attempts,
         outcome: "no_usable_account",
         failureStage: "provider_config",
+        // Not retryable until the team adds an account. Claude Code retries
+        // 408/409/429/5xx, so a 403 permission_error surfaces once instead
+        // of a retry loop.
         response: anthropicError(
-          503,
-          "api_error",
-          "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
-          { "retry-after": "30" },
+          403,
+          "permission_error",
+          noAccountConfiguredMessage("claude", identity),
         ),
       };
     }

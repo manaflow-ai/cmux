@@ -180,7 +180,7 @@ impl Default for JournalRetention {
 }
 
 impl JournalRetention {
-    fn teardown_active(&self) -> bool {
+    pub(super) fn teardown_active(&self) -> bool {
         self.shared.schedule.lock().unwrap_or_else(PoisonError::into_inner).teardowns > 0
     }
 }

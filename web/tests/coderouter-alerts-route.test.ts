@@ -9,6 +9,7 @@ import type { CoderouterAlertSummary } from "../services/observability/coderoute
 const summary: CoderouterAlertSummary = {
   health: "ok",
   ledgerReachable: true,
+  clickhouseSchema: "ok",
   checks: [],
   alertSink: {
     configured: true,

@@ -1,4 +1,5 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
+import { defaultImportVisibility } from "@/services/coderouter/accountAccess";
 import {
   addAccount,
   parseCredential,
@@ -107,7 +108,9 @@ export function makeCoderouterAccountsPostHandler(
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  const requestedVisibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  const requestedVisibility = value && typeof value === "object" && "visibility" in value
+    ? (value as { visibility: unknown }).visibility
+    : defaultImportVisibility(resolved.value.team.teamId, resolved.value.user.id);
   if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
   // A VM mutation is scoped to its provisioned pool. Private visibility would
   // create an account that the same machine could not subsequently read on an

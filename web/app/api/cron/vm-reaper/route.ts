@@ -1,4 +1,5 @@
 import { authorizeCronRequest } from "../../../../services/cronAuth";
+import { reportCronFailure, runMonitoredCron } from "../../../../services/observability/cronMonitor";
 import { captureVmReaperSummary } from "../../../../services/vms/observability";
 import { reapVmResources } from "../../../../services/vms/reaper";
 import { runVmWorkflow } from "../../../../services/vms/workflows";
@@ -12,13 +13,15 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  try {
-    const summary = await runVmWorkflow(reapVmResources());
-    // Best effort and bounded; never turns a successful run into a 500.
-    await captureVmReaperSummary(summary);
-    return Response.json({ ok: true, ...summary });
-  } catch (err) {
-    console.error("[VM] cron reaper failed", err);
-    return Response.json({ error: "vm_reaper_failed" }, { status: 500 });
-  }
+  return runMonitoredCron("vm-reaper", async () => {
+    try {
+      const summary = await runVmWorkflow(reapVmResources());
+      // Best effort and bounded; never turns a successful run into a 500.
+      await captureVmReaperSummary(summary);
+      return Response.json({ ok: true, ...summary });
+    } catch (err) {
+      reportCronFailure("vm-reaper", err);
+      return Response.json({ error: "vm_reaper_failed" }, { status: 500 });
+    }
+  });
 }

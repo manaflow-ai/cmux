@@ -11,10 +11,9 @@ import os
 /// Home's client of the Chief home's conversation owner
 /// (`ChiefConversationOwner`, plans/cmux-next/home-state-ownership.md): the
 /// conversation list, one session (mirror + intent log) per open
-/// conversation, and the typed ops the user sends. The owner is the Chief
-/// home's daemon session, the same in every build of one account, so every
-/// build shows the same history; nothing here is persisted. The build's own
-/// daemon keeps only the Home workspace and its tabs.
+/// conversation, and the typed ops the user sends. The owner is this build's
+/// Chief home's daemon session (`ChiefHome`); nothing here is persisted.
+/// The build's own daemon keeps only the Home workspace and its tabs.
 @Observable @MainActor
 final class HomeService {
     /// Conversations, newest activity first, as the owner reports them.
@@ -26,7 +25,7 @@ final class HomeService {
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
-    /// The owner of every Home conversation: one per Chief home, never per build.
+    /// The owner of every Home conversation: this build's Chief home's (one Chief per build).
     @ObservationIgnored let chief: ChiefConversationOwner
     /// Keeps the Chief home's brain host running (ChiefBrainKeeper).
     @ObservationIgnored lazy var brain = ChiefBrainKeeper(

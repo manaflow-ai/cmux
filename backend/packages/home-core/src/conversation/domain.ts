@@ -262,6 +262,11 @@ const reduceConversation = (
   const result = apply(head, request)
   if (!result.ok) return refuse(result.code)
   const { commit } = result
+  // A thread root derived from the parent (a reply to a thread reply that names no thread_root) must be
+  // visible to the sender, like a named one: a root below its history floor is refused, never joined.
+  if (coreOp.kind === "message.send" && threadId === undefined && commit.message?.thread_root !== undefined) {
+    if (!visible(rowsOf(ctx).get<Message>(TABLE_MSG, commit.message.thread_root)?.row ?? null)) return refuse("invalid_thread_root")
+  }
   const writes: Array<RowWrite> = []
   if (commit.message && MESSAGE_PART_OPS.has(coreOp.kind)) {
     // The author's own view: an uploader of the hash, or a referencing message above their floor.

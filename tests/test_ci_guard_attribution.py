@@ -329,6 +329,79 @@ class Comments(unittest.TestCase):
 
 
 class Robustness(unittest.TestCase):
+    def test_jobs_paginate_the_exact_workflow_attempt(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        calls = []
+        first_page = [{"id": index, "name": "other"} for index in range(100)]
+
+        def get(path):
+            calls.append(path)
+            if path.endswith("page=1"):
+                return {"jobs": first_page}
+            self.assertTrue(path.endswith("page=2"))
+            return {"jobs": [{"id": 42, "name": ga.FAST_WORKFLOW}]}
+
+        gh.get = get  # type: ignore[method-assign]
+        self.assertEqual(gh.jobs(9, run_attempt=3)[-1]["id"], 42)
+        self.assertEqual(calls, [
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/3/jobs?per_page=100&page=1",
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/3/jobs?per_page=100&page=2",
+        ])
+
+    def test_guard_conclusion_overrides_an_unrelated_ci_failure(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
+        gh.comments = lambda number: [{"id": 1, "body": ga.PR_MARKER}]  # type: ignore[method-assign]
+        run = {
+            "id": 9,
+            "run_attempt": 2,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "conclusion": "failure",
+            "pull_requests": [{"number": 7, "base": {"repo": {
+                "url": "https://api.github.com/repos/manaflow-ai/cmux",
+            }} }],
+        }
+        selected = ga.authoritative_guard_run(gh, run)
+        self.assertEqual(selected["conclusion"], "success")
+        self.assertEqual(ga.analyze_pr(gh, selected, ROOT, "")["state"], "green")
+
+    def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        run = {
+            "id": 9,
+            "run_attempt": 2,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "conclusion": "cancelled",
+        }
+        for conclusion in ("cancelled", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                gh.guard_job = lambda run, conclusion=conclusion: {  # type: ignore[method-assign]
+                    "id": 42, "name": ga.FAST_WORKFLOW, "conclusion": conclusion,
+                }
+                self.assertIsNone(ga.authoritative_guard_run(gh, run))
+
+    def test_fast_guard_log_selection_excludes_unrelated_failed_jobs(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        paths = []
+        gh.get = lambda path: (paths.append(path) or {  # type: ignore[method-assign]
+            "jobs": [
+                {"id": 1, "name": ga.FAST_WORKFLOW, "conclusion": "failure"},
+                {"id": 2, "name": "Fast static checks", "conclusion": "failure"},
+            ]
+        })
+        gh.request = lambda method, path, text=False: f"log:{path}"  # type: ignore[method-assign]
+        self.assertEqual(
+            gh.failed_log(9, run_attempt=4, job_name=ga.FAST_WORKFLOW),
+            "log:repos/manaflow-ai/cmux/actions/jobs/1/logs",
+        )
+        self.assertEqual(paths, [
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/4/jobs?per_page=100&page=1",
+        ])
+
     def test_an_older_checkout_the_runner_cannot_plan_counts_as_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runner = Path(temp) / "runner"
@@ -459,7 +532,10 @@ class WorkflowTrust(unittest.TestCase):
 
     def test_follows_both_guard_workflows(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(sorted(on["workflow_run"]["workflows"]), sorted([ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]))
+        self.assertEqual(
+            sorted(on["workflow_run"]["workflows"]),
+            sorted(["CI", ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]),
+        )
         self.assertEqual(on["workflow_run"]["types"], ["completed"])
 
     def test_only_report_writes_and_nothing_checks_out_the_pr(self) -> None:

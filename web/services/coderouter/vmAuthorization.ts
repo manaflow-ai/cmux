@@ -1,4 +1,4 @@
-import { decodeProtectedHeader, jwtVerify, SignJWT } from "jose";
+import { decodeJwt, decodeProtectedHeader, jwtVerify, SignJWT } from "jose";
 import { createSecretKey, randomUUID } from "node:crypto";
 
 export const VM_AUTHORIZATION_HEADER = "x-cmux-authorization";
@@ -79,6 +79,47 @@ function validLifetime(iat: unknown, exp: unknown): boolean {
     typeof exp === "number" && Number.isSafeInteger(exp) && exp > iat && exp - iat <= VM_AUTHORIZATION_LIFETIME_SECONDS;
 }
 
+/**
+ * The instant the token's time claims are checked at: now, or the last second
+ * of its signed window once that has passed.
+ *
+ * The provider edge injects this token from a rule fixed when the machine was
+ * created; a running machine can never receive a new one. Its validity is
+ * therefore the database row, checked on every request after this function
+ * (not revoked, bound to this machine, machine live), never a clock. `exp`
+ * still bounds the signed window at issue time, and `iat` in the future or a
+ * window longer than the lifetime still fails.
+ */
+function verificationInstant(token: string, now: Date): Date {
+  const { exp } = decodeJwt(token);
+  if (typeof exp !== "number" || !Number.isSafeInteger(exp)) return now;
+  return new Date(Math.min(now.getTime(), (exp - 1) * 1000));
+}
+
+/**
+ * The key id a signed token names, unverified, or undefined when the header
+ * has none or it is not a valid id. Diagnostic only: it tells a token from
+ * another deployment's key apart from a forged or damaged one.
+ */
+export function unverifiedVmAuthorizationKeyId(token: string): string | undefined {
+  try {
+    const kid = decodeProtectedHeader(token).kid;
+    return typeof kid === "string" && KEY_ID.test(kid) ? kid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether this deployment can verify tokens signed with `kid`. */
+export function isKnownVmAuthorizationKey(kid: string): boolean {
+  try {
+    verificationKey(kid);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Local signature verification precedes any database access. No token or JOSE error escapes. */
 export async function verifyVmAuthorization(token: string, now = new Date()): Promise<VmAuthorizationClaims | null> {
   try {
@@ -92,7 +133,7 @@ export async function verifyVmAuthorization(token: string, now = new Date()): Pr
       audience: VM_AUTHORIZATION_AUDIENCE,
       requiredClaims: ["vm_id", "team_id", "owner_id", "jti", "iat", "exp"],
       maxTokenAge: VM_AUTHORIZATION_LIFETIME_SECONDS,
-      currentDate: now,
+      currentDate: verificationInstant(token, now),
     });
     if (!validLifetime(payload.iat, payload.exp) ||
         !identifier(payload.vm_id) || !identifier(payload.team_id) ||

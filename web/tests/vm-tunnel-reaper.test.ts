@@ -111,7 +111,7 @@ function repo(state: World, candidates: CloudVmTunnelRow[]): VmRepositoryShape {
     listAccessGrantTunnels: () => Effect.succeed([]),
     claimAccessGrantMutation: () => Effect.sync(() => state.leaseClaimed),
     releaseAccessGrantMutation: () => Effect.void,
-    revokeAccessGrant: () => Effect.succeed(true),
+    revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: [] }),
   };
   return shape as VmRepositoryShape;
 }

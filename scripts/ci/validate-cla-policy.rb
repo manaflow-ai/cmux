@@ -61,7 +61,7 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
   %w[
     manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
     317432cd2145726daadec61cd3a6d84674197374ac92bf66ba09c8f6761853cc
-    6fe115ade482839321514214a81e339b49643382cfb89f7a9c115575431087e2
+    6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
   ].freeze
 ].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
@@ -97,24 +97,28 @@ CLA_HOSTED_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
 SH
 # Blacksmith runners register as self-hosted (runner.environment is
 # 'self-hosted'), so the ephemeral guard identifies them by runner.name. Each
-# Blacksmith scale set names its single-job VMs '<scale set>-Runner-<10 hex>',
-# and the scale set name is exactly the runs-on label (for example
-# blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d in runner group
-# 'Blacksmith scale sets - blacksmith-4vcpu-ubuntu-2404'). The guard admits
-# that prefix for the two allowlisted Blacksmith labels only, and also
-# refuses any name containing 'glaeda': owned machines are registered by
-# glaeda as '<host>-glaeda[-N]' (cmuxs-mac-mini-5-glaeda-1), so a misrouted
-# job is refused by two independent signals.
+# Blacksmith scale set names its single-job VMs '<scale set>-<id>', and the
+# scale set name is exactly the runs-on label (runner group 'Blacksmith scale
+# sets - blacksmith-4vcpu-ubuntu-2404'). Current VMs use a random id
+# (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc); until early October 2026
+# the id was 'Runner-<10 hex>' (blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d),
+# which the same prefix still matches. The guard admits '<label>-' for the two
+# allowlisted Blacksmith labels only (it also matches a sibling scale set such as
+# blacksmith-4vcpu-ubuntu-2404-arm, which runs-on cannot select and which is
+# still a one-job Blacksmith VM), and also refuses any name containing
+# 'glaeda': owned machines are registered by glaeda as '<host>-glaeda[-N]'
+# (cmuxs-mac-mini-5-glaeda-1), so a misrouted job is refused by two
+# independent signals.
 #
 # runner.name is chosen when a runner registers, which needs organization
 # admin rights, and is evaluated by the runner process itself. It therefore
 # cannot stop a hostile administrator or a compromised runner; it catches a
 # job that lands on an owned machine by mistake. The real control is the
 # exact runs-on allowlist above, which routes only to GitHub-hosted runners
-# or Blacksmith's read-only scale-set labels. If Blacksmith renamed its VMs,
-# this guard would fail closed, and CI_TRUSTED_RUNNER=ubuntu-24.04 restores
-# the GitHub-hosted route.
-CLA_EPHEMERAL_RUNNER_PREFIXES = CLA_BLACKSMITH_RUNNERS.map { |label| "#{label}-Runner-" }.freeze
+# or Blacksmith's read-only scale-set labels. If Blacksmith renames its VMs
+# again so that a name no longer starts with its label, this guard fails
+# closed, and CI_TRUSTED_RUNNER=ubuntu-24.04 restores the GitHub-hosted route.
+CLA_EPHEMERAL_RUNNER_PREFIXES = CLA_BLACKSMITH_RUNNERS.map { |label| "#{label}-" }.freeze
 CLA_OWNED_RUNNER_NAME_MARKER = "glaeda".freeze
 CLA_EPHEMERAL_RUNNER_GUARD_NAME = "Require GitHub-hosted or Blacksmith runner".freeze
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
@@ -155,7 +159,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9ffdce443e15c05f7771cd548686f913e2f3b78a59491d
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "c25ecd95e18e01cd32681a4a2ca52e1692095a33cda08beeca010404882f1655"
+EXPECTED_GUARD_SCRIPT_DIGEST = "288d7dd67993fe090d498014b2a52078f33e6b3db31103a437cee6145719ea52"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -2110,7 +2114,7 @@ def run_runner_regression_matrix!
   }
   ephemeral_guard = {
     "name" => "Require GitHub-hosted or Blacksmith runner",
-    "if" => "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) || contains(runner.name, 'glaeda')",
+    "if" => "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')",
     "run" => "set -euo pipefail\necho \"::error::CLA policy requires a GitHub-hosted or Blacksmith runner\"\nexit 1\n"
   }
   fail!("ephemeral runner guard regression failed") unless
@@ -2119,6 +2123,23 @@ def run_runner_regression_matrix!
   assert_hosted_runner_guard_step(hosted_guard, "regression CLA job")
   assert_hosted_runner_guard_step(ephemeral_guard, "regression CLA job")
   checks += 3
+  # The names the guard condition admits on a self-hosted runner: current
+  # and pre-October 2026 Blacksmith VMs, never an owned glaeda host.
+  {
+    "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d" => true,
+    "cmuxs-mac-mini-5-glaeda-1" => false,
+    "blacksmith-4vcpu-ubuntu-2404-glaeda" => false,
+    "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => false,
+    "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc" => false,
+    "blacksmith-4vcpu-ubuntu-2404" => false
+  }.each do |runner_name, expected|
+    admitted = CLA_EPHEMERAL_RUNNER_PREFIXES.any? { |prefix| runner_name.start_with?(prefix) } &&
+      !runner_name.include?(CLA_OWNED_RUNNER_NAME_MARKER)
+    fail!("ephemeral runner name regression failed for #{runner_name}") unless admitted == expected
+    checks += 1
+  end
   rejected_guards = {
     "runner guard condition" => hosted_guard.merge("if" => "runner.environment == 'github-hosted'"),
     "runner guard shell" => hosted_guard.merge("run" => "exit 0"),
@@ -2131,6 +2152,9 @@ def run_runner_regression_matrix!
     ),
     "Blacksmith substring" => ephemeral_guard.merge(
       "if" => "runner.environment != 'github-hosted' && !contains(runner.name, 'blacksmith')"
+    ),
+    "retired -Runner- name prefix" => ephemeral_guard.merge(
+      "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF.gsub("-ubuntu-2404-'", "-ubuntu-2404-Runner-'")
     ),
     "larger Blacksmith scale set" => ephemeral_guard.merge(
       "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF.sub("blacksmith-2vcpu", "blacksmith-8vcpu")
@@ -2146,7 +2170,7 @@ def run_runner_regression_matrix!
     checks += 1
   end
 
-  ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) && !contains(runner.name, 'glaeda'))"
+  ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) && !contains(runner.name, 'glaeda'))"
   fail!("ephemeral runner step condition regression failed") unless ephemeral_term == CLA_EPHEMERAL_RUNNER_STEP_IF
   [
     CLA_HOSTED_RUNNER_STEP_IF,
@@ -2205,8 +2229,8 @@ def run_runner_regression_matrix!
     "unbalanced ephemeral term" => "#{ephemeral_term}) && (true",
     "quoted parenthesis hides an or" => "x == '(' && #{ephemeral_term} || true",
     "bare Blacksmith prefix" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-'))",
-    "Blacksmith term without hosted" => "(startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-'))",
-    "ephemeral term without owned-name refusal" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-'))"
+    "Blacksmith term without hosted" => "(startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))",
+    "ephemeral term without owned-name refusal" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
   }
   rejected_conditions.each do |name, condition|
     step = condition.nil? ? { "run" => "echo ok" } : { "if" => condition }

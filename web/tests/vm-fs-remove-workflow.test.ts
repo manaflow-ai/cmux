@@ -25,6 +25,7 @@ function fakes(statFailure?: unknown) {
   const removed: string[] = [];
   const repo = { findUserVm: () => Effect.succeed(row()) } as unknown as VmRepositoryShape;
   const provider = {
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
     statFile: (_p: string, _vm: string, path: string) =>
       statFailure === undefined
         ? Effect.succeed({ path, kind: "file" as const })

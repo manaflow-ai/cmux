@@ -12,6 +12,10 @@ import { deleteVmSnapshot } from "../../../../../../services/vms/workflows";
 // another machine, answers 404 vm_snapshot_not_found; a provider that cannot
 // delete snapshots answers 501 vm_operation_unsupported.
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string; snapshotId: string }> },
@@ -32,7 +36,7 @@ export async function DELETE(
         teamIds: user.teamIds,
         providerVmId: id,
         snapshotId,
-      }), { request });
+      }), { request, deadline: { operation: "snapshotDelete" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, deleted: run.value.deleted });
     },

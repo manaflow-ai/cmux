@@ -240,6 +240,13 @@ extension DaemonConnection {
         _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
     }
 
+    /// Input by host terminal id, also for a terminal still being created
+    /// (`terminal-input-while-creating-v1`). True when the daemon queued it.
+    @discardableResult
+    public func sendTerminalInput(_ terminalID: String, bytes: Data) async throws -> Bool {
+        try await request(SendTerminalInputRequest(terminalID: terminalID, bytes: bytes)).queued == true
+    }
+
     public func sendKeys(_ surface: SurfaceID, _ keys: [String]) async throws {
         _ = try await request(SendKeyRequest(surface: surface, keys: keys))
     }

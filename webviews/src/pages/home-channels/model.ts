@@ -95,7 +95,17 @@ export interface ThreadSummary {
 export type TimelineRow =
   | { kind: "day"; key: string; at: number }
   | { kind: "new"; key: string }
-  | { kind: "message"; key: string; message: HomeMessage; head: boolean; thread?: ThreadSummary }
+  | {
+      kind: "message";
+      key: string;
+      message: HomeMessage;
+      head: boolean;
+      thread?: ThreadSummary;
+      /** Indent level in the thread panel (0 = none). */
+      depth?: number;
+      /** The reply this one answers, shown above it when the indent is capped. */
+      parent?: HomeMessage;
+    }
   | { kind: "draft"; key: string; draft: HomeDraft; head: boolean }
   | { kind: "replies"; key: string; count: number };
 
@@ -200,6 +210,59 @@ export function threadMessages(
     root: messages.find((message) => message.id === root),
     replies: messages.filter((message) => threadOf(message) === root),
   };
+}
+
+/** Most indent levels the thread panel draws; a deeper reply keeps this indent and names its parent. */
+export const MAX_THREAD_INDENT = 4;
+
+/** One reply in the thread tree: its depth (1 = a reply to the root) and its parent when that is
+ * another reply. */
+export interface ThreadNode {
+  message: HomeMessage;
+  depth: number;
+  parent?: HomeMessage;
+}
+
+/** The thread's replies in tree order (each reply after its parent, siblings by seq). The parent is
+ * `replyTo` (threads nest without a limit, conversation-tree-v1); a reply whose parent is the root,
+ * is not loaded, or is outside the thread is a first-level reply. */
+export function threadTree(replies: readonly HomeMessage[], root: string): ThreadNode[] {
+  const byId = new Map(replies.map((message) => [message.id, message]));
+  const children = new Map<string, HomeMessage[]>();
+  for (const message of replies) {
+    const parent = message.replyTo?.message;
+    const key = parent && parent !== root && parent !== message.id && byId.has(parent) ? parent : root;
+    const list = children.get(key);
+    if (list) list.push(message);
+    else children.set(key, [message]);
+  }
+  const nodes: ThreadNode[] = [];
+  const seen = new Set<string>();
+  const walk = (id: string, depth: number) => {
+    for (const message of (children.get(id) ?? []).sort((a, b) => a.seq - b.seq)) {
+      if (seen.has(message.id)) continue;
+      seen.add(message.id);
+      const parent = id === root ? undefined : byId.get(id);
+      nodes.push(parent ? { message, depth, parent } : { message, depth });
+      walk(message.id, depth + 1);
+    }
+  };
+  walk(root, 1);
+  return nodes;
+}
+
+/** The link of a conversation or one of its messages (cmux-conversation `format_link`): the same
+ * text in every UI, opened by the daemon's `conversation-link-resolve`. */
+export function messageLink(conversation: string, message?: string, scheme = "cmux"): string {
+  return message
+    ? `${scheme}://conversation/${conversation}/message/${message}`
+    : `${scheme}://conversation/${conversation}`;
+}
+
+/** The link a page URL's hash carries (`#/conversation/<id>[/message/<id>]`), as a cmux link. */
+export function hashLink(hash: string): string | undefined {
+  const match = /^#\/(conversation\/[A-Za-z0-9_]+(?:\/message\/[A-Za-z0-9_]+)?)\/?$/.exec(hash);
+  return match ? `cmux://${match[1]}` : undefined;
 }
 
 /** Merges a page or event messages into an ascending window by seq; a newer copy replaces the old one. */

@@ -8,8 +8,8 @@ import { AI_USAGE_CSS } from "./-ai-usage-css"
  * amount and the stop state, each member's spend next to their limit with an inline edit, and the team
  * default. Data is team.ai_limit.get (the Worker), writes are team.ai_limit.set and
  * team.ai_limit.member.set; this component only draws them, so the real page and the preview route
- * (preview.ai-usage.tsx) render the same code. Two designs for Lawrence to choose from:
- * `meter` (a progress line and member rows with bars) and `ledger` (three figures and a quiet table).
+ * (preview.ai-usage.tsx) render the same code. The design is `meter` (Lawrence 2026-10-14): a progress
+ * line and member rows with thin bars.
  */
 export interface AiUsageLine {
   readonly billed: boolean
@@ -42,8 +42,6 @@ export interface AiUsageActions {
   readonly setDefault: (usd: number | null) => Promise<string | null>
   readonly setMember: (user: string, usd: number | null) => Promise<string | null>
 }
-export type AiUsageVariant = "meter" | "ledger"
-export const AI_USAGE_VARIANTS: ReadonlyArray<AiUsageVariant> = ["meter", "ledger"]
 
 type T = (key: AiLimitTextKey, vars?: Record<string, string>) => string
 const NEAR = 0.8
@@ -136,7 +134,7 @@ const RowActions = ({ t, m, edit, clear }: { t: T; m: AiUsageMember; edit: () =>
   </span>
 )
 
-const TeamLine = ({ t, locale, line, variant }: { t: T; locale: Locale; line: AiUsageLine | undefined; variant: AiUsageVariant }) => {
+const TeamLine = ({ t, locale, line }: { t: T; locale: Locale; line: AiUsageLine | undefined }) => {
   const { ratio, state } = lineState(line)
   if (!line || ratio === null || line.included_usd === null) return null
   const spent = usd(locale, line.spent_usd)
@@ -150,18 +148,6 @@ const TeamLine = ({ t, locale, line, variant }: { t: T; locale: Locale; line: Ai
     : state === "over_free" ? <p className="aiu-status">{t("usage.over.unbilled", { over: usd(locale, over) })}</p>
     : state === "near" ? <p className="aiu-status aiu-warn">{t("usage.near")}</p>
     : null
-  if (variant === "ledger")
-    return (
-      <section className="aiu-surface">
-        <dl className="aiu-stats">
-          <div><dt>{t("usage.stat.used")}</dt><dd>{spent}</dd></div>
-          <div><dt>{t("usage.stat.included")}</dt><dd>{included}</dd></div>
-          {line.billed && over > 0 ? <div><dt>{t("usage.stat.billed")}</dt><dd>{usd(locale, over)}</dd></div> : <div><dt>{t("usage.stat.left")}</dt><dd className={state === "stopped" ? "aiu-bad" : undefined}>{usd(locale, left)}</dd></div>}
-        </dl>
-        <div className="aiu-meta">{line.billed ? t("usage.period", { date: end }) : t("usage.resets", { date: end })}</div>
-        {status}
-      </section>
-    )
   return (
     <section className="aiu-surface">
       <div className="aiu-line">
@@ -174,18 +160,10 @@ const TeamLine = ({ t, locale, line, variant }: { t: T; locale: Locale; line: Ai
   )
 }
 
-const DefaultRow = ({ t, locale, data, actions, variant }: { t: T; locale: Locale; data: AiUsageData; actions: AiUsageActions; variant: AiUsageVariant }) => (
+const DefaultRow = ({ t, locale, data, actions }: { t: T; locale: Locale; data: AiUsageData; actions: AiUsageActions }) => (
   <InlineAmount t={t} label={t("usage.default.input.label")} hint="usage.default.hint" value={data.is_default ? null : data.default_usd} onSave={actions.setDefault}>
     {(edit, clear) =>
-      variant === "ledger" ? (
-        <p className="aiu-sentence aiu-row-hover" tabIndex={0}>
-          {t("usage.default.sentence", { amount: usd(locale, data.default_usd) })}{" "}
-          <span className="aiu-actions">
-            <button type="button" className="aiu-text" onClick={edit}>{t("usage.default.change")}</button>
-            {!data.is_default ? <button type="button" className="aiu-text" onClick={clear}>{t("default.reset")}</button> : null}
-          </span>
-        </p>
-      ) : (
+      (
         <div className="aiu-row aiu-row-hover aiu-default" tabIndex={0}>
           <span className="aiu-name">{t("usage.default.row")}</span>
           <span className="aiu-meta">{data.is_default ? t("usage.default.cmux", { amount: usd(locale, data.default_usd) }) : t("usage.default.value", { amount: usd(locale, data.default_usd) })}</span>
@@ -227,43 +205,17 @@ const MeterMember = ({ t, locale, m, actions }: { t: T; locale: Locale; m: AiUsa
   )
 }
 
-const LedgerTable = ({ t, locale, members, actions }: { t: T; locale: Locale; members: ReadonlyArray<AiUsageMember>; actions: AiUsageActions }) => (
-  <table className="aiu-table">
-    <thead>
-      <tr><th>{t("usage.col.member")}</th><th className="aiu-num">{t("usage.col.spent")}</th><th>{t("usage.col.limit")}</th></tr>
-    </thead>
-    <tbody>
-      {members.map((m) => (
-        <tr key={m.user} className="aiu-row-hover" tabIndex={0}>
-          <td><span className="aiu-name">{m.display_name}</span> <span className="aiu-meta">{m.role}</span></td>
-          <td className="aiu-num">{m.spent_usd < 0 ? t("spend.unknown") : usd(locale, m.spent_usd)}{m.limit_usd > 0 && m.spent_usd >= m.limit_usd ? <span className="aiu-flag aiu-warn">{t("usage.member.at_limit")}</span> : null}</td>
-          <td>
-            <InlineAmount t={t} label={t("usage.input.label", { member: m.display_name })} value={m.source === "personal" ? m.limit_usd : null} onSave={(v) => actions.setMember(m.user, v)}>
-              {(edit, clear) => (
-                <>
-                  {memberLimitText(t, locale, m)} <span className="aiu-meta">{m.source === "personal" ? t("usage.member.override") : t("usage.member.inherits")}</span>
-                  <RowActions t={t} m={m} edit={edit} clear={clear} />
-                </>
-              )}
-            </InlineAmount>
-          </td>
-        </tr>
-      ))}
-    </tbody>
-  </table>
-)
-
-export function AiUsageView({ data, locale, variant, actions }: { readonly data: AiUsageData; readonly locale: Locale; readonly variant: AiUsageVariant; readonly actions: AiUsageActions }) {
+export function AiUsageView({ data, locale, actions }: { readonly data: AiUsageData; readonly locale: Locale; readonly actions: AiUsageActions }) {
   const t: T = (key, vars) => aiLimitText(locale, key, vars)
   return (
-    <div className={`aiu aiu-v-${variant}`} data-variant={variant}>
+    <div className="aiu">
       <style>{AI_USAGE_CSS}</style>
       <h2 className="aiu-title">{t("usage.title")}</h2>
       <Intro t={t} locale={locale} data={data} />
-      <TeamLine t={t} locale={locale} line={data.team_usage} variant={variant} />
+      <TeamLine t={t} locale={locale} line={data.team_usage} />
       <section className="aiu-surface aiu-list">
-        <DefaultRow t={t} locale={locale} data={data} actions={actions} variant={variant} />
-        {variant === "ledger" ? <LedgerTable t={t} locale={locale} members={data.members} actions={actions} /> : data.members.map((m) => <MeterMember key={m.user} t={t} locale={locale} m={m} actions={actions} />)}
+        <DefaultRow t={t} locale={locale} data={data} actions={actions} />
+        {data.members.map((m) => <MeterMember key={m.user} t={t} locale={locale} m={m} actions={actions} />)}
       </section>
     </div>
   )

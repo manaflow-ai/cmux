@@ -10,6 +10,7 @@
 mod attachments;
 mod budget;
 mod id;
+mod link;
 mod link_preview;
 mod question;
 mod reducer;
@@ -27,6 +28,7 @@ pub use budget::{
     parse_rfc3339_millis,
 };
 pub use id::{encode_id, format_rfc3339_millis};
+pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};
 pub use link_preview::{
     MAX_LINK_SITE_CHARS, MAX_LINK_TITLE_CHARS, MAX_LINK_URL_BYTES, valid_link_preview_part,
     valid_link_url,

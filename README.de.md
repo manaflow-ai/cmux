@@ -152,7 +152,9 @@ Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokument
 
 | Tastenkürzel | Aktion |
 |----------|--------|
-| ⌘ N | Neuer Arbeitsbereich |
+| ⌘ N | Neuer lokaler Arbeitsbereich |
+| ⌘ Y | Neuer Cloud-Arbeitsbereich im zuletzt nutzbaren Cloud-Kontext; öffnet New Cloud Machine, wenn keiner verfügbar ist |
+| ⌘ ⇧ Y | Neue Cloud-Maschine |
 | ⌘ 1–8 | Zu Arbeitsbereich 1–8 springen |
 | ⌘ 9 | Zum letzten Arbeitsbereich springen |
 | ⌃ ⌘ ] | Nächster Arbeitsbereich |

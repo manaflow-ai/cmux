@@ -97,6 +97,7 @@ public:
     [[nodiscard]] Result<ConversationDraftResult> conversation_draft(const ConversationDraftRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationHistoryResult> conversation_history(const ConversationHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationImportResult> conversation_import(const ConversationImportRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationLinkResolveResult> conversation_link_resolve(const ConversationLinkResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationListResult> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});

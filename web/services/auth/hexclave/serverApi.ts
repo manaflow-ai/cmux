@@ -45,7 +45,13 @@ export type HexclaveSource = {
 export class HexclaveApiError extends Error {
   constructor(
     message: string,
-    readonly details: { readonly status?: number; readonly knownError?: string | null; readonly errors?: readonly string[] } = {},
+    readonly details: {
+      readonly status?: number;
+      readonly knownError?: string | null;
+      readonly errors?: readonly string[];
+      /** Hexclave's Retry-After on a 429 or 5xx, in seconds. */
+      readonly retryAfterSeconds?: number;
+    } = {},
   ) {
     super(message);
     this.name = "HexclaveApiError";
@@ -155,13 +161,10 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
     return fetchImpl(url, {
       method: "GET",
       headers: {
-        // Current Hexclave names plus the Stack aliases, as in app/lib/stack.ts.
+        // Hexclave names only, as in app/lib/stack.ts.
         "x-hexclave-access-type": "server",
         "x-hexclave-project-id": config.projectId,
         "x-hexclave-secret-server-key": config.secretServerKey,
-        "x-stack-access-type": "server",
-        "x-stack-project-id": config.projectId,
-        "x-stack-secret-server-key": config.secretServerKey,
       },
       signal: AbortSignal.timeout(config.timeoutMs ?? 10_000),
       cache: "no-store",
@@ -177,9 +180,11 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
     if (fetched.kind === "not_found") return null;
     if (fetched.kind === "status") {
       // No response body in the error: Hexclave can echo account data.
+      const retryAfter = Number(fetched.response.headers.get("retry-after"));
       throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} failed`, {
         status: fetched.response.status,
         knownError: fetched.knownError,
+        ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
       });
     }
     const result = await validateHexclave(schema, fetched.body);

@@ -8,6 +8,8 @@ public final class CreationInputBuffer {
     private var events: [NSEvent] = []
     private var pending: [Int: UInt64] = [:]
     private var awaited: Set<UInt64> = []
+    /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
+    private var earlyTabs: [Int: String] = [:]
     private var nextID = 0
     /// When the hold began.
     public let began: ContinuousClock.Instant
@@ -19,15 +21,22 @@ public final class CreationInputBuffer {
     public var holdsCreation: Bool { nextID > 0 }
     public var isEmpty: Bool { events.isEmpty }
 
-    public func open(generation: UInt64) -> Ticket {
+    /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
+    /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
+    public func open(generation: UInt64, earlyTab: String? = nil) -> Ticket {
         nextID += 1
         pending[nextID] = generation
+        if let earlyTab { earlyTabs[nextID] = earlyTab }
         return Ticket(id: nextID)
     }
+
+    /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
+    public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
 
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
     public func resolve(_ ticket: Ticket, awaitsFocus: Bool) {
+        earlyTabs[ticket.id] = nil
         guard let generation = pending.removeValue(forKey: ticket.id) else { return }
         if awaitsFocus { awaited.insert(generation) }
     }

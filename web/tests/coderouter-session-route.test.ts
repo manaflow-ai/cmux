@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { vmToken } from "./vm-authorization-fixture";
 
 import {
   makeCoderouterSessionGetHandler,
@@ -40,6 +41,22 @@ describe("coderouter route session", () => {
 
     expect(valid.status).toBe(204);
     expect(invalid.status).toBe(401);
+  });
+
+  test("accepts a signed VM token when the edge preserves only Authorization", async () => {
+    const token = await vmToken();
+    const GET = makeCoderouterSessionGetHandler(async candidate =>
+      candidate === token
+        ? { teamId: "team-1", stackUserId: "user-1", vmId: "vm-1" }
+        : null,
+    );
+
+    const response = await GET(new Request(
+      "https://coderouter.dev/api/coderouter/session",
+      { headers: { authorization: `Bearer ${token}` } },
+    ));
+
+    expect(response.status).toBe(204);
   });
 
   test("issues a hosted route token to any team member with no plan check", async () => {

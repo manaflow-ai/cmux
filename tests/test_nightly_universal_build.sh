@@ -47,6 +47,16 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Upload unsigned nightly app$/ { in_upload=1; next }
+  in_upload && /^      - name:/ { in_upload=0 }
+  in_upload && /compression-level: 0/ { found=1 }
+  END { exit !found }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the precompressed unsigned app artifact must disable a second compression pass"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -474,6 +484,11 @@ for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts 
     exit 1
   fi
 done
+# The signing job installs no Bun (main #37f07fec trimmed its setup).
+if awk '/^  build-sign-notarize-nightly:/ { j=1; next } /^  [A-Za-z0-9_-]+:/ { j=0 } j && /setup-bun@/ { f=1 } END { exit !f }' "$WORKFLOW_FILE"; then
+  echo "FAIL: the nightly signing job must not set up Bun"
+  exit 1
+fi
 
 RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
 if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$RELEASE_WORKFLOW_FILE"; then
@@ -586,7 +601,7 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
-    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
     /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
     END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
   ' "$workflow"; then
@@ -817,12 +832,16 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
   job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
   job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name: Archive unsigned nightly app/ { step="archive"; next }
+  job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
   step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
   step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
-  END { exit !(saw_cold_gate && saw_dsym_gate) }
+  step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
+  step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
+  END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a build-only run must be able to skip the compilation cache restore and must never upload dSYMs to Sentry"
+  echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"
   exit 1
 fi
 

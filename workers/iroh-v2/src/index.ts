@@ -1,11 +1,12 @@
 import { errorResponse, httpFailure } from "./boundary";
 import { failureDiagnostics, unwrap } from "./errors";
 import { runtime, type Environment } from "./environment";
-import { routeControl, objectName } from "./routing";
+import { accountObjectName, routeControl, objectName } from "./routing";
 import { observe } from "./observability";
 import { routeDashboard } from "./dashboard-routing";
 export { TeamControl } from "./team-control";
 export { UserUsage } from "./user-usage-object";
+export { AccountControl } from "./account-control";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -27,6 +28,7 @@ export default {
         observe: event => observe(ctx, env, { environment: env.ENVIRONMENT, ...event }),
         chargeOpen: async userId => { unwrap(await env.USER_USAGE.getByName(objectName(services.environment, services.projectId, userId)).consume(userId, "control.socket")); },
         dispatchTeam: (teamId, forwarded) => env.TEAM_CONTROL.getByName(objectName(services.environment, services.projectId, teamId)).fetch(forwarded),
+        dispatchAccount: (userId, forwarded) => env.ACCOUNT_CONTROL.getByName(accountObjectName(services.environment, services.projectId, userId)).fetch(forwarded),
       });
     } catch (error) {
       const failure = errorResponse(error, "unidentified").failure;

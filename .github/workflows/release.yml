@@ -633,7 +633,23 @@ jobs:
             --no-code-sign \
             "$APP_PATH" \
             ./
-          mv ./cmux*.dmg "$DMG_RELEASE"
+          # create-dmg emits an LZFSE (ULFO) image. Re-encode to LZMA (ULMO), as
+          # nightly does: about a quarter smaller, and macOS 14+ mounts it.
+          CREATED_DMGS=()
+          while IFS= read -r -d '' dmg; do CREATED_DMGS+=("$dmg"); done \
+            < <(find . -maxdepth 1 -name 'cmux*.dmg' ! -name "$DMG_RELEASE" -print0)
+          if [ "${#CREATED_DMGS[@]}" -ne 1 ]; then
+            echo "Expected exactly one create-dmg image, found ${#CREATED_DMGS[@]}" >&2
+            exit 1
+          fi
+          CREATED_DMG="${CREATED_DMGS[0]}"
+          hdiutil convert "$CREATED_DMG" -quiet -format ULMO -ov -o "$DMG_RELEASE"
+          rm -f "$CREATED_DMG"
+          DMG_FORMAT="$(hdiutil imageinfo "$DMG_RELEASE" | awk -F': *' '/^Format:/ {print $2; exit}')"
+          if [ "$DMG_FORMAT" != "ULMO" ]; then
+            echo "Expected ULMO (LZMA) DMG after conversion, got: ${DMG_FORMAT:-unknown}" >&2
+            exit 1
+          fi
           /usr/bin/codesign --force --timestamp --keychain build.keychain \
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$DMG_RELEASE"
@@ -745,6 +761,42 @@ jobs:
           fi
           python3 scripts/verify_app_libintl.py "${args[@]}"
 
+      # Installs read releases/latest/download/appcast.xml, so only the
+      # highest stable version may become latest. A backport tag (for
+      # example v0.62.1 after v0.63.1) is published without taking it over.
+      - name: Decide whether this release is latest
+        id: latest_release
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          published="$(gh release list --exclude-drafts --exclude-pre-releases --json tagName -q '.[].tagName')"
+          highest="$(printf '%s\n%s\n' "$published" "$GITHUB_REF_NAME" | sed '/^$/d' | sort -V | tail -1)"
+          if [ "$highest" = "$GITHUB_REF_NAME" ]; then
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$GITHUB_REF_NAME is older than $highest; publishing without marking it latest"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # publish-release-assets.py stages a missing release as a draft
+      # prerelease. GitHub refuses make_latest on a prerelease, and the publish
+      # action adopts an existing draft without clearing the flag, so clear it
+      # on every draft for this tag (reruns leave earlier drafts behind).
+      # Drafts stay hidden; only the next step publishes.
+      - name: Clear prerelease on staged drafts
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.draft and .prerelease and .tag_name == \"$GITHUB_REF_NAME\") | .id" |
+          while read -r release_id; do
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F prerelease=false --jq '"cleared prerelease on draft \(.id)"'
+          done
+
       # Keep a new stable release hidden until its entire asset set is verified.
       - name: Publish verified release
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -754,6 +806,7 @@ jobs:
           generate_release_notes: true
           prerelease: false
           draft: false
+          make_latest: ${{ steps.latest_release.outputs.make_latest }}
 
       - name: Upload release appcast to R2
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')

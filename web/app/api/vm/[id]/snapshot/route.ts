@@ -41,7 +41,7 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
-      }), { request });
+      }), { request, deadline: { operation: "snapshot" } });
       if (!run.ok) return run.response;
       const snapshot = run.value;
       return jsonResponse({ snapshotId: snapshot.id, id: snapshot.id, name: snapshot.name ?? null, createdAt: snapshot.createdAt });

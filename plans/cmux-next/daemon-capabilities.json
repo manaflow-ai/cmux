@@ -81,6 +81,7 @@
     "terminal-command-history-v1",
     "terminal-env-v1",
     "terminal-frontend-shell-integration-v1",
+    "terminal-input-while-creating-v1",
     "terminal-pending-sequence-v1",
     "terminal-placement-env-v1",
     "terminal-reap-v1",

@@ -81,7 +81,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            failed: Collection[str] = ()) -> tuple[str, str, str]:
     """(runs-on JSON, placement, why); ("", "", why) keeps the picker's choice. `failed` names minis to skip."""
     root = (env.get("ROOT_RUNNER") or "").strip()
-    if not pool.persistent(root) or not root.startswith(pool.ROOT_PREFIX):
+    if not pool.root_pool_label(root):
         return "", "", f"admission has no root label ({root or 'none'})"
     if runners is None:
         return "", "", "owned runners could not be read live"

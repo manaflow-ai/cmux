@@ -211,3 +211,8 @@ jobs:
 
       - name: The defaults snapshot matches the exports
         run: python3 scripts/ci/defaults_guard.py check-fresh
+
+      # PR #19754 moved the workspace and tab menus' group rows into More and
+      # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
+      - name: The group rows stay at the top of the right-click menus
+        run: python3 scripts/cmux-next/check-group-menus.py

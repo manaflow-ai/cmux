@@ -32,7 +32,7 @@
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
 import { GUEST_CMUX_ADAPTER_PATH, guestCliDistributionCommand } from "./guestCliDistribution";
-import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
+import { GUEST_CODEROUTER_SHELL, GUEST_CODEROUTER_USE_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
 import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
@@ -841,6 +841,7 @@ guest_agent_command() {
 }
 
 ${GUEST_CODEROUTER_SHELL}
+${GUEST_CODEROUTER_USE_SHELL}
 guest_coderouter_command() {
   cmux_coderouter_sub="\${1:-help}"
   [ "\$#" -gt 0 ] && shift
@@ -851,6 +852,7 @@ guest_coderouter_command() {
     usage|machines) guest_coderouter_usage "\$@" ;;
     models) guest_coderouter_models "\$@" ;;
     agent|run) guest_coderouter_agent "\$@" ;;
+    use) guest_coderouter_use "\$@" ;;
     help|--help|-h) guest_usage ;;
     claude|login|logout)
       die_message 2 accountHostOnly "\$cmux_coderouter_sub"

@@ -12,6 +12,7 @@ import {
   conversationName,
   lastEditable,
   mergeMessages,
+  messageLink,
   others,
   railSections,
   timelineRows,
@@ -82,7 +83,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     escape: () => {
       if (switcher) setSwitcher(false);
       else if (editing) setEditing(undefined);
-      else if (snap.thread) store.openThread(undefined);
+      else if (snap.thread) void store.openThread(undefined);
       else return false;
       return true;
     },
@@ -95,6 +96,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)
     .map((id) => people.get(id)?.name ?? id);
+  // The same link the Messages Home copies; the daemon opens it (conversation-link-resolve).
+  const copyLink = (message: HomeMessage) =>
+    void navigator.clipboard?.writeText(messageLink(message.conversation, message.id));
   const editActions = (surface: "main" | "thread") => ({
     editing: editing?.surface === surface ? editing.id : undefined,
     onEditStart: (message: HomeMessage) => setEditing({ id: message.id, surface }),
@@ -161,8 +165,10 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           strings={strings}
           loadingOlder={snap.loadingOlder}
           onLoadOlder={() => void store.loadOlder()}
-          onOpenThread={(root) => store.openThread(root)}
+          onOpenThread={(root) => void store.openThread(root)}
           onReact={(message, value) => void store.react(message, value)}
+          onCopyLink={copyLink}
+          highlight={snap.highlight}
           {...editActions("main")}
         />
         <div className="hc-typing" aria-live="polite">
@@ -203,8 +209,10 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           me={me}
           strings={strings}
           canSend={online}
-          onClose={() => store.openThread(undefined)}
-          onSend={(text) => store.send(text, snap.thread)}
+          onClose={() => void store.openThread(undefined)}
+          onSend={(text, parent) => store.send(text, snap.thread, parent)}
+          onCopyLink={copyLink}
+          highlight={snap.highlight}
           onReact={(message, value) => void store.react(message, value)}
           {...editActions("thread")}
         />

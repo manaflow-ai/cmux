@@ -153,7 +153,9 @@ export class CloudHome {
   async op(conversation: string, key: string, op: Json): Promise<Json> {
     const sent: Json = { ...op };
     // An owner from before threads keeps a thread reply as a reply to the root's first part.
-    if (typeof op.thread_root === "string") sent.reply_to = { message_id: op.thread_root, part_index: 0 };
+    // A nested reply keeps its own parent.
+    if (typeof op.thread_root === "string" && !op.reply_to)
+      sent.reply_to = { message_id: op.thread_root, part_index: 0 };
     return this.daemon.request("cloud-conversation-op", {
       conversation,
       idempotency_key: key,

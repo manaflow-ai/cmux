@@ -184,7 +184,7 @@ private final class AuthRetryURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         let isRefresh = request.url?.path.hasSuffix("/auth/oauth/token") == true
-        let token = request.value(forHTTPHeaderField: "x-stack-access-token")
+        let token = request.value(forHTTPHeaderField: "x-hexclave-access-token")
         let statusCode = isRefresh ? 200 :
             (token == Self.newAccessToken && !shouldRejectRefreshedToken ? 200 : 401)
         let headers = statusCode == 200

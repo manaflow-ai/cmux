@@ -122,6 +122,14 @@ class RevisionPlanTests(unittest.TestCase):
                    7: self.info(state="MERGED", closedAt=LONG_AGO)}
         self.assertEqual(prune.plan_media("o/r", files, details, NOW, {}), (files, []))
 
+    def test_blob_urls_preserve_referenced_media(self):
+        files = ["42/00000001/tour/a.png", "42/aaaaaaaa/tour/a.png"]
+        for branch in ("pr-media", "refs/heads/pr-media"):
+            with self.subTest(branch=branch):
+                info = self.info(body=f"![evidence](https://github.com/o/r/blob/{branch}/{files[0]}?raw=true)")
+                self.assertEqual(prune.plan_media("o/r", files, {42: info}, NOW,
+                                                 {"42/00000001": 1}), (files, []))
+
     def test_closed_policy_preserves_recent_uploads_and_drops_old_unreferenced_media(self):
         files = ["1/a.png", "2/a.png", "3/a.png"]
         details = {1: self.info(state="MERGED", closedAt=LONG_AGO),

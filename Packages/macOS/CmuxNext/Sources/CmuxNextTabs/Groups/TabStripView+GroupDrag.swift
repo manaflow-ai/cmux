@@ -30,7 +30,6 @@ extension TabStripView {
         setHoveredChip(nil)
         hoverCards.dismiss(.action)
         installEscapeMonitor()
-        updateSeparators()
     }
 
     func setLifted(_ group: TabGroupID, _ lifted: Bool) {

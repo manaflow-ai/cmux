@@ -28,5 +28,5 @@ pub use roots::{
 };
 pub use scan::{AdapterConfig, FileRead, RootScan, read_file, scan_root};
 pub use stamp::{Change, FileStamp, FileState, HeadPrint, Tally};
-pub use text::title_line;
+pub use text::{title_line, without_client_context};
 pub use time::parse_rfc3339_ms;

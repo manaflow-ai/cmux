@@ -24,9 +24,11 @@ extension HomeService {
     /// Moves the old per-tag Chiefs into the Chief home before Home or the
     /// brain host use its owner (home-state-ownership.md section 7). While an
     /// older build's host still runs, Home says so and the owner stays
-    /// unpublished; the next launch tries again. Nothing is stopped.
+    /// unpublished; the next launch tries again. Nothing is stopped. A DEV
+    /// build's own Chief home starts empty (`ChiefHome.importsOldChiefs`).
     func installChiefMigration() {
         let home = chief.home
+        guard home.importsOldChiefs else { return }
         let create = HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")

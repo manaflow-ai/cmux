@@ -187,6 +187,25 @@ struct MobileBrowserStreamTests {
     }
 
     @Test
+    func dialogQueueClaimsMatchingDialogsAndPreservesOthersInOrder() {
+        var queue = MobileBrowserDialogQueue()
+        for index in 0..<4 {
+            queue.install(MobileBrowserDialogEvent(
+                panelID: "panel-1", dialogID: "dialog-\(index)",
+                kind: index.isMultiple(of: 2) ? .javaScriptConfirm : .fileUpload,
+                title: nil, message: nil, host: nil,
+                buttons: [MobileBrowserDialogButton(id: "cancel", label: "Cancel", role: .cancel)],
+                textField: nil, informational: false
+            ))
+        }
+        let claimed = queue.claimAll { $0.kind == .javaScriptConfirm }
+        #expect(claimed.map(\.dialogID) == ["dialog-0", "dialog-2"])
+        #expect(queue.pending.map(\.dialogID) == ["dialog-1", "dialog-3"])
+        #expect(queue.claim(dialogID: "dialog-2") == nil)
+        #expect(queue.claimAll { $0.kind == .javaScriptConfirm }.isEmpty)
+    }
+
+    @Test
     func unknownFrameFormatSurvivesDecodeAndReencode() throws {
         let data = Data(#"{"panel_id":"p","seq":1,"format":"avif","page_width":10,"page_height":20,"pixel_width":20,"pixel_height":40,"data_b64":"AA=="}"#.utf8)
         let decoded = try JSONDecoder().decode(MobileBrowserFrameEvent.self, from: data)

@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use super::{JOURNAL_DURABLE_WAIT, JournalIngressReceivers, QueuedJournalEvent};
+use super::{JournalIngressReceivers, QueuedJournalEvent, journal_durable_wait};
 
 /// A lock or commit deadline that expired while another writer held the
 /// workspace registry. Callers downcast to tell it from a store error.
@@ -78,11 +78,11 @@ pub(super) fn expire(
         &waiting,
         format!(
             "session journal writer timed out after {} ms: {detail}",
-            JOURNAL_DURABLE_WAIT.as_millis()
+            journal_durable_wait().as_millis()
         ),
     );
     *batch = kept;
-    *retry_deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+    *retry_deadline = Instant::now() + journal_durable_wait();
     true
 }
 

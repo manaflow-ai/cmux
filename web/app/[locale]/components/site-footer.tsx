@@ -6,7 +6,6 @@ import {
 } from "../../../i18n/locale-availability";
 import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
-import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
 import { getCurrentYear } from "@/app/lib/current-year";
 
@@ -17,7 +16,6 @@ function isExternal(href: string) {
 type FooterLink = {
   label: string;
   href: string;
-  proUpgrade?: boolean;
   unlocalized?: boolean;
   contentLocales?: readonly Locale[];
 };
@@ -39,13 +37,13 @@ export async function SiteFooter() {
         {
           label: t("pricing"),
           href: "/pricing",
-          proUpgrade: true,
           contentLocales: fallbackContentLocales,
         },
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
         { label: t("assets"), href: "/assets" },
+        { label: t("art"), href: "/art" },
         {
           label: t("jobs"),
           href: "/jobs",
@@ -127,13 +125,7 @@ export async function SiteFooter() {
                       )}
                     </li>
                   );
-                  return link.proUpgrade ? (
-                    <ProUpgradeVisibility key={link.href}>
-                      {item}
-                    </ProUpgradeVisibility>
-                  ) : (
-                    item
-                  );
+                  return item;
                 })}
               </ul>
             </div>

@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -191,6 +193,34 @@ func TestDiscoverClaudeHookTmuxRouteRequiresTmuxAndCmuxClient(t *testing.T) {
 	}
 }
 
+// TestDiscoverClaudeHookTmuxRouteLogsWhyItFoundNoRoute records each reason a tmux route fails, such as a client environment the host would not show.
+func TestDiscoverClaudeHookTmuxRouteLogsWhyItFoundNoRoute(t *testing.T) {
+	inTmux := claudeHookTestEnv(map[string]string{"TMUX": "/tmp/tmux-501/default,100,0"})
+	var logged []string
+	logf := func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	probe, _ := fakeClaudeHookTmuxProbe("$2\t\t@1", "4102\t/dev/ttys004\t1\t$2\t\t@1\n4103\t/dev/ttys005\t2\t$2\t\t@1\n", map[int]map[string]string{
+		4102: {"TERM": "xterm-ghostty"},
+	})
+	probe.logf = logf
+	if _, ok := discoverClaudeHookTmuxRoute(inTmux, probe); ok {
+		t.Fatal("no client carries a surface")
+	}
+	want := []string{
+		"could not read the environment of tmux client pid 4103",
+		"none of 2 tmux clients of session $2 carries a cmux surface",
+	}
+	if !reflect.DeepEqual(logged, want) {
+		t.Fatalf("logged %q, want %q", logged, want)
+	}
+
+	logged = nil
+	probe, _ = fakeClaudeHookTmuxProbe("$9\t\t@1", "4102\t/dev/ttys004\t1\t$2\t\t@1\n", nil)
+	probe.logf = logf
+	if _, ok := discoverClaudeHookTmuxRoute(inTmux, probe); ok || len(logged) != 1 || logged[0] != "no tmux client is attached to session $9" {
+		t.Fatalf("detached session: ok=%v logged %q", ok, logged)
+	}
+}
+
 // TestResolveClaudeHookDeliveryFollowsTmuxClientWithoutEnvironment covers a launcher-started Claude in a tmux server that predates cmux.
 func TestResolveClaudeHookDeliveryFollowsTmuxClientWithoutEnvironment(t *testing.T) {
 	paneEnv := claudeHookTestEnv(map[string]string{"TMUX": "/tmp/tmux-1000/default,100,0", "TMUX_PANE": "%0"})
@@ -368,6 +398,8 @@ func TestClaudeHookRelaySharesOneTimeBudget(t *testing.T) {
 	t.Setenv(claudeRelayWrapperActiveKey, "")
 	t.Setenv("CMUX_RELAY_ID", "relay-test")
 	t.Setenv("CMUX_RELAY_TOKEN", "00112233445566778899aabbccddeeff")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	previousTree, previousBudget := claudeRelayProcessTree, claudeHookTimeBudget
 	claudeRelayProcessTree = fakeClaudeProcessTree{}
 	claudeHookTimeBudget = 500 * time.Millisecond
@@ -387,11 +419,17 @@ func TestClaudeHookRelaySharesOneTimeBudget(t *testing.T) {
 	if elapsed := run(); elapsed > claudeHookTimeBudget+700*time.Millisecond {
 		t.Fatalf("hung tmux: hook took %v, want at most about one %v budget", elapsed, claudeHookTimeBudget)
 	}
+	if log, _ := os.ReadFile(filepath.Join(home, ".cmux", "claude-hook.log")); !strings.Contains(string(log), "tmux display-message failed") {
+		t.Fatalf("hung tmux was not logged: %q", log)
+	}
 	// A silent relay holds the hook for the rest of the same budget.
 	t.Setenv("TMUX", "")
 	t.Setenv("CMUX_SOCKET_PATH", listener.Addr().String())
 	if elapsed := run(); elapsed < claudeHookTimeBudget || elapsed > claudeHookTimeBudget+700*time.Millisecond {
 		t.Fatalf("silent relay: hook took %v, want about one %v budget", elapsed, claudeHookTimeBudget)
+	}
+	if log, _ := os.ReadFile(filepath.Join(home, ".cmux", "claude-hook.log")); !strings.Contains(string(log), "stop: relay "+listener.Addr().String()+" did not accept the event") {
+		t.Fatalf("silent relay was not logged: %q", log)
 	}
 	if claudeHookDeclaredTimeout*time.Second-previousBudget < time.Second {
 		t.Fatalf("budget %v leaves too little room under the declared %ds timeout", previousBudget, claudeHookDeclaredTimeout)

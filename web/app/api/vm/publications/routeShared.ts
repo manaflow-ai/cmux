@@ -16,6 +16,13 @@ import {
   PublicationNotFoundError,
 } from "../../../../services/vm-publications/repository";
 import { VmPublicationProviderError } from "../../../../services/vm-publications/provider";
+import { isFreestyleTlsRuleLimit } from "../../../../services/vms/drivers/freestyleNetworkPolicy";
+import { reportError } from "../../../../services/observability/report";
+import {
+  noteHandledRouteError,
+  VM_ERROR_CODE_HEADER,
+  withApiRouteSpan,
+} from "../../../../services/telemetry";
 import {
   DEFAULT_GENERATED_PUBLICATION_DOMAIN,
   PublicationConfigurationError,
@@ -58,6 +65,38 @@ export async function withAuthedPublicationApiRoute(
   run: PublicationWorkflowRunner = livePublicationWorkflowRunner,
   verify: typeof verifyRequest = verifyRequest,
 ): Promise<Response> {
+  // One span per request with the error code and, for a 5xx, the caught
+  // error's cause chain, so a provider failure is diagnosable from Axiom.
+  return withApiRouteSpan(
+    request,
+    publicationRouteTemplate(request),
+    { "cmux.subsystem": "vm-cloud", "cmux.vm.operation": "publication" },
+    async (span) => {
+      const response = await authedPublicationRoute(request, handler, run, verify);
+      const code = response.headers.get(VM_ERROR_CODE_HEADER);
+      if (code) span.setAttribute("cmux.vm.error_code", code);
+      return response;
+    },
+  );
+}
+
+/**
+ * The route template for a publication or domain path: ids and names become
+ * `[id]` and `[name]`, so span names stay low-cardinality and carry no ids.
+ */
+export function publicationRouteTemplate(request: Request): string {
+  const path = new URL(request.url).pathname.replace(/\/+$/u, "");
+  return path
+    .replace(/^(\/api\/vm\/publications)\/[^/]+/u, "$1/[id]")
+    .replace(/^(\/api\/vm\/domains)\/[^/]+/u, "$1/[name]");
+}
+
+async function authedPublicationRoute(
+  request: Request,
+  handler: (context: AuthedPublicationRouteContext) => Promise<Response>,
+  run: PublicationWorkflowRunner,
+  verify: typeof verifyRequest,
+): Promise<Response> {
   let user: AuthedUser | null;
   try {
     user = await verify(request, {
@@ -87,6 +126,7 @@ export async function withAuthedPublicationApiRoute(
     });
   } catch (error) {
     console.error("Cloud VM publication request failed", error);
+    noteHandledRouteError(error);
     return publicationErrorResponse(error, request.headers.get("accept-language"));
   }
 }
@@ -156,7 +196,7 @@ export function publicationReference(
 export function publicationErrorResponse(error: unknown, language?: string | null): Response {
   if (error instanceof PublicationInputError) {
     const copy = inputErrorCopy(error, language);
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_invalid_request",
       message: copy.message,
       action: copy.action,
@@ -165,7 +205,7 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
     }, 400);
   }
   if (error instanceof PublicationNotFoundError) {
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_not_found",
       message: error.resource === "vm"
         ? "That Cloud VM was not found in your account or is not publishable."
@@ -178,7 +218,7 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
   }
   if (error instanceof PublicationConflictError) {
     const copy = conflictCopy(error.reason, language);
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_conflict",
       message: copy.message,
       action: copy.action,
@@ -186,7 +226,7 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
     }, copy.status);
   }
   if (error instanceof PublicationAccountDeletionBlockedError) {
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_account_deletion_in_progress",
       message: "Cloud VM domains cannot be changed while account deletion is in progress.",
       action: "Wait for account deletion to finish before changing publications.",
@@ -207,21 +247,35 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
       headers: {
         "content-type": "application/json",
         "retry-after": String(retryAfterSeconds),
+        [VM_ERROR_CODE_HEADER]: "vm_publication_provisioning_busy",
       },
     });
   }
   if (error instanceof PublicationConfigurationError) {
     // Operator configuration names stay in server logs; clients get product guidance.
     const copy = configurationCopy(error.reason);
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_not_configured",
       message: copy.message,
       action: copy.action,
       reason: error.reason,
     }, 503);
   }
+  if (error instanceof VmPublicationProviderError && hasTlsRuleLimitCause(error.cause)) {
+    // The cap is shared by every machine on the account: the user cannot free
+    // it and an immediate retry cannot succeed. The vm-alerts cron pages on
+    // the same condition from the provider's rule count.
+    reportTlsRuleLimit(error.operation);
+    const copy = publicationApiCopy("rule_capacity", language);
+    return publicationErrorJson({
+      error: "vm_publication_rule_capacity",
+      message: copy.message,
+      action: copy.action,
+      retryable: false,
+    }, 503);
+  }
   if (error instanceof VmPublicationProviderError) {
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_provider_unavailable",
       message: "The Cloud VM domain service could not complete this change.",
       action: "Run `cmux cloud domains list`; verify any provisioning entry, or retry if none exists. Contact support if it keeps failing.",
@@ -229,17 +283,55 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
     }, 502);
   }
   if (error instanceof PublicationInvariantError || error instanceof PublicationDatabaseError) {
-    return jsonResponse({
+    return publicationErrorJson({
       error: "vm_publication_internal_error",
       message: "CMUX could not finish the Cloud VM domain change safely.",
       action: "Retry once. If it keeps failing, contact support with the publication id.",
     }, 500);
   }
-  return jsonResponse({
+  return publicationErrorJson({
     error: "vm_publication_internal_error",
     message: "Cloud VM publication failed unexpectedly.",
     action: "Retry once. If it keeps failing, contact support.",
   }, 500);
+}
+
+const TLS_RULE_LIMIT_REPORT_INTERVAL_MS = 10 * 60 * 1_000;
+let lastTlsRuleLimitReportAt = Number.NEGATIVE_INFINITY;
+
+/**
+ * One operator error per instance per ten minutes: every refused publish at
+ * the cap hits this path, and the vm-alerts cron already pages on the count.
+ */
+/** Test seam: forget the last report so each test starts with an open gate. */
+export function resetTlsRuleLimitReportForTesting(): void {
+  lastTlsRuleLimitReportAt = Number.NEGATIVE_INFINITY;
+}
+
+export function reportTlsRuleLimit(operation: string, now: number = Date.now()): boolean {
+  if (now - lastTlsRuleLimitReportAt < TLS_RULE_LIMIT_REPORT_INTERVAL_MS) return false;
+  lastTlsRuleLimitReportAt = now;
+  reportError(
+    new Error("Cloud VM provider TLS rule limit reached"),
+    { subsystem: "cloud_vm_alerts", code: "provider_tls_rule_limit", operation, operatorFault: true },
+    { fingerprint: ["cmux-vm-provider-tls-rule-limit", "freestyle"] },
+  );
+  return true;
+}
+
+/** A publication error body, tagged with its code so the route span records it. */
+function publicationErrorJson(body: { readonly error: string } & Record<string, unknown>, status: number): Response {
+  return jsonResponse(body, status, { [VM_ERROR_CODE_HEADER]: body.error });
+}
+
+/** Whether a provider failure, or anything in its cause chain, is Freestyle's TLS rule cap. */
+function hasTlsRuleLimitCause(cause: unknown): boolean {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (isFreestyleTlsRuleLimit(current)) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
 }
 
 function inputErrorCopy(error: PublicationInputError, language?: string | null): {
@@ -352,6 +444,8 @@ function conflictCopy(reason: PublicationConflictError["reason"], language?: str
         action: "Choose another running Cloud VM for this domain.",
         status: 409,
       };
+    case "publication_failed":
+      return { ...publicationApiCopy("publication_failed", language), status: 409 };
     case "publication_not_active":
       return {
         message: "That publication is not ready for this change.",

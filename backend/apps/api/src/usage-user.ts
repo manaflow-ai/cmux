@@ -1,5 +1,6 @@
 import { COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
 import type { Meter } from "@cmux/protocol"
+import { lastSeenSeats, teamModeAt } from "./usage-billing-store.ts"
 
 /**
  * The per-user monthly AI spending counter (cx-ds09i, Lawrence 2026-10-12), kept by the team's
@@ -45,11 +46,13 @@ export const BILLABLE_GRACE_MS = 2 * 3600_000
 /**
  * The included-amount stop inside the reservation's transaction (S5 review P2: two calls cannot both
  * pass it): a team with a fresh billable mark passes; any other team's settled model spend plus open
- * reservations plus this call's maximum must stay within `includedMicros` this UTC month.
+ * reservations plus this call's maximum must stay within `includedMicros` this UTC month. A team the
+ * operator set per seat (in force at the month's start) gets the amount times its last billable seats.
  */
-const includedRefusal = (sql: SqlStorage, month: string, includedMicros: number, maxMicros: number, now: number): UserReserve | null => {
+const includedRefusal = (sql: SqlStorage, month: string, perTeamMicros: number, maxMicros: number, now: number): UserReserve | null => {
   const fresh = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_billable WHERE period_end * 1000 + ? > ? AND seen_at > ?`, BILLABLE_GRACE_MS, now, now - BILLABLE_GRACE_MS).one().n
   if (Number(fresh) > 0) return null
+  const includedMicros = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? perTeamMicros * lastSeenSeats(sql, now) : perTeamMicros
   const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
   const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
   return spent + open + maxMicros <= includedMicros ? null : { ok: false, included: true, spent_usd: Math.round(spent + open) / 1_000_000, limit_usd: includedMicros / 1_000_000 }

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609";
+inline constexpr std::string_view kProtocolIrSha256 = "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -283,6 +283,8 @@ struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
 struct ConversationImportResult;
+struct ConversationLinkResolveRequest;
+struct ConversationLinkResolveResult;
 struct ConversationListRequest;
 struct ConversationListResult;
 struct ConversationOpRequest;
@@ -1905,6 +1907,21 @@ struct ConversationImportResult {
     std::vector<std::uint64_t> imported{};
     std::uint64_t skipped{};
     friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
+};
+
+struct ConversationLinkResolveRequest {
+    std::string url{};
+    friend bool operator==(const ConversationLinkResolveRequest&, const ConversationLinkResolveRequest&) = default;
+};
+
+struct ConversationLinkResolveResult {
+    ConversationSummary conversation{};
+    std::optional<ConversationMessage> message{};
+    std::vector<std::string> path{};
+    std::optional<std::string> thread_root{};
+    std::optional<bool> truncated{};
+    std::string url{};
+    friend bool operator==(const ConversationLinkResolveResult&, const ConversationLinkResolveResult&) = default;
 };
 
 struct ConversationListRequest {
@@ -6936,6 +6953,18 @@ template <>
 struct Codec<ConversationImportResult> {
     static Result<Json> encode(const ConversationImportResult& value);
     static Result<ConversationImportResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLinkResolveRequest> {
+    static Result<Json> encode(const ConversationLinkResolveRequest& value);
+    static Result<ConversationLinkResolveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLinkResolveResult> {
+    static Result<Json> encode(const ConversationLinkResolveResult& value);
+    static Result<ConversationLinkResolveResult> decode(const Json& value);
 };
 
 template <>

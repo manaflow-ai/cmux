@@ -74,8 +74,13 @@ import Testing
         let fixture = RefreshTransportFixture()
         let session = await fixture.session()
         let store = MemoryTokenStore()
-        // iat is old (proactive refresh needed), exp is still far in the future.
-        let usable = "eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjEsImV4cCI6OTk5OTk5OTk5OX0.synthetic"
+        // Inside the refresh lead (proactive refresh needed) but not expired.
+        let now = Int(Date().timeIntervalSince1970)
+        let claims = Data("{\"iat\":\(now - 1000),\"exp\":\(now + 30)}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let usable = "eyJhbGciOiJIUzI1NiJ9.\(claims).synthetic"
         await store.setTokens(accessToken: usable, refreshToken: "session")
         let client = APIClient(baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic",
             tokenStore: store, session: session, refreshClock: adapted(clock), refreshTimeoutNanoseconds: 2_000_000_000)

@@ -30,14 +30,26 @@ export const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 
+/** The daemon state reservation is inside the existing guest disk, not a VM resize. */
+export const CMUX_TUI_STATE_IMAGE_PATH = "/var/lib/cmux/cmux-tui-state.ext4";
+export const CMUX_TUI_STATE_MOUNT_HELPER_PATH = "/usr/local/bin/cmux-tui-state-mount";
+export const CMUX_TUI_STATE_RESERVATION_MARKER_PATH = "/etc/cmux/cmux-tui-state-reservation";
+export const CMUX_TUI_STATE_RESERVATION_BYTES = 1024 * 1024 * 1024;
+/** The reserved filesystem may grow inside the existing VM disk as journals grow. */
+export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+
 /** Files the Dockerfile COPYs plus the Dockerfile itself; all must exist. */
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "agent-auth.sh",
+  "cmux-claude",
+  "cmux-codex",
   "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
   "cmux-python-completion.bash",
@@ -879,7 +891,7 @@ export function devboxParkDaemonCommand(): string {
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
-    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",
@@ -949,6 +961,8 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** A test image (services/vms/images/resolver.ts): never a default, requestable only by allowlisted users. */
+  restricted?: boolean;
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
@@ -1257,7 +1271,15 @@ export function promoteImageManifestEntry(
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
+  const restrictedById = new Map<string, boolean>();
   for (const entry of manifest.images) {
+    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
+    const twinKey = `${entry.provider}/${entry.imageId}`;
+    const restricted = entry.restricted === true;
+    if (restrictedById.has(twinKey) && restrictedById.get(twinKey) !== restricted) {
+      problems.push(`${entry.imageId}: every entry for one image must agree on restricted`);
+    }
+    restrictedById.set(twinKey, restricted);
     for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
       if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
     }

@@ -146,7 +146,8 @@ LogLevel ERROR
                         response = {"id": request["id"], "ok": True, "result": result}
                     elif request["method"] == "vm.file_transfer_failure":
                         params = request["params"]
-                        assert set(params).issubset({"phase", "failure", "error_number"}), params
+                        # The app strips the CLI's remaining-wait metadata before the strict handler.
+                        assert set(params).issubset({"phase", "failure", "error_number", "cloud_client_timeout_ms"}), params
                         response = {"id": request["id"], "ok": True, "result": {"reference": "operation=test trace=00000000000000000000000000000001"}}
                     else:
                         response = {"id": request["id"], "ok": False, "error": {"code": "unexpected", "message": request["method"]}}

@@ -15,6 +15,7 @@ on:
     workflows:
       - CLA policy guard
       - CLA Assistant
+      - CI
       - CI fast guards
     types: [completed]
 
@@ -27,6 +28,7 @@ env:
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/cla-policy-guard.yml
     .github/workflows/cla.yml
+    .github/workflows/ci.yml
     .github/workflows/ci-fast-guards.yml
 
 concurrency:

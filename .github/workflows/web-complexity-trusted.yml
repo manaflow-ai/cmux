@@ -7,6 +7,17 @@ on:
     branches:
       - main
     types: [opened, edited, reopened, synchronize, ready_for_review]
+    # Not a required check on main, so a pull request that touches no web/
+    # source or complexity policy starts no run at all (2026-10-06: 648 jobs
+    # in one day, most for pull requests with no web change). GitHub matches
+    # the pull request's own diff, so main's later web commits do not queue
+    # a stale branch. Keep this list equal to the policy paths below.
+    paths:
+      - web/**
+      - .github/workflows/web-complexity.yml
+      - .github/workflows/web-complexity-trusted.yml
+      - scripts/ci/scope-web-complexity.py
+      - scripts/ci/web_complexity_scope.py
   # The merge queue's commit is checked the same way, as data, against the
   # policy on the branch it is about to join.
   merge_group:
@@ -111,22 +122,44 @@ jobs:
         id: scope
         if: github.event_name != 'push' && steps.api_scope.outputs.scan != 'false'
         env:
-          UPSTREAM_REPOSITORY: ${{ github.repository }}
+          UPSTREAM_URL: ${{ github.server_url }}/${{ github.repository }}.git
         run: |
           set -euo pipefail
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
 
-          if ! git -C candidate cat-file -e "${TRUSTED_SHA}^{commit}" 2>/dev/null; then
-            git -C candidate -c protocol.version=2 fetch --no-tags --depth=1               "https://github.com/${UPSTREAM_REPOSITORY}.git" "$TRUSTED_SHA"
+          # Judge the pull request by its own changes: diff its head against
+          # its merge base with the trusted base (what lands), never against
+          # the base tip. A two-dot diff of a stale branch counts every later
+          # main commit as the pull request's: on 2026-10-06 357 runs took the
+          # full scan of a stale head and failed on code main had already
+          # fixed. The commit graph alone (no trees or blobs) finds the merge
+          # base; any failure keeps the stricter base tip.
+          diff_base="$TRUSTED_SHA"
+          history="$RUNNER_TEMP/web-complexity-history.git"
+          rm -rf "$history"
+          if git init -q --bare "$history" &&
+            git -C "$history" -c protocol.version=2 fetch -q --no-tags --filter=tree:0 \
+              "$UPSTREAM_URL" "$TRUSTED_SHA" "$CANDIDATE_SHA" &&
+            merge_base="$(git -C "$history" merge-base "$TRUSTED_SHA" "$CANDIDATE_SHA")" &&
+            [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]]; then
+            diff_base="$merge_base"
+          else
+            echo "::warning::no merge base of $CANDIDATE_SHA and $TRUSTED_SHA; diffing against the base tip"
+          fi
+          echo "Diff base: $diff_base (trusted base $TRUSTED_SHA)"
+          echo "diff_base=$diff_base" >> "$GITHUB_OUTPUT"
+
+          if ! git -C candidate cat-file -e "${diff_base}^{commit}" 2>/dev/null; then
+            git -C candidate -c protocol.version=2 fetch --no-tags --depth=1 "$UPSTREAM_URL" "$diff_base"
           fi
 
-          python3 - <<'PY'
+          DIFF_BASE="$diff_base" python3 - <<'PY'
           import os
           import subprocess
 
           root = os.environ["GITHUB_WORKSPACE"] + "/candidate"
-          base = os.environ["TRUSTED_SHA"]
+          base = os.environ["DIFF_BASE"]
           head = os.environ["CANDIDATE_SHA"]
           changed = subprocess.check_output(
               ["git", "-C", root, "diff", "--no-renames", "--name-only", "-z", base, head, "--"]
@@ -187,13 +220,17 @@ jobs:
       - name: Determine pull-request complexity scope
         if: github.event_name == 'pull_request_target' && steps.api_scope.outputs.scan != 'false' && steps.scope.outputs.run == 'true'
         id: selected_scope
+        env:
+          # The merge base the step above found (the base tip when it found none).
+          DIFF_BASE: ${{ steps.scope.outputs.diff_base }}
         run: |
           set -euo pipefail
           [[ "$(git -C candidate rev-parse HEAD)" == "$CANDIDATE_SHA" ]]
-          git -C candidate fetch --no-tags --depth=1 "$GITHUB_WORKSPACE/trusted" "$TRUSTED_SHA"
+          [[ "$DIFF_BASE" =~ ^[0-9a-f]{40}$ ]]
+          git -C candidate cat-file -e "${DIFF_BASE}^{commit}"
           python3 -I -S trusted/scripts/ci/scope-web-complexity.py \
             --repo-root candidate \
-            --base "$TRUSTED_SHA" \
+            --base "$DIFF_BASE" \
             --head "$CANDIDATE_SHA" \
             --base-baseline trusted/web/oxlint-complexity-baseline.txt \
             --selected-output "$RUNNER_TEMP/web-complexity-selected.zlist" \

@@ -7,12 +7,13 @@ export function drainCloudDiagnostics() {
   return Effect.runPromise(Effect.gen(function* () {
     const configuration = cloudAxiomConfiguration();
     if (!configuration) return { configured: false, delivered: 0 };
-    const { leaseId, rows } = yield* Effect.tryPromise(() => claimCloudDiagnostics());
+    const lease = yield* Effect.tryPromise(() => claimCloudDiagnostics());
+    const { rows } = lease;
     if (!rows.length) return { configured: true, delivered: 0 };
     const exported = yield* Effect.tryPromise(() => exportCloudDiagnostics(rows, configuration)).pipe(
       Effect.match({ onFailure: () => false, onSuccess: () => true }),
     );
-    yield* Effect.tryPromise(() => finishCloudDiagnostics(leaseId, exported));
+    yield* Effect.tryPromise(() => finishCloudDiagnostics(lease, exported));
     if (!exported) console.error("cmux.cloud.diagnostics.export_failed", { count: rows.length });
     return { configured: true, delivered: exported ? rows.length : 0 };
   }));

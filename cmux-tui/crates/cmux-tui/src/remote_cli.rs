@@ -63,6 +63,7 @@ const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
+const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     crate::cli::is_remote_invocation(args)
@@ -1007,6 +1008,7 @@ fn reachable_unix_route(_: &Url) -> bool {
 
 fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_connect_flags(args)?;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let workspace_root = flags
         .forward_workspace
         .clone()
@@ -1043,6 +1045,14 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
+        let parent_exit = async {
+            if let Some(owner) = owner {
+                wait_for_parent_exit(owner).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(parent_exit);
         let mut wait_error = None;
         if !crate::shutdown_requested() && !*finished.borrow() {
             tokio::select! {
@@ -1053,10 +1063,15 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
                     }
                 }
                 _ = finished.changed() => {}
+                _ = &mut parent_exit => {}
             }
         }
         forward.shutdown().await;
-        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        let _ = tokio::time::timeout(
+            FORWARD_CLEANUP_TIMEOUT,
+            client.request(WorkspaceRequest::CloseRoute { route }),
+        )
+        .await;
         if let Some(error) = wait_error {
             return Err(error.into());
         }
@@ -1957,10 +1972,16 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// `remote-link-mux-socket` and `remote-link-strict-flags`: see
 /// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
 /// that needs one refuses a remote without it (cx-z3zh).
+/// `cloud-browser-network`: Cloud browser proxy routes preserve the guest
+/// machine's network and loopback context.
+/// `ssh-payload-download` and `ssh-payload-macos-from-client`: see
+/// `cmux_remote::SSH_PAYLOAD_DOWNLOAD_CAPABILITY` and
+/// `cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY`.
 pub const PROBE_CAPABILITIES: &[&str] = &[
     "direct-ws-user-agent",
     "wireguard-hub",
     "browser-proxy",
+    "cloud-browser-network",
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
     cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
     cmux_remote::SSH_PAYLOAD_DOWNLOAD_CAPABILITY,

@@ -5,20 +5,20 @@ import os
 
 /// The owner of Home's conversations: the cmux-tui daemon session of the
 /// Chief home (`ChiefHome.session`, state in `ChiefHome.daemonStateDirectory`),
-/// shared by every build of one account (plans/cmux-next/home-state-ownership.md).
+/// this build's own (one Chief per build; plans/cmux-next/home-state-ownership.md).
 /// It is the single writer of the Chief conversation; the OptChat log is
 /// written only by the one brain host of the same home, which catches up
 /// from this owner after any stop, so the visible chat and the Chief's memory
-/// stay one history whatever build opens Home.
+/// stay one history across launches of this build.
 ///
 /// A build's own daemon (its tag's session) still owns its workspaces,
 /// terminals and the Home workspace's tabs; a conversation tab there points
 /// at a conversation of this owner by id.
 ///
-/// The owner process is detached and outlives every app; any build that
-/// opens Home ensures it and attaches. It is never handed off to the
-/// connecting build's binary: two builds open at once would restart it in
-/// turn. Only `local-conversations-v1` is required of it.
+/// The owner process is detached and outlives the app; the next launch
+/// ensures it and attaches. It is never handed off to the connecting
+/// binary (an older build that still shares NIGHTLY's home would restart it
+/// in turn). Only `local-conversations-v1` is required of it.
 @Observable @MainActor
 public final class ChiefConversationOwner {
     public let home: ChiefHome

@@ -188,6 +188,31 @@ export function SecondaryLink({
   );
 }
 
+/**
+ * Undoes a scheduled cancellation of the signed-in account's own
+ * subscription through the same route the dashboard uses.
+ */
+export function ResumePlanButton({
+  children,
+  size = "default",
+}: {
+  children: ReactNode;
+  size?: PricingActionSize;
+}) {
+  return (
+    <form method="post" action="/api/billing/subscription">
+      <input type="hidden" name="action" value="resume" />
+      <button
+        type="submit"
+        className={pricingActionClassName("primary", size)}
+        style={{ color: "var(--button-foreground, var(--background))" }}
+      >
+        {children}
+      </button>
+    </form>
+  );
+}
+
 export function DisabledButton({
   children,
   size = "default",
@@ -313,7 +338,7 @@ export function pricingActionClassName(
   const sizeClass =
     size === "compact"
       ? "px-3 py-1.5 text-xs"
-      : "min-h-12 px-5 py-3 text-[15px]";
+      : "h-12 px-5 text-[15px]";
   if (variant === "primary") {
     return `${base} ${sizeClass} bg-foreground transition-opacity hover:opacity-85`;
   }

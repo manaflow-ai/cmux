@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { applyHexclaveWebhookEvent, type HexclaveSyncDependencies } from "../services/auth/hexclave/sync";
 import { hexclaveWebhookEventTypes } from "../services/auth/hexclave/webhookEvents";
-import { handleStackWebhook, type StackWebhookDependencies } from "../services/auth/stackWebhook";
+import { HexclaveApiError } from "../services/auth/hexclave/serverApi";
+import { drainHexclaveInbox } from "../services/auth/hexclave/inbox";
+import { handleStackWebhook, type StackWebhookDependencies, type StackWebhookLog } from "../services/auth/stackWebhook";
 import {
   OTHER_TEAM_ID,
   OTHER_USER_ID,
@@ -14,7 +16,7 @@ import {
   USER_ID,
   validWebhookData,
 } from "./helpers/hexclave-fixtures";
-import { FakeHexclave, MemoryMirror } from "./helpers/hexclave-memory";
+import { FakeHexclave, MemoryInbox, MemoryMirror } from "./helpers/hexclave-memory";
 
 const KEY = Buffer.from("hexclave-webhook-test-key-0123456789");
 const SECRET = `whsec_${KEY.toString("base64")}`;
@@ -23,8 +25,10 @@ const NOW = 1_800_000_000;
 function harness(options: { sync?: Partial<HexclaveSyncDependencies>; deps?: Partial<StackWebhookDependencies> } = {}) {
   const hexclave = new FakeHexclave();
   const mirror = new MemoryMirror();
+  const inbox = new MemoryInbox();
   const calls: string[] = [];
   const logs: { level: string; message: string; fields: Record<string, unknown> }[] = [];
+  let clockMs = NOW * 1_000;
   const sync: HexclaveSyncDependencies = {
     source: hexclave,
     store: mirror,
@@ -33,24 +37,38 @@ function harness(options: { sync?: Partial<HexclaveSyncDependencies>; deps?: Par
     invalidateUser: async (userId) => { calls.push(`invalidate:${userId}`); },
     ...options.sync,
   };
+  const log: StackWebhookLog = (level, message, fields) => { logs.push({ level, message, fields }); };
+  const drain = () => drainHexclaveInbox({ inbox, sync, entityLimit: 10, now: () => new Date(clockMs), log });
+  let kicked: Promise<unknown> | null = null;
   const dependencies: StackWebhookDependencies = {
     webhookSecret: () => SECRET,
     nowSeconds: () => NOW,
     sync: () => sync,
-    log: (level, message, fields) => { logs.push({ level, message, fields }); },
+    inbox: () => inbox,
+    // The route runs this after the response; here it runs before `post` returns.
+    scheduleDrain: () => { kicked = drain(); },
+    log,
     ...options.deps,
   };
   let counter = 0;
-  const post = (type: string, data: unknown, svixId = `msg_${++counter}`) => {
+  const post = async (type: string, data: unknown, svixId = `msg_${++counter}`) => {
     const body = JSON.stringify({ type, data });
     const signature = createHmac("sha256", KEY).update(`${svixId}.${NOW}.${body}`).digest("base64");
-    return handleStackWebhook(new Request("https://cmux.test/api/webhooks/stack", {
+    const response = await handleStackWebhook(new Request("https://cmux.test/api/webhooks/stack", {
       method: "POST",
       headers: { "content-type": "application/json", "svix-id": svixId, "svix-timestamp": String(NOW), "svix-signature": `v1,${signature}` },
       body,
     }), dependencies);
+    if (kicked) await kicked;
+    kicked = null;
+    return response;
   };
-  return { hexclave, mirror, calls, logs, post, sync };
+  /** Let every backoff elapse, then drain again (the cron's next run). */
+  const retry = async () => {
+    clockMs += 2 * 60 * 60 * 1_000;
+    return drain();
+  };
+  return { hexclave, mirror, inbox, calls, logs, post, retry, sync };
 }
 
 /** Hexclave state: USER_ID in TEAM_ID with one team and one project permission. */
@@ -115,22 +133,46 @@ describe("Hexclave webhook boundary", () => {
     expect(calls.length).toBe(sideEffects);
   });
 
-  test("a failed Hexclave read answers 500, records the failure, and the retry succeeds", async () => {
-    const { hexclave, mirror, post } = harness();
+  test("a failed apply keeps the event in the inbox and a later drain applies it", async () => {
+    const { hexclave, mirror, inbox, logs, post, retry } = harness();
     seed(hexclave);
     hexclave.failNext = new Error("hexclave 502");
-    expect((await post("user.created", serverUser(), "msg_retry")).status).toBe(500);
-    expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "failed", processed: false });
-    expect(mirror.users.has(USER_ID)).toBe(false);
     expect((await post("user.created", serverUser(), "msg_retry")).status).toBe(200);
+    expect(mirror.users.has(USER_ID)).toBe(false);
+    expect(inbox.rows.get("msg_retry")).toMatchObject({ attempts: 1 });
+    expect(logs.some((entry) => entry.message === "stack_webhook_inbox_apply_failed")).toBe(true);
+    await retry();
     expect(mirror.users.get(USER_ID)?.id).toBe(USER_ID);
-    expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "processed", processed: true, attempts: 2 });
+    expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "processed", processed: true });
+    expect(inbox.rows.size).toBe(0);
   });
 
-  test("a failed revocation answers 500 and the retry revokes again", async () => {
+  test("a Hexclave throttle, 5xx or timeout is answered 200, holds every drain, and is retried", async () => {
+    const { hexclave, mirror, inbox, logs, post, retry } = harness();
+    seed(hexclave);
+    for (const [svixId, failure] of [
+      ["msg_429", new HexclaveApiError("Hexclave GET teams failed", { status: 429, retryAfterSeconds: 5 })],
+      ["msg_502", new HexclaveApiError("Hexclave GET users failed", { status: 502 })],
+      ["msg_timeout", new DOMException("The operation timed out.", "TimeoutError")],
+    ] as const) {
+      hexclave.failNext = failure;
+      expect((await post("user.updated", serverUser(), svixId)).status).toBe(200);
+      expect(inbox.rows.has(svixId)).toBe(true);
+      // The global backoff from the first failure keeps the later drains off Hexclave.
+      await retry();
+    }
+    expect(logs.filter((entry) => entry.message === "stack_webhook_inbox_provider_unavailable").length).toBeGreaterThan(0);
+    await retry();
+    expect(inbox.rows.size).toBe(0);
+    for (const svixId of ["msg_429", "msg_502", "msg_timeout"]) {
+      expect(mirror.events.get(svixId)).toMatchObject({ processed: true });
+    }
+  });
+
+  test("a failed revocation is retried by the drain and revokes again", async () => {
     let fail = true;
     const revoked: string[] = [];
-    const { hexclave, post } = harness({
+    const { hexclave, inbox, post, retry } = harness({
       sync: {
         revokeTeamMemberAccess: async ({ teamId, userId }) => {
           if (fail) { fail = false; throw new Error("provider down"); }
@@ -140,15 +182,17 @@ describe("Hexclave webhook boundary", () => {
     });
     seed(hexclave);
     hexclave.removeMember(TEAM_ID, USER_ID);
-    expect((await post("team_membership.deleted", { team_id: TEAM_ID, user_id: USER_ID }, "msg_rev")).status).toBe(500);
     expect((await post("team_membership.deleted", { team_id: TEAM_ID, user_id: USER_ID }, "msg_rev")).status).toBe(200);
+    expect(inbox.rows.has("msg_rev")).toBe(true);
+    await retry();
     expect(revoked).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    expect(inbox.rows.size).toBe(0);
   });
 
   test("a revoke that only the mirror knew about survives a failed attempt and runs on the retry", async () => {
     let fail = true;
     const revoked: string[] = [];
-    const { hexclave, mirror, post } = harness({
+    const { hexclave, mirror, post, retry } = harness({
       sync: {
         revokeTeamMemberAccess: async ({ teamId, userId }) => {
           if (fail) { fail = false; throw new Error("provider down"); }
@@ -160,17 +204,17 @@ describe("Hexclave webhook boundary", () => {
     expect((await post("user.created", serverUser())).status).toBe(200);
     // The removal's own webhook is lost; a user.updated (no team in its payload) finds it.
     hexclave.removeMember(TEAM_ID, USER_ID);
-    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(500);
+    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(200);
     expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
     expect([...mirror.pendingRevocations]).toEqual([`${TEAM_ID}:${USER_ID}`]);
-    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(200);
+    await retry();
     expect(revoked).toEqual([`${TEAM_ID}:${USER_ID}`]);
     expect(mirror.pendingRevocations.size).toBe(0);
   });
 
   test("a pending revoke is dropped, not run, when the member was added back", async () => {
     let fail = true;
-    const { hexclave, mirror, calls, post } = harness({
+    const { hexclave, mirror, inbox, calls, post } = harness({
       sync: {
         revokeTeamMemberAccess: async ({ teamId, userId }) => {
           if (fail) { fail = false; throw new Error("provider down"); }
@@ -181,18 +225,21 @@ describe("Hexclave webhook boundary", () => {
     seed(hexclave);
     await post("user.created", serverUser());
     hexclave.removeMember(TEAM_ID, USER_ID);
-    expect((await post("user.updated", serverUser())).status).toBe(500);
+    await post("user.updated", serverUser(), "msg_failed");
     hexclave.addMember(TEAM_ID, USER_ID);
     calls.length = 0;
+    // Drop the failed delivery's retry; the membership event alone must settle it.
+    await inbox.complete(["msg_failed"]);
     expect((await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID })).status).toBe(200);
     expect(calls).toEqual([`invalidate:${USER_ID}`]);
     expect(mirror.pendingRevocations.size).toBe(0);
   });
 
-  test("a failed snapshot invalidation answers 500", async () => {
-    const { hexclave, post } = harness({ sync: { invalidateUser: async () => { throw new Error("db down"); } } });
+  test("a failed snapshot invalidation keeps the event for a retry", async () => {
+    const { hexclave, inbox, post } = harness({ sync: { invalidateUser: async () => { throw new Error("db down"); } } });
     seed(hexclave);
-    expect((await post("team_permission.created", teamPermission())).status).toBe(500);
+    expect((await post("team_permission.created", teamPermission(), "msg_inv")).status).toBe(200);
+    expect(inbox.rows.get("msg_inv")).toMatchObject({ attempts: 1 });
   });
 });
 

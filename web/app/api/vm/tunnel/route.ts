@@ -44,6 +44,10 @@ import {
 /** Provider display names are short; a long one is the caller's mistake, not a reason to fail. */
 const MAX_DEVICE_NAME_LENGTH = 63;
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -100,7 +104,7 @@ export async function POST(request: Request): Promise<Response> {
         sessionIssuedAt: login.issuedAt,
         clientPublicKey,
         ...membership,
-      }), { request });
+      }), { request, deadline: { operation: "tunnelEnroll" } });
       if (!enrolled.ok) return enrolled.response;
       const tunnel = enrolled.value;
       setSpanAttributes(span, {
@@ -199,7 +203,7 @@ export async function DELETE(request: Request): Promise<Response> {
           provider: provider.id,
           deviceFingerprint,
           tunnelPurpose,
-        }), { request });
+        }), { request, deadline: { operation: "tunnelRevoke" } });
         if (!result.ok) return result.response;
         return jsonResponse(result.value);
       }
@@ -223,7 +227,7 @@ export async function DELETE(request: Request): Promise<Response> {
         userId: user.id,
         accessGrantId: accessGrantId ?? undefined,
         deviceId,
-      }), { request });
+      }), { request, deadline: { operation: "tunnelRevoke" } });
       if (!result.ok) return result.response;
       return jsonResponse(result.value);
     },

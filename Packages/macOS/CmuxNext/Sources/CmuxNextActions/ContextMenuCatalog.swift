@@ -60,7 +60,8 @@ public nonisolated struct ContextMenuCatalog: Sendable {
             case .action(let id): [id]
             case .separator: []
             case .submenu(let id, let children): [id] + referencedIDs(children)
-            case .choices(let id): [id]
+            // A choices row's trailer is in its submenu (Move to Group > New Group).
+            case .choices(let id): [id] + (ContextMenuEssentials.choiceTrailers[id].map { [$0] } ?? [])
             case .folder(_, let children): referencedIDs(children)
             }
         }

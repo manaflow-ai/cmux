@@ -20,7 +20,7 @@ export const POST = makeCloudTelemetryHandler({
     if (result.error) throw new Error("diagnostics_rate_limit_unavailable");
     return true;
   },
-  accept: acceptCloudTelemetry,
+  accept: (userId, batch, sampleWeights) => acceptCloudTelemetry(userId, batch, { sampleWeights }),
   scheduleDrain: () => after(async () => { await drainCloudDiagnostics(); }),
   now: Date.now,
 });

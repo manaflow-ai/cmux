@@ -152,7 +152,9 @@ Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https
 
 | Prečica | Akcija |
 |----------|--------|
-| ⌘ N | Novi radni prostor |
+| ⌘ N | Novi lokalni radni prostor |
+| ⌘ Y | Novi Cloud workspace na posljednjem dostupnom Cloud kontekstu; otvara New Cloud Machine kada ga nema |
+| ⌘ ⇧ Y | Nova Cloud mašina |
 | ⌘ 1–8 | Skoči na radni prostor 1–8 |
 | ⌘ 9 | Skoči na posljednji radni prostor |
 | ⌃ ⌘ ] | Sljedeći radni prostor |

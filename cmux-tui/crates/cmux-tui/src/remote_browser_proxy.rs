@@ -24,6 +24,7 @@ pub(super) struct BrowserProxyArgs {
     pub(super) allowed_hosts: Vec<String>,
     pub(super) workspace_root: String,
     pub(super) allow_loopback: bool,
+    pub(super) allow_remote_network: bool,
     owner: u32,
 }
 
@@ -31,6 +32,7 @@ pub(super) struct BrowserProxyArgs {
 struct BrowserProxyPolicy {
     allowed_hosts: Vec<String>,
     allow_loopback: bool,
+    allow_remote_network: bool,
 }
 
 pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<BrowserProxyArgs> {
@@ -38,6 +40,7 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
     let mut allowed_hosts = Vec::new();
     let mut workspace_root = None;
     let mut allow_loopback = false;
+    let mut allow_remote_network = false;
     let mut index = 0;
     while index < args.len() {
         let argument = &args[index];
@@ -53,6 +56,13 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
                     return Err(anyhow!("duplicate flag --allow-loopback"));
                 }
                 allow_loopback = true;
+                index += 1;
+            }
+            "--allow-remote-network" => {
+                if allow_remote_network {
+                    return Err(anyhow!("duplicate flag --allow-remote-network"));
+                }
+                allow_remote_network = true;
                 index += 1;
             }
             "--workspace-root" => {
@@ -114,6 +124,7 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
         allowed_hosts,
         workspace_root,
         allow_loopback,
+        allow_remote_network,
         owner: super::current_parent_process_id(),
     })
 }
@@ -170,6 +181,7 @@ pub(super) async fn serve_browser_proxy(
     let policy = Arc::new(BrowserProxyPolicy {
         allowed_hosts: parsed.allowed_hosts,
         allow_loopback: parsed.allow_loopback,
+        allow_remote_network: parsed.allow_remote_network,
     });
     let mut finished = runtime.subscribe_finished();
     let parent = parsed.owner;
@@ -293,7 +305,11 @@ async fn serve_connect_connection(
         socket.write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
-    let (host, port) = parse_connect_authority_with_loopback(target, policy.allow_loopback)?;
+    let (host, port) = parse_connect_authority_with_options(
+        target,
+        policy.allow_loopback,
+        policy.allow_remote_network,
+    )?;
     let initial_payload = request[header_end..].to_vec();
     let auth = lines.find_map(|line| {
         line.split_once(':')
@@ -318,7 +334,8 @@ async fn serve_connect_connection(
         )
         .await;
     }
-    if !policy.allowed_hosts.iter().any(|allowed| allowed == &host) {
+    if !policy.allow_remote_network && !policy.allowed_hosts.iter().any(|allowed| allowed == &host)
+    {
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
@@ -326,13 +343,16 @@ async fn serve_connect_connection(
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
+    let route_policy =
+        route_policy_for_host(&host, &policy.allowed_hosts, policy.allow_remote_network);
+    let route_host = route_host_for_policy(&host, route_policy);
     let route = match tokio::time::timeout_at(
         handshake_deadline,
         client.request(WorkspaceRequest::CreateRoute {
             workspace,
-            host: loopback_route_host(&host),
+            host: route_host,
             port,
-            policy: RoutePolicy::LoopbackOnly,
+            policy: route_policy,
         }),
     )
     .await
@@ -458,8 +478,16 @@ async fn serve_websocket_bridge(
     let encoded =
         target.strip_prefix(prefix).ok_or_else(|| anyhow!("invalid WebSocket bridge path"))?;
     let (authority, path) = encoded.split_once('/').unwrap_or((encoded, ""));
-    let (host, port) = parse_connect_authority_with_loopback(authority, policy.allow_loopback)?;
-    if !policy.allowed_hosts.iter().any(|allowed| allowed == &host) || port == 0 || port == 1337 {
+    let (host, port) = parse_connect_authority_with_options(
+        authority,
+        policy.allow_loopback,
+        policy.allow_remote_network,
+    )?;
+    if (!policy.allow_remote_network
+        && !policy.allowed_hosts.iter().any(|allowed| allowed == &host))
+        || port == 0
+        || port == 1337
+    {
         return Err(anyhow!("WebSocket bridge target is not allowed"));
     }
     let protocol_header = lines
@@ -478,13 +506,16 @@ async fn serve_websocket_bridge(
         return Err(anyhow!("WebSocket bridge authentication failed"));
     }
 
+    let route_policy =
+        route_policy_for_host(&host, &policy.allowed_hosts, policy.allow_remote_network);
+    let route_host = route_host_for_policy(&host, route_policy);
     let route = match tokio::time::timeout_at(
         deadline,
         client.request(WorkspaceRequest::CreateRoute {
             workspace: workspace.clone(),
-            host: loopback_route_host(&host),
+            host: route_host,
             port,
-            policy: RoutePolicy::LoopbackOnly,
+            policy: route_policy,
         }),
     )
     .await
@@ -645,9 +676,18 @@ fn application_protocols(header: &str, authentication: &str) -> String {
         .join(", ")
 }
 
+#[cfg(test)]
 pub(super) fn parse_connect_authority_with_loopback(
     authority: &str,
     allow_loopback: bool,
+) -> anyhow::Result<(String, u16)> {
+    parse_connect_authority_with_options(authority, allow_loopback, false)
+}
+
+pub(super) fn parse_connect_authority_with_options(
+    authority: &str,
+    allow_loopback: bool,
+    allow_remote_network: bool,
 ) -> anyhow::Result<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
@@ -658,9 +698,74 @@ pub(super) fn parse_connect_authority_with_loopback(
     } else {
         authority.rsplit_once(':').ok_or_else(|| anyhow!("CONNECT port is required"))?
     };
-    let host = normalize_proxy_host(host, allow_loopback)?;
+    let host = if allow_remote_network {
+        normalize_remote_host(host, allow_loopback)?
+    } else {
+        normalize_proxy_host(host, allow_loopback)?
+    };
     let port = port.parse::<u16>().map_err(|_| anyhow!("invalid CONNECT port"))?;
     Ok((host, port))
+}
+
+fn normalize_remote_host(value: &str, allow_loopback: bool) -> anyhow::Result<String> {
+    let value = value.trim().trim_end_matches('.');
+    if value.eq_ignore_ascii_case("localhost") {
+        if allow_loopback {
+            return Ok("127.0.0.1".into());
+        }
+        return Err(anyhow!("loopback host is not allowed"));
+    }
+    if value.eq_ignore_ascii_case("cmux-loopback.localtest.me") {
+        if allow_loopback {
+            return Ok("127.0.0.1".into());
+        }
+        return Err(anyhow!("loopback host is not allowed"));
+    }
+    if let Ok(ip) = value.parse::<std::net::IpAddr>() {
+        if ip.is_loopback() && !allow_loopback {
+            return Err(anyhow!("loopback host is not allowed"));
+        }
+        if ip.is_unspecified() || ip.is_multicast() {
+            return Err(anyhow!("host is not routable"));
+        }
+        return Ok(ip.to_string());
+    }
+    if value.is_empty()
+        || value.len() > 253
+        || value.split('.').any(|label| {
+            label.is_empty()
+                || label.len() > 63
+                || !label.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                || label.starts_with('-')
+                || label.ends_with('-')
+        })
+    {
+        return Err(anyhow!("invalid remote host"));
+    }
+    Ok(value.to_ascii_lowercase())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+fn route_policy_for_host(
+    host: &str,
+    allowed_hosts: &[String],
+    allow_remote_network: bool,
+) -> RoutePolicy {
+    if allow_remote_network
+        && !is_loopback_host(host)
+        && !allowed_hosts.iter().any(|allowed| allowed == host)
+    {
+        RoutePolicy::Any
+    } else {
+        RoutePolicy::LoopbackOnly
+    }
+}
+
+fn route_host_for_policy(host: &str, policy: RoutePolicy) -> String {
+    if policy == RoutePolicy::LoopbackOnly { loopback_route_host(host) } else { host.to_owned() }
 }
 
 /// Cloud advertises a private address as the browser identity, while the
@@ -957,7 +1062,7 @@ mod tests {
                             let auth = base64::engine::general_purpose::STANDARD.encode("fixture:password");
                             format!("CONNECT {authority} HTTP/1.1\r\nProxy-Authorization: Basic {auth}\r\n\r\n")
                         };
-                        let policy = BrowserProxyPolicy { allowed_hosts: vec![host.into()], allow_loopback };
+                        let policy = BrowserProxyPolicy { allowed_hosts: vec![host.into()], allow_loopback, allow_remote_network: false };
                         let ((), (response, ok)) = tokio::join!(target, fixture.request(policy, request));
                         assert!(ok, "proxy rejected {authority}");
                         let expected = if websocket { "HTTP/1.1 101" } else { "HTTP/1.1 200" };
@@ -983,7 +1088,7 @@ mod tests {
                     ("10.42.0.8:3000", auth.as_str(), "403"),
                     ("10.42.0.7:1337", auth.as_str(), "403"),
                 ] {
-                    let policy = BrowserProxyPolicy { allowed_hosts: vec!["10.42.0.7".into()], allow_loopback: false };
+                    let policy = BrowserProxyPolicy { allowed_hosts: vec!["10.42.0.7".into()], allow_loopback: false, allow_remote_network: false };
                     let request = format!("CONNECT {authority} HTTP/1.1\r\nProxy-Authorization: Basic {credentials}\r\n\r\n");
                     let (response, ok) = fixture.request(policy, request).await;
                     assert!(ok);
@@ -994,7 +1099,7 @@ mod tests {
                     ("10.42.0.8:3000", "fixture-token"),
                     ("10.42.0.7:1337", "fixture-token"),
                 ] {
-                    let policy = BrowserProxyPolicy { allowed_hosts: vec!["10.42.0.7".into()], allow_loopback: false };
+                    let policy = BrowserProxyPolicy { allowed_hosts: vec!["10.42.0.7".into()], allow_loopback: false, allow_remote_network: false };
                     let request = format!("GET /__cmux_ws__/{authority}/socket HTTP/1.1\r\nSec-WebSocket-Protocol: cmux-proxy-{token}\r\n\r\n");
                     let (response, ok) = fixture.request(policy, request).await;
                     assert!(!ok);

@@ -11,6 +11,10 @@ public struct TabLayoutItem: Equatable, Sendable {
     /// Member of a collapsed group: laid out at zero width, behind its chip.
     public var isCollapsed: Bool
     public var isGroupChip: Bool
+    /// The tab's content width (icon, title and the close button's room),
+    /// for `.chrome` strips that fit tabs to their titles. Nil keeps the
+    /// even max-width split.
+    public var naturalWidth: CGFloat?
 
     public init(
         id: TabID,
@@ -19,7 +23,8 @@ public struct TabLayoutItem: Equatable, Sendable {
         groupID: TabGroupID? = nil,
         fixedWidth: CGFloat? = nil,
         isCollapsed: Bool = false,
-        isGroupChip: Bool = false
+        isGroupChip: Bool = false,
+        naturalWidth: CGFloat? = nil
     ) {
         self.id = id
         self.isPinned = isPinned
@@ -28,6 +33,7 @@ public struct TabLayoutItem: Equatable, Sendable {
         self.fixedWidth = fixedWidth
         self.isCollapsed = isCollapsed
         self.isGroupChip = isGroupChip
+        self.naturalWidth = naturalWidth
     }
 }
 
