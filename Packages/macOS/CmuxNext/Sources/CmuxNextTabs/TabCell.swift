@@ -83,6 +83,7 @@ final class TabCell {
     let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
+    let separatorLayer = TabCell.makeSeparatorLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
     /// present only while the title is clipped).
     private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
@@ -143,7 +144,7 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        for sublayer in [backgroundLayer, iconLayer, titleLayer] {
+        for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
         }
@@ -247,6 +248,7 @@ final class TabCell {
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
+            applySeparatorColor()
         }
         applyCloseColors()
         applyBadgeColor()
@@ -287,9 +289,8 @@ final class TabCell {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        // No separators between tabs (quiet hierarchy): the selected pill
-        // and the hover fill already tell neighbors apart.
         backgroundLayer.frame = bounds
+        layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
 
         let midY = bounds.height / 2

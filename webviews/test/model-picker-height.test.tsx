@@ -84,9 +84,21 @@ afterAll(() => {
   }
 });
 
-test("the model picker keeps its measured height while filtering in one opening", async () => {
+// The open picker's height is bounded, never pinned (d9ce210e, Lawrence 2026-10-13): at most the
+// chip's room and 480 px, at least 220 px and the height it measured when it opened, so a narrowing
+// search does not shrink it and a menu that opened before its models never collapses to its search field.
+const px = (value: string) => Number.parseFloat(value);
+const bounds = (menu: HTMLElement) => ({
+  pinned: menu.style.height,
+  min: px(menu.style.minHeight),
+  max: px(menu.style.maxHeight),
+});
+
+test("the model picker keeps its measured height while filtering in one opening, within its bounds", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  const { MODEL_PICKER_MAX_HEIGHT, MODEL_PICKER_MIN_HEIGHT } =
+    await import("../src/agent-session/acpmux/modelPickerLayout");
   const catalog = [
     {
       id: "claude",
@@ -113,29 +125,44 @@ test("the model picker keeps its measured height while filtering in one opening"
       />,
     ),
   );
+  const toggle = async () => {
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    });
+  };
 
-  await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
-  });
+  // Opened at 300 px: at least that, never more than the room or 480 px, and no fixed height.
+  menuHeight = 300;
+  await toggle();
   const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
-  expect(menu.style.height).toBe("148px");
+  const opened = bounds(menu);
+  expect(opened.pinned).toBe("");
+  expect(opened.max).toBeLessThanOrEqual(MODEL_PICKER_MAX_HEIGHT);
+  expect(opened.min).toBe(Math.min(opened.max, 300));
 
+  // A narrowing search measures shorter; the bounds hold steady.
   menuHeight = 224;
   const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
   await act(async () => {
     search.value = "Sonnet";
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  expect(menu.style.height).toBe("148px");
+  expect(bounds(menu)).toEqual(opened);
 
-  await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
-  });
+  await toggle();
   expect(host.querySelector(".acpmux-mp")).toBeNull();
 
-  menuHeight = 212;
-  await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
-  });
-  expect(host.querySelector<HTMLElement>(".acpmux-mp")!.style.height).toBe("212px");
+  // A new opening measures again.
+  menuHeight = 260;
+  await toggle();
+  const reopened = bounds(host.querySelector<HTMLElement>(".acpmux-mp")!);
+  expect(reopened.min).toBe(Math.min(reopened.max, 260));
+  await toggle();
+
+  // Opened before its models arrived (its search field alone, 148 px): the floor, not 148 px.
+  menuHeight = 148;
+  await toggle();
+  const early = bounds(host.querySelector<HTMLElement>(".acpmux-mp")!);
+  expect(early.pinned).toBe("");
+  expect(early.min).toBe(Math.min(early.max, MODEL_PICKER_MIN_HEIGHT));
 });

@@ -451,14 +451,14 @@ if ! awk '
   exit 1
 fi
 
-# Published nightly-next waits for Apple in the job, bounded at 40m like main
-# (three nightly-next builds in a row outlasted 20m): Accepted builds are stapled and published by this run,
+# Published nightly-next waits for Apple in the job for 20m (main and RC 40m),
+# so one stalled submission never holds the next build: Accepted builds are stapled and published by this run,
 # and a wait that runs out hands the exact submission to the next nightly-next
 # run through the recovery artifact. Nothing unaccepted reaches distribution
 # policy, the appcast or publication.
 for expected in \
   "id: notarize-nightly" \
-  "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}" \
+  "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}" \
   "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}" \
   "notary_pending: \${{ steps.notarize-nightly.outputs.submission_pending }}" \
   "- name: Prepare pending notarization recovery artifact" \

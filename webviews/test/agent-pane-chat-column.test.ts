@@ -218,10 +218,42 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// How far the newest line may rest from where the last one did: lines are 22.75px and rows are
   /// placed by their drawn heights, so the end can settle a few pixels off; a jump is a line.
   const REST_SLACK = 4;
-  /// The first frame read, before anything streams: the view at rest at the end.
-  const restingFrame = async (page: Page): Promise<Frame> => {
-    await page.waitForTimeout(100);
-    return page.evaluate(() => ((window as any).__frames as Frame[])[0]!);
+  /// How far the last line of text sits above the view's bottom once the thread has stopped
+  /// gliding: a row placed by its drawn height late slides there over 180 ms, and a loaded runner
+  /// can still be in that slide when the frames stop. Only running, finite animations count: a
+  /// looping one (a streaming mark) never ends, and a finished one held by its fill stays listed.
+  const restingLastLine = async (page: Page): Promise<number> => {
+    // Passed as a function, never as source text: the page's CSP forbids eval.
+    const gliding = (names: boolean) => {
+      const running = document
+        .querySelector(".acpmux-scroll")!
+        .getAnimations({ subtree: true })
+        .filter(
+          (animation) => animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+        );
+      if (!names) return running.length === 0;
+      return running.map((animation) => {
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        return `${target?.className ?? "?"} ${animation.constructor.name} ${String(animation.effect?.getTiming().duration)}`;
+      });
+    };
+    await page.waitForFunction(gliding, false, { timeout: 5_000 }).catch(async (error: unknown) => {
+      throw new Error(`still gliding after 5 s: ${JSON.stringify(await page.evaluate(gliding, true))}`, {
+        cause: error,
+      });
+    });
+    return page.evaluate(
+      () =>
+        new Promise<number>((done) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+              const lines = [...document.querySelectorAll(".acpmux-scroll p")];
+              done(Math.round(view.bottom - (lines.at(-1)?.getBoundingClientRect().bottom ?? view.bottom)));
+            }),
+          ),
+        ),
+    );
   };
   /// The frames whose view moved back up from the frame before.
   const backwards = (frames: Frame[]) =>
@@ -276,8 +308,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   test("a streaming reply keeps the view at its end, through a growing command and a queue", async () => {
     const chat = newChat();
     const page = await open(chat, 900);
+    const atRest = await restingLastLine(page);
     await watch(page, "Paragraph 20.");
-    const atRest = await restingFrame(page);
     for (let index = 25; index <= 34; index++) {
       push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
       if (index === 28) push(chat, "mux", "queued", { promptId: "q-1", text: "Then add a test for the jitter" });
@@ -289,7 +321,16 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // The text only ever moves up while it follows the reply, and the view rests at the end.
     expect(movedDown(frames)).toEqual([]);
     expect(backwards(frames)).toEqual([]);
-    expect(Math.abs(frames.at(-1)!.lastLine - atRest.lastLine)).toBeLessThanOrEqual(REST_SLACK);
+    // The view comes to rest where it started; the last frames read show where it was going.
+    const rest = await restingLastLine(page);
+    expect({
+      settled: Math.abs(rest - atRest) <= REST_SLACK,
+      atRest,
+      rest,
+      lastFrames: frames.slice(-3),
+    }).toMatchObject({
+      settled: true,
+    });
     await page.close();
   });
 
@@ -330,8 +371,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   test("a reply streamed a few words at a time scrolls smoothly: its last line holds still at the bottom", async () => {
     const chat = newChat();
     const page = await open(chat, 900);
+    const atRest = await restingLastLine(page);
     await watch(page, "Paragraph 20.");
-    const atRest = await restingFrame(page);
     const words = (paragraph(25) + paragraph(26) + paragraph(27)).split(/(?<= )/);
     for (let index = 0; index < words.length; index += 3) {
       push(chat, "in", "agent_message_chunk", chunk(words.slice(index, index + 3).join("")));
@@ -345,7 +386,16 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     expect(backwards(frames)).toEqual([]);
     const steps = frames.slice(1).map((frame, index) => (frames[index]!.top ?? 0) - (frame.top ?? 0));
     expect(Math.max(...steps)).toBeLessThanOrEqual(23);
-    expect(Math.abs(frames.at(-1)!.lastLine - atRest.lastLine)).toBeLessThanOrEqual(REST_SLACK);
+    // The view comes to rest where it started; the last frames read show where it was going.
+    const rest = await restingLastLine(page);
+    expect({
+      settled: Math.abs(rest - atRest) <= REST_SLACK,
+      atRest,
+      rest,
+      lastFrames: frames.slice(-3),
+    }).toMatchObject({
+      settled: true,
+    });
     await page.close();
   });
 

@@ -10,6 +10,7 @@ extension TabCell {
     func beginClosing() {
         isHovered = false
         isSelected = false
+        showsSeparator = false
         isClosing = true
     }
 

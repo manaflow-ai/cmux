@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ask nightly-next to publish an earlier build that Apple accepted after its
-# run stopped waiting (cx-f58x). A nightly-next run that waited 40 minutes
+# run stopped waiting (cx-f58x). A nightly-next run that waited 20 minutes
 # leaves a recovery artifact. Until now only the next promoted push run
 # continued it, so publication waited for an unrelated promotion. GitHub runs
 # `schedule` triggers only from main's workflow, so cmux-next.yml calls this

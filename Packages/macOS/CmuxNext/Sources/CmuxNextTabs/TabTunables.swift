@@ -31,6 +31,18 @@ public nonisolated enum TabTunables {
     public static let titleMinVisibleWidth = points("titleMinVisibleWidth", "Shortest title", help: "Narrowest title fragment worth showing after the icon.") { Metrics.space5 }
     public static let scrollFadeWidth = points("scrollFadeWidth", "Strip scroll fade", help: "Length of the fade on a scrolled strip edge (also the drag autoscroll zone).") { Metrics.space6 + Metrics.space4 }
     public static let groupChipPadding = points("groupChipPadding", "Group chip padding", help: "Horizontal padding inside a tab group chip.") { Metrics.space3 }
+    public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the line between tabs. Default: 55% of the tab height.") {
+        (Metrics.tabHeight * 0.55).rounded()
+    }
+    // @intent Leo 2026-10-14 asked for lines between tabs; Lawrence removed them in 7f9fc1ed, so they
+    // stay opt-in until the default call is made.
+    public static let separators = Tunable<Bool>.toggle(
+        "tabs.separators", .tabs, "Tab separators",
+        help: "A short line between tabs, hidden beside the selected and the hovered tab.",
+        default: false, code: "TabTunables.separators")
+    public static let separatorOpacity = Tunable<CGFloat>.number(
+        "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
+        default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
     // MARK: Drag and hover
@@ -56,8 +68,8 @@ public nonisolated enum TabTunables {
     public static var all: [TunableDescriptor] {
         [compactTabWidth, minFitTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
-         groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [groupJoinHysteresis.descriptor, autoscrollGain.descriptor]
+         separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
+            + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor]
             + [hoverCardMinimumDelay, hoverCardMaximumDelay].map(\.descriptor)
     }
 }

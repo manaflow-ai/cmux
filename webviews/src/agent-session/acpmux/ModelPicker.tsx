@@ -14,7 +14,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
-import { pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
+import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
@@ -342,7 +342,13 @@ export function ModelPicker(props: ModelPickerProps) {
     // the local promise state from the previous click.
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
+  // Opens on the side that has room for the picker's floor, not only for what it measures before its
+  // models load: above the chip, else below it (Leo: the menu stays inside the page).
+  const menuStyle = useUiAnchor(trigger, menu, open, {
+    side: "above",
+    align: "start",
+    minHeight: MODEL_PICKER_MIN_HEIGHT,
+  });
   useLayoutEffect(() => {
     if (!open) {
       setOpenHeight(undefined);

@@ -7,6 +7,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { MODEL_PICKER_MIN_HEIGHT } from "../src/agent-session/acpmux/modelPickerLayout";
+import { UI_ANCHOR_GAP } from "../src/ui/anchor";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
@@ -42,7 +44,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the New Tab model menu ends inside the page's scroller, above the pager", async () => {
+  test("the New Tab model menu keeps its floor inside the page's scroller, above the pager", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html`);
@@ -56,13 +58,42 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(".acpmux-mp[role=dialog]");
       return !!node && getComputedStyle(node).visibility === "visible";
     });
-    const { menuBottom, screenBottom, menuTop, screenTop } = await page.evaluate(() => {
+    const geometry = await page.evaluate(() => {
       const menu = document.querySelector(".acpmux-mp[role=dialog]")!.getBoundingClientRect();
-      const screen = document.querySelector(".nt-screen")!.getBoundingClientRect();
-      return { menuBottom: menu.bottom, screenBottom: screen.bottom, menuTop: menu.top, screenTop: screen.top };
+      const screenNode = document.querySelector<HTMLElement>(".nt-screen")!;
+      const screen = screenNode.getBoundingClientRect();
+      const chip = document.querySelector(".acpmux-model-name")!.getBoundingClientRect();
+      return {
+        menuTop: menu.top,
+        menuBottom: menu.bottom,
+        menuHeight: menu.height,
+        chipTop: chip.top,
+        chipBottom: chip.bottom,
+        screenTop: screen.top,
+        screenBottom: screen.bottom,
+        // How far the page's scroller can still scroll down.
+        scrollable: screenNode.scrollHeight - screenNode.clientHeight - screenNode.scrollTop,
+      };
     });
+    console.log("new-tab-picker-clip geometry", JSON.stringify(geometry));
+    const { menuTop, menuBottom, menuHeight, chipTop, chipBottom, screenTop, screenBottom, scrollable } = geometry;
+    // Never collapsed: the picker keeps its 220 px floor (Lawrence, d9ce210e).
+    expect(menuHeight).toBeGreaterThanOrEqual(219);
+    // Never off the top of the page, where nothing scrolls to it.
     expect(menuTop).toBeGreaterThanOrEqual(screenTop);
-    expect(menuBottom).toBeLessThanOrEqual(screenBottom);
+    // The room the anchor measures: past the 6 px gap and the 8 px margin.
+    const room = (space: number) => space - UI_ANCHOR_GAP - 8;
+    if (
+      room(chipTop - screenTop) >= MODEL_PICKER_MIN_HEIGHT ||
+      room(screenBottom - chipBottom) >= MODEL_PICKER_MIN_HEIGHT
+    ) {
+      // A side has room for the floor: the menu opens there, inside the page (Leo).
+      expect(menuBottom).toBeLessThanOrEqual(screenBottom);
+    } else {
+      // Neither side has it: the menu opens below the chip and the page scrolls to its end.
+      expect(menuTop).toBeGreaterThanOrEqual(chipBottom);
+      expect(scrollable).toBeGreaterThanOrEqual(Math.floor(menuBottom - screenBottom));
+    }
     await page.close();
   });
 });

@@ -58,17 +58,27 @@ test("the New Tab page offers its five styles as radios, the current one checked
   expect(host.textContent).toContain("Composer");
 
   // A click goes back to the field once the picked page has mounted (the frame after the pick).
+  // The test runs the frames itself: jsdom's own frame is a 16 ms timer, which a loaded runner
+  // can reach before the first check.
   let fieldAsked = 0;
   window.addEventListener("acpmux-focus-location", () => fieldAsked++);
-  await act(async () => {
-    radios[4]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-    radios[4]!.click();
-  });
-  expect(picks).toEqual(["classic"]);
-  expect(fieldAsked).toBe(0);
-  await act(() => new Promise<void>((done) => window.requestAnimationFrame(() => done())));
-  await act(() => new Promise<void>((done) => window.requestAnimationFrame(() => done())));
-  expect(fieldAsked).toBe(1);
+  const frames: FrameRequestCallback[] = [];
+  const nextFrame = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback) => frames.push(callback);
+  try {
+    await act(async () => {
+      radios[4]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+      radios[4]!.click();
+    });
+    expect(picks).toEqual(["classic"]);
+    expect(fieldAsked).toBe(0);
+    await act(async () => {
+      for (const callback of frames.splice(0)) callback(window.performance.now());
+    });
+    expect(fieldAsked).toBe(1);
+  } finally {
+    window.requestAnimationFrame = nextFrame;
+  }
   await act(async () => root.unmount());
 });
 

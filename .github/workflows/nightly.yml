@@ -2780,11 +2780,13 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
-        # Every track waits at most 40m (usually a few minutes; three
-        # nightly-next builds in a row outlasted 20m). On published nightly-next
-        # an Accepted build is stapled and published by this run, and one still
-        # in Apple's queue is handed to a later nightly-next run through the
-        # recovery artifact below.
+        # Main and RC wait at most 40m (usually a few minutes). Published
+        # nightly-next waits 20m: an Accepted build is stapled and published by
+        # this run, and one still in Apple's queue is handed to a later
+        # nightly-next run through the recovery artifact below, which publishes
+        # the newest Accepted build. Nightly-next runs one at a time, so a
+        # longer wait held every newer build behind one stalled submission
+        # (submission 5912557e stayed In Progress for over 90m on 2026-10-14).
         # The helper submitted before Codesign apps finishes first: at most
         # 15m more in Apple's queue plus 20m of Gatekeeper propagation polling
         # (notarize-computer-use-helper.sh), so the step budget covers both
@@ -2793,7 +2795,7 @@ jobs:
         # covers it, and that is checked (cx-urd.68), and a slow DMG is handed off.
         timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 85 }}
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}
+          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -3107,7 +3109,7 @@ jobs:
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
-            --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 3 "${feeds[@]}")"
+            --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 5 "${feeds[@]}")"
           echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$candidates" = "[]" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"

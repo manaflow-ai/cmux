@@ -76,6 +76,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "session.journal.subscribe",
         ),
+        // A turn-start hook's prompt rides beside the event as live_prompt (memory only, never
+        // journaled: the event itself carries the prompt redacted).
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "UserPromptSubmit",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"fix the parser"}"#,
+            ],
+            "session.journal.append",
+        ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
         (

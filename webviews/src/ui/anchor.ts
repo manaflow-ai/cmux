@@ -36,6 +36,12 @@ export interface UiAnchorOptions {
   gap?: number;
   margin?: number;
   direction?: "ltr" | "rtl";
+  /** The shortest the overlay will be once its content is in (the model picker's floor). The side
+   * is chosen for this height, not only the measured one, so an overlay that opens before its
+   * content (and measures short) still opens on the side it will fit. When neither side has it,
+   * the overlay opens below and runs past the visible box, where its scroller can scroll to it
+   * (above, it would run off the top, out of reach). */
+  minHeight?: number;
 }
 
 // An overlay is mounted before its measured coordinates are available. Keep that first hidden
@@ -94,7 +100,11 @@ export function resolveUiOverlayPosition(
   const direction = options.direction ?? "ltr";
   const spaceBelow = Math.max(0, viewport.height - anchor.bottom - gap - margin);
   const spaceAbove = Math.max(0, anchor.top - gap - margin);
-  const resolvedSide = resolveUiSide(anchor, overlay.height, viewport.height, { side, gap, margin });
+  const floor = options.minHeight ?? 0;
+  const resolvedSide =
+    floor > 0 && spaceAbove < floor && spaceBelow < floor
+      ? "below"
+      : resolveUiSide(anchor, Math.max(overlay.height, floor), viewport.height, { side, gap, margin });
   const available = resolvedSide === "below" ? spaceBelow : spaceAbove;
   const idealLeft =
     align === "start"
@@ -153,7 +163,7 @@ export function useUiAnchor(
   open: boolean,
   options: UiAnchorOptions = {},
 ): CSSProperties {
-  const { align, direction: requestedDirection, gap, margin, side } = options;
+  const { align, direction: requestedDirection, gap, margin, minHeight, side } = options;
   const [style, setStyle] = useState<CSSProperties>(HIDDEN_ANCHOR_STYLE);
   useLayoutEffect(() => {
     if (!open) {
@@ -175,7 +185,7 @@ export function useUiAnchor(
         { left: a.left - box.left, top: a.top - box.top, right: a.right - box.left, bottom: a.bottom - box.top },
         { width: o.width, height: o.height },
         { width: box.right - box.left, height: box.bottom - box.top },
-        { align, direction, gap, margin, side },
+        { align, direction, gap, margin, minHeight, side },
       );
       const position = { ...inBox, left: inBox.left + box.left, top: inBox.top + box.top };
       const parent = overlayNode.offsetParent instanceof HTMLElement ? overlayNode.offsetParent : null;
@@ -204,6 +214,6 @@ export function useUiAnchor(
       window.removeEventListener("scroll", update, true);
       observer?.disconnect();
     };
-  }, [align, anchor, gap, margin, open, overlay, requestedDirection, side]);
+  }, [align, anchor, gap, margin, minHeight, open, overlay, requestedDirection, side]);
   return style;
 }
