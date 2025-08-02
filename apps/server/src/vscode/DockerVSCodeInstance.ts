@@ -8,6 +8,7 @@ import { convex } from "../utils/convexClient.js";
 import { cleanupGitCredentials } from "../utils/dockerGitSetup.js";
 import { dockerLogger } from "../utils/fileLogger.js";
 import { getGitHubTokenFromKeychain } from "../utils/getGitHubToken.js";
+import { createExtensionInstallScript } from "../utils/vscodeExtensions.js";
 import {
   VSCodeInstance,
   type VSCodeInstanceConfig,
@@ -335,6 +336,51 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           dockerLogger.info(`  No git config found at ${gitConfigPath}`);
         }
 
+        // Mount VS Code settings if they exist
+        const cmuxDir = path.join(homeDir, ".cmux");
+        const vscodeSettingsDir = path.join(cmuxDir, "vscode-settings");
+        try {
+          const fs = await import("fs");
+          await fs.promises.access(vscodeSettingsDir);
+          
+          // Mount settings files
+          const settingsPath = path.join(vscodeSettingsDir, "settings.json");
+          if (await fs.promises.access(settingsPath).then(() => true).catch(() => false)) {
+            binds.push(`${settingsPath}:/root/.vscode-server/data/Machine/settings.json:ro`);
+            dockerLogger.info(`  VS Code settings mount: ${settingsPath} -> /root/.vscode-server/data/Machine/settings.json`);
+          }
+          
+          const keybindingsPath = path.join(vscodeSettingsDir, "keybindings.json");
+          if (await fs.promises.access(keybindingsPath).then(() => true).catch(() => false)) {
+            binds.push(`${keybindingsPath}:/root/.vscode-server/data/Machine/keybindings.json:ro`);
+            dockerLogger.info(`  VS Code keybindings mount: ${keybindingsPath} -> /root/.vscode-server/data/Machine/keybindings.json`);
+          }
+          
+          const snippetsDir = path.join(vscodeSettingsDir, "snippets");
+          if (await fs.promises.access(snippetsDir).then(() => true).catch(() => false)) {
+            binds.push(`${snippetsDir}:/root/.vscode-server/data/Machine/snippets:ro`);
+            dockerLogger.info(`  VS Code snippets mount: ${snippetsDir} -> /root/.vscode-server/data/Machine/snippets`);
+          }
+          
+          // Create and mount extension install script
+          const tempDir = path.join(os.tmpdir(), "cmux-extensions");
+          await fs.promises.mkdir(tempDir, { recursive: true });
+          const scriptPath = path.join(tempDir, `install-extensions-${this.instanceId}.sh`);
+          
+          if (await createExtensionInstallScript(vscodeSettingsDir, scriptPath)) {
+            binds.push(`${scriptPath}:/root/install-extensions.sh:ro`);
+            dockerLogger.info(`  Extension install script mount: ${scriptPath} -> /root/install-extensions.sh`);
+            
+            // Add command to run the script after container starts
+            if (!createOptions.Cmd) {
+              createOptions.Cmd = [];
+            }
+            createOptions.Cmd.unshift("bash", "-c", "/root/install-extensions.sh && exec /usr/bin/supervisord");
+          }
+        } catch {
+          dockerLogger.info("  No VS Code settings found to mount");
+        }
+
         createOptions.HostConfig!.Binds = binds;
 
         dockerLogger.info(
@@ -399,6 +445,51 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         } catch {
           // Git config doesn't exist, which is fine
           dockerLogger.info(`  No git config found at ${gitConfigPath}`);
+        }
+
+        // Mount VS Code settings if they exist (same as above)
+        const cmuxDir = path.join(homeDir, ".cmux");
+        const vscodeSettingsDir = path.join(cmuxDir, "vscode-settings");
+        try {
+          const fs = await import("fs");
+          await fs.promises.access(vscodeSettingsDir);
+          
+          // Mount settings files
+          const settingsPath = path.join(vscodeSettingsDir, "settings.json");
+          if (await fs.promises.access(settingsPath).then(() => true).catch(() => false)) {
+            binds.push(`${settingsPath}:/root/.vscode-server/data/Machine/settings.json:ro`);
+            dockerLogger.info(`  VS Code settings mount: ${settingsPath} -> /root/.vscode-server/data/Machine/settings.json`);
+          }
+          
+          const keybindingsPath = path.join(vscodeSettingsDir, "keybindings.json");
+          if (await fs.promises.access(keybindingsPath).then(() => true).catch(() => false)) {
+            binds.push(`${keybindingsPath}:/root/.vscode-server/data/Machine/keybindings.json:ro`);
+            dockerLogger.info(`  VS Code keybindings mount: ${keybindingsPath} -> /root/.vscode-server/data/Machine/keybindings.json`);
+          }
+          
+          const snippetsDir = path.join(vscodeSettingsDir, "snippets");
+          if (await fs.promises.access(snippetsDir).then(() => true).catch(() => false)) {
+            binds.push(`${snippetsDir}:/root/.vscode-server/data/Machine/snippets:ro`);
+            dockerLogger.info(`  VS Code snippets mount: ${snippetsDir} -> /root/.vscode-server/data/Machine/snippets`);
+          }
+          
+          // Create and mount extension install script
+          const tempDir = path.join(os.tmpdir(), "cmux-extensions");
+          await fs.promises.mkdir(tempDir, { recursive: true });
+          const scriptPath = path.join(tempDir, `install-extensions-${this.instanceId}.sh`);
+          
+          if (await createExtensionInstallScript(vscodeSettingsDir, scriptPath)) {
+            binds.push(`${scriptPath}:/root/install-extensions.sh:ro`);
+            dockerLogger.info(`  Extension install script mount: ${scriptPath} -> /root/install-extensions.sh`);
+            
+            // Add command to run the script after container starts
+            if (!createOptions.Cmd) {
+              createOptions.Cmd = [];
+            }
+            createOptions.Cmd.unshift("bash", "-c", "/root/install-extensions.sh && exec /usr/bin/supervisord");
+          }
+        } catch {
+          dockerLogger.info("  No VS Code settings found to mount");
         }
 
         createOptions.HostConfig!.Binds = binds;

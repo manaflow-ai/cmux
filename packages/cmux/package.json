@@ -48,10 +48,13 @@
   "dependencies": {
     "@cmux/server": "workspace:*",
     "@cmux/shared": "workspace:*",
+    "@types/inquirer": "^9.0.8",
     "commander": "^11.1.0",
     "convex": "1.26.0-alpha.6",
     "cors": "^2.8.5",
     "express": "^4.18.2",
+    "inquirer": "^12.9.0",
+    "jsonc-parser": "^3.3.1",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {
