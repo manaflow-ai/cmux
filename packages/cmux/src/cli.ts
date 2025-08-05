@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnConvex } from "./convex/spawnConvex";
 import { ensureLogFiles } from "./ensureLogFiles";
+import { handleFirstRun, isFirstRun, saveConfig } from "./firstRun";
 import { logger } from "./logger";
 import { checkPorts } from "./utils/checkPorts";
 import { getGitRepoInfo } from "./utils/gitUtils";
@@ -46,20 +47,6 @@ const status = {
   serverReady: false,
 };
 
-// wait 5 seconds, if not ready, log error to console
-setTimeout(async () => {
-  if (status.convexReady && status.serverReady) {
-    return;
-  }
-  console.log(
-    "\x1b[31m✗\x1b[0m Server failed to start after 30 seconds. Please email founders@manaflow.com with the contents of ~/.cmux/logs/*"
-  );
-  await logger.info(
-    `Server failed to start after 30 seconds. convexReady=${status.convexReady} serverReady=${status.serverReady}`
-  );
-  process.exit(1);
-}, 30_000);
-
 // Register exit handlers immediately
 process.on("SIGINT", async () => {
   void Promise.all(cleanupFunctions.map((fn) => fn()));
@@ -90,6 +77,35 @@ program
     if (repoPath) {
       console.log(`\x1b[36m→\x1b[0m Repository path provided: ${repoPath}`);
     }
+
+    // Check if this is the first run
+    if (await isFirstRun(convexDir)) {
+      // Check if running in non-interactive mode (e.g., with bun --hot)
+      const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
+      if (!isInteractive) {
+        console.log("\n📝 First run detected but running in non-interactive mode.");
+        console.log("   Run 'cmux' directly to import VS Code settings.");
+        console.log("   Creating default config...\n");
+        await saveConfig(convexDir, { firstRunCompleted: true });
+      } else {
+        await handleFirstRun(convexDir);
+        console.log("\n\x1b[32m✓\x1b[0m Continuing with cmux startup...\n");
+      }
+    }
+
+    // wait 5 seconds, if not ready, log error to console
+    setTimeout(async () => {
+      if (status.convexReady && status.serverReady) {
+        return;
+      }
+      console.log(
+        "\x1b[31m✗\x1b[0m Server failed to start after 30 seconds. Please email founders@manaflow.com with the contents of ~/.cmux/logs/*"
+      );
+      await logger.info(
+        `Server failed to start after 30 seconds. convexReady=${status.convexReady} serverReady=${status.serverReady}`
+      );
+      process.exit(1);
+    }, 30_000);
 
     const portsToCheck = [port, 9777, 9778];
     if (options.autokillPorts) {

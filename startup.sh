@@ -114,6 +114,12 @@ if [ $retry_count -eq $MAX_RETRIES ]; then
     echo "[Startup] Warning: Failed to connect to OpenVSCode server after $MAX_RETRIES attempts" >> /var/log/cmux/startup.log
 fi
 
+# Run post-startup script if available
+if [ "$RUN_POST_STARTUP" = "true" ] && [ -f /root/post-startup.sh ]; then
+    echo "[Startup] Running post-startup script..." >> /var/log/cmux/startup.log
+    bash /root/post-startup.sh >> /var/log/cmux/startup.log 2>&1
+fi
+
 # Start the worker
 export NODE_ENV=production
 export WORKER_PORT=39377
