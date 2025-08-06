@@ -1,8 +1,11 @@
 import { OpenWithDropdown } from "@/components/OpenWithDropdown";
+import { api } from "@cmux/convex/api";
 import { type Doc } from "@cmux/convex/dataModel";
 import { Link, useLocation } from "@tanstack/react-router";
 import clsx from "clsx";
+import { useMutation } from "convex/react";
 import {
+  Archive,
   CheckCircle,
   ChevronRight,
   Circle,
@@ -53,6 +56,7 @@ export function TaskTree({ task, level = 0 }: TaskTreeProps) {
   // Default to collapsed unless this task is selected
   const [isExpanded, setIsExpanded] = useState(isTaskSelected);
   const hasRuns = task.runs && task.runs.length > 0;
+  const archiveTask = useMutation(api.tasks.archive);
 
   // Memoize the toggle handler
   const handleToggle = useCallback((e: React.MouseEvent) => {
@@ -60,17 +64,25 @@ export function TaskTree({ task, level = 0 }: TaskTreeProps) {
     setIsExpanded((prev) => !prev);
   }, []);
 
+  // Handle archive
+  const handleArchive = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    archiveTask({ id: task._id });
+  }, [archiveTask, task._id]);
+
   return (
     <div className="select-none flex flex-col">
-      <Link
-        to="/task/$taskId"
-        params={{ taskId: task._id }}
-        className={clsx(
-          "flex items-center px-0.5 py-1 text-sm rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-default",
-          "[&.active]:bg-neutral-100 dark:[&.active]:bg-neutral-800"
-        )}
-        style={{ paddingLeft: `${4 + level * 16}px` }}
-      >
+      <div className="group relative">
+        <Link
+          to="/task/$taskId"
+          params={{ taskId: task._id }}
+          className={clsx(
+            "flex items-center px-0.5 py-1 text-sm rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-default",
+            "[&.active]:bg-neutral-100 dark:[&.active]:bg-neutral-800"
+          )}
+          style={{ paddingLeft: `${4 + level * 16}px` }}
+        >
         <button
           onClick={handleToggle}
           className={clsx(
@@ -95,12 +107,28 @@ export function TaskTree({ task, level = 0 }: TaskTreeProps) {
           )}
         </div>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pr-8">
           <p className="truncate text-neutral-900 dark:text-neutral-100 text-xs">
             {task.text}
           </p>
         </div>
       </Link>
+
+      {/* Archive button on hover */}
+      <button
+        onClick={handleArchive}
+        className={clsx(
+          "absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded",
+          "bg-neutral-100 dark:bg-neutral-700",
+          "text-neutral-600 dark:text-neutral-400",
+          "hover:bg-neutral-200 dark:hover:bg-neutral-600",
+          "opacity-0 group-hover:opacity-100 transition-opacity"
+        )}
+        title="Archive task"
+      >
+        <Archive className="w-3 h-3" />
+      </button>
+    </div>
 
       {isExpanded && hasRuns && (
         <div className="flex flex-col">
