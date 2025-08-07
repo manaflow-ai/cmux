@@ -253,6 +253,17 @@ export const checkAndEvaluateCrown = mutation({
       return null;
     }
 
+    // Mark the task as completed since all runs are done
+    // Do this BEFORE crown evaluation to ensure tasks are always marked complete
+    const task = await ctx.db.get(args.taskId);
+    if (task && !task.isCompleted) {
+      await ctx.db.patch(args.taskId, {
+        isCompleted: true,
+        updatedAt: Date.now(),
+      });
+      console.log(`[CheckCrown] Marked task ${args.taskId} as completed`);
+    }
+
     // Check if we've already evaluated crown for this task
     const existingEvaluation = await ctx.db
       .query("crownEvaluations")
@@ -265,7 +276,6 @@ export const checkAndEvaluateCrown = mutation({
     }
     
     // Check if crown evaluation is already pending or in progress
-    const task = await ctx.db.get(args.taskId);
     if (task?.crownEvaluationError === "pending_evaluation" || 
         task?.crownEvaluationError === "in_progress") {
       console.log(`[CheckCrown] Crown evaluation already ${task.crownEvaluationError} for task ${args.taskId}`);
@@ -297,15 +307,7 @@ export const checkAndEvaluateCrown = mutation({
         crownEvaluationError: errorMessage,
         updatedAt: Date.now(),
       });
-      // Continue to mark task as completed even if crown evaluation fails
     }
-
-    // Mark the task as completed since all runs are done
-    await ctx.db.patch(args.taskId, {
-      isCompleted: true,
-      updatedAt: Date.now(),
-    });
-    console.log(`[CheckCrown] Marked task ${args.taskId} as completed`);
 
     return winnerId;
   },

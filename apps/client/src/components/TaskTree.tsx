@@ -11,6 +11,12 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TaskRunWithChildren extends Doc<"taskRuns"> {
   children: TaskRunWithChildren[];
@@ -53,6 +59,26 @@ export function TaskTree({ task, level = 0 }: TaskTreeProps) {
   // Default to collapsed unless this task is selected
   const [isExpanded, setIsExpanded] = useState(isTaskSelected);
   const hasRuns = task.runs && task.runs.length > 0;
+  
+  // Check crown evaluation status
+  const crownStatus = useMemo(() => {
+    if (!hasRuns || task.runs.length < 2) return null;
+    
+    const completedRuns = task.runs.filter(run => run.status === "completed");
+    const allCompleted = task.runs.every(run => run.status === "completed" || run.status === "failed");
+    const hasCrownedRun = task.runs.some(run => run.isCrowned === true);
+    
+    if (!allCompleted) {
+      return { type: "waiting", count: completedRuns.length, total: task.runs.length };
+    } else if (hasCrownedRun) {
+      return { type: "crowned" };
+    } else if (task.crownEvaluationError === "pending_evaluation" || task.crownEvaluationError === "in_progress") {
+      return { type: "evaluating" };
+    } else if (task.crownEvaluationError) {
+      return { type: "error" };
+    }
+    return { type: "pending" };
+  }, [hasRuns, task]);
 
   // Memoize the toggle handler
   const handleToggle = useCallback((e: React.MouseEvent) => {
@@ -95,10 +121,82 @@ export function TaskTree({ task, level = 0 }: TaskTreeProps) {
           )}
         </div>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex items-center gap-1">
           <p className="truncate text-neutral-900 dark:text-neutral-100 text-xs">
             {task.text}
           </p>
+          {crownStatus && (
+            <TooltipProvider>
+              {crownStatus.type === "waiting" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-[10px] text-yellow-600 dark:text-yellow-500 flex-shrink-0 cursor-help">
+                      {crownStatus.count}/{crownStatus.total}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm p-3 z-[9999]" side="right" sideOffset={5}>
+                    <div className="space-y-2">
+                      <p className="font-medium text-sm">Crown Evaluation System</p>
+                      <p className="text-xs text-muted-foreground">
+                        Multiple AI models are working on your task in parallel. Once all models complete, 
+                        the crown model will evaluate and select the best implementation.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Progress: {crownStatus.count} of {crownStatus.total} models completed
+                      </p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {crownStatus.type === "crowned" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Crown className="w-3 h-3 text-yellow-500 flex-shrink-0 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm p-3 z-[9999]" side="right" sideOffset={5}>
+                    <div className="space-y-2">
+                      <p className="font-medium text-sm">Crown Winner Selected</p>
+                      <p className="text-xs text-muted-foreground">
+                        The crown model has evaluated all implementations and selected the best one.
+                      </p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {crownStatus.type === "evaluating" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm p-3 z-[9999]" side="right" sideOffset={5}>
+                    <div className="space-y-2">
+                      <p className="font-medium text-sm">Crown Evaluator in Progress</p>
+                      <p className="text-xs text-muted-foreground">
+                        The crown model is analyzing the code implementations from all models to determine which one 
+                        best solves your task. The evaluation considers code quality, completeness, best 
+                        practices, and correctness.
+                      </p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {crownStatus.type === "error" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <XCircle className="w-3 h-3 text-red-500 flex-shrink-0 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm p-3 z-[9999]" side="right" sideOffset={5}>
+                    <div className="space-y-2">
+                      <p className="font-medium text-sm">Evaluation Failed</p>
+                      <p className="text-xs text-muted-foreground">
+                        The crown evaluation encountered an error. The implementations are still available for review.
+                      </p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </TooltipProvider>
+          )}
         </div>
       </Link>
 
@@ -188,7 +286,27 @@ function TaskRunTree({ run, level, taskId }: TaskRunTreeProps) {
             {displayText}
           </span>
           {run.isCrowned && (
-            <Crown className="w-3 h-3 text-yellow-500 flex-shrink-0" />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Crown className="w-3 h-3 text-yellow-500 flex-shrink-0 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm p-3 z-[9999]" side="right" sideOffset={5}>
+                  <div className="space-y-2">
+                    <p className="font-medium text-sm">Crown Winner</p>
+                    {run.crownReason ? (
+                      <p className="text-xs text-muted-foreground">
+                        {run.crownReason}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        This implementation was selected as the best solution.
+                      </p>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </Link>

@@ -114,40 +114,8 @@ Task Run ID: ${taskRunId}
 Branch: ${branchName}
 Completed: ${new Date().toISOString()}`;
     
-    // Try to use VSCode extension API first (more reliable)
-    let extensionPort: string | undefined;
-    if (vscodeInstance instanceof DockerVSCodeInstance) {
-      const ports = (vscodeInstance as DockerVSCodeInstance).getPorts();
-      extensionPort = ports?.extension;
-    }
-    
-    if (extensionPort) {
-      // Try VSCode extension method first
-      const extensionResult = await tryVSCodeExtensionCommitAndPush(
-        extensionPort,
-        branchName,
-        commitMessage,
-        agentName,
-        prTitle,
-        prBody,
-        githubToken || undefined
-      );
-      
-      if (extensionResult.success) {
-        if (githubToken) {
-          serverLogger.info(`[CrownEvaluator] Successfully created PR via VSCode extension`);
-        } else {
-          serverLogger.info(`[CrownEvaluator] Successfully pushed branch via VSCode extension`);
-          serverLogger.info(`[CrownEvaluator] Branch '${branchName}' has been pushed. You can manually create a PR from GitHub.`);
-        }
-        return;
-      }
-      
-      serverLogger.info(`[CrownEvaluator] VSCode extension method failed:`, extensionResult.error);
-    }
-    
-    // Fallback to terminal commands
-    serverLogger.info(`[CrownEvaluator] Falling back to terminal commands`);
+    // Use worker sockets directly (more reliable than VSCode extension)
+    serverLogger.info(`[CrownEvaluator] Using worker sockets for git operations`);
     
     const workerSocket = vscodeInstance.getWorkerSocket();
     if (!workerSocket || !vscodeInstance.isWorkerConnected()) {
@@ -266,111 +234,6 @@ Completed: ${new Date().toISOString()}`;
   }
 }
 
-async function tryVSCodeExtensionCommitAndPush(
-  extensionPort: string,
-  branchName: string,
-  commitMessage: string,
-  agentName: string,
-  prTitle: string,
-  prBody: string,
-  githubToken?: string
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { io } = await import("socket.io-client");
-    const extensionSocket = io(`http://localhost:${extensionPort}`, {
-      timeout: 10000,
-    });
-    
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        extensionSocket.disconnect();
-        resolve({
-          success: false,
-          error: "Timeout connecting to VSCode extension",
-        });
-      }, 30000);
-      
-      extensionSocket.on("connect", () => {
-        serverLogger.info(`[CrownEvaluator] Connected to VSCode extension on port ${extensionPort}`);
-        
-        // First commit and push
-        extensionSocket.emit(
-          "vscode:auto-commit-push",
-          {
-            branchName,
-            commitMessage,
-            agentName,
-          },
-          (response: any) => {
-            if (!response.success) {
-              clearTimeout(timeout);
-              extensionSocket.disconnect();
-              resolve({ success: false, error: response.error });
-              return;
-            }
-            
-            // Only create PR if GitHub token is available
-            if (githubToken) {
-              extensionSocket.emit(
-                "vscode:exec-command",
-                {
-                  command: "gh",
-                  args: [
-                    "pr",
-                    "create",
-                    "--title",
-                    prTitle,
-                    "--body",
-                    prBody,
-                    "--head",
-                    branchName
-                  ],
-                  cwd: "/root/workspace",
-                  env: { GH_TOKEN: githubToken }
-                },
-                (prResponse: any) => {
-                  clearTimeout(timeout);
-                  extensionSocket.disconnect();
-                  
-                  if (prResponse.success) {
-                    serverLogger.info(`[CrownEvaluator] PR created successfully via VSCode extension`);
-                    if (prResponse.result?.stdout) {
-                      serverLogger.info(`[CrownEvaluator] PR URL: ${prResponse.result.stdout.trim()}`);
-                    }
-                    resolve({ success: true });
-                  } else {
-                    serverLogger.error(`[CrownEvaluator] PR creation failed:`, prResponse.error);
-                    resolve({ success: false, error: prResponse.error });
-                  }
-                }
-              );
-            } else {
-              // No GitHub token, just push was successful
-              clearTimeout(timeout);
-              extensionSocket.disconnect();
-              serverLogger.info(`[CrownEvaluator] Branch pushed successfully via VSCode extension (PR creation skipped - no token)`);
-              resolve({ success: true });
-            }
-          }
-        );
-      });
-      
-      extensionSocket.on("connect_error", (error) => {
-        clearTimeout(timeout);
-        extensionSocket.disconnect();
-        resolve({
-          success: false,
-          error: `Connection error: ${error.message}`,
-        });
-      });
-    });
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
 
 export async function evaluateCrownWithClaudeCode(
   convex: ConvexHttpClient,
@@ -531,14 +394,17 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
   try {
     serverLogger.info(`[CrownEvaluator] Attempting to run with bunx...`);
     
-    // Remove --print flag and use stdin instead for more reliable execution
+    // Pass the prompt as a command-line argument and use --print for non-interactive output
     const args = [
       "@anthropic-ai/claude-code",
       "--model", "claude-sonnet-4-20250514", 
-      "--dangerously-skip-permissions"
+      "--dangerously-skip-permissions",
+      "--print",
+      "--output-format", "text",
+      evaluationPrompt
     ];
     
-    serverLogger.info(`[CrownEvaluator] Command: bunx ${args.join(' ')}`);
+    serverLogger.info(`[CrownEvaluator] Command: bunx ${args.slice(0, -1).join(' ')} [prompt]`);
     
     const bunxProcess = spawn("bunx", args, {
       env: { ...process.env },
@@ -547,9 +413,8 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
     });
 
     serverLogger.info(`[CrownEvaluator] Process spawned with PID: ${bunxProcess.pid}`);
-
-    // Write prompt to stdin and close
-    bunxProcess.stdin.write(evaluationPrompt);
+    
+    // Don't write to stdin since we're passing prompt as argument
     bunxProcess.stdin.end();
     
     stdout = "";

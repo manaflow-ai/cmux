@@ -39,11 +39,30 @@ export const TaskItem = memo(function TaskItem({ task }: TaskItemProps) {
   // Mutation for toggling keep-alive status
   const toggleKeepAlive = useMutation(api.taskRuns.toggleKeepAlive);
   
-  // Query for crown evaluation
-  const crownedRun = useConvexQuery(
-    api.crown.getCrownedRun, 
-    isFakeConvexId(task._id) ? "skip" : { taskId: task._id }
-  );
+  // Derive crowned run from taskRuns
+  const crownedRun = useMemo(() => {
+    if (!taskRunsQuery) return null;
+    
+    // Define task run type with nested structure
+    interface TaskRunWithChildren extends Doc<"taskRuns"> {
+      children?: TaskRunWithChildren[];
+    }
+    
+    // Flatten all task runs (including children)
+    const allRuns: TaskRunWithChildren[] = [];
+    const flattenRuns = (runs: TaskRunWithChildren[]) => {
+      runs.forEach((run) => {
+        allRuns.push(run);
+        if (run.children) {
+          flattenRuns(run.children);
+        }
+      });
+    };
+    flattenRuns(taskRunsQuery);
+    
+    // Find the crowned run
+    return allRuns.find(run => run.isCrowned === true) || null;
+  }, [taskRunsQuery]);
 
   // Find the latest task run with a VSCode instance
   const getLatestVSCodeInstance = useCallback(() => {

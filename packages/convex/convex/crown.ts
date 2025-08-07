@@ -144,22 +144,6 @@ export const setCrownWinner = mutation({
   },
 });
 
-export const getCrownedRun = query({
-  args: {
-    taskId: v.id("tasks"),
-  },
-  handler: async (ctx, args) => {
-    const crownedRun = await ctx.db
-      .query("taskRuns")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .filter((q) => q.eq(q.field("isCrowned"), true))
-      .first();
-
-    console.log(`[Crown] getCrownedRun for task ${args.taskId}: ${crownedRun ? `found ${crownedRun._id}` : 'not found'}`);
-    
-    return crownedRun;
-  },
-});
 
 export const getCrownEvaluation = query({
   args: {

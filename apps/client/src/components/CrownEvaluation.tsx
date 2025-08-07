@@ -1,9 +1,10 @@
 import { api } from "@cmux/convex/api";
-import type { Id } from "@cmux/convex/dataModel";
+import type { Id, Doc } from "@cmux/convex/dataModel";
 import { isFakeConvexId } from "@/lib/fakeConvexId";
 import { useQuery } from "convex/react";
 import { Trophy } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { useMemo } from "react";
 
 interface CrownEvaluationProps {
   taskId: Id<"tasks">;
@@ -14,10 +15,37 @@ export function CrownEvaluation({ taskId }: CrownEvaluationProps) {
     api.crown.getCrownEvaluation, 
     isFakeConvexId(taskId) ? "skip" : { taskId }
   );
-  const crownedRun = useQuery(
-    api.crown.getCrownedRun, 
+  
+  // Get task runs
+  const taskRuns = useQuery(
+    api.taskRuns.getByTask, 
     isFakeConvexId(taskId) ? "skip" : { taskId }
   );
+  
+  // Derive crowned run from taskRuns
+  const crownedRun = useMemo(() => {
+    if (!taskRuns) return null;
+    
+    // Define task run type with nested structure
+    interface TaskRunWithChildren extends Doc<"taskRuns"> {
+      children?: TaskRunWithChildren[];
+    }
+    
+    // Flatten all task runs (including children)
+    const allRuns: TaskRunWithChildren[] = [];
+    const flattenRuns = (runs: TaskRunWithChildren[]) => {
+      runs.forEach((run) => {
+        allRuns.push(run);
+        if (run.children) {
+          flattenRuns(run.children);
+        }
+      });
+    };
+    flattenRuns(taskRuns);
+    
+    // Find the crowned run
+    return allRuns.find(run => run.isCrowned === true) || null;
+  }, [taskRuns]);
 
   if (!evaluation || !crownedRun) {
     return null;
