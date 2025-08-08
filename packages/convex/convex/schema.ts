@@ -17,6 +17,7 @@ export default defineSchema({
     text: v.string(),
     isCompleted: v.boolean(),
     isArchived: v.optional(v.boolean()),
+    isFailed: v.optional(v.boolean()), // Task failed if all runs failed
     description: v.optional(v.string()),
     projectFullName: v.optional(v.string()),
     branch: v.optional(v.string()),

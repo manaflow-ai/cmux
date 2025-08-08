@@ -126,11 +126,13 @@ export const TaskItem = memo(function TaskItem({ task }: TaskItemProps) {
       <div
         className={clsx(
           "w-1.5 h-1.5 rounded-full flex-shrink-0",
-          task.isCompleted
-            ? "bg-green-500"
-            : isOptimisticUpdate
-              ? "bg-yellow-500"
-              : "bg-blue-500 animate-pulse"
+          task.isFailed
+            ? "bg-red-500"
+            : task.isCompleted
+              ? "bg-green-500"
+              : isOptimisticUpdate
+                ? "bg-yellow-500"
+                : "bg-blue-500 animate-pulse"
         )}
       />
       <div className="flex-1 min-w-0 flex items-center gap-2">

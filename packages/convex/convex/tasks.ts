@@ -253,6 +253,18 @@ export const checkAndEvaluateCrown = mutation({
       return null;
     }
 
+    // Check if ALL runs failed
+    const allFailed = taskRuns.every((run) => run.status === "failed");
+    if (allFailed) {
+      console.log(`[CheckCrown] All runs failed for task ${args.taskId}`);
+      await ctx.db.patch(args.taskId, {
+        isCompleted: true,
+        isFailed: true,
+        updatedAt: Date.now(),
+      });
+      return null;
+    }
+
     // Check if we've already evaluated crown for this task
     const existingEvaluation = await ctx.db
       .query("crownEvaluations")
@@ -278,6 +290,13 @@ export const checkAndEvaluateCrown = mutation({
     const completedRuns = taskRuns.filter(run => run.status === "completed");
     if (completedRuns.length < 2) {
       console.log(`[CheckCrown] Not enough completed runs (${completedRuns.length} < 2)`);
+      // If we have some completed runs but not enough for crown evaluation, still mark as completed
+      if (completedRuns.length > 0) {
+        await ctx.db.patch(args.taskId, {
+          isCompleted: true,
+          updatedAt: Date.now(),
+        });
+      }
       return null;
     }
 

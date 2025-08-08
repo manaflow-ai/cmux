@@ -93,7 +93,9 @@ export function TaskTree({ task, level = 0 }: TaskTreeProps) {
         </button>
 
         <div className="mr-2 flex-shrink-0">
-          {task.isCompleted ? (
+          {task.isFailed ? (
+            <XCircle className="w-3 h-3 text-red-500" />
+          ) : task.isCompleted ? (
             <CheckCircle className="w-3 h-3 text-green-500" />
           ) : (
             <Circle className="w-3 h-3 text-neutral-400 animate-pulse" />
