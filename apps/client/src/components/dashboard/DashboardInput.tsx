@@ -38,6 +38,7 @@ export const DashboardInput = memo(
     ref
   ) {
     const internalApiRef = useRef<EditorApi | null>(null);
+    const hasFocusedRef = useRef(false);
 
     useImperativeHandle(ref, () => ({
       getContent: () => internalApiRef.current?.getContent() || { text: "", images: [] },
@@ -68,6 +69,15 @@ export const DashboardInput = memo(
 
     const handleEditorReady = (api: EditorApi) => {
       internalApiRef.current = api;
+      
+      // Autofocus the editor when it's ready (only once)
+      if (!hasFocusedRef.current) {
+        // Small delay to ensure the editor is fully rendered
+        setTimeout(() => {
+          api.focus?.();
+          hasFocusedRef.current = true;
+        }, 100);
+      }
     };
 
     return (
