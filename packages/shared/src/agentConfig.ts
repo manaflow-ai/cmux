@@ -34,6 +34,7 @@ import {
   OPENCODE_QWEN3_CODER_CONFIG,
   OPENCODE_SONNET_CONFIG,
 } from "./providers/opencode/configs.js";
+import { QWEN_CODE_CONFIG } from "./providers/qwen/configs.js";
 
 export { checkDockerStatus } from "./providers/common/check-docker.js";
 export { checkGitStatus } from "./providers/common/check-git.js";
@@ -83,4 +84,5 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   CURSOR_GPT_5_CONFIG,
   CURSOR_SONNET_4_CONFIG,
   CURSOR_SONNET_4_THINKING_CONFIG,
+  QWEN_CODE_CONFIG,
 ];

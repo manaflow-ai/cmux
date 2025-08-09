@@ -35,3 +35,9 @@ export const CURSOR_API_KEY: AgentConfigApiKey = {
   displayName: "Cursor API Key",
   description: "API key for Cursor agent",
 };
+
+export const QWEN_API_KEY: AgentConfigApiKey = {
+  envVar: "QWEN_API_KEY",
+  displayName: "Qwen API Key",
+  description: "API key for Qwen code models",
+};
