@@ -5,6 +5,7 @@ import path from "path";
 import { RepositoryManager } from "./repositoryManager.js";
 import { convex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
+import { generateBetterNames, ensureUniqueBranchName } from "@cmux/shared/nameGeneration";
 
 interface WorkspaceResult {
   success: boolean;
@@ -49,6 +50,7 @@ function extractRepoName(repoUrl: string): string {
 export async function getWorktreePath(args: {
   repoUrl: string;
   branch?: string;
+  taskDescription?: string;
 }): Promise<WorktreeInfo> {
   // Check for custom worktree path setting
   const settings = await convex.query(api.workspaceSettings.get);
@@ -69,9 +71,39 @@ export async function getWorktreePath(args: {
   const originPath = path.join(projectPath, "origin");
   const worktreesPath = path.join(projectPath, "worktrees");
 
-  const timestamp = Date.now();
-  const branchName = `cmux-${timestamp}`;
-  const worktreePath = path.join(worktreesPath, branchName);
+  let branchName: string;
+  let folderName: string;
+
+  // Use smart naming if enabled and task description is provided
+  if (args.taskDescription && (settings?.enableSmartNaming !== false)) {
+    try {
+      serverLogger.info(`[Workspace] Generating smart names for task: ${args.taskDescription.substring(0, 100)}...`);
+      
+      const generatedNames = await generateBetterNames(args.taskDescription, {
+        prefix: settings?.branchPrefix || "",
+        maxLength: 50,
+        includeTimestamp: true,
+      });
+
+      folderName = generatedNames.folderName;
+      branchName = generatedNames.branchName;
+      
+      serverLogger.info(`[Workspace] Generated names - Folder: ${folderName}, Branch: ${branchName}`);
+    } catch (error) {
+      serverLogger.warn(`[Workspace] Failed to generate smart names, falling back to timestamp:`, error);
+      // Fallback to timestamp-based naming
+      const timestamp = Date.now();
+      branchName = `${settings?.branchPrefix || ""}cmux-${timestamp}`;
+      folderName = `cmux-${timestamp}`;
+    }
+  } else {
+    // Use timestamp-based naming (existing behavior)
+    const timestamp = Date.now();
+    branchName = `${settings?.branchPrefix || ""}cmux-${timestamp}`;
+    folderName = `cmux-${timestamp}`;
+  }
+
+  const worktreePath = path.join(worktreesPath, folderName);
 
   // For consistency, still return appDataPath even if not used for custom paths
   const appDataPath = await getAppDataPath();
@@ -143,6 +175,29 @@ export async function setupProjectWorkspace(args: {
 
     // Get the default branch if not specified
     const baseBranch = args.branch || await repoManager.getDefaultBranch(worktreeInfo.originPath);
+
+    // Ensure branch name is unique
+    try {
+      const uniqueBranchName = await ensureUniqueBranchName(
+        worktreeInfo.branchName,
+        worktreeInfo.originPath,
+        ""
+      );
+      
+      if (uniqueBranchName !== worktreeInfo.branchName) {
+        serverLogger.info(`[Workspace] Branch name adjusted for uniqueness: ${worktreeInfo.branchName} -> ${uniqueBranchName}`);
+        worktreeInfo.branchName = uniqueBranchName;
+        // Also update the worktree path to match
+        const folderName = path.basename(worktreeInfo.worktreePath);
+        if (folderName.includes(worktreeInfo.branchName.split('-').slice(-1)[0])) {
+          // If folder name contains the timestamp/suffix, update it too
+          worktreeInfo.worktreePath = path.join(path.dirname(worktreeInfo.worktreePath), uniqueBranchName);
+        }
+      }
+    } catch (error) {
+      serverLogger.warn(`[Workspace] Failed to check branch uniqueness:`, error);
+      // Continue with original name if check fails
+    }
 
     // Create the worktree
     await repoManager.createWorktree(

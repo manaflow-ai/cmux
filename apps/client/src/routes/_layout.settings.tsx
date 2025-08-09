@@ -27,6 +27,10 @@ function SettingsComponent() {
   const [isSaving, setIsSaving] = useState(false);
   const [worktreePath, setWorktreePath] = useState<string>("");
   const [originalWorktreePath, setOriginalWorktreePath] = useState<string>("");
+  const [branchPrefix, setBranchPrefix] = useState<string>("");
+  const [originalBranchPrefix, setOriginalBranchPrefix] = useState<string>("");
+  const [enableSmartNaming, setEnableSmartNaming] = useState<boolean>(true);
+  const [originalEnableSmartNaming, setOriginalEnableSmartNaming] = useState<boolean>(true);
   const [isSaveButtonVisible, setIsSaveButtonVisible] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveButtonRef = useRef<HTMLDivElement>(null);
@@ -77,11 +81,15 @@ function SettingsComponent() {
     }
   }, [existingKeys]);
 
-  // Initialize worktree path when data loads
+  // Initialize workspace settings when data loads
   useEffect(() => {
     if (workspaceSettings !== undefined) {
       setWorktreePath(workspaceSettings?.worktreePath || "");
       setOriginalWorktreePath(workspaceSettings?.worktreePath || "");
+      setBranchPrefix(workspaceSettings?.branchPrefix || "");
+      setOriginalBranchPrefix(workspaceSettings?.branchPrefix || "");
+      setEnableSmartNaming(workspaceSettings?.enableSmartNaming !== false);
+      setOriginalEnableSmartNaming(workspaceSettings?.enableSmartNaming !== false);
     }
   }, [workspaceSettings]);
 
@@ -157,8 +165,10 @@ function SettingsComponent() {
 
   // Check if there are any changes
   const hasChanges = () => {
-    // Check worktree path changes
+    // Check workspace settings changes
     const worktreePathChanged = worktreePath !== originalWorktreePath;
+    const branchPrefixChanged = branchPrefix !== originalBranchPrefix;
+    const enableSmartNamingChanged = enableSmartNaming !== originalEnableSmartNaming;
 
     // Check GitHub token changes
     const githubTokenChanged = 
@@ -178,7 +188,7 @@ function SettingsComponent() {
       JSON.stringify(containerSettingsData) !==
         JSON.stringify(originalContainerSettingsData);
 
-    return worktreePathChanged || githubTokenChanged || apiKeysChanged || containerSettingsChanged;
+    return worktreePathChanged || branchPrefixChanged || enableSmartNamingChanged || githubTokenChanged || apiKeysChanged || containerSettingsChanged;
   };
 
   const saveApiKeys = async () => {
@@ -188,12 +198,16 @@ function SettingsComponent() {
       let savedCount = 0;
       let deletedCount = 0;
 
-      // Save worktree path if changed
-      if (worktreePath !== originalWorktreePath) {
+      // Save workspace settings if changed
+      if (worktreePath !== originalWorktreePath || branchPrefix !== originalBranchPrefix || enableSmartNaming !== originalEnableSmartNaming) {
         await convex.mutation(api.workspaceSettings.update, {
           worktreePath: worktreePath || undefined,
+          branchPrefix: branchPrefix || undefined,
+          enableSmartNaming: enableSmartNaming,
         });
         setOriginalWorktreePath(worktreePath);
+        setOriginalBranchPrefix(branchPrefix);
+        setOriginalEnableSmartNaming(enableSmartNaming);
       }
 
       // Save container settings if changed
@@ -366,6 +380,68 @@ function SettingsComponent() {
                   />
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
                     Default location: ~/cmux
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Branch Naming */}
+            <div className="bg-white dark:bg-neutral-950 rounded-lg border border-neutral-200 dark:border-neutral-800">
+              <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
+                <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  Branch Naming
+                </h2>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                        Smart Naming
+                      </label>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                        Use AI to generate descriptive branch and folder names based on task description
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEnableSmartNaming(!enableSmartNaming)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        enableSmartNaming
+                          ? "bg-blue-600 dark:bg-blue-500"
+                          : "bg-neutral-200 dark:bg-neutral-700"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          enableSmartNaming ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                
+                <div>
+                  <label
+                    htmlFor="branchPrefix"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Branch Prefix
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    Optional prefix for all branch names (e.g. "feature/", "task/", or your initials)
+                  </p>
+                  <input
+                    type="text"
+                    id="branchPrefix"
+                    value={branchPrefix}
+                    onChange={(e) => setBranchPrefix(e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+                    placeholder="feature/"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
+                    Example: "feature/" will create branches like "feature/add-login-form-1234567890"
                   </p>
                 </div>
               </div>

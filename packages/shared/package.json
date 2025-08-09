@@ -28,6 +28,10 @@
     "./convex-ready": {
       "import": "./src/convex-ready.ts",
       "types": "./src/convex-ready.ts"
+    },
+    "./nameGeneration": {
+      "import": "./src/nameGeneration.ts",
+      "types": "./src/nameGeneration.ts"
     }
   },
   "dependencies": {

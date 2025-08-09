@@ -137,6 +137,8 @@ export default defineSchema({
   }).index("by_envVar", ["envVar"]),
   workspaceSettings: defineTable({
     worktreePath: v.optional(v.string()), // Custom path for git worktrees
+    branchPrefix: v.optional(v.string()), // Prefix for branch names (default: no prefix)
+    enableSmartNaming: v.optional(v.boolean()), // Enable LLM-based name generation (default: true)
     createdAt: v.number(),
     updatedAt: v.number(),
   }),
