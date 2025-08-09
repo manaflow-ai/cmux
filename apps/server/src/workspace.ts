@@ -5,6 +5,7 @@ import path from "path";
 import { RepositoryManager } from "./repositoryManager.js";
 import { convex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
+import { suggestBranchAndWorktree } from "./utils/llmNamer.js";
 
 interface WorkspaceResult {
   success: boolean;
@@ -69,9 +70,26 @@ export async function getWorktreePath(args: {
   const originPath = path.join(projectPath, "origin");
   const worktreesPath = path.join(projectPath, "worktrees");
 
-  const timestamp = Date.now();
-  const branchName = `cmux-${timestamp}`;
-  const worktreePath = path.join(worktreesPath, branchName);
+  // Try to generate a nice branch/worktree name using available cheap LLM
+  let branchName: string;
+  let worktreePath: string;
+  try {
+    const suggestion = await suggestBranchAndWorktree({
+      taskDescription: "", // when called from here, description may be unknown; fallback handled in utility
+      repoName,
+      worktreesPath,
+      branchPrefix: settings?.branchPrefix ?? undefined,
+      originPath,
+    });
+    branchName = suggestion.branchName;
+    worktreePath = suggestion.worktreePath;
+  } catch (e) {
+    // Fallback to timestamp-based name
+    const timestamp = Date.now();
+    branchName = `cmux-${timestamp}`;
+    worktreePath = path.join(worktreesPath, branchName);
+    serverLogger.warn("llmNamer failed, falling back to timestamp name:", e);
+  }
 
   // For consistency, still return appDataPath even if not used for custom paths
   const appDataPath = await getAppDataPath();

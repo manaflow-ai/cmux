@@ -15,6 +15,7 @@ import { VSCodeInstance } from "./vscode/VSCodeInstance.js";
 import { getWorktreePath, setupProjectWorkspace } from "./workspace.js";
 import { evaluateCrownWithClaudeCode } from "./crownEvaluator.js";
 import { captureGitDiffViaTerminal } from "./gitDiffCapture.js";
+import { suggestBranchAndWorktree } from "./utils/llmNamer.js";
 
 /**
  * Sanitize a string to be used as a tmux session name.
@@ -1076,11 +1077,27 @@ export async function spawnAgent(
         branch: options.branch,
       });
 
-      // Append agent name to branch name to make it unique
-      // Replace forward slashes in agent name with hyphens for filesystem compatibility
-      const sanitizedAgentName = agent.name.replace(/\//g, '-');
-      worktreeInfo.branchName = `${worktreeInfo.branchName}-${sanitizedAgentName}`;
-      worktreeInfo.worktreePath = `${worktreeInfo.worktreePath}-${sanitizedAgentName}`;
+      // Generate a better branch/worktree name using task description and ensure uniqueness
+      try {
+        // Fetch branch prefix from settings
+        const settings = await convex.query(api.workspaceSettings.get);
+        const { branchName, worktreePath } = await suggestBranchAndWorktree({
+          taskDescription: options.taskDescription,
+          repoName: worktreeInfo.repoName,
+          worktreesPath: worktreeInfo.worktreesPath,
+          branchPrefix: settings?.branchPrefix ?? undefined,
+          originPath: worktreeInfo.originPath,
+        });
+        // Append agent name at the end to separate agents on the same task
+        const sanitizedAgentName = agent.name.replace(/\//g, '-');
+        worktreeInfo.branchName = `${branchName}-${sanitizedAgentName}`;
+        worktreeInfo.worktreePath = `${worktreePath}-${sanitizedAgentName}`;
+      } catch (e) {
+        // Fallback to the existing scheme
+        const sanitizedAgentName = agent.name.replace(/\//g, '-');
+        worktreeInfo.branchName = `${worktreeInfo.branchName}-${sanitizedAgentName}`;
+        worktreeInfo.worktreePath = `${worktreeInfo.worktreePath}-${sanitizedAgentName}`;
+      }
 
       // Setup workspace
       const workspaceResult = await setupProjectWorkspace({
