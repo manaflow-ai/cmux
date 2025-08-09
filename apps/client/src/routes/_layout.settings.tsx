@@ -27,6 +27,8 @@ function SettingsComponent() {
   const [isSaving, setIsSaving] = useState(false);
   const [worktreePath, setWorktreePath] = useState<string>("");
   const [originalWorktreePath, setOriginalWorktreePath] = useState<string>("");
+  const [branchPrefix, setBranchPrefix] = useState<string>("");
+  const [originalBranchPrefix, setOriginalBranchPrefix] = useState<string>("");
   const [isSaveButtonVisible, setIsSaveButtonVisible] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveButtonRef = useRef<HTMLDivElement>(null);
@@ -77,11 +79,13 @@ function SettingsComponent() {
     }
   }, [existingKeys]);
 
-  // Initialize worktree path when data loads
+  // Initialize worktree path and branch prefix when data loads
   useEffect(() => {
     if (workspaceSettings !== undefined) {
       setWorktreePath(workspaceSettings?.worktreePath || "");
       setOriginalWorktreePath(workspaceSettings?.worktreePath || "");
+      setBranchPrefix(workspaceSettings?.branchPrefix || "");
+      setOriginalBranchPrefix(workspaceSettings?.branchPrefix || "");
     }
   }, [workspaceSettings]);
 
@@ -157,8 +161,9 @@ function SettingsComponent() {
 
   // Check if there are any changes
   const hasChanges = () => {
-    // Check worktree path changes
+    // Check worktree path and branch prefix changes
     const worktreePathChanged = worktreePath !== originalWorktreePath;
+    const branchPrefixChanged = branchPrefix !== originalBranchPrefix;
 
     // Check GitHub token changes
     const githubTokenChanged = 
@@ -178,7 +183,7 @@ function SettingsComponent() {
       JSON.stringify(containerSettingsData) !==
         JSON.stringify(originalContainerSettingsData);
 
-    return worktreePathChanged || githubTokenChanged || apiKeysChanged || containerSettingsChanged;
+    return worktreePathChanged || branchPrefixChanged || githubTokenChanged || apiKeysChanged || containerSettingsChanged;
   };
 
   const saveApiKeys = async () => {
@@ -188,12 +193,14 @@ function SettingsComponent() {
       let savedCount = 0;
       let deletedCount = 0;
 
-      // Save worktree path if changed
-      if (worktreePath !== originalWorktreePath) {
+      // Save worktree path and branch prefix if changed
+      if (worktreePath !== originalWorktreePath || branchPrefix !== originalBranchPrefix) {
         await convex.mutation(api.workspaceSettings.update, {
           worktreePath: worktreePath || undefined,
+          branchPrefix: branchPrefix || undefined,
         });
         setOriginalWorktreePath(worktreePath);
+        setOriginalBranchPrefix(branchPrefix);
       }
 
       // Save container settings if changed
@@ -366,6 +373,41 @@ function SettingsComponent() {
                   />
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
                     Default location: ~/cmux
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Branch Naming */}
+            <div className="bg-white dark:bg-neutral-950 rounded-lg border border-neutral-200 dark:border-neutral-800">
+              <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
+                <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  Branch Naming
+                </h2>
+              </div>
+              <div className="p-4">
+                <div>
+                  <label
+                    htmlFor="branchPrefix"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Branch Prefix
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    Optional prefix for generated branch names. Leave empty for no prefix.
+                    Branch names will be automatically generated using AI to be descriptive.
+                  </p>
+                  <input
+                    type="text"
+                    id="branchPrefix"
+                    value={branchPrefix}
+                    onChange={(e) => setBranchPrefix(e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+                    placeholder="feature"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
+                    Example: feature-add-user-auth-abc12345
                   </p>
                 </div>
               </div>

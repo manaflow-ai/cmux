@@ -5,6 +5,7 @@ import path from "path";
 import { RepositoryManager } from "./repositoryManager.js";
 import { convex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
+import { generateLLMNames, ensureUniqueBranchName } from "./utils/llmNaming.js";
 
 interface WorkspaceResult {
   success: boolean;
@@ -49,6 +50,9 @@ function extractRepoName(repoUrl: string): string {
 export async function getWorktreePath(args: {
   repoUrl: string;
   branch?: string;
+  taskDescription?: string;
+  taskId?: string;
+  apiKeys?: Record<string, string>;
 }): Promise<WorktreeInfo> {
   // Check for custom worktree path setting
   const settings = await convex.query(api.workspaceSettings.get);
@@ -69,9 +73,35 @@ export async function getWorktreePath(args: {
   const originPath = path.join(projectPath, "origin");
   const worktreesPath = path.join(projectPath, "worktrees");
 
-  const timestamp = Date.now();
-  const branchName = `cmux-${timestamp}`;
-  const worktreePath = path.join(worktreesPath, branchName);
+  let branchName: string;
+  let folderName: string;
+
+  // Generate names using LLM if task information is provided
+  if (args.taskDescription && args.taskId && args.apiKeys) {
+    try {
+      const llmNames = await generateLLMNames({
+        taskDescription: args.taskDescription,
+        taskId: args.taskId,
+        repoUrl: args.repoUrl,
+        apiKeys: args.apiKeys,
+        branchPrefix: settings?.branchPrefix
+      });
+      branchName = llmNames.branchName;
+      folderName = llmNames.folderName;
+    } catch (error) {
+      serverLogger.error("Failed to generate LLM names, falling back to timestamp:", error);
+      const timestamp = Date.now();
+      branchName = `cmux-${timestamp}`;
+      folderName = branchName;
+    }
+  } else {
+    // Fallback to timestamp-based naming
+    const timestamp = Date.now();
+    branchName = `cmux-${timestamp}`;
+    folderName = branchName;
+  }
+
+  const worktreePath = path.join(worktreesPath, folderName);
 
   // For consistency, still return appDataPath even if not used for custom paths
   const appDataPath = await getAppDataPath();
@@ -143,6 +173,18 @@ export async function setupProjectWorkspace(args: {
 
     // Get the default branch if not specified
     const baseBranch = args.branch || await repoManager.getDefaultBranch(worktreeInfo.originPath);
+
+    // Ensure branch name is unique
+    const uniqueBranchName = await ensureUniqueBranchName(
+      worktreeInfo.originPath,
+      worktreeInfo.branchName
+    );
+
+    // Update worktreeInfo with unique branch name if it changed
+    if (uniqueBranchName !== worktreeInfo.branchName) {
+      serverLogger.info(`Branch name changed for uniqueness: ${worktreeInfo.branchName} -> ${uniqueBranchName}`);
+      worktreeInfo.branchName = uniqueBranchName;
+    }
 
     // Create the worktree
     await repoManager.createWorktree(

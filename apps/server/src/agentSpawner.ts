@@ -52,21 +52,40 @@ async function performAutoCommitAndPush(
       `[AgentSpawner] Task run ${taskRunId} crowned status: ${isCrowned}`
     );
 
-    // Create a unique branch name for this task run
-    // Include a sanitized version of the task description for better clarity
-    const sanitizedTaskDesc = taskDescription
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "") // Remove special chars except spaces and hyphens
-      .trim()
-      .split(/\s+/) // Split by whitespace
-      .slice(0, 5) // Take first 5 words max
-      .join("-")
-      .substring(0, 30); // Limit length
+    // Try to generate a better branch name using LLM
+    let branchName: string;
+    try {
+      const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+      const settings = await convex.query(api.workspaceSettings.get);
+      
+      const { generateLLMNames } = await import("./utils/llmNaming.js");
+      const llmNames = await generateLLMNames({
+        taskDescription,
+        taskId: taskRunId,
+        apiKeys,
+        branchPrefix: settings?.branchPrefix
+      });
+      
+      // Use the LLM-generated branch name but append agent name for clarity
+      const sanitizedAgentName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, "-");
+      branchName = `${llmNames.branchName}-${sanitizedAgentName}`;
+    } catch (error) {
+      serverLogger.warn("Failed to generate LLM branch name for commit, using fallback:", error);
+      // Fallback to original logic
+      const sanitizedTaskDesc = taskDescription
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .trim()
+        .split(/\s+/)
+        .slice(0, 5)
+        .join("-")
+        .substring(0, 30);
 
-    const branchName = `cmux-${agent.name}-${sanitizedTaskDesc}-${taskRunId}`
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/--+/g, "-");
+      branchName = `cmux-${agent.name}-${sanitizedTaskDesc}-${taskRunId}`
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/--+/g, "-");
+    }
 
     // Use task description as the main commit message
     // Truncate if too long (git has limits on commit message length)
@@ -1074,13 +1093,21 @@ export async function spawnAgent(
       const worktreeInfo = await getWorktreePath({
         repoUrl: options.repoUrl,
         branch: options.branch,
+        taskDescription: options.taskDescription,
+        taskId: taskRunId,
+        apiKeys
       });
 
       // Append agent name to branch name to make it unique
       // Replace forward slashes in agent name with hyphens for filesystem compatibility
       const sanitizedAgentName = agent.name.replace(/\//g, '-');
       worktreeInfo.branchName = `${worktreeInfo.branchName}-${sanitizedAgentName}`;
-      worktreeInfo.worktreePath = `${worktreeInfo.worktreePath}-${sanitizedAgentName}`;
+      // Keep the LLM-generated folder name but append agent name for uniqueness
+      const folderBaseName = path.basename(worktreeInfo.worktreePath);
+      worktreeInfo.worktreePath = path.join(
+        path.dirname(worktreeInfo.worktreePath),
+        `${folderBaseName}-${sanitizedAgentName}`
+      );
 
       // Setup workspace
       const workspaceResult = await setupProjectWorkspace({

@@ -83,20 +83,40 @@ async function createPullRequestForWinner(
 ---
 🤖 Generated with [cmux](https://github.com/lawrencecchen/cmux)`;
     
-    // Create sanitized branch name
-    const sanitizedTaskDesc = (task.text || "task")
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .trim()
-      .split(/\s+/)
-      .slice(0, 5)
-      .join("-")
-      .substring(0, 30);
-    
-    const branchName = `cmux-${agentName}-${sanitizedTaskDesc}-${taskRunId}`
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/--+/g, "-");
+    // Try to generate a better branch name using LLM
+    let branchName: string;
+    try {
+      const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+      const settings = await convex.query(api.workspaceSettings.get);
+      
+      const { generateLLMNames } = await import("./utils/llmNaming.js");
+      const llmNames = await generateLLMNames({
+        taskDescription: task.text || "task",
+        taskId: taskRunId,
+        apiKeys,
+        branchPrefix: settings?.branchPrefix
+      });
+      
+      // Use the LLM-generated branch name but append agent name for clarity
+      const sanitizedAgentName = agentName.toLowerCase().replace(/[^a-z0-9]/g, "-");
+      branchName = `${llmNames.branchName}-${sanitizedAgentName}`;
+    } catch (error) {
+      serverLogger.warn("Failed to generate LLM branch name for crown, using fallback:", error);
+      // Fallback to original logic
+      const sanitizedTaskDesc = (task.text || "task")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .trim()
+        .split(/\s+/)
+        .slice(0, 5)
+        .join("-")
+        .substring(0, 30);
+      
+      branchName = `cmux-${agentName}-${sanitizedTaskDesc}-${taskRunId}`
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/--+/g, "-");
+    }
     
     // Create commit message
     const truncatedDescription = prTitle.length > 72
