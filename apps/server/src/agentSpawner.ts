@@ -1074,6 +1074,7 @@ export async function spawnAgent(
       const worktreeInfo = await getWorktreePath({
         repoUrl: options.repoUrl,
         branch: options.branch,
+        taskDescription: options.taskDescription,
       });
 
       // Append agent name to branch name to make it unique

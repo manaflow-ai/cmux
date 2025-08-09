@@ -27,6 +27,8 @@ function SettingsComponent() {
   const [isSaving, setIsSaving] = useState(false);
   const [worktreePath, setWorktreePath] = useState<string>("");
   const [originalWorktreePath, setOriginalWorktreePath] = useState<string>("");
+  const [branchPrefix, setBranchPrefix] = useState<string>("");
+  const [originalBranchPrefix, setOriginalBranchPrefix] = useState<string>("");
   const [isSaveButtonVisible, setIsSaveButtonVisible] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveButtonRef = useRef<HTMLDivElement>(null);
@@ -82,6 +84,8 @@ function SettingsComponent() {
     if (workspaceSettings !== undefined) {
       setWorktreePath(workspaceSettings?.worktreePath || "");
       setOriginalWorktreePath(workspaceSettings?.worktreePath || "");
+      setBranchPrefix(workspaceSettings?.branchPrefix || "");
+      setOriginalBranchPrefix(workspaceSettings?.branchPrefix || "");
     }
   }, [workspaceSettings]);
 
@@ -159,6 +163,7 @@ function SettingsComponent() {
   const hasChanges = () => {
     // Check worktree path changes
     const worktreePathChanged = worktreePath !== originalWorktreePath;
+    const branchPrefixChanged = branchPrefix !== originalBranchPrefix;
 
     // Check GitHub token changes
     const githubTokenChanged = 
@@ -178,7 +183,7 @@ function SettingsComponent() {
       JSON.stringify(containerSettingsData) !==
         JSON.stringify(originalContainerSettingsData);
 
-    return worktreePathChanged || githubTokenChanged || apiKeysChanged || containerSettingsChanged;
+    return worktreePathChanged || branchPrefixChanged || githubTokenChanged || apiKeysChanged || containerSettingsChanged;
   };
 
   const saveApiKeys = async () => {
@@ -189,11 +194,13 @@ function SettingsComponent() {
       let deletedCount = 0;
 
       // Save worktree path if changed
-      if (worktreePath !== originalWorktreePath) {
+      if (worktreePath !== originalWorktreePath || branchPrefix !== originalBranchPrefix) {
         await convex.mutation(api.workspaceSettings.update, {
           worktreePath: worktreePath || undefined,
+          branchPrefix: branchPrefix || undefined,
         });
         setOriginalWorktreePath(worktreePath);
+        setOriginalBranchPrefix(branchPrefix);
       }
 
       // Save container settings if changed
@@ -343,7 +350,7 @@ function SettingsComponent() {
                   Worktree Location
                 </h2>
               </div>
-              <div className="p-4">
+              <div className="p-4 space-y-4">
                 <div>
                   <label
                     htmlFor="worktreePath"
@@ -364,9 +371,26 @@ function SettingsComponent() {
                     placeholder="~/my-custom-worktrees"
                     autoComplete="off"
                   />
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
-                    Default location: ~/cmux
+                </div>
+                <div>
+                  <label
+                    htmlFor="branchPrefix"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Branch name prefix (optional)
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    This prefix will be added to generated branch names, e.g. "{branchPrefix || ""}feature-improve-login". Leave empty for no prefix.
                   </p>
+                  <input
+                    type="text"
+                    id="branchPrefix"
+                    value={branchPrefix}
+                    onChange={(e) => setBranchPrefix(e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+                    placeholder="(none)"
+                    autoComplete="off"
+                  />
                 </div>
               </div>
             </div>
