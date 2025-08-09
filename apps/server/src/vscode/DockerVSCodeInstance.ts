@@ -14,20 +14,7 @@ import {
   type VSCodeInstanceInfo,
 } from "./VSCodeInstance.js";
 
-// Global port mapping storage
-export interface ContainerMapping {
-  containerName: string;
-  instanceId: string;
-  ports: {
-    vscode: string;
-    worker: string;
-    extension?: string;
-  };
-  status: "starting" | "running" | "stopped";
-  workspacePath?: string;
-}
-
-const containerMappings = new Map<string, ContainerMapping>();
+// No longer using global containerMappings - using Docker daemon and Convex as source of truth
 
 export class DockerVSCodeInstance extends VSCodeInstance {
   private containerName: string;
@@ -203,14 +190,15 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     // Check if image exists and pull if missing
     await this.ensureImageExists(docker);
 
-    // Set initial mapping status
-    containerMappings.set(this.containerName, {
-      containerName: this.containerName,
-      instanceId: this.instanceId,
-      ports: { vscode: "", worker: "" },
-      status: "starting",
-      workspacePath: this.config.workspacePath,
-    });
+    // Update status in Convex to indicate container is starting
+    try {
+      await convex.mutation(api.taskRuns.updateVSCodeStatus, {
+        id: this.taskRunId as Id<"taskRuns">,
+        status: "starting",
+      });
+    } catch (error) {
+      dockerLogger.error("Failed to update VSCode starting status in Convex:", error);
+    }
 
     // Stop and remove any existing container with same name
     try {
@@ -432,16 +420,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       throw new Error("Failed to get worker port mapping for port 39377");
     }
 
-    // Update the container mapping with actual ports
-    const mapping = containerMappings.get(this.containerName);
-    if (mapping) {
-      mapping.ports = {
-        vscode: vscodePort,
-        worker: workerPort,
-        extension: extensionPort,
-      };
-      mapping.status = "running";
-    }
+    // Ports are already updated in Convex below, no need for local mapping
 
     // Update VSCode ports in Convex
     try {
@@ -540,11 +519,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
             `Container ${this.containerName} exited with status:`,
             data
           );
-          // Update mapping status to stopped
-          const mapping = containerMappings.get(this.containerName);
-          if (mapping) {
-            mapping.status = "stopped";
-          }
+          // Status is updated in Convex below, no need for local mapping
 
           // Update VSCode status in Convex
           try {
@@ -589,11 +564,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
   async stop(): Promise<void> {
     dockerLogger.info(`Stopping Docker VSCode instance: ${this.containerName}`);
 
-    // Update mapping status
-    const mapping = containerMappings.get(this.containerName);
-    if (mapping) {
-      mapping.status = "stopped";
-    }
+    // Status is updated in Convex below, no need for local mapping
 
     // Update VSCode status in Convex
     try {
@@ -710,9 +681,24 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     return this.containerName;
   }
 
-  getPorts(): { vscode?: string; worker?: string; extension?: string } | null {
-    const mapping = containerMappings.get(this.containerName);
-    return mapping?.ports || null;
+  async getPorts(): Promise<{ vscode?: string; worker?: string; extension?: string } | null> {
+    try {
+      const vscodePort = await this.getActualPort("39378");
+      const workerPort = await this.getActualPort("39377");
+      const extensionPort = await this.getActualPort("39376");
+      
+      if (vscodePort || workerPort || extensionPort) {
+        return {
+          vscode: vscodePort || undefined,
+          worker: workerPort || undefined,
+          extension: extensionPort || undefined,
+        };
+      }
+      return null;
+    } catch (error) {
+      dockerLogger.error(`Failed to get ports for container ${this.containerName}:`, error);
+      return null;
+    }
   }
 
   private filterGitConfig(gitConfigContent: string): string {
