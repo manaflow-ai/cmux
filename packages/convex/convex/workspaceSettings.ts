@@ -12,6 +12,8 @@ export const get = query({
 export const update = mutation({
   args: {
     worktreePath: v.optional(v.string()),
+    branchPrefix: v.optional(v.string()),
+    enableAINaming: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("workspaceSettings").first();
@@ -20,11 +22,15 @@ export const update = mutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         worktreePath: args.worktreePath,
+        branchPrefix: args.branchPrefix,
+        enableAINaming: args.enableAINaming,
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("workspaceSettings", {
         worktreePath: args.worktreePath,
+        branchPrefix: args.branchPrefix,
+        enableAINaming: args.enableAINaming,
         createdAt: now,
         updatedAt: now,
       });

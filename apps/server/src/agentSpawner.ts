@@ -7,6 +7,7 @@ import {
   type EnvironmentResult,
 } from "@cmux/shared/agentConfig";
 import type { WorkerCreateTerminal } from "@cmux/shared/worker-schemas";
+import path from "path";
 import { convex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance.js";
@@ -1074,13 +1075,29 @@ export async function spawnAgent(
       const worktreeInfo = await getWorktreePath({
         repoUrl: options.repoUrl,
         branch: options.branch,
+        taskDescription: options.taskDescription,
       });
 
       // Append agent name to branch name to make it unique
       // Replace forward slashes in agent name with hyphens for filesystem compatibility
       const sanitizedAgentName = agent.name.replace(/\//g, '-');
-      worktreeInfo.branchName = `${worktreeInfo.branchName}-${sanitizedAgentName}`;
-      worktreeInfo.worktreePath = `${worktreeInfo.worktreePath}-${sanitizedAgentName}`;
+      
+      // If the branch name was AI-generated, we need to handle uniqueness differently
+      // to preserve the meaningful name while ensuring uniqueness per agent
+      if (worktreeInfo.branchName.includes('-')) {
+        // For AI-generated names, insert agent name before the timestamp suffix
+        const parts = worktreeInfo.branchName.split('-');
+        const timestampSuffix = parts[parts.length - 1];
+        const nameWithoutTimestamp = parts.slice(0, -1).join('-');
+        worktreeInfo.branchName = `${nameWithoutTimestamp}-${sanitizedAgentName}-${timestampSuffix}`;
+      } else {
+        // For fallback timestamp names, append agent name
+        worktreeInfo.branchName = `${worktreeInfo.branchName}-${sanitizedAgentName}`;
+      }
+      
+      // Update both the folder name and the complete worktree path
+      worktreeInfo.folderName = `${worktreeInfo.folderName}-${sanitizedAgentName}`;
+      worktreeInfo.worktreePath = path.join(worktreeInfo.worktreesPath, worktreeInfo.folderName);
 
       // Setup workspace
       const workspaceResult = await setupProjectWorkspace({

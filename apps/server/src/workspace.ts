@@ -5,6 +5,7 @@ import path from "path";
 import { RepositoryManager } from "./repositoryManager.js";
 import { convex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
+import { generateAIName } from "@cmux/shared/aiNamingService";
 
 interface WorkspaceResult {
   success: boolean;
@@ -19,6 +20,7 @@ interface WorktreeInfo {
   originPath: string;
   worktreesPath: string;
   branchName: string;
+  folderName: string;
   worktreePath: string;
   repoName: string;
 }
@@ -49,6 +51,7 @@ function extractRepoName(repoUrl: string): string {
 export async function getWorktreePath(args: {
   repoUrl: string;
   branch?: string;
+  taskDescription?: string;
 }): Promise<WorktreeInfo> {
   // Check for custom worktree path setting
   const settings = await convex.query(api.workspaceSettings.get);
@@ -69,9 +72,61 @@ export async function getWorktreePath(args: {
   const originPath = path.join(projectPath, "origin");
   const worktreesPath = path.join(projectPath, "worktrees");
 
-  const timestamp = Date.now();
-  const branchName = `cmux-${timestamp}`;
-  const worktreePath = path.join(worktreesPath, branchName);
+  // Generate branch name using AI if enabled and task description is available
+  let branchName: string;
+  
+  if (settings?.enableAINaming !== false && args.taskDescription) {
+    try {
+      // Get API keys for AI naming
+      const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+      const prefix = settings?.branchPrefix || "";
+      
+      branchName = await generateAIName(
+        args.taskDescription, 
+        "branch", 
+        apiKeys, 
+        prefix
+      );
+      
+      serverLogger.info(`Generated AI branch name: ${branchName} for task: ${args.taskDescription.substring(0, 50)}...`);
+    } catch (error) {
+      serverLogger.warn(`Failed to generate AI branch name, falling back to timestamp: ${error}`);
+      const timestamp = Date.now();
+      branchName = `cmux-${timestamp}`;
+    }
+  } else {
+    // Fallback to timestamp-based naming
+    const timestamp = Date.now();
+    branchName = `cmux-${timestamp}`;
+  }
+
+  // Generate folder name using same logic as branch name if AI naming is enabled
+  let folderName: string;
+  
+  if (settings?.enableAINaming !== false && args.taskDescription) {
+    try {
+      // Get API keys for AI naming (reuse from previous call if available)
+      const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+      const prefix = settings?.branchPrefix || "";
+      
+      folderName = await generateAIName(
+        args.taskDescription, 
+        "folder", 
+        apiKeys, 
+        prefix
+      );
+      
+      serverLogger.info(`Generated AI folder name: ${folderName}`);
+    } catch (error) {
+      serverLogger.warn(`Failed to generate AI folder name, using branch name: ${error}`);
+      folderName = branchName;
+    }
+  } else {
+    // Use branch name as folder name for consistency
+    folderName = branchName;
+  }
+  
+  const worktreePath = path.join(worktreesPath, folderName);
 
   // For consistency, still return appDataPath even if not used for custom paths
   const appDataPath = await getAppDataPath();
@@ -83,6 +138,7 @@ export async function getWorktreePath(args: {
     originPath,
     worktreesPath,
     branchName,
+    folderName,
     worktreePath,
     repoName,
   };

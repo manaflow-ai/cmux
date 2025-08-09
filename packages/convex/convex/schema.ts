@@ -137,6 +137,8 @@ export default defineSchema({
   }).index("by_envVar", ["envVar"]),
   workspaceSettings: defineTable({
     worktreePath: v.optional(v.string()), // Custom path for git worktrees
+    branchPrefix: v.optional(v.string()), // Prefix for AI-generated branch names (empty by default)
+    enableAINaming: v.optional(v.boolean()), // Whether to use AI for naming (default true)
     createdAt: v.number(),
     updatedAt: v.number(),
   }),
