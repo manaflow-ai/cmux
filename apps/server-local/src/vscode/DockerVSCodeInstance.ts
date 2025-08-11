@@ -1,5 +1,5 @@
-import { api } from "@cmux/convex/api";
-import type { Id } from "@cmux/convex/dataModel";
+import { api } from "@cmux/convex-local/api";
+import type { Id } from "@cmux/convex-local/dataModel";
 import { getShortId } from "@cmux/shared";
 import Docker from "dockerode";
 import * as os from "os";

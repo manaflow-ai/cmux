@@ -12,7 +12,7 @@ Use pnpm to install dependencies and run the project.
 # Backend
 
 This project uses Convex.
-Schemas are defined in packages/convex/convex/schema.ts.
+Schemas are defined in packages/convex-local/convex/schema.ts.
 
 # Frontend
 
@@ -32,7 +32,7 @@ When running `./scripts/dev.sh`, service logs are written to `logs/{type}.log`:
 
 - docker-compose.log: Output from `.devcontainer` Docker Compose stack. Hidden from console by default; use `--show-compose-logs` to stream.
 - convex-dev.log: Convex development server (`bunx convex dev`).
-- server.log: Backend dev server in `apps/server`.
+- server.log: Backend dev server in `apps/server-local`.
 - client.log: Frontend dev server in `apps/client` (Vite).
 
 Log files are overwritten on each run. Use `tail -f logs/<file>` to follow live output.

@@ -1,4 +1,4 @@
-import { api } from "@cmux/convex/api";
+import { api } from "@cmux/convex-local/api";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";

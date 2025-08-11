@@ -1,4 +1,4 @@
-import { api } from "@cmux/convex/api";
+import { api } from "@cmux/convex-local/api";
 import { ghApi } from "../ghApi.js";
 import { convex } from "./convexClient.js";
 import { serverLogger } from "./fileLogger.js";

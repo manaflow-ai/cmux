@@ -1,5 +1,5 @@
 {
-  "name": "@cmux/server",
+  "name": "@cmux/server-local",
   "version": "1.0.0",
   "description": "cmux server",
   "main": "src/index.ts",
@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@cmux/convex": "workspace:*",
+    "@cmux/convex-local": "workspace:*",
     "@cmux/shared": "workspace:*",
     "@daytonaio/sdk": "^0.22.1",
     "@xterm/addon-serialize": "^0.13.0",

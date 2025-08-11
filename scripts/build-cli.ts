@@ -31,7 +31,7 @@ try {
 }
 
 log("Checking if convex-local-backend is available...");
-// If missing packages/convex/convex-local-backend, download it from github
+// If missing packages/convex-local/convex-local-backend, download it from github
 // https://github.com/get-convex/convex-backend/releases/download/precompiled-2025-07-28-76e3da1/convex-local-backend-aarch64-apple-darwin.zip
 // const convexZipUrl =
 //   "https://github.com/get-convex/convex-backend/releases/download/precompiled-2025-07-14-19aed7a/convex-local-backend-aarch64-apple-darwin.zip";
@@ -139,12 +139,12 @@ if (!instance || !instance.ok) {
 log("Preparing convex deployment files...");
 
 // Copy necessary files for convex deployment
-await $`cp -r ./packages/convex/convex ./packages/cmux/src/convex/convex-bundle/`;
-await $`cp ./packages/convex/package.json ./packages/cmux/src/convex/convex-bundle/`;
-await $`cp ./packages/convex/tsconfig.json ./packages/cmux/src/convex/convex-bundle/`;
+await $`cp -r ./packages/convex-local/convex ./packages/cmux/src/convex/convex-bundle/`;
+await $`cp ./packages/convex-local/package.json ./packages/cmux/src/convex/convex-bundle/`;
+await $`cp ./packages/convex-local/tsconfig.json ./packages/cmux/src/convex/convex-bundle/`;
 
 // Create .env.local if it doesn't exist or copy it
-const envLocalPath = "./packages/convex/.env.local";
+const envLocalPath = "./packages/convex-local/.env.local";
 if (existsSync(envLocalPath)) {
   await $`cp ${envLocalPath} ./packages/cmux/src/convex/convex-bundle/`;
 } else {

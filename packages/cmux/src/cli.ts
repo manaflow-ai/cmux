@@ -1,4 +1,4 @@
-import { startServer } from "@cmux/server";
+import { startServer } from "@cmux/server-local";
 import { Command } from "commander";
 import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";

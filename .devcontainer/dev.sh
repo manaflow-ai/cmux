@@ -58,7 +58,7 @@ mkdir -p "$APP_DIR/logs"
 
 # Start convex dev (without backend since it's running in docker-compose)
 echo -e "${GREEN}Starting convex dev...${NC}"
-(cd packages/convex && \
+(cd packages/convex-local && \
   if [ -f "$HOME/.nvm/nvm.sh" ]; then \
     source $HOME/.nvm/nvm.sh && nvm use 18; \
   fi && \
@@ -71,7 +71,7 @@ sleep 5
 
 # Start the backend server
 echo -e "${GREEN}Starting backend server on port 9776...${NC}"
-(cd apps/server && VITE_CONVEX_URL=http://backend:3210 bun run dev 2>&1 | prefix_output "SERVER" "$YELLOW") &
+(cd apps/server-local && VITE_CONVEX_URL=http://backend:3210 bun run dev 2>&1 | prefix_output "SERVER" "$YELLOW") &
 SERVER_PID=$!
 
 # Start the frontend

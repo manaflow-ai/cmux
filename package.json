@@ -6,11 +6,11 @@
   "scripts": {
     "typecheck": "run-p typecheck:*",
     "typecheck:client": "cd apps/client && bun run typecheck",
-    "typecheck:server": "cd apps/server && bun run typecheck",
+    "typecheck:server-local": "cd apps/server-local && bun run typecheck",
     "typecheck:shared": "cd packages/shared && bun run typecheck",
     "typecheck:worker": "cd apps/worker && bun run typecheck",
     "typecheck:vscode-extension": "cd packages/vscode-extension && bun run typecheck",
-    "typecheck:convex": "cd packages/convex && bun run typecheck",
+    "typecheck:convex-local": "cd packages/convex-local && bun run typecheck",
     "typecheck:cmux": "cd packages/cmux && bun run typecheck",
     "typecheck:preview-service": "cd apps/preview-service && bun run typecheck",
     "generate-routes": "cd packages/client && bun run generate-routes"

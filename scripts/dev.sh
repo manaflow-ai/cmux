@@ -149,7 +149,7 @@ check_process() {
 DOCKER_COMPOSE_PID=$!
 check_process $DOCKER_COMPOSE_PID "Docker Compose"
 
-(cd packages/convex && exec bash -c 'trap "kill -9 0" EXIT; source ~/.nvm/nvm.sh && bunx convex dev --env-file .env.convex 2>&1 | tee "$LOG_DIR/convex-dev.log" | prefix_output "CONVEX-DEV" "$BLUE"') &
+(cd packages/convex-local && exec bash -c 'trap "kill -9 0" EXIT; source ~/.nvm/nvm.sh && bunx convex dev --env-file .env.convex 2>&1 | tee "$LOG_DIR/convex-dev.log" | prefix_output "CONVEX-DEV" "$BLUE"') &
 CONVEX_DEV_PID=$!
 check_process $CONVEX_DEV_PID "Convex Dev"
 CONVEX_PID=$CONVEX_DEV_PID
@@ -157,7 +157,7 @@ CONVEX_PID=$CONVEX_DEV_PID
 
 # Start the backend server
 echo -e "${GREEN}Starting backend server on port 9776...${NC}"
-(cd apps/server && exec bash -c 'trap "kill -9 0" EXIT; bun run dev 2>&1 | tee "$LOG_DIR/server.log" | prefix_output "SERVER" "$YELLOW"') &
+(cd apps/server-local && exec bash -c 'trap "kill -9 0" EXIT; bun run dev 2>&1 | tee "$LOG_DIR/server.log" | prefix_output "SERVER" "$YELLOW"') &
 SERVER_PID=$!
 check_process $SERVER_PID "Backend Server"
 

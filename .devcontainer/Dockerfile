@@ -67,7 +67,7 @@ RUN . "$NVM_DIR/nvm.sh" && nvm use 24 && npm install -g npm@latest
 ENV SHELL=/bin/zsh
 
 # Create node_modules directories with correct permissions
-RUN mkdir -p /workspaces/cmux/node_modules /workspaces/cmux/packages/convex/node_modules && \
+RUN mkdir -p /workspaces/cmux/node_modules /workspaces/cmux/packages/convex-local/node_modules && \
     chown -R node:node /workspaces/cmux
 
 # Copy and set entrypoint

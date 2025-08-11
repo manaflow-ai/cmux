@@ -46,7 +46,7 @@
   "author": "Manaflow",
   "license": "MIT",
   "dependencies": {
-    "@cmux/server": "workspace:*",
+    "@cmux/server-local": "workspace:*",
     "@cmux/shared": "workspace:*",
     "commander": "^11.1.0",
     "convex": "1.26.0-alpha.6",

@@ -1,5 +1,5 @@
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "./packages/convex/convex/_generated/api.js";
+import { api } from "./packages/convex-local/convex/_generated/api.js";
 
 async function debugTaskRun() {
   const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL || "https://feeble-chipmunk-966.convex.cloud");
