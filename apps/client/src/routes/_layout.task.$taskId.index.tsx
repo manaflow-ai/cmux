@@ -8,7 +8,8 @@ import { type Id } from "@cmux/convex/dataModel";
 import { convexQuery } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_layout/task/$taskId/")({
   component: TaskDetailPage,
@@ -119,6 +120,32 @@ function TaskDetailPage() {
     return () => clearInterval(interval);
   }, [selectedRun?._id]);
 
+  // Check PR status on mount and periodically
+  useEffect(() => {
+    if (!selectedRun || !socket) return;
+
+    const checkPRStatus = () => {
+      socket.emit(
+        "check-pr-status",
+        { taskRunId: selectedRun._id },
+        (response: { success: boolean; haspr?: boolean; url?: string; merged?: boolean; error?: string }) => {
+          if (response.success) {
+            console.log("PR status:", response);
+            // The PR status will be updated in the database and reflected via useQuery
+          }
+        }
+      );
+    };
+
+    // Check on mount
+    checkPRStatus();
+
+    // Check periodically (every 15 seconds)
+    const interval = setInterval(checkPRStatus, 15000);
+
+    return () => clearInterval(interval);
+  }, [selectedRun?._id, socket]);
+
   // Stabilize diffs per-run to avoid cross-run flashes
   const [stableDiffsByRun, setStableDiffsByRun] = useState<
     Record<string, typeof diffs>
@@ -158,10 +185,53 @@ function TaskDetailPage() {
     }
   }, [isCheckingDiffs, diffs, selectedRun?._id]);
 
-  const handleMerge = (method: MergeMethod) => {
-    // TODO: Implement merge logic
-    console.log("Merging with method:", method);
-  };
+  const [isMerging, setIsMerging] = useState(false);
+  
+  const handleMerge = useCallback(
+    (method: MergeMethod) => {
+      if (!socket || !selectedRun?._id) {
+        toast.error("Unable to merge", {
+          description: "Socket connection not available",
+        });
+        return;
+      }
+
+      // Check if already merged
+      if (selectedRun.pullRequestMerged) {
+        toast.info("Already merged", {
+          description: "This pull request has already been merged",
+        });
+        return;
+      }
+
+      // Check if PR exists
+      if (!selectedRun.pullRequestUrl || selectedRun.pullRequestUrl === "pending") {
+        toast.error("No pull request", {
+          description: "Please create a pull request first by clicking 'Open PR'",
+        });
+        return;
+      }
+
+      setIsMerging(true);
+      socket.emit(
+        "github-merge-pr",
+        { taskRunId: selectedRun._id, mergeMethod: method },
+        (response: { success: boolean; message?: string; error?: string }) => {
+          setIsMerging(false);
+          if (response.success) {
+            toast.success("Pull request merged!", {
+              description: response.message,
+            });
+          } else {
+            toast.error("Failed to merge", {
+              description: response.error || "Unknown error occurred",
+            });
+          }
+        }
+      );
+    },
+    [socket, selectedRun]
+  );
 
   const hasAnyDiffs = !!(
     (selectedRun?._id ? stableDiffsByRun[selectedRun._id as string] : diffs) ||
@@ -181,6 +251,7 @@ function TaskDetailPage() {
             isCreatingPr={isCreatingPr}
             setIsCreatingPr={setIsCreatingPr}
             onMerge={handleMerge}
+            isMerging={isMerging}
             totalAdditions={diffControls?.totalAdditions}
             totalDeletions={diffControls?.totalDeletions}
             hasAnyDiffs={hasAnyDiffs}
@@ -208,6 +279,7 @@ function TaskDetailPage() {
               }
               isLoading={!diffs && !!selectedRun}
               taskRunId={selectedRun?._id}
+              isMerged={selectedRun?.pullRequestMerged}
               key={selectedRun?._id}
               onControlsChange={(c) => setDiffControls(c)}
             />

@@ -656,7 +656,7 @@ export async function startServer({
       }
     });
 
-    // Create a draft PR for a crowned run: commits, pushes, then creates a draft PR
+    // Create a PR for a crowned run: commits, pushes, then creates a PR (ready for review, not draft)
     socket.on("github-create-draft-pr", async (data, callback) => {
       try {
         const { taskRunId } = GitHubCreateDraftPrSchema.parse(data);
@@ -665,11 +665,20 @@ export async function startServer({
         const { run, task, worktreePath, branchName, baseBranch } =
           await ensureRunWorktreeAndBranch(taskRunId as any);
 
-        // Get GitHub token from keychain/Convex
+        // Get GitHub token from keychain/Convex with fallback to system credentials
         const githubToken = await getGitHubTokenFromKeychain(convex);
         if (!githubToken) {
-          callback({ success: false, error: "GitHub token is not configured" });
-          return;
+          // Try to get from gh CLI as fallback
+          try {
+            const { stdout: ghToken } = await execAsync('gh auth token 2>/dev/null');
+            if (!ghToken.trim()) {
+              callback({ success: false, error: "GitHub token is not configured. Please run 'gh auth login' or configure a token in settings." });
+              return;
+            }
+          } catch {
+            callback({ success: false, error: "GitHub token is not configured. Please run 'gh auth login' or configure a token in settings." });
+            return;
+          }
         }
 
         // Create PR title/body and commit message using stored task title when available
@@ -682,6 +691,63 @@ export async function startServer({
         // Ensure on branch, commit, push, and create draft PR using local filesystem
         const cwd = worktreePath;
         let prUrl: string | undefined;
+
+        // Check if PR already exists for this branch
+        try {
+          const { stdout: prListOutput } = await execAsync(
+            `gh pr list --head ${branchName} --json number,url,state,isDraft --limit 1`,
+            {
+              cwd,
+              env: { ...process.env, GH_TOKEN: githubToken || undefined },
+            }
+          );
+          const existingPRs = JSON.parse(prListOutput || '[]');
+          if (existingPRs.length > 0) {
+            const existingPR = existingPRs[0];
+            prUrl = existingPR.url;
+            
+            // If it's a draft PR, convert it to ready
+            if (existingPR.isDraft) {
+              try {
+                await execAsync(
+                  `gh pr ready ${existingPR.number}`,
+                  {
+                    cwd,
+                    env: { ...process.env, GH_TOKEN: githubToken || undefined },
+                  }
+                );
+                serverLogger.info(`[PR] Converted draft PR #${existingPR.number} to ready for review`);
+              } catch (e) {
+                serverLogger.warn(`[PR] Failed to convert draft PR to ready: ${e}`);
+              }
+            }
+            
+            // Update database with PR URL and draft status (now false since we converted it)
+            if (prUrl) {
+              await convex.mutation(api.taskRuns.updatePullRequestUrl, {
+                id: run._id as any,
+                pullRequestUrl: prUrl,
+                isDraft: false, // No longer a draft
+              });
+            }
+            
+            // Check if PR is merged
+            if (existingPR.state === "MERGED") {
+              await convex.mutation(api.taskRuns.updatePullRequestMergeStatus, {
+                id: run._id as any,
+                merged: true,
+                mergeMethod: "unknown",
+              });
+            }
+            
+            serverLogger.info(`[PR] Found existing PR #${existingPR.number} for branch ${branchName}`);
+            callback({ success: true, url: prUrl });
+            return;
+          }
+        } catch (e) {
+          // No existing PR found, continue to create new one
+          serverLogger.info(`[DraftPR] No existing PR found for branch ${branchName}, will create new one`);
+        }
 
         // 1) Fetch base (optional but helpful)
         try {
@@ -813,7 +879,7 @@ export async function startServer({
           return;
         }
 
-        // 6) Create draft PR
+        // 6) Create PR (ready for review, not draft)
         try {
           // Write body to a temp file to preserve Markdown formatting
           const tmpBodyPath = path.join(
@@ -822,19 +888,19 @@ export async function startServer({
           );
           await fs.writeFile(tmpBodyPath, body, "utf8");
 
-          const { stdout, stderr } = await execAsync(
-            `gh pr create --draft --title ${JSON.stringify(
+          const { stdout } = await execAsync(
+            `gh pr create --title ${JSON.stringify(
               truncatedTitle
             )} --body-file ${JSON.stringify(tmpBodyPath)} --head ${JSON.stringify(
               branchName
             )} --base ${JSON.stringify(baseBranch)}`,
             {
               cwd,
-              env: { ...process.env, GH_TOKEN: githubToken },
+              env: { ...process.env, GH_TOKEN: githubToken || undefined },
               maxBuffer: 10 * 1024 * 1024,
             }
           );
-          const out = (stdout || stderr || "").trim();
+          const out = (stdout || "").trim();
           const match = out.match(/https:\/\/github\.com\/[^\s]+/);
           prUrl = match ? match[0] : out;
           // Clean up temp file
@@ -849,10 +915,10 @@ export async function startServer({
           };
           const msg =
             err?.message || err?.stderr || err?.stdout || "unknown error";
-          serverLogger.error(`[DraftPR] Failed at 'Create draft PR': ${msg}`);
+          serverLogger.error(`[PR] Failed at 'Create PR': ${msg}`);
           callback({
             success: false,
-            error: `Failed at 'Create draft PR': ${msg}`,
+            error: `Failed at 'Create PR': ${msg}`,
           });
           return;
         }
@@ -861,13 +927,316 @@ export async function startServer({
           await convex.mutation(api.taskRuns.updatePullRequestUrl, {
             id: run._id as any,
             pullRequestUrl: prUrl,
-            isDraft: true,
+            isDraft: false, // Not a draft anymore
           });
+          serverLogger.info(`[PR] Created PR: ${prUrl} for branch: ${branchName}`);
         }
 
         callback({ success: true, url: prUrl });
       } catch (error) {
-        serverLogger.error("Error creating draft PR:", error);
+        serverLogger.error("Error creating PR:", error);
+        callback({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    socket.on("github-merge-pr", async (data: { taskRunId: string; mergeMethod: "squash" | "rebase" | "merge" }, callback) => {
+      try {
+        // 1) Fetch the task run
+        const run = await convex.query(api.taskRuns.getById, {
+          id: data.taskRunId as any,
+        });
+        if (!run) {
+          callback({ success: false, error: "Task run not found" });
+          return;
+        }
+
+        // Check if already merged
+        if (run.pullRequestMerged) {
+          callback({ success: false, error: "Pull request already merged" });
+          return;
+        }
+
+        // Check if PR exists
+        if (!run.pullRequestUrl || run.pullRequestUrl === "pending") {
+          callback({ success: false, error: "No pull request URL found" });
+          return;
+        }
+
+        // Extract owner/repo and PR number from URL
+        const prUrlMatch = run.pullRequestUrl.match(/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+        if (!prUrlMatch) {
+          callback({ success: false, error: "Invalid pull request URL format" });
+          return;
+        }
+        const [, owner, repo, prNumber] = prUrlMatch;
+
+        // 2) Get GitHub token with fallback to system credentials
+        let githubToken = await getGitHubTokenFromKeychain(convex);
+        if (!githubToken) {
+          // Try to get from gh CLI as fallback
+          try {
+            const { stdout: ghToken } = await execAsync('gh auth token 2>/dev/null');
+            githubToken = ghToken.trim();
+            if (!githubToken) {
+              callback({ success: false, error: "GitHub token not configured. Please run 'gh auth login' or configure a token in settings." });
+              return;
+            }
+          } catch {
+            callback({ success: false, error: "GitHub token not configured. Please run 'gh auth login' or configure a token in settings." });
+            return;
+          }
+        }
+
+        // 3) Check PR status using gh CLI
+        const cwd = run.worktreePath || process.cwd();
+        try {
+          const { stdout: prStatus } = await execAsync(
+            `gh pr view ${prNumber} --json state,mergeable,mergeStateStatus --repo ${owner}/${repo}`,
+            {
+              cwd,
+              env: { ...process.env, GH_TOKEN: githubToken },
+            }
+          );
+          
+          const prInfo = JSON.parse(prStatus);
+          
+          // Check if PR is already merged
+          if (prInfo.state === "MERGED") {
+            // Update the database to reflect this
+            await convex.mutation(api.taskRuns.updatePullRequestMergeStatus, {
+              id: run._id as any,
+              merged: true,
+              mergeMethod: "unknown", // We don't know the method used
+            });
+            callback({ success: false, error: "Pull request is already merged" });
+            return;
+          }
+
+          // Check if PR is closed
+          if (prInfo.state === "CLOSED") {
+            callback({ success: false, error: "Pull request is closed" });
+            return;
+          }
+
+          // Check if PR is mergeable
+          if (prInfo.mergeable === "CONFLICTING") {
+            callback({ success: false, error: "Pull request has conflicts that must be resolved" });
+            return;
+          }
+
+          if (prInfo.mergeStateStatus !== "CLEAN" && prInfo.mergeStateStatus !== "UNSTABLE") {
+            callback({ success: false, error: `Pull request is not ready to merge: ${prInfo.mergeStateStatus}` });
+            return;
+          }
+        } catch (error) {
+          serverLogger.error("Error checking PR status:", error);
+          callback({ success: false, error: "Failed to check pull request status" });
+          return;
+        }
+
+        // 4) Merge the PR
+        try {
+          const mergeFlag = data.mergeMethod === "squash" ? "--squash" :
+                           data.mergeMethod === "rebase" ? "--rebase" :
+                           "--merge";
+
+          const { stdout, stderr } = await execAsync(
+            `gh pr merge ${prNumber} ${mergeFlag} --repo ${owner}/${repo}`,
+            {
+              cwd,
+              env: { ...process.env, GH_TOKEN: githubToken },
+            }
+          );
+
+          serverLogger.info(`[MergePR] Successfully merged PR #${prNumber} with method: ${data.mergeMethod}`);
+          
+          // 5) Update the database
+          await convex.mutation(api.taskRuns.updatePullRequestMergeStatus, {
+            id: run._id as any,
+            merged: true,
+            mergeMethod: data.mergeMethod,
+          });
+
+          callback({ success: true, message: `Successfully merged PR #${prNumber}` });
+        } catch (error: any) {
+          const errorMessage = error?.stderr || error?.stdout || error?.message || "Unknown error";
+          serverLogger.error(`[MergePR] Failed to merge PR #${prNumber}:`, errorMessage);
+          
+          // Check if it was actually merged (sometimes gh cli returns error even on success)
+          try {
+            const { stdout: checkStatus } = await execAsync(
+              `gh pr view ${prNumber} --json state --repo ${owner}/${repo}`,
+              {
+                cwd,
+                env: { ...process.env, GH_TOKEN: githubToken || undefined },
+              }
+            );
+            const checkInfo = JSON.parse(checkStatus);
+            if (checkInfo.state === "MERGED") {
+              // It was actually merged
+              await convex.mutation(api.taskRuns.updatePullRequestMergeStatus, {
+                id: run._id as any,
+                merged: true,
+                mergeMethod: data.mergeMethod,
+              });
+              callback({ success: true, message: `Successfully merged PR #${prNumber}` });
+              return;
+            }
+          } catch {}
+          
+          callback({ success: false, error: `Failed to merge PR: ${errorMessage}` });
+        }
+      } catch (error) {
+        serverLogger.error("Error merging PR:", error);
+        callback({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    // Check PR status for a task run
+    socket.on("check-pr-status", async (data: { taskRunId: string }, callback) => {
+      try {
+        // Get the task run
+        const run = await convex.query(api.taskRuns.getById, {
+          id: data.taskRunId as any,
+        });
+        if (!run) {
+          callback({ success: false, error: "Task run not found" });
+          return;
+        }
+
+        // If no PR URL, check if one exists
+        if (!run.pullRequestUrl || run.pullRequestUrl === "pending") {
+          // Check if PR exists for this branch
+          if (!run.newBranch) {
+            callback({ success: true, haspr: false });
+            return;
+          }
+
+          // Get GitHub token
+          let githubToken = await getGitHubTokenFromKeychain(convex);
+          if (!githubToken) {
+            try {
+              const { stdout: ghToken } = await execAsync('gh auth token 2>/dev/null');
+              githubToken = ghToken.trim();
+            } catch {}
+          }
+
+          if (!githubToken) {
+            callback({ success: false, error: "GitHub token not configured" });
+            return;
+          }
+
+          const cwd = run.worktreePath || process.cwd();
+          try {
+            const { stdout: prListOutput } = await execAsync(
+              `gh pr list --head ${run.newBranch} --json number,url,state,isDraft --limit 1`,
+              {
+                cwd,
+                env: { ...process.env, GH_TOKEN: githubToken || undefined },
+              }
+            );
+            const existingPRs = JSON.parse(prListOutput || '[]');
+            if (existingPRs.length > 0) {
+              const existingPR = existingPRs[0];
+              
+              // If it's a draft PR, convert it to ready
+              if (existingPR.isDraft) {
+                try {
+                  await execAsync(
+                    `gh pr ready ${existingPR.number}`,
+                    {
+                      cwd,
+                      env: { ...process.env, GH_TOKEN: githubToken || undefined },
+                    }
+                  );
+                  serverLogger.info(`[PR] Converted draft PR #${existingPR.number} to ready for review`);
+                } catch (e) {
+                  serverLogger.warn(`[PR] Failed to convert draft PR to ready: ${e}`);
+                }
+              }
+              
+              // Update database with PR info
+              await convex.mutation(api.taskRuns.updatePullRequestUrl, {
+                id: run._id as any,
+                pullRequestUrl: existingPR.url,
+                isDraft: false, // Should be ready now
+              });
+              
+              // Check if merged
+              if (existingPR.state === "MERGED") {
+                await convex.mutation(api.taskRuns.updatePullRequestMergeStatus, {
+                  id: run._id as any,
+                  merged: true,
+                  mergeMethod: "unknown",
+                });
+                callback({ success: true, haspr: true, url: existingPR.url, merged: true });
+              } else {
+                callback({ success: true, haspr: true, url: existingPR.url, merged: false });
+              }
+              return;
+            }
+          } catch (e) {
+            // No PR found
+          }
+          callback({ success: true, haspr: false });
+          return;
+        }
+
+        // PR URL exists, check if it's merged
+        const prUrlMatch = run.pullRequestUrl.match(/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+        if (!prUrlMatch) {
+          callback({ success: true, haspr: true, url: run.pullRequestUrl, merged: run.pullRequestMerged || false });
+          return;
+        }
+        const [, owner, repo, prNumber] = prUrlMatch;
+
+        // Get GitHub token
+        let githubToken = await getGitHubTokenFromKeychain(convex);
+        if (!githubToken) {
+          try {
+            const { stdout: ghToken } = await execAsync('gh auth token 2>/dev/null');
+            githubToken = ghToken.trim();
+          } catch {}
+        }
+
+        if (githubToken) {
+          const cwd = run.worktreePath || process.cwd();
+          try {
+            const { stdout: prStatus } = await execAsync(
+              `gh pr view ${prNumber} --json state --repo ${owner}/${repo}`,
+              {
+                cwd,
+                env: { ...process.env, GH_TOKEN: githubToken },
+              }
+            );
+            const prInfo = JSON.parse(prStatus);
+            if (prInfo.state === "MERGED" && !run.pullRequestMerged) {
+              // Update database if newly merged
+              await convex.mutation(api.taskRuns.updatePullRequestMergeStatus, {
+                id: run._id as any,
+                merged: true,
+                mergeMethod: "unknown",
+              });
+              callback({ success: true, haspr: true, url: run.pullRequestUrl, merged: true });
+              return;
+            }
+            callback({ success: true, haspr: true, url: run.pullRequestUrl, merged: prInfo.state === "MERGED" });
+          } catch (e) {
+            // Can't check status, return what we have in DB
+            callback({ success: true, haspr: true, url: run.pullRequestUrl, merged: run.pullRequestMerged || false });
+          }
+        } else {
+          // No token, return what we have in DB
+          callback({ success: true, haspr: true, url: run.pullRequestUrl, merged: run.pullRequestMerged || false });
+        }
+      } catch (error) {
+        serverLogger.error("Error checking PR status:", error);
         callback({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error",

@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, GitMerge, GitPullRequest } from "lucide-react";
+import { Check, ChevronDown, GitMerge, GitPullRequest, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 export type MergeMethod = "squash" | "rebase" | "merge";
@@ -10,6 +10,9 @@ interface MergeButtonProps {
   isOpen?: boolean;
   className?: string;
   disabled?: boolean;
+  isMerged?: boolean;
+  isMerging?: boolean;
+  isCreatingPr?: boolean;
 }
 
 const mergeOptions = [
@@ -38,6 +41,9 @@ export function MergeButton({
   isOpen = false,
   className,
   disabled = false,
+  isMerged = false,
+  isMerging = false,
+  isCreatingPr = false,
 }: MergeButtonProps) {
   const [selectedMethod, setSelectedMethod] = useState<MergeMethod>("squash");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -47,8 +53,58 @@ export function MergeButton({
   );
 
   const handleMerge = () => {
-    onMerge(selectedMethod);
+    if (!isMerged && !isMerging) {
+      onMerge(selectedMethod);
+    }
   };
+
+  // Show merged state with GitHub's purple color
+  if (isMerged) {
+    return (
+      <button
+        disabled
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 bg-[#8250df] dark:bg-[#6639ba] text-white rounded cursor-not-allowed font-medium text-xs select-none whitespace-nowrap",
+          className
+        )}
+      >
+        <Check className="w-3.5 h-3.5" />
+        Merged
+      </button>
+    );
+  }
+
+  // Show creating PR state
+  if (isCreatingPr) {
+    return (
+      <button
+        disabled
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 bg-neutral-500 text-white rounded cursor-not-allowed font-medium text-xs select-none whitespace-nowrap",
+          className
+        )}
+      >
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Opening PR...
+      </button>
+    );
+  }
+
+  // Show merging state with GitHub's green color
+  if (isMerging) {
+    return (
+      <button
+        disabled
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 bg-[#1f883d] dark:bg-[#238636] text-white rounded cursor-not-allowed font-medium text-xs select-none whitespace-nowrap",
+          className
+        )}
+      >
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Merging...
+      </button>
+    );
+  }
 
   if (!isOpen) {
     return (

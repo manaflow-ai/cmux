@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Doc } from "@cmux/convex/dataModel";
 import { DiffEditor } from "@monaco-editor/react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   FileCode,
@@ -26,6 +27,7 @@ interface GitDiffViewerProps {
   diffs: Doc<"gitDiffs">[];
   isLoading?: boolean;
   taskRunId?: string;
+  isMerged?: boolean;
   onControlsChange?: (controls: {
     expandAll: () => void;
     collapseAll: () => void;
@@ -80,6 +82,7 @@ export function GitDiffViewer({
   diffs,
   isLoading,
   taskRunId,
+  isMerged,
   onControlsChange,
 }: GitDiffViewerProps) {
   const { theme } = useTheme();
@@ -252,6 +255,15 @@ export function GitDiffViewer({
       key={taskRunId ?? "_"}
       className="grow bg-neutral-50 dark:bg-neutral-950"
     >
+      {/* Merged banner */}
+      {isMerged && (
+        <div className="bg-purple-50 dark:bg-purple-950/30 border-b border-purple-200 dark:border-purple-800 px-3 py-2">
+          <div className="flex items-center gap-2 text-xs text-purple-700 dark:text-purple-300">
+            <Check className="w-3.5 h-3.5" />
+            <span className="font-medium">This pull request has been merged</span>
+          </div>
+        </div>
+      )}
       {/* Diff sections */}
       <div className="">
         {fileGroups.map((file) => (
@@ -272,7 +284,7 @@ export function GitDiffViewer({
         {/* End-of-diff message */}
         <div className="px-3 py-6 text-center">
           <span className="text-xs text-neutral-500 dark:text-neutral-400 select-none">
-            You’ve reached the end of the diff — nice work ✨
+            You've reached the end of the diff — nice work ✨
           </span>
         </div>
       </div>

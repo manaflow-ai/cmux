@@ -28,6 +28,7 @@ interface TaskDetailHeaderProps {
   isCreatingPr: boolean;
   setIsCreatingPr: (v: boolean) => void;
   onMerge: (method: MergeMethod) => void;
+  isMerging?: boolean;
   totalAdditions?: number;
   totalDeletions?: number;
   hasAnyDiffs?: boolean;
@@ -43,6 +44,7 @@ export function TaskDetailHeader({
   isCreatingPr,
   setIsCreatingPr,
   onMerge,
+  isMerging,
   totalAdditions,
   totalDeletions,
   hasAnyDiffs,
@@ -80,10 +82,16 @@ export function TaskDetailHeader({
   };
 
   const handleMerge = (method: MergeMethod) => {
-    onMerge(method);
-    if (!prIsOpen) {
-      setPrIsOpen(true);
+    // Only merge if PR exists
+    if (!selectedRun?.pullRequestUrl || selectedRun.pullRequestUrl === "pending") {
+      toast.error("No pull request", {
+        description: "Please create a pull request first by clicking 'Open PR'",
+      });
+      return;
     }
+    // PR exists, proceed with merge
+    onMerge(method);
+    setPrIsOpen(true);
   };
 
   const handleViewPR = () => {
@@ -155,7 +163,10 @@ export function TaskDetailHeader({
           <MergeButton
             onMerge={handleMerge}
             isOpen={prIsOpen}
-            disabled={selectedRun?.status !== "completed" || !hasChanges}
+            disabled={selectedRun?.status !== "completed" || !hasChanges || isMerging || isCreatingPr}
+            isMerged={selectedRun?.pullRequestMerged}
+            isMerging={isMerging}
+            isCreatingPr={isCreatingPr}
           />
           {selectedRun?.pullRequestUrl &&
           selectedRun.pullRequestUrl !== "pending" ? (
@@ -175,7 +186,7 @@ export function TaskDetailHeader({
               disabled={isCreatingPr || !hasChanges}
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              {isCreatingPr ? "Creating draft PR..." : "Open draft PR"}
+              {isCreatingPr ? "Creating PR..." : "Open PR"}
             </button>
           )}
 

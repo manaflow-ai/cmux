@@ -27,6 +27,7 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     userId: v.optional(v.string()), // Link to user who created the task
     crownEvaluationError: v.optional(v.string()), // Error message if crown evaluation failed
+    hasMergedRun: v.optional(v.boolean()), // Whether this task has a merged task run
     images: v.optional(
       v.array(
         v.object({
@@ -91,6 +92,9 @@ export default defineSchema({
     crownReason: v.optional(v.string()), // LLM's reasoning for why this run was crowned
     pullRequestUrl: v.optional(v.string()), // URL of the created PR (only for crowned runs)
     pullRequestIsDraft: v.optional(v.boolean()), // Whether the PR is a draft
+    pullRequestMerged: v.optional(v.boolean()), // Whether the PR has been merged
+    pullRequestMergedAt: v.optional(v.number()), // Timestamp when PR was merged
+    pullRequestMergeMethod: v.optional(v.string()), // Method used to merge (squash, rebase, merge)
     diffsLastUpdated: v.optional(v.number()), // Timestamp when diffs were last fetched/updated
     // VSCode instance information
     vscode: v.optional(

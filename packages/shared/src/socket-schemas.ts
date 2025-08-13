@@ -224,6 +224,12 @@ export const GitHubCreateDraftPrSchema = z.object({
   taskRunId: z.string(),
 });
 
+// Merge PR input
+export const GitHubMergePrSchema = z.object({
+  taskRunId: z.string(),
+  mergeMethod: z.enum(["squash", "rebase", "merge"]),
+});
+
 // Provider status schemas
 export const ProviderStatusSchema = z.object({
   name: z.string(),
@@ -309,6 +315,7 @@ export type GitHubBranchesResponse = z.infer<
 export type GitHubReposResponse = z.infer<typeof GitHubReposResponseSchema>;
 export type GitHubAuthResponse = z.infer<typeof GitHubAuthResponseSchema>;
 export type GitHubCreateDraftPr = z.infer<typeof GitHubCreateDraftPrSchema>;
+export type GitHubMergePr = z.infer<typeof GitHubMergePrSchema>;
 export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
 export type DockerStatus = z.infer<typeof DockerStatusSchema>;
 export type GitStatus = z.infer<typeof GitStatusSchema>;
@@ -354,6 +361,16 @@ export interface ClientToServerEvents {
   "github-create-draft-pr": (
     data: GitHubCreateDraftPr,
     callback: (response: { success: boolean; url?: string; error?: string }) => void
+  ) => void;
+  // Merge a pull request for a given task run
+  "github-merge-pr": (
+    data: GitHubMergePr,
+    callback: (response: { success: boolean; message?: string; error?: string }) => void
+  ) => void;
+  // Check PR status for a task run
+  "check-pr-status": (
+    data: { taskRunId: string },
+    callback: (response: { success: boolean; haspr?: boolean; url?: string; merged?: boolean; error?: string }) => void
   ) => void;
   "check-provider-status": (
     callback: (response: ProviderStatusResponse) => void

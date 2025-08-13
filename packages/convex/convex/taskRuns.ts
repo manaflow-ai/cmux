@@ -194,8 +194,8 @@ export const updateWorktreePath = mutation({
   },
 });
 
-// Internal query to get a task run by ID
-export const getById = internalQuery({
+// Query to get a task run by ID
+export const getById = query({
   args: { id: v.id("taskRuns") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
@@ -506,6 +506,37 @@ export const updatePullRequestUrl = mutation({
       pullRequestIsDraft: args.isDraft,
       updatedAt: Date.now(),
     });
+  },
+});
+
+// Update pull request merge status
+export const updatePullRequestMergeStatus = mutation({
+  args: {
+    id: v.id("taskRuns"),
+    merged: v.boolean(),
+    mergeMethod: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const taskRun = await ctx.db.get(args.id);
+    if (!taskRun) {
+      throw new Error("Task run not found");
+    }
+
+    // Update the task run
+    await ctx.db.patch(args.id, {
+      pullRequestMerged: args.merged,
+      pullRequestMergedAt: args.merged ? Date.now() : undefined,
+      pullRequestMergeMethod: args.mergeMethod,
+      updatedAt: Date.now(),
+    });
+
+    // Update the task's hasMergedRun flag if this is being merged
+    if (args.merged) {
+      await ctx.db.patch(taskRun.taskId, {
+        hasMergedRun: true,
+        updatedAt: Date.now(),
+      });
+    }
   },
 });
 
