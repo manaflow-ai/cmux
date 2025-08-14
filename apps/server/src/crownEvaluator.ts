@@ -809,6 +809,18 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
     reason: jsonResponse.reason,
   });
 
+  // Pre-warm the worktree for faster PR creation
+  serverLogger.info(`[CrownEvaluator] Pre-warming worktree for winner ${winner.runId}`);
+  try {
+    const { ensureRunWorktreeAndBranch } = await import("./utils/ensureRunWorktree.js");
+    // Fire and forget - we don't wait for this to complete
+    ensureRunWorktreeAndBranch(winner.runId).catch((err) => {
+      serverLogger.warn(`[CrownEvaluator] Failed to pre-warm worktree: ${err.message}`);
+    });
+  } catch (err) {
+    serverLogger.warn(`[CrownEvaluator] Failed to import ensureRunWorktree: ${err}`);
+  }
+
   // Clear any error
   await convex.mutation(api.tasks.updateCrownError, {
     id: taskId,

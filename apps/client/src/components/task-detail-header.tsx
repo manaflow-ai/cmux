@@ -122,12 +122,19 @@ export function TaskDetailHeader({
       return;
     }
     setIsCreatingPr(true);
+    
+    // Show a loading toast immediately for better UX
+    const loadingToast = toast.loading("Creating draft PR...");
+    
     socket.emit(
       "github-create-draft-pr",
       { taskRunId: selectedRun._id as string },
       (resp: { success: boolean; url?: string; error?: string }) => {
         setIsCreatingPr(false);
+        toast.dismiss(loadingToast);
+        
         if (resp.success && resp.url) {
+          toast.success("Draft PR created!");
           window.open(resp.url, "_blank");
         } else if (resp.error) {
           console.error("Failed to create draft PR:", resp.error);

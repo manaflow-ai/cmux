@@ -859,16 +859,18 @@ export async function startServer({
       try {
         const { taskRunId } = GitHubCreateDraftPrSchema.parse(data);
 
-        // Ensure worktree exists and we are on the correct branch
-        const { run, task, worktreePath, branchName, baseBranch } =
-          await ensureRunWorktreeAndBranch(taskRunId as any);
+        // Start both operations in parallel for faster execution
+        const [worktreeResult, githubToken] = await Promise.all([
+          ensureRunWorktreeAndBranch(taskRunId as any),
+          getGitHubTokenFromKeychain(convex),
+        ]);
 
-        // Get GitHub token from keychain/Convex
-        const githubToken = await getGitHubTokenFromKeychain(convex);
         if (!githubToken) {
           callback({ success: false, error: "GitHub token is not configured" });
           return;
         }
+
+        const { run, task, worktreePath, branchName, baseBranch } = worktreeResult;
 
         // Create PR title/body and commit message using stored task title when available
         const title = task.pullRequestTitle || task.text || "cmux changes";
@@ -883,31 +885,27 @@ export async function startServer({
         
         let prUrl: string | undefined;
 
-        // 1) Fetch base (optional but helpful)
-        try {
-          await execAsync(`git fetch origin ${baseBranch}`, {
-            cwd,
-            env: { ...process.env },
-            maxBuffer: 10 * 1024 * 1024,
-          });
-        } catch (e: unknown) {
-          const err = e as {
-            stdout?: string;
-            stderr?: string;
-            message?: string;
-          };
+        // Check current branch status first to avoid unnecessary operations
+        const { stdout: currentBranchOut } = await execAsync(
+          `git rev-parse --abbrev-ref HEAD`,
+          { cwd, env: { ...process.env } }
+        );
+        const currentBranch = currentBranchOut.trim();
+        
+        // Run fetch in background while checking branch
+        const fetchPromise = execAsync(`git fetch origin ${baseBranch} --depth=1`, {
+          cwd,
+          env: { ...process.env },
+          maxBuffer: 10 * 1024 * 1024,
+        }).catch((e: unknown) => {
+          const err = e as { stderr?: string; message?: string };
           serverLogger.warn(
             `[DraftPR] Fetch base failed (continuing): ${err?.stderr || err?.message || "unknown"}`
           );
-        }
+        });
 
         // 2) Ensure we are on branchName without discarding local changes
         try {
-          const { stdout: cbOut } = await execAsync(
-            `git rev-parse --abbrev-ref HEAD`,
-            { cwd, env: { ...process.env } }
-          );
-          const currentBranch = cbOut.trim();
           if (currentBranch !== branchName) {
             // Try create from current HEAD; if exists, just switch
             try {
@@ -937,6 +935,9 @@ export async function startServer({
           });
           return;
         }
+
+        // Wait for fetch to complete before continuing
+        await fetchPromise;
 
         // 3) Stage and commit changes (no-op safe)
         try {
@@ -1015,6 +1016,10 @@ export async function startServer({
 
         // 6) Create draft PR
         try {
+          // Use --no-maintainer-edit flag to skip the maintainer edit check (faster)
+          // and use --repo flag to avoid repo detection overhead
+          const repoName = task.projectFullName;
+          
           // Write body to a temp file to preserve Markdown formatting
           const tmpBodyPath = path.join(
             os.tmpdir(),
@@ -1023,7 +1028,9 @@ export async function startServer({
           await fs.writeFile(tmpBodyPath, body, "utf8");
 
           const { stdout, stderr } = await execAsync(
-            `gh pr create --draft --title ${JSON.stringify(
+            `gh pr create --draft --no-maintainer-edit --repo ${JSON.stringify(
+              repoName
+            )} --title ${JSON.stringify(
               truncatedTitle
             )} --body-file ${JSON.stringify(tmpBodyPath)} --head ${JSON.stringify(
               branchName
