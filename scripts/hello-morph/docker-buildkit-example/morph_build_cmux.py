@@ -621,7 +621,7 @@ def setup_workspace(instance, workspace_path, debug=False):
     # Copy wait-for-docker.sh to /usr/local/bin
     run_ssh_command(
         instance,
-        f"cp {workspace_path}/apps/worker/wait-for-docker.sh /usr/local/bin/ && "
+        f"cp {workspace_path}/worker-scripts/wait-for-docker.sh /usr/local/bin/ && "
         f"chmod +x /usr/local/bin/wait-for-docker.sh",
         sudo=True,
     )
@@ -713,7 +713,7 @@ def create_startup_script(instance):
     # The startup.sh file is already uploaded as part of the workspace
     run_ssh_command(
         instance,
-        "cp /cmux/startup.sh /startup.sh && chmod +x /startup.sh",
+        "cp /cmux/worker-scripts/startup.sh /startup.sh && chmod +x /startup.sh",
         sudo=True,
     )
 

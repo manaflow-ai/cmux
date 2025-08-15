@@ -55,3 +55,4 @@ fi
 
 # Execute the command with the prompt piped to it
 echo "$PROMPT" | "${COMMAND_ARGS[@]}"
+

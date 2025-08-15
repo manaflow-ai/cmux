@@ -79,7 +79,7 @@ COPY packages/shared/src ./packages/shared/src
 # Copy worker source and scripts
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json ./apps/worker/
-COPY apps/worker/wait-for-docker.sh ./apps/worker/
+COPY worker-scripts/wait-for-docker.sh ./worker-scripts/
 
 # Copy VS Code extension source
 COPY packages/vscode-extension/src ./packages/vscode-extension/src
@@ -92,7 +92,7 @@ RUN bun build /cmux/apps/worker/src/index.ts \
     --outdir /cmux/apps/worker/build && \
     echo "Built worker" && \
     cp -r /cmux/apps/worker/build /builtins/build && \
-    cp /cmux/apps/worker/wait-for-docker.sh /usr/local/bin/ && \
+    cp /cmux/worker-scripts/wait-for-docker.sh /usr/local/bin/ && \
     chmod +x /usr/local/bin/wait-for-docker.sh
 
 # Verify bun is still working in builder
@@ -202,7 +202,7 @@ RUN SHELL=/bin/bash pnpm setup && \
     . /root/.bashrc
 
 # Install tmux configuration for better mouse scrolling behavior
-COPY configs/tmux.conf /etc/tmux.conf
+COPY worker-configs/tmux.conf /etc/tmux.conf
 
 
 # Find and install claude-code.vsix from Bun cache using ripgrep
@@ -254,8 +254,8 @@ CONFIG
 EOF
 
 # Copy startup script and prompt wrapper
-COPY startup.sh /startup.sh
-COPY prompt-wrapper.sh /usr/local/bin/prompt-wrapper
+COPY worker-scripts/startup.sh /startup.sh
+COPY worker-scripts/prompt-wrapper.sh /usr/local/bin/prompt-wrapper
 RUN chmod +x /startup.sh /usr/local/bin/prompt-wrapper
 
 # Ports

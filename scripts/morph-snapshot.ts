@@ -190,7 +190,7 @@ async function buildWorkerWithBuildKit(instance: Instance) {
   // Copy wait-for-docker.sh
   await runSSHCommand(
     instance,
-    "cp /cmux/apps/worker/wait-for-docker.sh /usr/local/bin/ && chmod +x /usr/local/bin/wait-for-docker.sh",
+    "cp /cmux/worker-scripts/wait-for-docker.sh /usr/local/bin/ && chmod +x /usr/local/bin/wait-for-docker.sh",
     true
   );
 
@@ -250,7 +250,7 @@ RUN bun build /cmux/apps/worker/src/index.ts --target node --outdir /cmux/apps/w
 RUN mkdir -p /builtins && \\
     cp -r ./apps/worker/build /builtins/build && \\
     cp ./apps/worker/package.json /builtins/package.json && \\
-    cp ./apps/worker/wait-for-docker.sh /usr/local/bin/ && \\
+    cp ./worker-scripts/wait-for-docker.sh /usr/local/bin/ && \\
     chmod +x /usr/local/bin/wait-for-docker.sh
 
 # Workspace

@@ -124,3 +124,4 @@ export IS_SANDBOX=true
 rm -f /startup.sh
 
 exec node /builtins/build/index.js
+
