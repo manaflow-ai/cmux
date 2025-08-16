@@ -12,6 +12,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useConvex } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Switch } from "@heroui/react";
 
 export const Route = createFileRoute("/_layout/settings")({
   component: SettingsComponent,
@@ -421,22 +422,13 @@ function SettingsComponent() {
                       for the winning model’s code diff.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    aria-pressed={autoPrEnabled}
-                    onClick={() => setAutoPrEnabled((v) => !v)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      autoPrEnabled
-                        ? "bg-blue-600"
-                        : "bg-neutral-300 dark:bg-neutral-700"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-neutral-900 shadow transition-transform ${
-                        autoPrEnabled ? "translate-x-5" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
+                  <Switch
+                    aria-label="Auto pull request for crown winner"
+                    size="sm"
+                    color="primary"
+                    isSelected={autoPrEnabled}
+                    onValueChange={setAutoPrEnabled}
+                  />
                 </div>
               </div>
             </div>
@@ -862,9 +854,7 @@ function SettingsComponent() {
                       Receive updates about your workspace via email
                     </p>
                   </div>
-                  <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 dark:bg-blue-500 cursor-default">
-                    <span className="translate-x-6 inline-block h-4 w-4 transform rounded-full bg-white transition"></span>
-                  </button>
+                  <Switch aria-label="Email Notifications" size="sm" isSelected isDisabled />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -876,9 +866,7 @@ function SettingsComponent() {
                       Get notified about important updates on desktop
                     </p>
                   </div>
-                  <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-neutral-200 dark:bg-neutral-700 cursor-default">
-                    <span className="translate-x-1 inline-block h-4 w-4 transform rounded-full bg-white dark:bg-neutral-200 transition"></span>
-                  </button>
+                  <Switch aria-label="Desktop Notifications" size="sm" isSelected={false} isDisabled />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -890,9 +878,7 @@ function SettingsComponent() {
                       Summary of your workspace activity
                     </p>
                   </div>
-                  <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 dark:bg-blue-500 cursor-default">
-                    <span className="translate-x-6 inline-block h-4 w-4 transform rounded-full bg-white transition"></span>
-                  </button>
+                  <Switch aria-label="Weekly Digest" size="sm" isSelected isDisabled />
                 </div>
               </div>
             </div>

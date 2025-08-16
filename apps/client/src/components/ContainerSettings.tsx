@@ -2,6 +2,7 @@ import { api } from "@cmux/convex/api";
 import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Switch } from "@heroui/react";
 
 interface ContainerSettingsProps {
   onDataChange?: (data: {
@@ -73,29 +74,19 @@ export function ContainerSettings({ onDataChange }: ContainerSettingsProps) {
               Automatically stop containers based on the rules below
             </p>
           </div>
-          <button
+          <Switch
             id="auto-cleanup"
-            type="button"
-            role="switch"
-            aria-checked={formData.autoCleanupEnabled}
-            onClick={() =>
+            size="sm"
+            color="primary"
+            aria-label="Automatic Cleanup"
+            isSelected={formData.autoCleanupEnabled}
+            onValueChange={(v) =>
               updateFormData({
                 ...formData,
-                autoCleanupEnabled: !formData.autoCleanupEnabled,
+                autoCleanupEnabled: v,
               })
             }
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              formData.autoCleanupEnabled
-                ? "bg-blue-600"
-                : "bg-neutral-200 dark:bg-neutral-700"
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                formData.autoCleanupEnabled ? "translate-x-6" : "translate-x-1"
-              }`}
-            />
-          </button>
+          />
         </div>
 
         <div className="space-y-2">
@@ -131,33 +122,20 @@ export function ContainerSettings({ onDataChange }: ContainerSettingsProps) {
               Stop containers as soon as tasks complete (no review period)
             </p>
           </div>
-          <button
+          <Switch
             id="stop-immediately"
-            type="button"
-            role="switch"
-            aria-checked={formData.stopImmediatelyOnCompletion}
-            onClick={() =>
+            size="sm"
+            color="primary"
+            aria-label="Stop Immediately on Completion"
+            isSelected={formData.stopImmediatelyOnCompletion}
+            isDisabled={!formData.autoCleanupEnabled}
+            onValueChange={(v) =>
               updateFormData({
                 ...formData,
-                stopImmediatelyOnCompletion:
-                  !formData.stopImmediatelyOnCompletion,
+                stopImmediatelyOnCompletion: v,
               })
             }
-            disabled={!formData.autoCleanupEnabled}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              formData.stopImmediatelyOnCompletion
-                ? "bg-blue-600"
-                : "bg-neutral-200 dark:bg-neutral-700"
-            } disabled:opacity-50`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                formData.stopImmediatelyOnCompletion
-                  ? "translate-x-6"
-                  : "translate-x-1"
-              }`}
-            />
-          </button>
+          />
         </div>
 
         <div className="space-y-2">
