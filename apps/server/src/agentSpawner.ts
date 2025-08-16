@@ -203,6 +203,33 @@ export async function spawnAgent(
       }
     }
 
+    // If running a Gemini agent and an API key is available, ensure
+    // the CLI auto-selects API key auth without prompting.
+    // We do this by providing a minimal settings.json that sets
+    // selectedAuthType to USE_GEMINI when one isn't already supplied
+    // via environment preparation.
+    if (
+      agent.name.startsWith("gemini/") &&
+      typeof envVars.GEMINI_API_KEY === "string" &&
+      envVars.GEMINI_API_KEY.trim().length > 0
+    ) {
+      const hasGeminiSettings = authFiles.some(
+        (f) =>
+          f.destinationPath === "$HOME/.gemini/settings.json" ||
+          f.destinationPath.endsWith("/.gemini/settings.json")
+      );
+      if (!hasGeminiSettings) {
+        const settingsJson = JSON.stringify({ selectedAuthType: "USE_GEMINI" });
+        authFiles.push({
+          destinationPath: "$HOME/.gemini/settings.json",
+          contentBase64: Buffer.from(settingsJson).toString("base64"),
+          mode: "644",
+        });
+      }
+      // Also hint the default via env for good measure
+      envVars.GEMINI_DEFAULT_AUTH_TYPE = "USE_GEMINI";
+    }
+
     // Replace $PROMPT placeholders in args with $CMUX_PROMPT token for shell-time expansion
     const processedArgs = agent.args.map((arg) => {
       if (arg.includes("$PROMPT")) {
