@@ -141,6 +141,14 @@ export abstract class VSCodeInstance extends EventEmitter {
         this.emit("terminal-idle", data);
       });
 
+      this.workerSocket.on("worker:task-complete", (data) => {
+        dockerLogger.info(
+          `[VSCodeInstance ${this.instanceId}] Task complete detected (${data.detectionMethod}):`,
+          data
+        );
+        this.emit("task-complete", data);
+      });
+
       this.workerSocket.on("worker:terminal-failed", (data) => {
         dockerLogger.error(
           `[VSCodeInstance ${this.instanceId}] Terminal failed:`,

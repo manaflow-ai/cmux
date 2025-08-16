@@ -43,32 +43,85 @@ export class GitDiffManager {
       return;
     }
 
-    const watcher = chokidar.watch(workspacePath, {
-      ignored: [
-        "**/node_modules/**",
-        "**/.git/objects/**",
-        "**/.git/logs/**",
-        "**/dist/**",
-        "**/build/**",
-      ],
-      persistent: true,
-      ignoreInitial: true,
-      depth: 10,
-    });
+    try {
+      const watcher = chokidar.watch(workspacePath, {
+        ignored: [
+          // Ignore all node_modules completely
+          /node_modules/,
+          // Ignore git internals
+          /\.git\/objects/,
+          /\.git\/logs/,
+          /\.git\/refs/,
+          /\.git\/hooks/,
+          /\.git\/info/,
+          /\.git\/index/,
+          // Ignore build outputs
+          /dist\//,
+          /build\//,
+          /\.next\//,
+          /out\//,
+          // Ignore cache directories
+          /\.cache\//,
+          /\.turbo\//,
+          /\.parcel-cache\//,
+          // Ignore temporary files
+          /\.swp$/,
+          /\.tmp$/,
+          /~$/,
+          // Ignore OS files
+          /\.DS_Store$/,
+          /Thumbs\.db$/,
+          // Ignore IDE files
+          /\.idea\//,
+          /\.vscode\//,
+          // Ignore lock files and logs
+          /\.lock$/,
+          /\.log$/,
+        ],
+        persistent: true,
+        ignoreInitial: true,
+        // Reduce depth to avoid deep traversal
+        depth: 5,
+        // Use polling as fallback if native watching fails
+        usePolling: false,
+        // Increase stability
+        awaitWriteFinish: {
+          stabilityThreshold: 500,
+          pollInterval: 100,
+        },
+        // Prevent following symlinks to avoid loops
+        followSymlinks: false,
+        // Disable atomic writes handling
+        atomic: false,
+      });
 
-    watcher.on("change", (filePath) => {
-      onChange(filePath);
-    });
+      // Add error handling for the watcher
+      watcher.on("error", (error) => {
+        serverLogger.error("File watcher error:", error);
+        // Don't crash, just log the error
+      });
 
-    watcher.on("add", (filePath) => {
-      onChange(filePath);
-    });
+      watcher.on("ready", () => {
+        serverLogger.info(`File watcher ready for ${workspacePath}`);
+      });
 
-    watcher.on("unlink", (filePath) => {
-      onChange(filePath);
-    });
+      watcher.on("change", (filePath) => {
+        onChange(filePath);
+      });
 
-    this.watchers.set(workspacePath, watcher);
+      watcher.on("add", (filePath) => {
+        onChange(filePath);
+      });
+
+      watcher.on("unlink", (filePath) => {
+        onChange(filePath);
+      });
+
+      this.watchers.set(workspacePath, watcher);
+    } catch (error) {
+      serverLogger.error("Failed to create file watcher:", error);
+      // Don't throw - just log and continue without watching
+    }
   }
 
   unwatchWorkspace(workspacePath: string): void {

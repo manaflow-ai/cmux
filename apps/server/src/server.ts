@@ -72,6 +72,37 @@ export async function startServer({
   publicPath: string;
   defaultRepo?: GitRepoInfo | null;
 }) {
+  // Set up global error handlers to prevent crashes
+  process.on("unhandledRejection", (reason, promise) => {
+    serverLogger.error("Unhandled Rejection at:", promise, "reason:", reason);
+    // Don't exit the process - just log the error
+  });
+
+  process.on("uncaughtException", (error) => {
+    serverLogger.error("Uncaught Exception:", error);
+    // Don't exit for file system errors
+    if (error && typeof error === "object" && "errno" in error) {
+      const fsError = error as any;
+      if (fsError.errno === 0 || fsError.syscall === "TODO") {
+        serverLogger.error("File system watcher error - continuing without watching:", fsError.path);
+        return;
+      }
+    }
+    // For other critical errors, still exit
+    process.exit(1);
+  });
+
+  // Check system limits and warn if too low
+  try {
+    const { stdout } = await execAsync("ulimit -n");
+    const limit = parseInt(stdout.trim(), 10);
+    if (limit < 8192) {
+      serverLogger.warn(`System file descriptor limit is low: ${limit}. Consider increasing it with 'ulimit -n 8192' to avoid file watcher issues.`);
+    }
+  } catch (error) {
+    serverLogger.warn("Could not check system file descriptor limit:", error);
+  }
+
   // Git diff manager instance
   const gitDiffManager = new GitDiffManager();
 
@@ -196,16 +227,21 @@ export async function startServer({
           });
         }
 
-        // Set up file watching for git changes
-        gitDiffManager.watchWorkspace(
-          primaryAgent.worktreePath,
-          (changedPath) => {
-            io.emit("git-file-changed", {
-              workspacePath: primaryAgent.worktreePath,
-              filePath: changedPath,
-            });
-          }
-        );
+        // Set up file watching for git changes (optional - don't fail if it doesn't work)
+        try {
+          gitDiffManager.watchWorkspace(
+            primaryAgent.worktreePath,
+            (changedPath) => {
+              io.emit("git-file-changed", {
+                workspacePath: primaryAgent.worktreePath,
+                filePath: changedPath,
+              });
+            }
+          );
+        } catch (error) {
+          serverLogger.warn("Could not set up file watching for workspace:", error);
+          // Continue without file watching
+        }
 
         callback({
           taskId,
@@ -1516,6 +1552,10 @@ export async function startServer({
     isCleaningUp = true;
     serverLogger.info("Cleaning up terminals and server...");
 
+    // Dispose of all file watchers
+    serverLogger.info("Disposing file watchers...");
+    gitDiffManager.dispose();
+
     // Stop Docker container state sync
     DockerVSCodeInstance.stopContainerStateSync();
 
@@ -1596,6 +1636,19 @@ export async function startServer({
     serverLogger.close();
     dockerLogger.close();
   }
+
+  // Handle process termination signals
+  process.on("SIGINT", async () => {
+    serverLogger.info("Received SIGINT, shutting down gracefully...");
+    await cleanup();
+    process.exit(0);
+  });
+
+  process.on("SIGTERM", async () => {
+    serverLogger.info("Received SIGTERM, shutting down gracefully...");
+    await cleanup();
+    process.exit(0);
+  });
 
   // Hot reload support
   if (import.meta.hot) {

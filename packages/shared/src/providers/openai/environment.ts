@@ -12,6 +12,8 @@ export async function getOpenAIEnvironment(): Promise<EnvironmentResult> {
 
   // Ensure .codex directory exists
   startupCommands.push("mkdir -p ~/.codex");
+  // Ensure workspace notify sink starts clean for this run
+  startupCommands.push("rm -f /root/workspace/codex-turns.jsonl || true");
 
   // List of files to copy from .codex directory
   const codexFiles = [

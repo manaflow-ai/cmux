@@ -14,6 +14,11 @@ export const CODEX_GPT_5_CONFIG: AgentConfig = {
     "danger-full-access",
     "--ask-for-approval",
     "never",
+    "-c",
+    // Write each notification JSON payload (one per agent turn) to a JSONL file in the workspace
+    // No jq dependency to keep it portable inside the worker container
+    // NOTE: With sh -lc, the first argument becomes $0, not $1
+    "notify=[\"sh\",\"-lc\",\"printf '%s\\n' \\\"$0\\\" | tee -a ./codex-turns.jsonl >/dev/null\"]",
     "$PROMPT",
   ],
   environment: getOpenAIEnvironment,
@@ -32,6 +37,8 @@ export const CODEX_O3_CONFIG: AgentConfig = {
     "danger-full-access",
     "--ask-for-approval",
     "never",
+    "-c",
+    "notify=[\"sh\",\"-lc\",\"printf '%s\\n' \\\"$0\\\" | tee -a ./codex-turns.jsonl >/dev/null\"]",
     "$PROMPT",
   ],
   environment: getOpenAIEnvironment,
@@ -50,6 +57,8 @@ export const CODEX_O4_MINI_CONFIG: AgentConfig = {
     "danger-full-access",
     "--ask-for-approval",
     "never",
+    "-c",
+    "notify=[\"sh\",\"-lc\",\"printf '%s\\n' \\\"$0\\\" | tee -a ./codex-turns.jsonl >/dev/null\"]",
     "$PROMPT",
   ],
   environment: getOpenAIEnvironment,
@@ -68,6 +77,8 @@ export const CODEX_GPT_4_1_CONFIG: AgentConfig = {
     "danger-full-access",
     "--ask-for-approval",
     "never",
+    "-c",
+    "notify=[\"sh\",\"-lc\",\"printf '%s\\n' \\\"$0\\\" | tee -a ./codex-turns.jsonl >/dev/null\"]",
     "$PROMPT",
   ],
   environment: getOpenAIEnvironment,
