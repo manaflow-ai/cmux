@@ -7,6 +7,7 @@ import { api } from "@cmux/convex/api";
 import type { Doc } from "@cmux/convex/dataModel";
 import { AGENT_CONFIGS, type AgentConfig } from "@cmux/shared/agentConfig";
 import { API_KEY_MODELS_BY_ENV } from "@cmux/shared/model-usage";
+import { Switch } from "@heroui/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useConvex } from "convex/react";
@@ -418,25 +419,17 @@ function SettingsComponent() {
                     </label>
                     <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                       When enabled, cmux automatically creates a pull request
-                      for the winning model’s code diff.
+                      for the winning model's code diff.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    aria-pressed={autoPrEnabled}
-                    onClick={() => setAutoPrEnabled((v) => !v)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      autoPrEnabled
-                        ? "bg-blue-600"
-                        : "bg-neutral-300 dark:bg-neutral-700"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-neutral-900 shadow transition-transform ${
-                        autoPrEnabled ? "translate-x-5" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
+                  <Switch
+                    isSelected={autoPrEnabled}
+                    onValueChange={setAutoPrEnabled}
+                    size="sm"
+                    classNames={{
+                      wrapper: "group-data-[selected=true]:bg-blue-600",
+                    }}
+                  />
                 </div>
               </div>
             </div>
