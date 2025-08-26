@@ -131,12 +131,6 @@ async function setupDefaultTerminal() {
   // Store terminal reference
   activeTerminals.set("default", terminal);
 
-  // Attach to default tmux session with a small delay to ensure it's ready
-  setTimeout(() => {
-    terminal.sendText(`tmux attach`);
-    log("Attached to default tmux session");
-  }, 500); // 500ms delay to ensure tmux session is ready
-
   log("Created terminal successfully");
 
   // After terminal is created, ensure the terminal is active and move to right group

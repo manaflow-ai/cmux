@@ -64,8 +64,7 @@
     "./src/providers/openai/completion-detector.ts": {
       "import": "./src/providers/openai/completion-detector.ts",
       "types": "./src/providers/openai/completion-detector.ts"
-    }
-    ,
+    },
     "./src/providers/gemini/completion-detector": {
       "import": "./src/providers/gemini/completion-detector.ts",
       "types": "./src/providers/gemini/completion-detector.ts"
@@ -73,8 +72,7 @@
     "./src/providers/gemini/completion-detector.ts": {
       "import": "./src/providers/gemini/completion-detector.ts",
       "types": "./src/providers/gemini/completion-detector.ts"
-    }
-    ,
+    },
     "./src/providers/opencode/completion-detector": {
       "import": "./src/providers/opencode/completion-detector.ts",
       "types": "./src/providers/opencode/completion-detector.ts"
@@ -82,6 +80,14 @@
     "./src/providers/opencode/completion-detector.ts": {
       "import": "./src/providers/opencode/completion-detector.ts",
       "types": "./src/providers/opencode/completion-detector.ts"
+    },
+    "./src/providers/cursor/completion-detector": {
+      "import": "./src/providers/cursor/completion-detector.ts",
+      "types": "./src/providers/cursor/completion-detector.ts"
+    },
+    "./src/providers/cursor/completion-detector.ts": {
+      "import": "./src/providers/cursor/completion-detector.ts",
+      "types": "./src/providers/cursor/completion-detector.ts"
     }
   },
   "dependencies": {
