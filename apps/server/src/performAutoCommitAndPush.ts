@@ -5,6 +5,9 @@ import { buildAutoCommitPushCommand } from "./utils/autoCommitPushCommand";
 import { generateCommitMessageFromDiff } from "./utils/commitMessageGenerator";
 import { convex } from "./utils/convexClient";
 import { serverLogger } from "./utils/fileLogger";
+import { getGitRepoInfo, getLatestCommitMessage } from "./utils/gitRepoInfo";
+import { createReadyPr } from "./utils/githubPr";
+import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken";
 import { workerExec } from "./utils/workerExec";
 import { VSCodeInstance } from "./vscode/VSCodeInstance";
 
@@ -145,8 +148,24 @@ export default async function performAutoCommitAndPush(
           id: taskRun.taskId,
         });
         if (task) {
-          // Use existing task PR title when present, otherwise derive and persist
-          const prTitle = task.pullRequestTitle || `[Crown] ${task.text}`;
+          // Get GitHub token
+          const githubToken = await getGitHubTokenFromKeychain();
+          if (!githubToken) {
+            serverLogger.info(
+              `[AgentSpawner] No GitHub token configured - skipping PR creation`
+            );
+            return;
+          }
+          
+          // Get repository information
+          const repoInfo = await getGitRepoInfo();
+          
+          // Get the latest commit message to use for PR title and body
+          const commitInfo = await getLatestCommitMessage();
+          
+          // Use commit message subject as PR title, fallback to task text
+          const prTitle = commitInfo.subject || task.pullRequestTitle || `[Crown] ${task.text}`;
+          
           if (!task.pullRequestTitle || task.pullRequestTitle !== prTitle) {
             try {
               await convex.mutation(api.tasks.setPullRequestTitle, {
@@ -157,21 +176,11 @@ export default async function performAutoCommitAndPush(
               serverLogger.error(`[AgentSpawner] Failed to save PR title:`, e);
             }
           }
-          const prBody = `## 🏆 Crown Winner: ${agent.name}
-
-### Task Description
-${task.text}
-${task.description ? `\n${task.description}` : ""}
-
-### Crown Evaluation
-${taskRun.crownReason || "This implementation was selected as the best solution."}
-
-### Implementation Details
-- **Agent**: ${agent.name}
-- **Task ID**: ${task._id}
-- **Run ID**: ${taskRun._id}
-- **Branch**: ${branchName}
-- **Completed**: ${new Date(taskRun.completedAt || Date.now()).toISOString()}`;
+          
+          // Create PR body from commit message body and add metadata
+          const prBody = commitInfo.body ? 
+            `${commitInfo.body}\n\n## 🏆 Crown Winner: ${agent.name}\n\n### Task Description\n${task.text}\n${task.description ? `\n${task.description}` : ""}\n\n### Crown Evaluation\n${taskRun.crownReason || "This implementation was selected as the best solution."}\n\n### Implementation Details\n- **Agent**: ${agent.name}\n- **Task ID**: ${task._id}\n- **Run ID**: ${taskRun._id}\n- **Branch**: ${branchName}\n- **Completed**: ${new Date(taskRun.completedAt || Date.now()).toISOString()}` :
+            `## 🏆 Crown Winner: ${agent.name}\n\n### Task Description\n${task.text}\n${task.description ? `\n${task.description}` : ""}\n\n### Crown Evaluation\n${taskRun.crownReason || "This implementation was selected as the best solution."}\n\n### Implementation Details\n- **Agent**: ${agent.name}\n- **Task ID**: ${task._id}\n- **Run ID**: ${taskRun._id}\n- **Branch**: ${branchName}\n- **Completed**: ${new Date(taskRun.completedAt || Date.now()).toISOString()}`;
 
           // Persist PR description on the task in Convex
           try {
@@ -186,46 +195,36 @@ ${taskRun.crownReason || "This implementation was selected as the best solution.
             );
           }
 
-          const bodyFileVar = `cmux_pr_body_${Date.now()}_${Math.random().toString(36).slice(2)}.md`;
-          const prScript =
-            `set -e\n` +
-            `BODY_FILE="/tmp/${bodyFileVar}"\n` +
-            `cat <<'CMUX_EOF' > "$BODY_FILE"\n` +
-            `${prBody}\n` +
-            `CMUX_EOF\n` +
-            `gh pr create --title ${JSON.stringify(prTitle)} --body-file "$BODY_FILE"\n` +
-            `rm -f "$BODY_FILE"`;
-
-          let prCreateOutput = "";
           try {
-            const { stdout } = await workerExec({
-              workerSocket,
-              command: "/bin/bash",
-              args: ["-c", prScript],
-              cwd: "/root/workspace",
-              env: {},
-              timeout: 30000,
-            });
-            prCreateOutput = stdout;
-          } catch (e) {
-            serverLogger.error(`{AgentSpawner] Error executing PR create:`, e);
-          }
-
-          const prUrlMatch = prCreateOutput.match(
-            /https:\/\/github\.com\/[\w-]+\/[\w-]+\/pull\/\d+/
-          );
-
-          if (prUrlMatch) {
-            serverLogger.info(
-              `[AgentSpawner] Pull request created: ${prUrlMatch[0]}`
+            // Create PR using Octokit
+            serverLogger.info(`[AgentSpawner] Creating PR using GitHub API`);
+            
+            const pr = await createReadyPr(
+              githubToken,
+              repoInfo.owner,
+              repoInfo.repo,
+              prTitle,
+              branchName,
+              repoInfo.defaultBranch,
+              prBody
             );
+            
+            serverLogger.info(
+              `[AgentSpawner] Pull request created: ${pr.html_url}`
+            );
+            
             await convex.mutation(api.taskRuns.updatePullRequestUrl, {
               id: taskRunId as Id<"taskRuns">,
-              pullRequestUrl: prUrlMatch[0],
+              pullRequestUrl: pr.html_url,
               isDraft: false,
             });
-          } else {
-            serverLogger.error(`[AgentSpawner] Failed to create PR`);
+          } catch (prError) {
+            serverLogger.error(`[AgentSpawner] Failed to create PR using GitHub API:`, prError);
+            
+            // If PR already exists for this branch, we can log it
+            if (prError && typeof prError === 'object' && 'status' in prError && prError.status === 422) {
+              serverLogger.info(`[AgentSpawner] PR might already exist for branch ${branchName}`);
+            }
           }
         }
       } catch (error) {

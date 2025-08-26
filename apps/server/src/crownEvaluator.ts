@@ -5,6 +5,8 @@ import { z } from "zod";
 import { convex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
 import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken.js";
+import { getGitRepoInfo, getLatestCommitMessage } from "./utils/gitRepoInfo.js";
+import { createReadyPr } from "./utils/githubPr.js";
 import { workerExec } from "./utils/workerExec.js";
 import { VSCodeInstance } from "./vscode/VSCodeInstance.js";
 
@@ -32,6 +34,14 @@ export async function createPullRequestForWinner(
       );
       return;
     }
+    
+    if (!githubToken) {
+      serverLogger.info(
+        `[CrownEvaluator] No GitHub token configured - skipping PR creation`
+      );
+      return;
+    }
+    
     serverLogger.info(
       `[CrownEvaluator] Creating pull request for winner ${taskRunId}`
     );
@@ -75,9 +85,18 @@ export async function createPullRequestForWinner(
     const agentMatch = taskRun.prompt.match(/\(([^)]+)\)$/);
     const agentName = agentMatch ? agentMatch[1] : "Unknown";
 
-    // Create PR title and body using stored task title when available
-    const prTitle =
-      task.pullRequestTitle || task.text || "Task completed by cmux";
+    // Use the newBranch from the task run
+    const branchName = taskRun.newBranch || `cmux-crown-${taskRunId.slice(-8)}`;
+
+    // Get repository information
+    const repoInfo = await getGitRepoInfo();
+    
+    // Get the latest commit message to extract title and body
+    const commitInfo = await getLatestCommitMessage();
+    
+    // Use commit message subject as PR title, fallback to task text
+    const prTitle = commitInfo.subject || task.pullRequestTitle || task.text || "Task completed by cmux";
+    
     // Persist PR title if not already set or differs
     if (!task.pullRequestTitle || task.pullRequestTitle !== prTitle) {
       try {
@@ -89,13 +108,28 @@ export async function createPullRequestForWinner(
         serverLogger.error(`[CrownEvaluator] Failed to save PR title:`, e);
       }
     }
-    const prBody = `## Summary
+    
+    // Create PR body from commit message body and add metadata
+    const prBody = commitInfo.body ? 
+      `${commitInfo.body}
+
+## Summary
 - Task completed by ${agentName} agent 🏆
 - ${taskRun.crownReason || "Selected as the best implementation"}
 
 ## Details
 - Task ID: ${taskId}
 - Agent: ${agentName}
+- Branch: ${branchName}
+- Completed: ${new Date().toISOString()}` :
+      `## Summary
+- Task completed by ${agentName} agent 🏆
+- ${taskRun.crownReason || "Selected as the best implementation"}
+
+## Details
+- Task ID: ${taskId}
+- Agent: ${agentName}
+- Branch: ${branchName}
 - Completed: ${new Date().toISOString()}`;
 
     // Persist PR description on the task in Convex
@@ -108,179 +142,39 @@ export async function createPullRequestForWinner(
       serverLogger.error(`[CrownEvaluator] Failed to save PR description:`, e);
     }
 
-    // Use the newBranch from the task run
-    const branchName = taskRun.newBranch || `cmux-crown-${taskRunId.slice(-8)}`;
-
-    // Create commit message
-    const truncatedDescription =
-      prTitle.length > 72 ? prTitle.substring(0, 69) + "..." : prTitle;
-
-    const commitMessage = `${truncatedDescription}
-
-Task completed by ${agentName} agent 🏆
-${taskRun.crownReason ? `\nReason: ${taskRun.crownReason}` : ""}
-
-🤖 Generated with cmux
-Agent: ${agentName}
-Task Run ID: ${taskRunId}
-Branch: ${branchName}
-Completed: ${new Date().toISOString()}`;
-
-    // Execute git operations via worker:exec only
-    serverLogger.info(`[CrownEvaluator] Using worker:exec for git operations`);
-
-    const workerSocket = vscodeInstance.getWorkerSocket();
-    if (!workerSocket || !vscodeInstance.isWorkerConnected()) {
-      serverLogger.error(`[CrownEvaluator] No worker connection available`);
-      return;
-    }
-
-    // Execute git commands via worker:exec (more reliable than terminal-input)
-    const bodyFileName = `cmux_pr_body_${Date.now()}_${Math.random().toString(36).slice(2)}.md`;
-    const gitCommands = [
-      // Add all changes
-      { cmd: "git add -A", desc: "Staging changes" },
-      // Create and switch to new branch (fallback to switch if it exists)
-      {
-        cmd: `git checkout -b ${branchName} || git checkout ${branchName}`,
-        desc: "Ensuring branch",
-      },
-      // Commit (tolerate no-op)
-      {
-        cmd: `git commit -m "${commitMessage.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$")}" || echo 'No changes to commit'`,
-        desc: "Committing",
-      },
-      // Push
-      { cmd: `git push -u origin ${branchName}`, desc: "Pushing branch" },
-    ];
-
-    // Only add PR creation command if GitHub token is available
-    if (githubToken) {
-      gitCommands.push({
-        cmd: `cat <<'CMUX_EOF' > /tmp/${bodyFileName}\n${prBody}\nCMUX_EOF`,
-        desc: "Writing PR body",
-      });
-      gitCommands.push({
-        cmd: `GH_TOKEN="${githubToken}" gh pr create --title "${prTitle.replace(/"/g, '\\"')}" --body-file /tmp/${bodyFileName} --head "${branchName}"`,
-        desc: "Creating PR",
-      });
-      gitCommands.push({
-        cmd: `rm -f /tmp/${bodyFileName}`,
-        desc: "Cleaning up PR body",
-      });
-    } else {
-      serverLogger.info(
-        `[CrownEvaluator] Skipping PR creation - no GitHub token configured`
+    try {
+      // Create PR using Octokit
+      serverLogger.info(`[CrownEvaluator] Creating PR using GitHub API`);
+      
+      const pr = await createReadyPr(
+        githubToken,
+        repoInfo.owner,
+        repoInfo.repo,
+        prTitle,
+        branchName,
+        repoInfo.defaultBranch,
+        prBody
       );
-      serverLogger.info(
-        `[CrownEvaluator] Branch '${branchName}' has been pushed. You can manually create a PR from GitHub.`
-      );
-    }
-
-    for (const { cmd, desc } of gitCommands) {
-      serverLogger.info(`[CrownEvaluator] ${desc}...`);
-
-      const result = await new Promise<{
-        success: boolean;
-        error?: string;
-        stdout?: string;
-        stderr?: string;
-      }>((resolve) => {
-        workerSocket.timeout(30000).emit(
-          "worker:exec",
-          {
-            command: "/bin/bash",
-            args: ["-c", cmd],
-            cwd: "/root/workspace",
-            env: githubToken ? { GH_TOKEN: githubToken } : {},
-          },
-          (timeoutError, result) => {
-            if (timeoutError) {
-              resolve({ success: false, error: "Command timeout" });
-              return;
-            }
-            if (result.error) {
-              resolve({ success: false, error: result.error.message });
-              return;
-            }
-
-            const { stdout, stderr, exitCode } = result.data;
-            serverLogger.info(`[CrownEvaluator] ${desc} - stdout:`, stdout);
-            if (stderr) {
-              serverLogger.info(`[CrownEvaluator] ${desc} - stderr:`, stderr);
-            }
-
-            resolve({ success: exitCode === 0, stdout, stderr });
-          }
-        );
+      
+      serverLogger.info(`[CrownEvaluator] PR created successfully!`);
+      serverLogger.info(`[CrownEvaluator] PR URL: ${pr.html_url}`);
+      
+      // Update the task run with PR URL
+      await convex.mutation(api.taskRuns.updatePullRequestUrl, {
+        id: taskRunId,
+        pullRequestUrl: pr.html_url,
+        isDraft: false,
       });
-
-      if (!result.success) {
-        serverLogger.error(
-          `[CrownEvaluator] Failed at step: ${desc}`,
-          result.error
-        );
-
-        // If gh pr create fails, log more details
-        if (cmd.includes("gh pr create")) {
-          serverLogger.error(
-            `[CrownEvaluator] PR creation failed. stdout: ${result.stdout}, stderr: ${result.stderr}`
-          );
-
-          // Try to check gh auth status
-          const authCheckResult = await new Promise<{
-            success: boolean;
-            stdout?: string;
-            stderr?: string;
-          }>((resolve) => {
-            workerSocket.timeout(10000).emit(
-              "worker:exec",
-              {
-                command: "/bin/bash",
-                args: [
-                  "-c",
-                  githubToken
-                    ? `GH_TOKEN="${githubToken}" gh auth status`
-                    : "gh auth status",
-                ],
-                cwd: "/root/workspace",
-                env: githubToken ? { GH_TOKEN: githubToken } : {},
-              },
-              (timeoutError, authResult) => {
-                if (timeoutError || authResult.error) {
-                  resolve({
-                    success: false,
-                    stdout: "",
-                    stderr: timeoutError
-                      ? "timeout"
-                      : authResult.error?.message,
-                  });
-                  return;
-                }
-                const { stdout, stderr, exitCode } = authResult.data;
-                resolve({ success: exitCode === 0, stdout, stderr });
-              }
-            );
-          });
-
-          serverLogger.error(
-            `[CrownEvaluator] gh auth status - stdout: ${authCheckResult.stdout}, stderr: ${authCheckResult.stderr}`
-          );
-        }
-
-        // Continue anyway for some commands
-        if (!cmd.includes("git checkout") && !cmd.includes("gh pr create")) {
-          return;
-        }
-      } else {
-        // If successful and it's the PR creation command, log the URL
-        if (cmd.includes("gh pr create") && result.stdout) {
-          serverLogger.info(`[CrownEvaluator] PR created successfully!`);
-          serverLogger.info(`[CrownEvaluator] PR URL: ${result.stdout.trim()}`);
-        }
+      
+    } catch (error) {
+      serverLogger.error(`[CrownEvaluator] Failed to create PR using GitHub API:`, error);
+      
+      // If PR already exists for this branch, we can try to find it
+      if (error && typeof error === 'object' && 'status' in error && error.status === 422) {
+        serverLogger.info(`[CrownEvaluator] PR might already exist for branch ${branchName}`);
       }
     }
-
+    
     serverLogger.info(`[CrownEvaluator] Pull request creation completed`);
   } catch (error) {
     serverLogger.error(`[CrownEvaluator] Error creating pull request:`, error);

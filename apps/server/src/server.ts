@@ -36,6 +36,7 @@ import { ensureRunWorktreeAndBranch } from "./utils/ensureRunWorktree.js";
 import { dockerLogger, serverLogger } from "./utils/fileLogger.js";
 import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken.js";
 import {
+  createDraftPr,
   createReadyPr,
   fetchPrByHead,
   fetchPrDetail,
@@ -44,6 +45,7 @@ import {
   parseRepoFromUrl,
   reopenPr,
 } from "./utils/githubPr.js";
+import { getGitRepoInfo, getLatestCommitMessage } from "./utils/gitRepoInfo.js";
 import { checkAllProvidersStatus } from "./utils/providerStatus.js";
 import {
   refreshBranchesForRepo,
@@ -1322,36 +1324,34 @@ Please address the issue mentioned in the comment above.`;
           return;
         }
 
-        // 6) Create draft PR
+        // 6) Create draft PR using Octokit
         try {
-          // Write body to a temp file to preserve Markdown formatting
-          const tmpBodyPath = path.join(
-            os.tmpdir(),
-            `cmux_pr_body_${Date.now()}_${Math.random().toString(36).slice(2)}.md`
+          // Get repository information
+          const repoInfo = await getGitRepoInfo(cwd);
+          
+          // Get the latest commit message to use for PR title and body
+          const commitInfo = await getLatestCommitMessage(cwd);
+          
+          // Use commit message subject as PR title, fallback to task title
+          const finalTitle = commitInfo.subject || truncatedTitle;
+          
+          // Create PR body from commit message body and add metadata
+          const finalBody = commitInfo.body ? 
+            `${commitInfo.body}\n\n${body}` : body;
+          
+          serverLogger.info(`[DraftPR] Creating draft PR using GitHub API`);
+          
+          const pr = await createDraftPr(
+            githubToken,
+            repoInfo.owner,
+            repoInfo.repo,
+            finalTitle,
+            branchName,
+            baseBranch || repoInfo.defaultBranch,
+            finalBody
           );
-          await fs.writeFile(tmpBodyPath, body, "utf8");
-
-          const { stdout, stderr } = await execAsync(
-            `gh pr create --draft --title ${JSON.stringify(
-              truncatedTitle
-            )} --body-file ${JSON.stringify(tmpBodyPath)} --head ${JSON.stringify(
-              branchName
-            )} --base ${JSON.stringify(baseBranch)}`,
-            {
-              cwd,
-              env: { ...process.env, GH_TOKEN: githubToken },
-              maxBuffer: 10 * 1024 * 1024,
-            }
-          );
-          const out = (stdout || stderr || "").trim();
-          const match = out.match(/https:\/\/github\.com\/[^\s]+/);
-          prUrl = match ? match[0] : out;
-          // Clean up temp file
-          try {
-            await fs.unlink(tmpBodyPath);
-          } catch (e) {
-            serverLogger.error("Error cleaning up temp file:", e);
-          }
+          
+          prUrl = pr.html_url;
         } catch (e: unknown) {
           const err = e as {
             stdout?: string;
