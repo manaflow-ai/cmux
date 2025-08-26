@@ -1177,11 +1177,12 @@ async function createTerminal(
 
     // Use new task completion detection if agentModel is provided
     if (options.agentModel && options.taskRunId) {
-      // For Claude, Codex, and Gemini use project/log detection only; allow idle fallback for OpenCode
+      // For Claude, Codex, Gemini, and OpenCode use deterministic detectors only; no terminal idle fallback
       const useTerminalIdleFallback = !(
         providerResolved === "claude" ||
         providerResolved === "codex" ||
-        providerResolved === "gemini"
+        providerResolved === "gemini" ||
+        providerResolved === "opencode"
       );
 
       log(
@@ -1635,12 +1636,25 @@ class TaskCompletionDetectorDI extends EventEmitter {
   }
 
   private async watchOpenCodeFiles(): Promise<void> {
-    // OpenCode completion is handled via stdout parsing in createTerminal
-    // We don't need file watching for OpenCode since it doesn't have a notify mechanism like Codex
-    log(
-      "INFO",
-      "[OpenCode] Relying on stdout parsing for completion detection"
-    );
+    try {
+      const { watchOpencodeLogsForCompletion } = await import(
+        "@cmux/shared/src/providers/opencode/event-detector.ts"
+      );
+      const stop = watchOpencodeLogsForCompletion({
+        sinceMs: this.startTime,
+        onComplete: () => {
+          log("INFO", "[OpenCode] ✅ session.idle detected via log watcher");
+          this.handleCompletion();
+        },
+        onError: (error) => {
+          log("ERROR", `[OpenCode] Log watcher error: ${error.message}`);
+        },
+      });
+      this.watchers.push({ close: () => stop() } as any);
+      log("INFO", "[OpenCode] Log watcher attached for completion detection");
+    } catch (e) {
+      log("ERROR", `[OpenCode] Failed to attach log watcher: ${e}`);
+    }
   }
 
   private handleCompletion(): void {
@@ -1787,7 +1801,7 @@ function buildDetectorConfig(params: {
       },
     },
     opencode: {
-      allowTerminalIdleFallback: true,
+      allowTerminalIdleFallback: false,
       async checkCompletion({ startTime, options }) {
         try {
           const module = await import(

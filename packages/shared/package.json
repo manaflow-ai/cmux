@@ -83,6 +83,15 @@
       "import": "./src/providers/opencode/completion-detector.ts",
       "types": "./src/providers/opencode/completion-detector.ts"
     }
+    ,
+    "./src/providers/opencode/event-detector": {
+      "import": "./src/providers/opencode/event-detector.ts",
+      "types": "./src/providers/opencode/event-detector.ts"
+    },
+    "./src/providers/opencode/event-detector.ts": {
+      "import": "./src/providers/opencode/event-detector.ts",
+      "types": "./src/providers/opencode/event-detector.ts"
+    }
   },
   "dependencies": {
     "@cmux/convex": "workspace:*",
