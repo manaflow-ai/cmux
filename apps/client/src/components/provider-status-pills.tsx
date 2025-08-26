@@ -46,14 +46,14 @@ export function ProviderStatusPills() {
   const gitNotReady = !status.gitStatus?.isAvailable;
   const dockerImageNotReady = status.dockerStatus?.workerImage && !status.dockerStatus.workerImage.isAvailable;
   const dockerImagePulling = status.dockerStatus?.workerImage?.isPulling;
-  const githubNotConfigured = !status.githubStatus?.hasToken;
+  // GitHub token configuration is no longer surfaced in UI
 
   // Count total available and unavailable providers
   const totalProviders = status.providers?.length ?? 0;
   const availableProviders = totalProviders - unavailableProviders.length;
 
   // If everything is ready, don't show anything
-  if (unavailableProviders.length === 0 && !dockerNotReady && !gitNotReady && !dockerImageNotReady && !githubNotConfigured) {
+  if (unavailableProviders.length === 0 && !dockerNotReady && !gitNotReady && !dockerImageNotReady) {
     return null;
   }
 
@@ -106,7 +106,6 @@ export function ProviderStatusPills() {
                   <p>• Docker image {status.dockerStatus?.workerImage?.name} is pulling...</p>
                 )}
                 {gitNotReady && <p>• Git installation required</p>}
-                {githubNotConfigured && <p>• GitHub PAT token configuration needed</p>}
                 {unavailableProviders.length > 0 && (
                   <p>
                     • {unavailableProviders.length} AI provider
@@ -202,30 +201,7 @@ export function ProviderStatusPills() {
             </Tooltip>
           )}
 
-          {githubNotConfigured && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => navigate({ to: "/settings" })}
-                  className={clsx(
-                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg",
-                    "bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-600",
-                    "text-neutral-800 dark:text-neutral-200",
-                    "text-xs font-medium cursor-default select-none"
-                  )}
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
-                  Add GitHub token
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="font-medium">Optional: Configure GitHub Personal Access Token</p>
-                <p className="text-xs opacity-90">
-                  Configure your GitHub Personal Access Token to enable automatic PR creation and repository management
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          )}
+          {/* GitHub token pill removed */}
         </div>
       </TooltipProvider>
     </div>

@@ -16,7 +16,7 @@ const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null;
 
 async function checkGitHubStatus(): Promise<GitHubStatus> {
   try {
-    const token = await getGitHubTokenFromKeychain(convex || undefined);
+    const token = await getGitHubTokenFromKeychain();
     return {
       isConfigured: !!token,
       hasToken: !!token,

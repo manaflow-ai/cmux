@@ -749,7 +749,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       const githubToken = await getGitHubTokenFromKeychain(convex);
       if (!githubToken) {
         dockerLogger.info(
-          "No GitHub token found on host (Convex, gh, or keychain) - skipping gh auth setup"
+          "No GitHub token found via gh CLI or env - skipping gh auth setup"
         );
         return;
       }
