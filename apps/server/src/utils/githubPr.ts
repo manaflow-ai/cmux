@@ -87,6 +87,72 @@ export async function createReadyPr(
   };
 }
 
+export async function createDraftPr(
+  token: string,
+  owner: string,
+  repo: string,
+  title: string,
+  head: string,
+  base: string,
+  body: string
+): Promise<PrBasic> {
+  const octokit = getOctokit(token);
+  const { data } = await octokit.rest.pulls.create({
+    owner,
+    repo,
+    title,
+    head,
+    base,
+    body,
+    draft: true,
+  });
+  return {
+    number: data.number,
+    html_url: data.html_url,
+    state: data.state,
+    draft: data.draft ?? undefined,
+  };
+}
+
+export async function fetchLatestCommitMessage(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<string | null> {
+  const octokit = getOctokit(token);
+  try {
+    // Get the latest commit on the branch
+    const { data } = await octokit.rest.repos.listCommits({
+      owner,
+      repo,
+      sha: branch,
+      per_page: 1,
+    });
+    if (Array.isArray(data) && data.length > 0) {
+      return data[0]?.commit?.message ?? null;
+    }
+    return null;
+  } catch (e) {
+    // Branch might not exist on remote or API error
+    return null;
+  }
+}
+
+export async function fetchDefaultBranch(
+  token: string,
+  owner: string,
+  repo: string
+): Promise<string | null> {
+  const octokit = getOctokit(token);
+  try {
+    const { data } = await octokit.rest.repos.get({ owner, repo });
+    return data.default_branch ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function markPrReady(
   token: string,
   owner: string,
@@ -98,6 +164,18 @@ export async function markPrReady(
     "PUT /repos/{owner}/{repo}/pulls/{pull_number}/ready_for_review",
     { owner, repo, pull_number: number }
   );
+}
+
+export async function markPrReadyGraphQL(
+  token: string,
+  nodeId: string
+): Promise<void> {
+  const octokit = getOctokit(token);
+  await octokit.request("POST /graphql", {
+    query:
+      "mutation($id:ID!){ markReadyForReview(input:{pullRequestId:$id}){ clientMutationId } }",
+    variables: { id: nodeId },
+  });
 }
 
 export async function reopenPr(
