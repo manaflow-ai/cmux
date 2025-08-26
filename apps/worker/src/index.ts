@@ -1181,7 +1181,8 @@ async function createTerminal(
       const useTerminalIdleFallback = !(
         providerResolved === "claude" ||
         providerResolved === "codex" ||
-        providerResolved === "gemini"
+        providerResolved === "gemini" ||
+        providerResolved === "cursor"
       );
 
       log(
@@ -1523,7 +1524,7 @@ process.on("SIGINT", gracefulShutdown);
 // Task Completion (DI approach)
 // ==============================
 
-type AgentType = "claude" | "codex" | "gemini" | "amp" | "opencode";
+type AgentType = "claude" | "codex" | "gemini" | "amp" | "opencode" | "cursor";
 
 interface TaskCompletionOptionsDI {
   taskRunId: string;
@@ -1573,6 +1574,9 @@ class TaskCompletionDetectorDI extends EventEmitter {
     } else if (this.options.agentType === "codex") {
       // Watch for Codex completion files
       this.watchCodexCompletionFiles();
+    } else if (this.options.agentType === "cursor") {
+      // Watch for Cursor stream-json result events in lifecycle file
+      this.watchCursorStreamJsonFile();
     } else if (this.options.agentType === "opencode") {
       // OpenCode completion is handled via stdout parsing in createTerminal
       // But also set up file watching as well
@@ -1641,6 +1645,25 @@ class TaskCompletionDetectorDI extends EventEmitter {
       "INFO",
       "[OpenCode] Relying on stdout parsing for completion detection"
     );
+  }
+
+  private async watchCursorStreamJsonFile(): Promise<void> {
+    const { createCursorDetector } = await import(
+      "@cmux/shared/src/providers/cursor/completion-detector.ts"
+    );
+
+    const detector = await createCursorDetector({
+      taskRunId: this.options.taskRunId,
+      startTime: this.startTime,
+      onComplete: () => {
+        this.handleCompletion();
+      },
+      onError: (_err) => {
+        // No-op; avoid stdout logging per project policy
+      },
+    });
+
+    this.watchers.push({ close: () => detector.stop() } as any);
   }
 
   private handleCompletion(): void {
@@ -1717,8 +1740,8 @@ function resolveProviderFromModel(model?: string): AgentType | undefined {
   // Special case: "amp" doesn't have a slash
   if (model === "amp") return "amp";
 
-  // Handle cursor models (cursor is not in AgentType, so skip it)
-  if (model.startsWith("cursor/")) return undefined;
+  // Handle cursor models
+  if (model.startsWith("cursor/")) return "cursor";
 
   // Extract prefix before the slash
   const prefix = model.split("/")[0] as AgentType;
@@ -1803,6 +1826,13 @@ function buildDetectorConfig(params: {
           log("ERROR", `Opencode completion error: ${e}`);
           return false;
         }
+      },
+    },
+    cursor: {
+      allowTerminalIdleFallback: false,
+      async checkCompletion() {
+        // Cursor detection is event-driven via stream-json watcher
+        return false;
       },
     },
   };
