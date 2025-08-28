@@ -177,7 +177,7 @@ function CommentReplies({ commentId }: { commentId: Id<"comments"> }) {
     <div className="mt-3 ml-2.5 border-l-2 border-neutral-700 pl-5 space-y-2">
       {replies.map((reply) => (
         <div key={reply._id} className="flex items-start gap-2">
-          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
             {reply.userId === "cmux" ? "C" : "U"}
           </div>
           <div className="flex-1">
@@ -297,7 +297,7 @@ function CommentMarker({ comment, onClick }: CommentMarkerProps) {
     <>
       {/* Comment marker dot */}
       <div
-        className="fixed w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white cursor-pointer shadow-lg z-[9999] transition-all duration-200"
+        className="fixed w-8 h-8 bg-gradient-to-br from-pink-500 to-pink-600 rounded-full flex items-center justify-center text-white cursor-pointer shadow-lg z-[9999] transition-all duration-200"
         style={{
           left: 0,
           top: 0,
@@ -415,7 +415,7 @@ function CommentMarker({ comment, onClick }: CommentMarkerProps) {
                   className="w-6 h-6 rounded-full flex-shrink-0"
                 />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
                   U
                 </div>
               )}
@@ -770,7 +770,7 @@ export function CmuxComments() {
                 />
               ) : (
                 <div className="flex-shrink-0">
-                  <div className="size-8 select-none rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-medium">
+                  <div className="size-8 select-none rounded-full bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center text-white font-medium">
                     U
                   </div>
                 </div>
@@ -934,7 +934,7 @@ export function CmuxComments() {
                       className="w-8 h-8 rounded-full flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
                       U
                     </div>
                   )}
@@ -982,7 +982,7 @@ export function CmuxComments() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-4 right-4 w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white shadow-2xl transition-all z-[9999]"
+          className="fixed bottom-4 right-4 w-14 h-14 bg-gradient-to-br from-pink-500 to-pink-600 rounded-full flex items-center justify-center text-white shadow-2xl transition-all z-[9999]"
         >
           <MessageIcon />
         </button>

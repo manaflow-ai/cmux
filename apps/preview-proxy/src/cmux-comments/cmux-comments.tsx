@@ -353,11 +353,11 @@ const TAILWIND_STYLES = `
   
   /* Custom gradient backgrounds */
   .bg-gradient-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
   }
   
   .bg-gradient-blue {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
   }
   
   /* Icon container styles */
