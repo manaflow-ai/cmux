@@ -9,12 +9,21 @@
     "package.json"
   ],
   "asar": true,
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "manaflow-ai",
+      "repo": "cmux"
+    }
+  ],
   "mac": {
     "category": "public.app-category.developer-tools",
     "icon": "build/icon.icns",
-    "hardenedRuntime": false,
+    "hardenedRuntime": true,
     "gatekeeperAssess": false,
-    "target": "dmg"
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+    "target": ["dmg", "zip"]
   },
   "dmg": {
     "contents": [
@@ -29,5 +38,23 @@
         "path": "/Applications"
       }
     ]
+  }
+  ,
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": false
+  },
+  "linux": {
+    "category": "Utility",
+    "target": ["AppImage", "deb"]
   }
 }

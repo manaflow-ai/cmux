@@ -1,3 +1,4 @@
+import { AutoUpdater } from "@/components/AutoUpdater";
 import { useTheme } from "@/components/theme/use-theme";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -47,6 +48,7 @@ function DevTools() {
 function RootComponent() {
   return (
     <>
+      <AutoUpdater />
       <Outlet />
       <DevTools />
       <ToasterWithTheme />
