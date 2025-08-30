@@ -174,7 +174,7 @@ COPY --from=builder /usr/local/bin/bunx /usr/local/bin/bunx
 
 # Verify bun works in runtime
 RUN bun --version && bunx --version
-RUN bun add -g @openai/codex@0.25.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.5.28 codebuff @devcontainers/cli @sourcegraph/amp
+RUN bun add -g @openai/codex@0.25.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.5.28 codebuff @devcontainers/cli @sourcegraph/amp @augmentcode/auggie@latest
 
 # Install cursor cli
 RUN curl https://cursor.com/install -fsS | bash
