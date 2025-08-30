@@ -2,11 +2,20 @@
 
 @layer base {
   :root {
-    @apply text-[rgba(255,255,255,0.87)] bg-[#242424] font-sans;
+    @apply text-[rgba(255,255,255,0.87)] font-sans;
   }
 
   body {
     @apply grid place-items-center min-w-[320px] min-h-dvh relative m-0;
+    background: linear-gradient(135deg, 
+      #ff006e,  /* hot pink */
+      #ff4194,  /* pink */
+      #ff7dc0,  /* light pink */
+      #ffb3d9,  /* pale pink */
+      #ffc8e3,  /* blush pink */
+      #ffd9e8,  /* very light pink */
+      #ffe5ed   /* ultra light pink */
+    );
   }
 }
 

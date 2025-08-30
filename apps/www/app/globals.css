@@ -20,7 +20,16 @@
 }
 
 body {
-  background: var(--background);
+  background: linear-gradient(135deg, 
+    #ff006e,  /* hot pink */
+    #ff4194,  /* pink */
+    #ff7dc0,  /* light pink */
+    #ffb3d9,  /* pale pink */
+    #ffc8e3,  /* blush pink */
+    #ffd9e8,  /* very light pink */
+    #ffe5ed   /* ultra light pink */
+  );
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
 }
