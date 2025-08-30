@@ -205,7 +205,12 @@ export const VSCodeErrorSchema = z.object({
 });
 
 // GitHub events
+export const GitHubFetchReposSchema = z.object({
+  teamSlugOrId: z.string(),
+});
+
 export const GitHubFetchBranchesSchema = z.object({
+  teamSlugOrId: z.string(),
   repo: z.string(),
 });
 
@@ -394,6 +399,7 @@ export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
 export type DockerStatus = z.infer<typeof DockerStatusSchema>;
 export type GitStatus = z.infer<typeof GitStatusSchema>;
 export type GitHubStatus = z.infer<typeof GitHubStatusSchema>;
+export type GitHubFetchRepos = z.infer<typeof GitHubFetchReposSchema>;
 export type ProviderStatusResponse = z.infer<
   typeof ProviderStatusResponseSchema
 >;
@@ -441,6 +447,7 @@ export interface ClientToServerEvents {
     callback: (response: GitHubAuthResponse) => void
   ) => void;
   "github-fetch-repos": (
+    data: GitHubFetchRepos,
     callback: (response: GitHubReposResponse) => void
   ) => void;
   "github-fetch-branches": (

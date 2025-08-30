@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { resolveTeamIdLoose } from "../_shared/team";
+import { authMutation, authQuery } from "./users/utils";
 
 // Default settings
 const DEFAULT_SETTINGS = {
@@ -11,9 +12,17 @@ const DEFAULT_SETTINGS = {
 };
 
 // Get container settings
-export const get = query({
-  handler: async (ctx) => {
-    const settings = await ctx.db.query("containerSettings").first();
+export const get = authQuery({
+  args: { teamSlugOrId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const settings = await ctx.db
+      .query("containerSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .first();
     if (!settings) {
       // Return defaults if no settings exist
       return {
@@ -31,8 +40,9 @@ export const get = query({
 });
 
 // Update container settings
-export const update = mutation({
+export const update = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     maxRunningContainers: v.optional(v.number()),
     reviewPeriodMinutes: v.optional(v.number()),
     autoCleanupEnabled: v.optional(v.boolean()),
@@ -40,17 +50,28 @@ export const update = mutation({
     minContainersToKeep: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db.query("containerSettings").first();
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const existing = await ctx.db
+      .query("containerSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .first();
     const now = Date.now();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
         ...args,
+        userId,
+        teamId,
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("containerSettings", {
         ...args,
+        userId,
+        teamId,
         createdAt: now,
         updatedAt: now,
       });
@@ -59,15 +80,29 @@ export const update = mutation({
 });
 
 // Get effective settings with defaults
-export const getEffective = query({
-  handler: async (ctx) => {
-    const settings = await ctx.db.query("containerSettings").first();
+export const getEffective = authQuery({
+  args: { teamSlugOrId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const settings = await ctx.db
+      .query("containerSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .first();
     return {
-      maxRunningContainers: settings?.maxRunningContainers ?? DEFAULT_SETTINGS.maxRunningContainers,
-      reviewPeriodMinutes: settings?.reviewPeriodMinutes ?? DEFAULT_SETTINGS.reviewPeriodMinutes,
-      autoCleanupEnabled: settings?.autoCleanupEnabled ?? DEFAULT_SETTINGS.autoCleanupEnabled,
-      stopImmediatelyOnCompletion: settings?.stopImmediatelyOnCompletion ?? DEFAULT_SETTINGS.stopImmediatelyOnCompletion,
-      minContainersToKeep: settings?.minContainersToKeep ?? DEFAULT_SETTINGS.minContainersToKeep,
+      maxRunningContainers:
+        settings?.maxRunningContainers ?? DEFAULT_SETTINGS.maxRunningContainers,
+      reviewPeriodMinutes:
+        settings?.reviewPeriodMinutes ?? DEFAULT_SETTINGS.reviewPeriodMinutes,
+      autoCleanupEnabled:
+        settings?.autoCleanupEnabled ?? DEFAULT_SETTINGS.autoCleanupEnabled,
+      stopImmediatelyOnCompletion:
+        settings?.stopImmediatelyOnCompletion ??
+        DEFAULT_SETTINGS.stopImmediatelyOnCompletion,
+      minContainersToKeep:
+        settings?.minContainersToKeep ?? DEFAULT_SETTINGS.minContainersToKeep,
     };
   },
 });

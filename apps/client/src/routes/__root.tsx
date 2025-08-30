@@ -1,4 +1,5 @@
 import { useTheme } from "@/components/theme/use-theme";
+import type { StackClientApp } from "@stackframe/react";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
@@ -8,6 +9,7 @@ import { Toaster } from "sonner";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
+  auth: StackClientApp<true, string>;
 }>()({
   component: RootComponent,
 });

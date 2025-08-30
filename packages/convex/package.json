@@ -24,9 +24,15 @@
   },
   "dependencies": {
     "@stackframe/js": "^2.8.32",
+    "@t3-oss/env-core": "^0.13.8",
     "convex": "1.26.0-alpha.6",
     "convex-helpers": "^0.1.104",
     "socket.io-client": "^4.8.1",
-    "typescript": "^5.8.3"
+    "svix": "^1.75.0",
+    "typescript": "^5.8.3",
+    "zod": "^4.1.4"
+  },
+  "devDependencies": {
+    "@octokit/webhooks-types": "^7.6.1"
   }
 }

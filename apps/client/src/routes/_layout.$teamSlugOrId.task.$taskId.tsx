@@ -1,5 +1,5 @@
 import { api } from "@cmux/convex/api";
-import { type Id } from "@cmux/convex/dataModel";
+import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
 import { useClipboard } from "@mantine/hooks";
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -13,18 +13,24 @@ import {
 import clsx from "clsx";
 import { Suspense, useEffect } from "react";
 
-export const Route = createFileRoute("/_layout/task/$taskId")({
+export const Route = createFileRoute("/_layout/$teamSlugOrId/task/$taskId")({
   component: TaskDetailPage,
+  parseParams: (params) => ({
+    ...params,
+    taskId: typedZid("tasks").parse(params.taskId),
+  }),
   loader: async (opts) => {
     await Promise.all([
       opts.context.queryClient.ensureQueryData(
         convexQuery(api.taskRuns.getByTask, {
-          taskId: opts.params.taskId as Id<"tasks">,
+          teamSlugOrId: opts.params.teamSlugOrId,
+          taskId: opts.params.taskId,
         })
       ),
       opts.context.queryClient.ensureQueryData(
         convexQuery(api.tasks.getById, {
-          id: opts.params.taskId as Id<"tasks">,
+          teamSlugOrId: opts.params.teamSlugOrId,
+          id: opts.params.taskId,
         })
       ),
     ]);
@@ -38,15 +44,17 @@ const WITH_TABS = false;
 type GetByTaskResultItem = (typeof api.taskRuns.getByTask._returnType)[number];
 
 function TaskDetailPage() {
-  const { taskId } = Route.useParams();
+  const { taskId, teamSlugOrId } = Route.useParams();
   const { data: task } = useSuspenseQuery(
     convexQuery(api.tasks.getById, {
-      id: taskId as Id<"tasks">,
+      teamSlugOrId,
+      id: taskId,
     })
   );
   const { data: taskRuns } = useSuspenseQuery(
     convexQuery(api.taskRuns.getByTask, {
-      taskId: taskId as Id<"tasks">,
+      teamSlugOrId,
+      taskId,
     })
   );
   const clipboard = useClipboard({ timeout: 2000 });
@@ -108,8 +116,8 @@ function TaskDetailPage() {
 
         if (flatRuns[runIndex]) {
           navigate({
-            to: "/task/$taskId/run/$taskRunId",
-            params: { taskId, taskRunId: flatRuns[runIndex]._id },
+            to: "/$teamSlugOrId/task/$taskId/run/$taskRunId",
+            params: { teamSlugOrId, taskId, taskRunId: flatRuns[runIndex]._id },
           });
         }
       }
@@ -117,7 +125,7 @@ function TaskDetailPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flatRuns, taskId, navigate]);
+  }, [flatRuns, taskId, navigate, teamSlugOrId]);
 
   if (!task || !taskRuns) {
     return <div className="p-8">Loading...</div>;
@@ -174,8 +182,8 @@ function TaskDetailPage() {
             {flatRuns.map((run, index) => (
               <Link
                 key={run._id}
-                to="/task/$taskId/run/$taskRunId"
-                params={{ taskId, taskRunId: run._id }}
+                to="/$teamSlugOrId/task/$taskId/run/$taskRunId"
+                params={{ teamSlugOrId, taskId, taskRunId: run._id }}
                 className={clsx(
                   "px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors select-none",
                   activeRunId === run._id

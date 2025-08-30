@@ -39,6 +39,7 @@ interface TaskTreeProps {
   level?: number;
   // When true, expand the task node on initial mount
   defaultExpanded?: boolean;
+  teamSlugOrId: string;
 }
 
 // Extract the display text logic to avoid re-creating it on every render
@@ -62,6 +63,7 @@ function TaskTreeInner({
   task,
   level = 0,
   defaultExpanded = false,
+  teamSlugOrId,
 }: TaskTreeProps) {
   // Get the current route to determine if this task is selected
   const location = useLocation();
@@ -82,7 +84,7 @@ function TaskTreeInner({
     setIsExpanded((prev) => !prev);
   }, []);
 
-  const { archiveWithUndo, unarchive } = useArchiveTask();
+  const { archiveWithUndo, unarchive } = useArchiveTask(teamSlugOrId);
 
   const handleCopyDescription = useCallback(() => {
     if (navigator?.clipboard?.writeText) {
@@ -103,8 +105,8 @@ function TaskTreeInner({
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           <Link
-            to="/task/$taskId"
-            params={{ taskId: task._id }}
+            to="/$teamSlugOrId/task/$taskId"
+            params={{ teamSlugOrId, taskId: task._id }}
             search={{ runId: undefined }}
             className={clsx(
               "flex items-center px-0.5 pt-[2.5px] pb-[3px] text-sm rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-default",
@@ -254,6 +256,7 @@ function TaskTreeInner({
               level={level + 1}
               taskId={task._id}
               branch={task.baseBranch}
+              teamSlugOrId={teamSlugOrId}
             />
           ))}
         </div>
@@ -267,9 +270,10 @@ interface TaskRunTreeProps {
   level: number;
   taskId: Id<"tasks">;
   branch?: string;
+  teamSlugOrId: string;
 }
 
-function TaskRunTreeInner({ run, level, taskId, branch }: TaskRunTreeProps) {
+function TaskRunTreeInner({ run, level, taskId, branch, teamSlugOrId }: TaskRunTreeProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const hasChildren = run.children.length > 0;
 
@@ -323,8 +327,8 @@ function TaskRunTreeInner({ run, level, taskId, branch }: TaskRunTreeProps) {
         </div>
       )}
       <Link
-        to="/task/$taskId/run/$taskRunId"
-        params={{ taskId, taskRunId: run._id }}
+        to="/$teamSlugOrId/task/$taskId/run/$taskRunId"
+        params={{ teamSlugOrId, taskId, taskRunId: run._id }}
         className={clsx(
           "group flex items-center px-2 pr-10 py-1 text-xs rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-default",
           "[&.active]:bg-neutral-100 dark:[&.active]:bg-neutral-800"
@@ -390,6 +394,7 @@ function TaskRunTreeInner({ run, level, taskId, branch }: TaskRunTreeProps) {
               level={level + 1}
               taskId={taskId}
               branch={branch}
+              teamSlugOrId={teamSlugOrId}
             />
           ))}
         </div>

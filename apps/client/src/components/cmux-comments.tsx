@@ -4,6 +4,7 @@ import type { Id } from "@cmux/convex/dataModel";
 import type { SpawnFromComment } from "@cmux/shared";
 import clsx from "clsx";
 import { useMutation, useQuery } from "convex/react";
+// Read team slug from path to avoid route type coupling
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -100,7 +101,7 @@ const ArchiveIcon = ({ className }: { className?: string }) => (
 );
 
 interface Comment {
-  _id: string;
+  _id: Id<"comments">;
   url: string;
   page: string;
   pageTitle: string;
@@ -123,6 +124,7 @@ interface Comment {
 interface CommentMarkerProps {
   comment: Comment;
   onClick: () => void;
+  teamSlugOrId: string;
 }
 
 // Helper function to render markdown links
@@ -166,8 +168,17 @@ function renderMarkdownLinks(text: string): React.ReactNode {
 }
 
 // Component to display comment replies
-function CommentReplies({ commentId }: { commentId: Id<"comments"> }) {
-  const replies = useQuery(api.comments.getReplies, { commentId });
+function CommentReplies({
+  commentId,
+  teamSlugOrId,
+}: {
+  commentId: Id<"comments">;
+  teamSlugOrId: string;
+}) {
+  const replies = useQuery(api.comments.getReplies, {
+    teamSlugOrId,
+    commentId,
+  });
 
   if (!replies || replies.length === 0) {
     return null;
@@ -194,7 +205,7 @@ function CommentReplies({ commentId }: { commentId: Id<"comments"> }) {
   );
 }
 
-function CommentMarker({ comment, onClick }: CommentMarkerProps) {
+function CommentMarker({ comment, onClick, teamSlugOrId }: CommentMarkerProps) {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
     null
   );
@@ -439,7 +450,10 @@ function CommentMarker({ comment, onClick }: CommentMarkerProps) {
               </button>
             </div>
             {/* Always show replies in anchored comment */}
-            <CommentReplies commentId={comment._id as Id<"comments">} />
+            <CommentReplies
+              commentId={comment._id}
+              teamSlugOrId={teamSlugOrId}
+            />
           </div>
         </div>
       )}
@@ -447,7 +461,7 @@ function CommentMarker({ comment, onClick }: CommentMarkerProps) {
   );
 }
 
-export function CmuxComments() {
+export function CmuxComments({ teamSlugOrId }: { teamSlugOrId: string }) {
   const { socket } = useSocket();
   const [isOpen, setIsOpen] = useState(false);
   const [isCommenting, setIsCommenting] = useState(false);
@@ -481,6 +495,7 @@ export function CmuxComments() {
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   const comments = useQuery(api.comments.listComments, {
+    teamSlugOrId,
     url: window.location.origin,
     page: window.location.pathname,
     includeArchived: showArchived,
@@ -656,9 +671,9 @@ export function CmuxComments() {
 
     // Create the comment in Convex
     const commentId = await createComment({
+      teamSlugOrId,
       ...pendingCommentData,
       content: commentDraft,
-      userId,
       // profileImageUrl: user.profileImageUrl || undefined,
       profileImageUrl,
     });
@@ -726,6 +741,7 @@ export function CmuxComments() {
               setIsOpen(true);
               setForceShow(true);
             }}
+            teamSlugOrId={teamSlugOrId}
           />
         ))}
 
@@ -955,14 +971,16 @@ export function CmuxComments() {
                     {/* Always show replies */}
                     <div className="transform -translate-x-[40px]">
                       <CommentReplies
-                        commentId={comment._id as Id<"comments">}
+                        commentId={comment._id}
+                        teamSlugOrId={teamSlugOrId}
                       />
                     </div>
                   </div>
                   <button
                     onClick={() =>
                       archiveComment({
-                        commentId: comment._id as Id<"comments">,
+                        teamSlugOrId,
+                        commentId: comment._id,
                         archived: !comment.archived,
                       })
                     }

@@ -1,9 +1,5 @@
-import {
-  booksRouter,
-  devServerRouter,
-  healthRouter,
-  usersRouter,
-} from "@/lib/routes/index";
+import { booksRouter, devServerRouter, healthRouter, usersRouter } from "@/lib/routes/index";
+import { integrationsRouter } from "@/lib/routes/integrations.route";
 import { stackServerApp } from "@/lib/utils/stack";
 import { swaggerUI } from "@hono/swagger-ui";
 import { OpenAPIHono } from "@hono/zod-openapi";
@@ -78,6 +74,7 @@ app.route("/", healthRouter);
 app.route("/", usersRouter);
 app.route("/", booksRouter);
 app.route("/", devServerRouter);
+app.route("/", integrationsRouter);
 
 // OpenAPI documentation
 app.doc("/doc", {

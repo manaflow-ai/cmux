@@ -7,7 +7,7 @@ import {
   evaluateCrownWithClaudeCode,
 } from "./crownEvaluator.js";
 import performAutoCommitAndPush from "./performAutoCommitAndPush.js";
-import { convex } from "./utils/convexClient.js";
+import { getConvex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
 import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken.js";
 import type { VSCodeInstance } from "./vscode/VSCodeInstance.js";
@@ -19,16 +19,19 @@ export async function handleTaskCompletion({
   exitCode = 0,
   worktreePath,
   vscodeInstance,
+  teamSlugOrId,
 }: {
   taskRunId: Id<"taskRuns">;
   agent: AgentConfig;
   exitCode: number;
   worktreePath: string;
   vscodeInstance: VSCodeInstance;
+  teamSlugOrId: string;
 }) {
   try {
     // Mark task as complete
-    await convex.mutation(api.taskRuns.complete, {
+    await getConvex().mutation(api.taskRuns.complete, {
+      teamSlugOrId,
       id: taskRunId,
       exitCode,
     });
@@ -58,7 +61,8 @@ export async function handleTaskCompletion({
 
     // Append git diff to the log; diffs are fetched on-demand now
     if (gitDiff && gitDiff.length > 0) {
-      await convex.mutation(api.taskRuns.appendLogPublic, {
+      await getConvex().mutation(api.taskRuns.appendLogPublic, {
+        teamSlugOrId,
         id: taskRunId,
         content: `\n\n=== GIT DIFF ===\n${gitDiff}\n=== END GIT DIFF ===\n`,
       });
@@ -79,7 +83,8 @@ export async function handleTaskCompletion({
     );
 
     // Check if all runs are complete and evaluate crown
-    const taskRunData = await convex.query(api.taskRuns.get, {
+    const taskRunData = await getConvex().query(api.taskRuns.get, {
+      teamSlugOrId,
       id: taskRunId,
     });
 
@@ -92,9 +97,13 @@ export async function handleTaskCompletion({
         `[AgentSpawner] Calling checkAndEvaluateCrown for task ${taskRunData.taskId}`
       );
 
-      const winnerId = await convex.mutation(api.tasks.checkAndEvaluateCrown, {
-        taskId: taskRunData.taskId,
-      });
+      const winnerId = await getConvex().mutation(
+        api.tasks.checkAndEvaluateCrown,
+        {
+          teamSlugOrId,
+          taskId: taskRunData.taskId,
+        }
+      );
 
       serverLogger.info(
         `[AgentSpawner] checkAndEvaluateCrown returned: ${winnerId}`
@@ -123,7 +132,8 @@ export async function handleTaskCompletion({
         setTimeout(async () => {
           try {
             // Check if evaluation is already in progress
-            const task = await convex.query(api.tasks.getById, {
+            const task = await getConvex().query(api.tasks.getById, {
+              teamSlugOrId,
               id: taskRunData.taskId,
             });
             if (task?.crownEvaluationError === "in_progress") {
@@ -133,13 +143,14 @@ export async function handleTaskCompletion({
               return;
             }
 
-            await evaluateCrownWithClaudeCode(taskRunData.taskId);
+            await evaluateCrownWithClaudeCode(taskRunData.taskId, teamSlugOrId);
             serverLogger.info(
               `[AgentSpawner] Crown evaluation completed successfully`
             );
 
             // Check if this task run won
-            const updatedTaskRun = await convex.query(api.taskRuns.get, {
+            const updatedTaskRun = await getConvex().query(api.taskRuns.get, {
+              teamSlugOrId,
               id: taskRunId,
             });
 
@@ -162,7 +173,8 @@ export async function handleTaskCompletion({
         );
 
         // For single agent scenario, trigger auto-PR if enabled
-        const taskRuns = await convex.query(api.taskRuns.getByTask, {
+        const taskRuns = await getConvex().query(api.taskRuns.getByTask, {
+          teamSlugOrId,
           taskId: taskRunData.taskId,
         });
 
@@ -172,7 +184,9 @@ export async function handleTaskCompletion({
           );
 
           // Check if auto-PR is enabled
-          const ws = await convex.query(api.workspaceSettings.get);
+          const ws = await getConvex().query(api.workspaceSettings.get, {
+            teamSlugOrId,
+          });
           const autoPrEnabled = ws?.autoPrEnabled ?? false;
 
           if (autoPrEnabled && winnerId) {
@@ -188,7 +202,8 @@ export async function handleTaskCompletion({
                 await createPullRequestForWinner(
                   winnerId,
                   taskRunData.taskId,
-                  githubToken || undefined
+                  githubToken || undefined,
+                  teamSlugOrId
                 );
                 serverLogger.info(
                   `[AgentSpawner] Auto-PR completed for single agent`
@@ -215,7 +230,8 @@ export async function handleTaskCompletion({
 
     // Enable auto-commit after task completion
     if (taskRunData) {
-      const task = await convex.query(api.tasks.getById, {
+      const task = await getConvex().query(api.tasks.getById, {
+        teamSlugOrId,
         id: taskRunData.taskId,
       });
 
@@ -229,7 +245,8 @@ export async function handleTaskCompletion({
             vscodeInstance,
             agent,
             taskRunId,
-            task.text
+            task.text,
+            teamSlugOrId
           );
           serverLogger.info(
             `[AgentSpawner] Auto-commit completed successfully for ${agent.name}`
@@ -244,8 +261,9 @@ export async function handleTaskCompletion({
     }
 
     // Schedule container stop based on settings
-    const containerSettings = await convex.query(
-      api.containerSettings.getEffective
+    const containerSettings = await getConvex().query(
+      api.containerSettings.getEffective,
+      { teamSlugOrId }
     );
 
     if (containerSettings.autoCleanupEnabled) {
@@ -263,7 +281,8 @@ export async function handleTaskCompletion({
           containerSettings.reviewPeriodMinutes * 60 * 1000;
         const scheduledStopAt = Date.now() + reviewPeriodMs;
 
-        await convex.mutation(api.taskRuns.updateScheduledStop, {
+        await getConvex().mutation(api.taskRuns.updateScheduledStop, {
+          teamSlugOrId,
           id: taskRunId,
           scheduledStopAt,
         });

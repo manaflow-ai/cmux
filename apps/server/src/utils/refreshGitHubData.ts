@@ -1,9 +1,13 @@
 import { api } from "@cmux/convex/api";
 import { ghApi } from "../ghApi.js";
-import { convex } from "./convexClient.js";
+import { getConvex } from "./convexClient.js";
 import { serverLogger } from "./fileLogger.js";
 
-export async function refreshGitHubData() {
+export async function refreshGitHubData({
+  teamSlugOrId,
+}: {
+  teamSlugOrId: string;
+}) {
   try {
     serverLogger.info("Starting GitHub data refresh...");
 
@@ -20,8 +24,10 @@ export async function refreshGitHubData() {
       ]);
     } catch (error) {
       // Check if this is an authentication error
-      if (error instanceof Error && 'status' in error && error.status === 401) {
-        serverLogger.info("No GitHub authentication found, skipping repository refresh");
+      if (error instanceof Error && "status" in error && error.status === 401) {
+        serverLogger.info(
+          "No GitHub authentication found, skipping repository refresh"
+        );
         return;
       }
       throw error;
@@ -56,9 +62,12 @@ export async function refreshGitHubData() {
     );
 
     if (reposToInsert.length > 0) {
-      serverLogger.info(`Refreshing repository data with ${reposToInsert.length} repos...`);
+      serverLogger.info(
+        `Refreshing repository data with ${reposToInsert.length} repos...`
+      );
       // The mutation now handles deduplication
-      await convex.mutation(api.github.bulkInsertRepos, {
+      await getConvex().mutation(api.github.bulkInsertRepos, {
+        teamSlugOrId,
         repos: reposToInsert,
       });
       serverLogger.info("Repository data refreshed successfully");
@@ -69,7 +78,6 @@ export async function refreshGitHubData() {
     // Optionally refresh branches for existing repos
     // This could be done on-demand or periodically instead
     serverLogger.info("GitHub data refresh completed");
-
   } catch (error) {
     serverLogger.error("Error refreshing GitHub data:", error);
     throw error;
@@ -77,21 +85,27 @@ export async function refreshGitHubData() {
 }
 
 // Optional: Add a function to refresh branches for specific repos
-export async function refreshBranchesForRepo(repo: string) {
+export async function refreshBranchesForRepo(
+  repo: string,
+  teamSlugOrId: string
+) {
   try {
     const branches = await ghApi.getRepoBranches(repo);
-    
+
     if (branches.length > 0) {
-      await convex.mutation(api.github.bulkInsertBranches, {
+      await getConvex().mutation(api.github.bulkInsertBranches, {
+        teamSlugOrId,
         repo,
         branches,
       });
     }
-    
+
     return branches;
   } catch (error) {
-    if (error instanceof Error && 'status' in error && error.status === 401) {
-      serverLogger.info("No GitHub authentication found, skipping branch refresh");
+    if (error instanceof Error && "status" in error && error.status === 401) {
+      serverLogger.info(
+        "No GitHub authentication found, skipping branch refresh"
+      );
       return [];
     }
     throw error;

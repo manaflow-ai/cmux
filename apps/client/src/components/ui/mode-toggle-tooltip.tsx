@@ -12,12 +12,14 @@ interface ModeToggleTooltipProps {
   isCloudMode: boolean;
   onToggle: () => void;
   className?: string;
+  teamSlugOrId: string;
 }
 
 export function ModeToggleTooltip({
   isCloudMode,
   onToggle,
   className,
+  teamSlugOrId,
 }: ModeToggleTooltipProps) {
   const [showTooltip, setShowTooltip] = React.useState(false);
   const [showWaitlistModal, setShowWaitlistModal] = React.useState(false);
@@ -179,6 +181,7 @@ export function ModeToggleTooltip({
         visible={showWaitlistModal}
         onClose={() => setShowWaitlistModal(false)}
         defaultEmail={user?.primaryEmail || undefined}
+        teamSlugOrId={teamSlugOrId}
       />
     </div>
   );

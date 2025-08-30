@@ -3,9 +3,16 @@ import { useQuery } from "convex/react";
 import { memo, useState } from "react";
 import { TaskItem } from "./TaskItem";
 
-export const TaskList = memo(function TaskList() {
-  const allTasks = useQuery(api.tasks.get, {});
-  const archivedTasks = useQuery(api.tasks.get, { archived: true });
+export const TaskList = memo(function TaskList({
+  teamSlugOrId,
+}: {
+  teamSlugOrId: string;
+}) {
+  const allTasks = useQuery(api.tasks.get, { teamSlugOrId });
+  const archivedTasks = useQuery(api.tasks.get, {
+    teamSlugOrId,
+    archived: true,
+  });
   const [tab, setTab] = useState<"all" | "archived">("all");
   const tasks = tab === "archived" ? archivedTasks : allTasks;
 
@@ -49,7 +56,9 @@ export const TaskList = memo(function TaskList() {
             {tab === "all" ? "No active tasks" : "No archived tasks"}
           </div>
         ) : (
-          tasks.map((task) => <TaskItem key={task._id} task={task} />)
+          tasks.map((task) => (
+            <TaskItem key={task._id} task={task} teamSlugOrId={teamSlugOrId} />
+          ))
         )}
       </div>
     </div>

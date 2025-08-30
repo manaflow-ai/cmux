@@ -4,7 +4,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { api } from "@cmux/convex/api";
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import { convex } from "../utils/convexClient.js";
+import { getConvex } from "../utils/convexClient.js";
 import { serverLogger } from "./fileLogger.js";
 
 /**
@@ -63,8 +63,16 @@ export function generateBranchName(prTitle: string): string {
 }
 
 const prGenerationSchema = z.object({
-  branchName: z.string().describe("A SHORT lowercase hyphenated branch name (2-4 words max, e.g., 'fix-auth', 'add-profile', 'update-deps')"),
-  prTitle: z.string().describe("A human-readable PR title (5-10 words) that summarizes the task"),
+  branchName: z
+    .string()
+    .describe(
+      "A SHORT lowercase hyphenated branch name (2-4 words max, e.g., 'fix-auth', 'add-profile', 'update-deps')"
+    ),
+  prTitle: z
+    .string()
+    .describe(
+      "A human-readable PR title (5-10 words) that summarizes the task"
+    ),
 });
 
 type PRGeneration = z.infer<typeof prGenerationSchema>;
@@ -74,7 +82,9 @@ type PRGeneration = z.infer<typeof prGenerationSchema>;
  * @param apiKeys Map of API keys
  * @returns Object with model and provider name, or null if no keys available
  */
-function getModelAndProvider(apiKeys: Record<string, string>): { model: LanguageModel; providerName: string } | null {
+function getModelAndProvider(
+  apiKeys: Record<string, string>
+): { model: LanguageModel; providerName: string } | null {
   if (apiKeys.OPENAI_API_KEY) {
     const openai = createOpenAI({
       apiKey: apiKeys.OPENAI_API_KEY,
@@ -84,7 +94,7 @@ function getModelAndProvider(apiKeys: Record<string, string>): { model: Language
       providerName: "OpenAI",
     };
   }
-  
+
   if (apiKeys.GEMINI_API_KEY) {
     const google = createGoogleGenerativeAI({
       apiKey: apiKeys.GEMINI_API_KEY,
@@ -94,7 +104,7 @@ function getModelAndProvider(apiKeys: Record<string, string>): { model: Language
       providerName: "Gemini",
     };
   }
-  
+
   if (apiKeys.ANTHROPIC_API_KEY) {
     const anthropic = createAnthropic({
       apiKey: apiKeys.ANTHROPIC_API_KEY,
@@ -104,7 +114,7 @@ function getModelAndProvider(apiKeys: Record<string, string>): { model: Language
       providerName: "Anthropic",
     };
   }
-  
+
   return null;
 }
 
@@ -123,7 +133,7 @@ export async function generatePRInfo(
   const userPrompt = `Task: ${taskDescription}`;
 
   const modelConfig = getModelAndProvider(apiKeys);
-  
+
   if (!modelConfig) {
     serverLogger.warn(
       "[BranchNameGenerator] No API keys available, using fallback"
@@ -152,8 +162,11 @@ export async function generatePRInfo(
     );
     return object;
   } catch (error) {
-    serverLogger.error(`[BranchNameGenerator] ${providerName} API error:`, error);
-    
+    serverLogger.error(
+      `[BranchNameGenerator] ${providerName} API error:`,
+      error
+    );
+
     const words = taskDescription.split(/\s+/).slice(0, 5).join(" ");
     return {
       branchName: toKebabCase(words || "feature-update"),
@@ -182,13 +195,20 @@ export async function generatePRTitle(
  * @returns The base branch name without ID
  */
 export async function generateBranchBaseName(
-  taskDescription: string
+  taskDescription: string,
+  teamSlugOrId: string
 ): Promise<string> {
   // Fetch API keys from Convex
-  const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+  const apiKeys = await getConvex().query(api.apiKeys.getAllForAgents, {
+    teamSlugOrId,
+  });
 
   const result = await generatePRInfo(taskDescription, apiKeys);
-  const branchName = result?.branchName || toKebabCase(taskDescription.split(/\s+/).slice(0, 5).join(" ") || "feature");
+  const branchName =
+    result?.branchName ||
+    toKebabCase(
+      taskDescription.split(/\s+/).slice(0, 5).join(" ") || "feature"
+    );
   return `cmux/${branchName}`;
 }
 
@@ -197,9 +217,12 @@ export async function generateBranchBaseName(
  * Falls back to a simple 5-word prefix of the task description.
  */
 export async function getPRTitleFromTaskDescription(
-  taskDescription: string
+  taskDescription: string,
+  teamSlugOrId: string
 ): Promise<string> {
-  const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+  const apiKeys = await getConvex().query(api.apiKeys.getAllForAgents, {
+    teamSlugOrId,
+  });
   const prTitle = await generatePRTitle(taskDescription, apiKeys);
   return (
     prTitle ||
@@ -236,9 +259,10 @@ export { prGenerationSchema, type PRGeneration };
  */
 export async function generateNewBranchName(
   taskDescription: string,
+  teamSlugOrId: string,
   uniqueId?: string
 ): Promise<string> {
-  const baseName = await generateBranchBaseName(taskDescription);
+  const baseName = await generateBranchBaseName(taskDescription, teamSlugOrId);
   const id = uniqueId || generateRandomId();
   return `${baseName}-${id}`;
 }
@@ -251,9 +275,10 @@ export async function generateNewBranchName(
  */
 export async function generateUniqueBranchNames(
   taskDescription: string,
-  count: number
+  count: number,
+  teamSlugOrId: string
 ): Promise<string[]> {
-  const baseName = await generateBranchBaseName(taskDescription);
+  const baseName = await generateBranchBaseName(taskDescription, teamSlugOrId);
 
   // Generate unique IDs
   const ids = new Set<string>();

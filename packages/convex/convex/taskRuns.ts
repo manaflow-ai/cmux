@@ -1,15 +1,13 @@
 import { v } from "convex/values";
+import { resolveTeamIdLoose } from "../_shared/team";
 import type { Doc } from "./_generated/dataModel";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { authMutation, authQuery } from "./users/utils";
 
 // Create a new task run
-export const create = mutation({
+export const create = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     taskId: v.id("tasks"),
     parentRunId: v.optional(v.id("taskRuns")),
     prompt: v.string(),
@@ -17,7 +15,9 @@ export const create = mutation({
     newBranch: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
     const now = Date.now();
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const taskRunId = await ctx.db.insert("taskRuns", {
       taskId: args.taskId,
       parentRunId: args.parentRunId,
@@ -28,18 +28,25 @@ export const create = mutation({
       log: "",
       createdAt: now,
       updatedAt: now,
+      userId,
+      teamId,
     });
     return taskRunId;
   },
 });
 
 // Get all task runs for a task, organized in tree structure
-export const getByTask = query({
-  args: { taskId: v.id("tasks") },
+export const getByTask = authQuery({
+  args: { teamSlugOrId: v.string(), taskId: v.id("tasks") },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const runs = await ctx.db
       .query("taskRuns")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .filter((q) => q.eq(q.field("taskId"), args.taskId))
       .collect();
 
     // Build tree structure
@@ -137,12 +144,19 @@ export const appendLog = internalMutation({
 });
 
 // Update task run summary
-export const updateSummary = mutation({
+export const updateSummary = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     summary: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     await ctx.db.patch(args.id, {
       summary: args.summary,
       updatedAt: Date.now(),
@@ -151,18 +165,30 @@ export const updateSummary = mutation({
 });
 
 // Get a single task run
-export const get = query({
-  args: { id: v.id("taskRuns") },
+export const get = authQuery({
+  args: { teamSlugOrId: v.string(), id: v.id("taskRuns") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      return null;
+    }
+    return doc;
   },
 });
 
 // Subscribe to task run updates
-export const subscribe = query({
-  args: { id: v.id("taskRuns") },
+export const subscribe = authQuery({
+  args: { teamSlugOrId: v.string(), id: v.id("taskRuns") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      return null;
+    }
+    return doc;
   },
 });
 
@@ -181,12 +207,19 @@ export const updateExitCode = internalMutation({
 });
 
 // Update worktree path for a task run
-export const updateWorktreePath = mutation({
+export const updateWorktreePath = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     worktreePath: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     await ctx.db.patch(args.id, {
       worktreePath: args.worktreePath,
       updatedAt: Date.now(),
@@ -202,8 +235,9 @@ export const getById = internalQuery({
   },
 });
 
-export const updateStatusPublic = mutation({
+export const updateStatusPublic = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     status: v.union(
       v.literal("pending"),
@@ -214,7 +248,13 @@ export const updateStatusPublic = mutation({
     exitCode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
     const now = Date.now();
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     const updates: {
       status: typeof args.status;
       updatedAt: number;
@@ -236,15 +276,21 @@ export const updateStatusPublic = mutation({
   },
 });
 
-export const appendLogPublic = mutation({
+export const appendLogPublic = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run) {
       throw new Error("Task run not found");
+    }
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     console.log(
@@ -259,8 +305,9 @@ export const appendLogPublic = mutation({
 });
 
 // Update VSCode instance information
-export const updateVSCodeInstance = mutation({
+export const updateVSCodeInstance = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     vscode: v.object({
       provider: v.union(
@@ -289,6 +336,12 @@ export const updateVSCodeInstance = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     await ctx.db.patch(args.id, {
       vscode: args.vscode,
       updatedAt: Date.now(),
@@ -297,8 +350,9 @@ export const updateVSCodeInstance = mutation({
 });
 
 // Update VSCode instance status
-export const updateVSCodeStatus = mutation({
+export const updateVSCodeStatus = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     status: v.union(
       v.literal("starting"),
@@ -308,9 +362,14 @@ export const updateVSCodeStatus = mutation({
     stoppedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const run = await ctx.db.get(args.id);
     if (!run) {
       throw new Error("Task run not found");
+    }
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     const vscode = run.vscode || {
@@ -330,8 +389,9 @@ export const updateVSCodeStatus = mutation({
 });
 
 // Update VSCode instance ports
-export const updateVSCodePorts = mutation({
+export const updateVSCodePorts = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     ports: v.object({
       vscode: v.string(),
@@ -340,9 +400,14 @@ export const updateVSCodePorts = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const run = await ctx.db.get(args.id);
     if (!run) {
       throw new Error("Task run not found");
+    }
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     const vscode = run.vscode || {
@@ -361,26 +426,39 @@ export const updateVSCodePorts = mutation({
 });
 
 // Get task run by VSCode container name
-export const getByContainerName = query({
-  args: { containerName: v.string() },
+export const getByContainerName = authQuery({
+  args: { teamSlugOrId: v.string(), containerName: v.string() },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const runs = await ctx.db
       .query("taskRuns")
-      .withIndex("by_vscode_container_name", (q) =>
-        q.eq("vscode.containerName", args.containerName)
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
       )
+      .filter((q) => q.eq(q.field("vscode.containerName"), args.containerName))
       .collect();
-    return runs.find((run) => run.vscode?.containerName === args.containerName);
+    return (
+      runs.find((run) => run.vscode?.containerName === args.containerName) ??
+      null
+    );
   },
 });
 
 // Complete a task run
-export const complete = mutation({
+export const complete = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     exitCode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "completed",
@@ -392,13 +470,20 @@ export const complete = mutation({
 });
 
 // Mark a task run as failed with an error message
-export const fail = mutation({
+export const fail = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     errorMessage: v.string(),
     exitCode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "failed",
@@ -411,11 +496,16 @@ export const fail = mutation({
 });
 
 // Get all active VSCode instances
-export const getActiveVSCodeInstances = query({
-  handler: async (ctx) => {
+export const getActiveVSCodeInstances = authQuery({
+  args: { teamSlugOrId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const runs = await ctx.db
       .query("taskRuns")
-      .withIndex("by_vscode_status", (q) => q.eq("vscode.status", "running"))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
       .collect();
     return runs.filter(
       (run) =>
@@ -426,14 +516,20 @@ export const getActiveVSCodeInstances = query({
 });
 
 // Update last accessed time for a container
-export const updateLastAccessed = mutation({
+export const updateLastAccessed = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run || !run.vscode) {
       throw new Error("Task run or VSCode instance not found");
+    }
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     await ctx.db.patch(args.id, {
@@ -447,15 +543,21 @@ export const updateLastAccessed = mutation({
 });
 
 // Toggle keep alive status for a container
-export const toggleKeepAlive = mutation({
+export const toggleKeepAlive = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     keepAlive: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run || !run.vscode) {
       throw new Error("Task run or VSCode instance not found");
+    }
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     await ctx.db.patch(args.id, {
@@ -472,15 +574,21 @@ export const toggleKeepAlive = mutation({
 });
 
 // Update scheduled stop time for a container
-export const updateScheduledStop = mutation({
+export const updateScheduledStop = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     scheduledStopAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run || !run.vscode) {
       throw new Error("Task run or VSCode instance not found");
+    }
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     await ctx.db.patch(args.id, {
@@ -494,8 +602,9 @@ export const updateScheduledStop = mutation({
 });
 
 // Update pull request URL for a task run
-export const updatePullRequestUrl = mutation({
+export const updatePullRequestUrl = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     pullRequestUrl: v.string(),
     isDraft: v.optional(v.boolean()),
@@ -512,6 +621,12 @@ export const updatePullRequestUrl = mutation({
     number: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const run = await ctx.db.get(args.id);
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (!run || run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     await ctx.db.patch(args.id, {
       pullRequestUrl: args.pullRequestUrl,
       pullRequestIsDraft: args.isDraft,
@@ -522,8 +637,9 @@ export const updatePullRequestUrl = mutation({
   },
 });
 
-export const updatePullRequestState = mutation({
+export const updatePullRequestState = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     state: v.union(
       v.literal("none"),
@@ -538,6 +654,12 @@ export const updatePullRequestState = mutation({
     url: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const run = await ctx.db.get(args.id);
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (!run || run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     await ctx.db.patch(args.id, {
       pullRequestState: args.state,
       ...(args.isDraft !== undefined
@@ -551,8 +673,9 @@ export const updatePullRequestState = mutation({
 });
 
 // Update networking information for a task run
-export const updateNetworking = mutation({
+export const updateNetworking = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     id: v.id("taskRuns"),
     networking: v.array(
       v.object({
@@ -567,6 +690,12 @@ export const updateNetworking = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const run = await ctx.db.get(args.id);
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (!run || run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
     await ctx.db.patch(args.id, {
       networking: args.networking,
       updatedAt: Date.now(),
@@ -575,9 +704,17 @@ export const updateNetworking = mutation({
 });
 
 // Get containers that should be stopped based on TTL and settings
-export const getContainersToStop = query({
-  handler: async (ctx) => {
-    const settings = await ctx.db.query("containerSettings").first();
+export const getContainersToStop = authQuery({
+  args: { teamSlugOrId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const settings = await ctx.db
+      .query("containerSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .first();
     const autoCleanupEnabled = settings?.autoCleanupEnabled ?? true;
     const minContainersToKeep = settings?.minContainersToKeep ?? 0;
 
@@ -588,7 +725,9 @@ export const getContainersToStop = query({
     const now = Date.now();
     const activeRuns = await ctx.db
       .query("taskRuns")
-      .withIndex("by_vscode_status", (q) => q.eq("vscode.status", "running"))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
       .collect();
 
     const runningContainers = activeRuns.filter(
@@ -619,14 +758,24 @@ export const getContainersToStop = query({
 });
 
 // Get running containers sorted by priority for cleanup
-export const getRunningContainersByCleanupPriority = query({
-  handler: async (ctx) => {
-    const settings = await ctx.db.query("containerSettings").first();
+export const getRunningContainersByCleanupPriority = authQuery({
+  args: { teamSlugOrId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const settings = await ctx.db
+      .query("containerSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .first();
     const minContainersToKeep = settings?.minContainersToKeep ?? 0;
 
     const activeRuns = await ctx.db
       .query("taskRuns")
-      .withIndex("by_vscode_status", (q) => q.eq("vscode.status", "running"))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
       .collect();
 
     const runningContainers = activeRuns.filter(

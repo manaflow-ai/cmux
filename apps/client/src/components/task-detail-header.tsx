@@ -35,6 +35,7 @@ interface TaskDetailHeaderProps {
   onExpandAll?: () => void;
   onCollapseAll?: () => void;
   isLoading?: boolean;
+  teamSlugOrId: string;
 }
 
 const ENABLE_MERGE_BUTTON = false;
@@ -53,6 +54,7 @@ export function TaskDetailHeader({
   onExpandAll,
   onCollapseAll,
   isLoading,
+  teamSlugOrId,
 }: TaskDetailHeaderProps) {
   const navigate = useNavigate();
   const clipboard = useClipboard({ timeout: 2000 });
@@ -366,8 +368,8 @@ export function TaskDetailHeader({
                                   }
                                   if (!isSelected) {
                                     navigate({
-                                      to: "/task/$taskId",
-                                      params: { taskId: task?._id },
+                                      to: "/$teamSlugOrId/task/$taskId",
+                                      params: { teamSlugOrId, taskId: task?._id },
                                       search: { runId: run._id },
                                     });
                                   }

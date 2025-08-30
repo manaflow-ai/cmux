@@ -18,7 +18,7 @@ const paramsSchema = z.object({
   taskId: typedZid("tasks"),
 });
 
-export const Route = createFileRoute("/_layout/task/$taskId/")({
+export const Route = createFileRoute("/_layout/$teamSlugOrId/task/$taskId/")({
   component: TaskDetailPage,
   params: {
     parse: paramsSchema.parse,
@@ -38,11 +38,13 @@ export const Route = createFileRoute("/_layout/task/$taskId/")({
     await Promise.all([
       opts.context.queryClient.ensureQueryData(
         convexQuery(api.taskRuns.getByTask, {
+          teamSlugOrId: opts.params.teamSlugOrId,
           taskId: opts.params.taskId,
         })
       ),
       opts.context.queryClient.ensureQueryData(
         convexQuery(api.tasks.getById, {
+          teamSlugOrId: opts.params.teamSlugOrId,
           id: opts.params.taskId,
         })
       ),
@@ -51,7 +53,7 @@ export const Route = createFileRoute("/_layout/task/$taskId/")({
 });
 
 function TaskDetailPage() {
-  const { taskId } = Route.useParams();
+  const { taskId, teamSlugOrId } = Route.useParams();
   const { runId } = Route.useSearch();
 
   const [isCreatingPr, setIsCreatingPr] = useState(false);
@@ -67,10 +69,12 @@ function TaskDetailPage() {
   const queryClient = router.options.context?.queryClient;
 
   const task = useQuery(api.tasks.getById, {
+    teamSlugOrId,
     id: taskId,
   });
   const taskRuns = useQuery(api.taskRuns.getByTask, {
-    taskId: taskId,
+    teamSlugOrId,
+    taskId,
   });
 
   // Find the crowned run (if any)
@@ -130,7 +134,7 @@ function TaskDetailPage() {
   // Live update diffs when files change for this worktree; mutate TanStack cache directly
   useEffect(() => {
     if (!socket || !selectedRun?._id || !selectedRun?.worktreePath) return;
-    const runId = selectedRun._id as Id<"taskRuns">;
+    const runId = selectedRun._id;
     const workspacePath = selectedRun.worktreePath as string;
     const onChanged = (data: { workspacePath: string; filePath: string }) => {
       if (data.workspacePath !== workspacePath) return;
@@ -286,6 +290,7 @@ function TaskDetailPage() {
             onExpandAll={diffControls?.expandAll}
             onCollapseAll={diffControls?.collapseAll}
             isLoading={diffsQuery.isPending}
+            teamSlugOrId={teamSlugOrId}
           />
           {task?.text && (
             <div className="mb-2 px-3.5">

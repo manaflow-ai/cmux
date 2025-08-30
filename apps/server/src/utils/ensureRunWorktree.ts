@@ -3,7 +3,7 @@ import type { Doc, Id } from "@cmux/convex/dataModel";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { RepositoryManager } from "../repositoryManager.js";
-import { convex } from "../utils/convexClient.js";
+import { getConvex } from "../utils/convexClient.js";
 import { serverLogger } from "../utils/fileLogger.js";
 import { getWorktreePath, setupProjectWorkspace } from "../workspace.js";
 
@@ -23,17 +23,24 @@ function sanitizeBranchName(name: string): string {
 const pendingEnsures = new Map<string, Promise<EnsureWorktreeResult>>();
 
 export async function ensureRunWorktreeAndBranch(
-  taskRunId: Id<"taskRuns">
+  taskRunId: Id<"taskRuns">,
+  teamSlugOrId: string
 ): Promise<EnsureWorktreeResult> {
   const key = String(taskRunId);
   const existing = pendingEnsures.get(key);
   if (existing) return existing;
 
   const p = (async (): Promise<EnsureWorktreeResult> => {
-    const run = await convex.query(api.taskRuns.get, { id: taskRunId });
+    const run = await getConvex().query(api.taskRuns.get, {
+      teamSlugOrId,
+      id: taskRunId,
+    });
     if (!run) throw new Error("Task run not found");
 
-    const task = await convex.query(api.tasks.getById, { id: run.taskId });
+    const task = await getConvex().query(api.tasks.getById, {
+      teamSlugOrId,
+      id: run.taskId,
+    });
     if (!task) throw new Error("Task not found");
 
     // Determine base branch: prefer explicit task.baseBranch; otherwise detect later
@@ -67,10 +74,13 @@ export async function ensureRunWorktreeAndBranch(
         throw new Error("Missing projectFullName to set up worktree");
       }
       const repoUrl = `https://github.com/${task.projectFullName}.git`;
-      const worktreeInfo = await getWorktreePath({
-        repoUrl,
-        branch: branchName,
-      });
+      const worktreeInfo = await getWorktreePath(
+        {
+          repoUrl,
+          branch: branchName,
+        },
+        teamSlugOrId
+      );
 
       const res = await setupProjectWorkspace({
         repoUrl,
@@ -81,7 +91,8 @@ export async function ensureRunWorktreeAndBranch(
         throw new Error(res.error || "Failed to set up worktree");
       }
       worktreePath = res.worktreePath;
-      await convex.mutation(api.taskRuns.updateWorktreePath, {
+      await getConvex().mutation(api.taskRuns.updateWorktreePath, {
+        teamSlugOrId,
         id: run._id,
         worktreePath,
       });

@@ -377,6 +377,9 @@ importers:
       '@daytonaio/sdk':
         specifier: ^0.22.1
         version: 0.22.1
+      '@stackframe/js':
+        specifier: ^2.8.35
+        version: 2.8.35(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react-hook-form@7.62.0(react@19.1.0))(react@19.1.0)
       '@xterm/addon-serialize':
         specifier: ^0.13.0
         version: 0.13.0(@xterm/xterm@5.5.0)
@@ -529,6 +532,9 @@ importers:
       '@asteasolutions/zod-to-openapi':
         specifier: ^8.1.0
         version: 8.1.0(zod@4.0.17)
+      '@cmux/convex':
+        specifier: workspace:*
+        version: link:../../packages/convex
       '@cmux/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -547,6 +553,9 @@ importers:
       '@t3-oss/env-core':
         specifier: ^0.13.8
         version: 0.13.8(typescript@5.8.3)(zod@4.0.17)
+      convex:
+        specifier: ^1.26.0-alpha.6
+        version: 1.26.0-alpha.6(react@19.1.0)
       hono:
         specifier: ^4.9.1
         version: 4.9.4
@@ -660,18 +669,31 @@ importers:
       '@stackframe/js':
         specifier: ^2.8.32
         version: 2.8.32(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react-hook-form@7.62.0(react@19.1.0))(react@19.1.0)
+      '@t3-oss/env-core':
+        specifier: ^0.13.8
+        version: 0.13.8(typescript@5.8.3)(zod@4.1.4)
       convex:
         specifier: 1.26.0-alpha.6
         version: 1.26.0-alpha.6(react@19.1.0)
       convex-helpers:
         specifier: ^0.1.104
-        version: 0.1.104(@standard-schema/spec@1.0.0)(convex@1.26.0-alpha.6(react@19.1.0))(hono@4.9.4)(react@19.1.0)(typescript@5.8.3)(zod@4.0.17)
+        version: 0.1.104(@standard-schema/spec@1.0.0)(convex@1.26.0-alpha.6(react@19.1.0))(hono@4.9.4)(react@19.1.0)(typescript@5.8.3)(zod@4.1.4)
       socket.io-client:
         specifier: ^4.8.1
         version: 4.8.1
+      svix:
+        specifier: ^1.75.0
+        version: 1.75.0
       typescript:
         specifier: ^5.8.3
         version: 5.8.3
+      zod:
+        specifier: ^4.1.4
+        version: 4.1.4
+    devDependencies:
+      '@octokit/webhooks-types':
+        specifier: ^7.6.1
+        version: 7.6.1
 
   packages/shared:
     dependencies:
@@ -4671,6 +4693,7 @@ packages:
 
   '@simplewebauthn/types@11.0.0':
     resolution: {integrity: sha512-b2o0wC5u2rWts31dTgBkAtSNKGX0cvL6h8QedNsKmj8O4QoLFQFR3DBVBUlpyVEhYKA+mXGUaXbcOc4JdQ3HzA==}
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
@@ -4895,8 +4918,14 @@ packages:
   '@socket.io/component-emitter@3.1.2':
     resolution: {integrity: sha512-9BCxFwvbGg/RsZK9tjXd8s4UcwR0MWeFQ1XEKIQVVvAGJyINdrqKMcTRyLoK8Rse1GjzLV9cwjWV1olXRWEXVA==}
 
+  '@stablelib/base64@1.0.1':
+    resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
+
   '@stackframe/js@2.8.32':
     resolution: {integrity: sha512-2rX/EKuFR7Z2cCfoxgHpOPmEyfRIFirq1gvTWmxYioRCvF6Ae2ynMvtTO19DRFzBZoK9OTXshj3fDieVbN4wig==}
+
+  '@stackframe/js@2.8.35':
+    resolution: {integrity: sha512-oK8kISYtzBFzsq5HnBofTb5FAOCP5tEDhQ3fBgbhNfvxjB9sqs8tm6RPn88CxdiwX3kenRlaJfpRP63eIOG0qA==}
 
   '@stackframe/react@2.8.32':
     resolution: {integrity: sha512-cI/0r8ZxTzG4DefkvMm85FnGttz0pmzuUrTm4v/lPTlPAP1vXb3jgzBORzBcylT+QMHoVVQFXgWRNqNILOcfww==}
@@ -4909,6 +4938,24 @@ packages:
 
   '@stackframe/stack-shared@2.8.32':
     resolution: {integrity: sha512-P2pJCKkL9Ee+sNgG5AZ4FBCgVtLWwJQR6ATmu2qv6bfUam6EbCrltKjOFrvcB6+5ONP5wbBW6DFqHwLvfXkGvg==}
+    peerDependencies:
+      '@types/react': '>=18.2 || >=19.0.0-rc.0'
+      '@types/react-dom': '>=18.2 || >=19.0.0-rc.0'
+      react: '>=18.2 || >=19.0.0-rc.0'
+      react-dom: '>=18.2 || >=19.0.0-rc.0'
+      yup: ^1.4.0
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+      react:
+        optional: true
+      yup:
+        optional: true
+
+  '@stackframe/stack-shared@2.8.35':
+    resolution: {integrity: sha512-iQhLVV21vckRYWX9QJT2jJ1VFhJlKVAuVZnbI4uf4M2PpE1W4UCulIQIGSHrCsP6wjCZqCqHsie8kIjg1bqNXA==}
     peerDependencies:
       '@types/react': '>=18.2 || >=19.0.0-rc.0'
       '@types/react-dom': '>=18.2 || >=19.0.0-rc.0'
@@ -6937,6 +6984,9 @@ packages:
   es6-error@4.1.1:
     resolution: {integrity: sha512-Um/+FxMr9CISWh0bi5Zv0iOD+4cFh5qLeks1qhAopKVAJw3drgKbKySikp7wGhDL0HPeaja0P5ULZrxLkniUVg==}
 
+  es6-promise@4.2.8:
+    resolution: {integrity: sha512-HJDGx5daxeIvxdBxvG2cb9g4tEvwIk3i8+nhX0yGrYmZUzbkdg8QbDevheDB8gd0//uPj4c1EQua8Q+MViT0/w==}
+
   esbuild-wasm@0.20.2:
     resolution: {integrity: sha512-7o6nmsEqlcXJXMNqnx5K+M4w4OPx7yTFXQHcJyeP3SkXb8p2T8N9E1ayK4vd/qDBepH6fuPoZwiFvZm8x5qv+w==}
     engines: {node: '>=12'}
@@ -7194,6 +7244,9 @@ packages:
 
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
+
+  fast-sha256@1.3.0:
+    resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
 
   fast-uri@3.0.6:
     resolution: {integrity: sha512-Atfo14OibSv5wAp4VWNsFYE1AchQRTv9cBGWET4pZWHzYshFSS9NQI6I57rdKn9croWVMbYFbLhJ+yJvmZIIHw==}
@@ -9014,6 +9067,9 @@ packages:
     resolution: {integrity: sha512-YWWTjgABSKcvs/nWBi9PycY/JiPJqOD4JA6o9Sej2AtvSGarXxKC3OQSk4pAarbdQlKAh5D4FCQkJNkW+GAn3w==}
     engines: {node: '>=0.6'}
 
+  querystringify@2.2.0:
+    resolution: {integrity: sha512-FIqgj2EUvTa7R50u0rGsyTftzjYmv/a3hO345bZNrqabNqjtgiDMgmo4mkUjd+nzU5oF3dClKqFIPUKybUyqoQ==}
+
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
@@ -9942,6 +9998,9 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
+  svix@1.75.0:
+    resolution: {integrity: sha512-3GLI1DN4Pfd8Ze+7yxoV3Ocp8hW07/WRDsoIBdjDvR916Fx3gRHaYSoa0WWRdKSqJNj+OTCeDSSv47mSp9ibqw==}
+
   tabbable@6.2.0:
     resolution: {integrity: sha512-Cat63mxsVJlzYvN51JmVXIgNoUokrIaT2zLclCXjRd8boZ0004U4KCs/sToJ75C6sdlByWxpYnb5Boif1VSFew==}
 
@@ -10276,6 +10335,9 @@ packages:
 
   url-join@4.0.1:
     resolution: {integrity: sha512-jk1+QP6ZJqyOiuEI9AEWQfju/nB2Pw466kbA0LEZljHwKeMgd9WrAEgEGxjPDD2+TNbbb37rTyhEfrCXfuKXnA==}
+
+  url-parse@1.5.10:
+    resolution: {integrity: sha512-WypcfiRhfeUP9vvF0j6rw0J3hrWrw6iZv3+22h6iRMJ/8z1Tj6XfLP4DsUix5MhMPnXpiHDoKyoZ/bdCkwBCiQ==}
 
   use-callback-ref@1.3.3:
     resolution: {integrity: sha512-jQL3lRnocaFtu3V00JToYz/4QkNWswxijDaCVNZRiRTO3HQDLsdu1ZtmIUvV4yPp+rvWm5j0y0TG/S61cuijTg==}
@@ -10695,6 +10757,9 @@ packages:
 
   zod@4.0.17:
     resolution: {integrity: sha512-1PHjlYRevNxxdy2JZ8JcNAw7rX8V9P1AKkP+x/xZfxB0K5FYfuV+Ug6P/6NVSR2jHQ+FzDDoDHS04nYUsOIyLQ==}
+
+  zod@4.1.4:
+    resolution: {integrity: sha512-2YqJuWkU6IIK9qcE4k1lLLhyZ6zFw7XVRdQGpV97jEIZwTrscUw+DY31Xczd8nwaoksyJUIxCojZXwckJovWxA==}
 
 snapshots:
 
@@ -16088,12 +16153,38 @@ snapshots:
 
   '@socket.io/component-emitter@3.1.2': {}
 
+  '@stablelib/base64@1.0.1': {}
+
   '@stackframe/js@2.8.32(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react-hook-form@7.62.0(react@19.1.0))(react@19.1.0)':
     dependencies:
       '@hookform/resolvers': 3.10.0(react-hook-form@7.62.0(react@19.1.0))
       '@oslojs/otp': 1.1.0
       '@simplewebauthn/browser': 11.0.0
       '@stackframe/stack-shared': 2.8.32(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(yup@1.7.0)
+      '@tanstack/react-table': 8.21.3(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      color: 4.2.3
+      cookie: 0.6.0
+      jose: 5.10.0
+      js-cookie: 3.0.5
+      oauth4webapi: 2.17.0
+      qrcode: 1.5.4
+      rimraf: 5.0.10
+      tsx: 4.20.4
+      yup: 1.7.0
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - buffer
+      - react
+      - react-dom
+      - react-hook-form
+
+  '@stackframe/js@2.8.35(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react-hook-form@7.62.0(react@19.1.0))(react@19.1.0)':
+    dependencies:
+      '@hookform/resolvers': 3.10.0(react-hook-form@7.62.0(react@19.1.0))
+      '@oslojs/otp': 1.1.0
+      '@simplewebauthn/browser': 11.0.0
+      '@stackframe/stack-shared': 2.8.35(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(yup@1.7.0)
       '@tanstack/react-table': 8.21.3(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       color: 4.2.3
       cookie: 0.6.0
@@ -16144,6 +16235,29 @@ snapshots:
       - tailwindcss
 
   '@stackframe/stack-shared@2.8.32(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(yup@1.7.0)':
+    dependencies:
+      '@opentelemetry/api': 1.9.0
+      '@simplewebauthn/browser': 11.0.0
+      async-mutex: 0.5.0
+      bcryptjs: 3.0.2
+      crc: 4.3.2(buffer@6.0.3)
+      elliptic: 6.6.1
+      esbuild-wasm: 0.20.2
+      ip-regex: 5.0.0
+      jose: 5.10.0
+      oauth4webapi: 2.17.0
+      react-dom: 19.1.0(react@19.1.0)
+      semver: 7.7.2
+      uuid: 9.0.1
+    optionalDependencies:
+      '@types/react': 19.1.11
+      '@types/react-dom': 19.1.7(@types/react@19.1.11)
+      react: 19.1.0
+      yup: 1.7.0
+    transitivePeerDependencies:
+      - buffer
+
+  '@stackframe/stack-shared@2.8.35(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(yup@1.7.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@simplewebauthn/browser': 11.0.0
@@ -16244,6 +16358,11 @@ snapshots:
     optionalDependencies:
       typescript: 5.8.3
       zod: 4.0.17
+
+  '@t3-oss/env-core@0.13.8(typescript@5.8.3)(zod@4.1.4)':
+    optionalDependencies:
+      typescript: 5.8.3
+      zod: 4.1.4
 
   '@tailwindcss/node@4.1.12':
     dependencies:
@@ -18058,7 +18177,7 @@ snapshots:
       typescript: 5.8.3
       zod: 3.25.76
 
-  convex-helpers@0.1.104(@standard-schema/spec@1.0.0)(convex@1.26.0-alpha.6(react@19.1.0))(hono@4.9.4)(react@19.1.0)(typescript@5.8.3)(zod@4.0.17):
+  convex-helpers@0.1.104(@standard-schema/spec@1.0.0)(convex@1.26.0-alpha.6(react@19.1.0))(hono@4.9.4)(react@19.1.0)(typescript@5.8.3)(zod@4.1.4):
     dependencies:
       convex: 1.26.0-alpha.6(react@19.1.0)
     optionalDependencies:
@@ -18066,7 +18185,7 @@ snapshots:
       hono: 4.9.4
       react: 19.1.0
       typescript: 5.8.3
-      zod: 4.0.17
+      zod: 4.1.4
 
   convex@1.26.0-alpha.6(react@19.1.0):
     dependencies:
@@ -18693,6 +18812,8 @@ snapshots:
   es6-error@4.1.1:
     optional: true
 
+  es6-promise@4.2.8: {}
+
   esbuild-wasm@0.20.2: {}
 
   esbuild@0.21.5:
@@ -18814,8 +18935,8 @@ snapshots:
       '@typescript-eslint/parser': 6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3)
       eslint: 9.34.0(jiti@2.5.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1)))(eslint@9.34.0(jiti@2.5.1))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.34.0(jiti@2.5.1))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.34.0(jiti@2.5.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.34.0(jiti@2.5.1))
       eslint-plugin-react: 7.37.5(eslint@9.34.0(jiti@2.5.1))
       eslint-plugin-react-hooks: 5.2.0(eslint@9.34.0(jiti@2.5.1))
@@ -18849,14 +18970,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.12.1(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1)))(eslint@9.34.0(jiti@2.5.1)))(eslint@9.34.0(jiti@2.5.1)):
+  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@9.34.0(jiti@2.5.1)):
+    dependencies:
+      '@nolyfill/is-core-module': 1.0.39
+      debug: 4.4.1(supports-color@8.1.1)
+      eslint: 9.34.0(jiti@2.5.1)
+      get-tsconfig: 4.10.1
+      is-bun-module: 2.0.0
+      stable-hash: 0.0.5
+      tinyglobby: 0.2.14
+      unrs-resolver: 1.11.1
+    optionalDependencies:
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1))
+    transitivePeerDependencies:
+      - supports-color
+
+  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-node@0.3.9)(eslint@9.34.0(jiti@2.5.1)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
-      '@typescript-eslint/parser': 6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3)
+      '@typescript-eslint/parser': 8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3)
       eslint: 9.34.0(jiti@2.5.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1)))(eslint@9.34.0(jiti@2.5.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -18871,7 +19006,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.34.0(jiti@2.5.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-module-utils: 2.12.1(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1)))(eslint@9.34.0(jiti@2.5.1)))(eslint@9.34.0(jiti@2.5.1))
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-node@0.3.9)(eslint@9.34.0(jiti@2.5.1))
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3
@@ -18884,6 +19019,35 @@ snapshots:
       tsconfig-paths: 3.15.0
     optionalDependencies:
       '@typescript-eslint/parser': 6.21.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3)
+    transitivePeerDependencies:
+      - eslint-import-resolver-typescript
+      - eslint-import-resolver-webpack
+      - supports-color
+
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.34.0(jiti@2.5.1)):
+    dependencies:
+      '@rtsao/scc': 1.1.0
+      array-includes: 3.1.9
+      array.prototype.findlastindex: 1.2.6
+      array.prototype.flat: 1.3.3
+      array.prototype.flatmap: 1.3.3
+      debug: 3.2.7
+      doctrine: 2.1.0
+      eslint: 9.34.0(jiti@2.5.1)
+      eslint-import-resolver-node: 0.3.9
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-node@0.3.9)(eslint@9.34.0(jiti@2.5.1))
+      hasown: 2.0.2
+      is-core-module: 2.16.1
+      is-glob: 4.0.3
+      minimatch: 3.1.2
+      object.fromentries: 2.0.8
+      object.groupby: 1.0.3
+      object.values: 1.2.1
+      semver: 6.3.1
+      string.prototype.trimend: 1.0.9
+      tsconfig-paths: 3.15.0
+    optionalDependencies:
+      '@typescript-eslint/parser': 8.40.0(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3)
     transitivePeerDependencies:
       - eslint-import-resolver-typescript
       - eslint-import-resolver-webpack
@@ -19162,6 +19326,8 @@ snapshots:
   fast-json-stable-stringify@2.1.0: {}
 
   fast-levenshtein@2.0.6: {}
+
+  fast-sha256@1.3.0: {}
 
   fast-uri@3.0.6: {}
 
@@ -21001,6 +21167,8 @@ snapshots:
     dependencies:
       side-channel: 1.1.0
 
+  querystringify@2.2.0: {}
+
   queue-microtask@1.2.3: {}
 
   quick-lru@5.1.1: {}
@@ -22208,6 +22376,15 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
+  svix@1.75.0:
+    dependencies:
+      '@stablelib/base64': 1.0.1
+      '@types/node': 22.17.2
+      es6-promise: 4.2.8
+      fast-sha256: 1.3.0
+      url-parse: 1.5.10
+      uuid: 10.0.0
+
   tabbable@6.2.0: {}
 
   table@6.9.0:
@@ -22583,6 +22760,11 @@ snapshots:
       punycode: 2.3.1
 
   url-join@4.0.1: {}
+
+  url-parse@1.5.10:
+    dependencies:
+      querystringify: 2.2.0
+      requires-port: 1.0.0
 
   use-callback-ref@1.3.3(@types/react@19.1.11)(react@19.1.0):
     dependencies:
@@ -22990,3 +23172,5 @@ snapshots:
   zod@3.25.76: {}
 
   zod@4.0.17: {}
+
+  zod@4.1.4: {}

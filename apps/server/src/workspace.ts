@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { RepositoryManager } from "./repositoryManager.js";
-import { convex } from "./utils/convexClient.js";
+import { getConvex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
 
 interface WorkspaceResult {
@@ -46,12 +46,17 @@ function extractRepoName(repoUrl: string): string {
   return parts[parts.length - 1] || "unknown-repo";
 }
 
-export async function getWorktreePath(args: {
-  repoUrl: string;
-  branch: string;
-}): Promise<WorktreeInfo> {
+export async function getWorktreePath(
+  args: {
+    repoUrl: string;
+    branch: string;
+  },
+  teamSlugOrId: string
+): Promise<WorktreeInfo> {
   // Check for custom worktree path setting
-  const settings = await convex.query(api.workspaceSettings.get);
+  const settings = await getConvex().query(api.workspaceSettings.get, {
+    teamSlugOrId,
+  });
 
   let projectsPath: string;
 
@@ -86,7 +91,10 @@ export async function getWorktreePath(args: {
   };
 }
 
-export async function getProjectPaths(repoUrl: string): Promise<{
+export async function getProjectPaths(
+  repoUrl: string,
+  teamSlugOrId: string
+): Promise<{
   appDataPath: string;
   projectsPath: string;
   projectPath: string;
@@ -94,7 +102,9 @@ export async function getProjectPaths(repoUrl: string): Promise<{
   worktreesPath: string;
   repoName: string;
 }> {
-  const settings = await convex.query(api.workspaceSettings.get);
+  const settings = await getConvex().query(api.workspaceSettings.get, {
+    teamSlugOrId,
+  });
 
   let projectsPath: string;
   if (settings?.worktreePath) {

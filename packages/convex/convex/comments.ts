@@ -1,8 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { resolveTeamIdLoose } from "../_shared/team";
+import { authMutation, authQuery } from "./users/utils";
 
-export const createComment = mutation({
+export const createComment = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     url: v.string(),
     page: v.string(),
     pageTitle: v.string(),
@@ -10,7 +12,6 @@ export const createComment = mutation({
     x: v.number(),
     y: v.number(),
     content: v.string(),
-    userId: v.string(),
     profileImageUrl: v.optional(v.string()),
     userAgent: v.string(),
     screenWidth: v.number(),
@@ -18,8 +19,23 @@ export const createComment = mutation({
     devicePixelRatio: v.number(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const commentId = await ctx.db.insert("comments", {
-      ...args,
+      url: args.url,
+      page: args.page,
+      pageTitle: args.pageTitle,
+      nodeId: args.nodeId,
+      x: args.x,
+      y: args.y,
+      content: args.content,
+      userId,
+      teamId,
+      profileImageUrl: args.profileImageUrl,
+      userAgent: args.userAgent,
+      screenWidth: args.screenWidth,
+      screenHeight: args.screenHeight,
+      devicePixelRatio: args.devicePixelRatio,
       resolved: false,
       archived: false,
       createdAt: Date.now(),
@@ -29,25 +45,29 @@ export const createComment = mutation({
   },
 });
 
-export const listComments = query({
+export const listComments = authQuery({
   args: {
+    teamSlugOrId: v.string(),
     url: v.string(),
     page: v.optional(v.string()),
     resolved: v.optional(v.boolean()),
     includeArchived: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const query = ctx.db
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const comments = await ctx.db
       .query("comments")
-      .withIndex("by_url", (q) => q.eq("url", args.url));
-
-    const comments = await query.collect();
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .collect();
 
     const filtered = comments.filter((comment) => {
+      if (comment.url !== args.url) return false;
       if (args.page !== undefined && comment.page !== args.page) return false;
       if (args.resolved !== undefined && comment.resolved !== args.resolved)
         return false;
-      // By default, don't show archived comments unless explicitly requested
       if (!args.includeArchived && comment.archived === true) return false;
       return true;
     });
@@ -56,11 +76,18 @@ export const listComments = query({
   },
 });
 
-export const resolveComment = mutation({
+export const resolveComment = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     commentId: v.id("comments"),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const comment = await ctx.db.get(args.commentId);
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (!comment || comment.teamId !== teamId || comment.userId !== userId) {
+      throw new Error("Comment not found or unauthorized");
+    }
     await ctx.db.patch(args.commentId, {
       resolved: true,
       updatedAt: Date.now(),
@@ -68,12 +95,19 @@ export const resolveComment = mutation({
   },
 });
 
-export const archiveComment = mutation({
+export const archiveComment = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     commentId: v.id("comments"),
     archived: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const comment = await ctx.db.get(args.commentId);
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (!comment || comment.teamId !== teamId || comment.userId !== userId) {
+      throw new Error("Comment not found or unauthorized");
+    }
     await ctx.db.patch(args.commentId, {
       archived: args.archived,
       updatedAt: Date.now(),
@@ -81,16 +115,23 @@ export const archiveComment = mutation({
   },
 });
 
-export const addReply = mutation({
+export const addReply = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     commentId: v.id("comments"),
-    userId: v.string(),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const comment = await ctx.db.get(args.commentId);
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (!comment || comment.teamId !== teamId || comment.userId !== userId) {
+      throw new Error("Comment not found or unauthorized");
+    }
     const replyId = await ctx.db.insert("commentReplies", {
       commentId: args.commentId,
-      userId: args.userId,
+      userId,
+      teamId,
       content: args.content,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -99,14 +140,20 @@ export const addReply = mutation({
   },
 });
 
-export const getReplies = query({
+export const getReplies = authQuery({
   args: {
+    teamSlugOrId: v.string(),
     commentId: v.id("comments"),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const replies = await ctx.db
       .query("commentReplies")
-      .withIndex("by_comment", (q) => q.eq("commentId", args.commentId))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .filter((q) => q.eq(q.field("commentId"), args.commentId))
       .collect();
     return replies;
   },

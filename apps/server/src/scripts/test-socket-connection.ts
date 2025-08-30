@@ -10,6 +10,7 @@ async function main() {
     agentName: "test-socket",
     taskRunId: "test-task-run-id" as Id<"taskRuns">, // Add required taskRunId for testing
     taskId: "test-task-id" as Id<"tasks">, // Add required taskId for testing
+    teamSlugOrId: "default",
   });
 
   try {

@@ -28,6 +28,7 @@
     "@cmux/convex": "workspace:*",
     "@cmux/shared": "workspace:*",
     "@daytonaio/sdk": "^0.22.1",
+    "@stackframe/js": "^2.8.35",
     "@xterm/addon-serialize": "^0.13.0",
     "@xterm/headless": "^5.5.0",
     "ai": "^5.0.22",

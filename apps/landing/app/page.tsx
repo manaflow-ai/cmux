@@ -125,7 +125,7 @@ export default function LandingPage() {
                 Orchestrate AI coding agents in parallel
               </h1>
 
-              <p className="text-lg text-neutral-300 mb-4 leading-relaxed">
+              <p className="text-lg text-neutral-600 dark:text-neutral-300 mb-4 leading-relaxed">
                 cmux spawns Claude Code, Codex, Gemini CLI, Amp, Opencode, and
                 other coding agent CLIs in parallel across multiple tasks. For
                 each run, cmux spawns an isolated VS Code instance via Docker

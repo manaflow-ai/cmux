@@ -1,22 +1,27 @@
+import { isFakeConvexId } from "@/lib/fakeConvexId";
 import { api } from "@cmux/convex/api";
 import type { Id } from "@cmux/convex/dataModel";
-import { isFakeConvexId } from "@/lib/fakeConvexId";
 import { useQuery } from "convex/react";
+// Read team slug from path to avoid route type coupling
 import { Trophy } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 interface CrownEvaluationProps {
   taskId: Id<"tasks">;
+  teamSlugOrId: string;
 }
 
-export function CrownEvaluation({ taskId }: CrownEvaluationProps) {
+export function CrownEvaluation({
+  taskId,
+  teamSlugOrId,
+}: CrownEvaluationProps) {
   const evaluation = useQuery(
-    api.crown.getCrownEvaluation, 
-    isFakeConvexId(taskId) ? "skip" : { taskId }
+    api.crown.getCrownEvaluation,
+    isFakeConvexId(taskId) ? "skip" : { teamSlugOrId, taskId }
   );
   const crownedRun = useQuery(
-    api.crown.getCrownedRun, 
-    isFakeConvexId(taskId) ? "skip" : { taskId }
+    api.crown.getCrownedRun,
+    isFakeConvexId(taskId) ? "skip" : { teamSlugOrId, taskId }
   );
 
   if (!evaluation || !crownedRun) {
@@ -42,29 +47,33 @@ export function CrownEvaluation({ taskId }: CrownEvaluationProps) {
               Evaluation Reason
             </h4>
             <p className="text-sm text-neutral-800 dark:text-neutral-200">
-              {crownedRun.crownReason || "This implementation was selected as the best solution."}
+              {crownedRun.crownReason ||
+                "This implementation was selected as the best solution."}
             </p>
           </div>
 
-          {crownedRun.pullRequestUrl && crownedRun.pullRequestUrl !== "pending" && (
-            <div>
-              <h4 className="font-medium text-sm text-neutral-600 dark:text-neutral-400 mb-1">
-                Pull Request
-              </h4>
-              <a
-                href={crownedRun.pullRequestUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                {crownedRun.pullRequestIsDraft ? "View draft PR" : "View PR"} →
-              </a>
-            </div>
-          )}
+          {crownedRun.pullRequestUrl &&
+            crownedRun.pullRequestUrl !== "pending" && (
+              <div>
+                <h4 className="font-medium text-sm text-neutral-600 dark:text-neutral-400 mb-1">
+                  Pull Request
+                </h4>
+                <a
+                  href={crownedRun.pullRequestUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {crownedRun.pullRequestIsDraft ? "View draft PR" : "View PR"}{" "}
+                  →
+                </a>
+              </div>
+            )}
 
           <div className="pt-2 border-t border-yellow-200 dark:border-yellow-800">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Evaluated against {evaluation.candidateRunIds.length} implementations
+              Evaluated against {evaluation.candidateRunIds.length}{" "}
+              implementations
             </p>
           </div>
         </div>

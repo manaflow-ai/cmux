@@ -18,7 +18,7 @@ import {
   generateUniqueBranchNames,
   generateUniqueBranchNamesFromTitle,
 } from "./utils/branchNameGenerator.js";
-import { convex } from "./utils/convexClient.js";
+import { getConvex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
 import { workerExec } from "./utils/workerExec.js";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance.js";
@@ -51,12 +51,13 @@ export async function spawnAgent(
     }>;
     theme?: "dark" | "light" | "system";
     newBranch?: string; // Optional pre-generated branch name
-  }
+  },
+  teamSlugOrId: string
 ): Promise<AgentSpawnResult> {
   try {
     const newBranch =
       options.newBranch ||
-      (await generateNewBranchName(options.taskDescription));
+      (await generateNewBranchName(options.taskDescription, teamSlugOrId));
     serverLogger.info(
       `[AgentSpawner] New Branch: ${newBranch}, Base Branch: ${
         options.branch ?? "(auto)"
@@ -64,7 +65,8 @@ export async function spawnAgent(
     );
 
     // Create a task run for this specific agent
-    const taskRunId = await convex.mutation(api.taskRuns.create, {
+    const taskRunId = await getConvex().mutation(api.taskRuns.create, {
+      teamSlugOrId,
       taskId: taskId,
       prompt: `${options.taskDescription} (${agent.name})`,
       agentName: agent.name,
@@ -72,7 +74,8 @@ export async function spawnAgent(
     });
 
     // Fetch the task to get image storage IDs
-    const task = await convex.query(api.tasks.getById, {
+    const task = await getConvex().query(api.tasks.getById, {
+      teamSlugOrId,
       id: taskId,
     });
 
@@ -85,7 +88,8 @@ export async function spawnAgent(
 
     // If task has images with storage IDs, download them
     if (task && task.images && task.images.length > 0) {
-      const imageUrlsResult = await convex.query(api.storage.getUrls, {
+      const imageUrlsResult = await getConvex().query(api.storage.getUrls, {
+        teamSlugOrId,
         storageIds: task.images.map((image) => image.storageId),
       });
       const downloadedImages = await Promise.all(
@@ -214,7 +218,9 @@ export async function spawnAgent(
     }
 
     // Fetch API keys from Convex
-    const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+    const apiKeys = await getConvex().query(api.apiKeys.getAllForAgents, {
+      teamSlugOrId,
+    });
 
     // Add required API keys from Convex
     if (agent.apiKeys) {
@@ -262,15 +268,19 @@ export async function spawnAgent(
         taskRunId,
         taskId,
         theme: options.theme,
+        teamSlugOrId,
       });
 
       worktreePath = "/root/workspace";
     } else {
       // For Docker, set up worktree as before
-      const worktreeInfo = await getWorktreePath({
-        repoUrl: options.repoUrl,
-        branch: newBranch,
-      });
+      const worktreeInfo = await getWorktreePath(
+        {
+          repoUrl: options.repoUrl,
+          branch: newBranch,
+        },
+        teamSlugOrId
+      );
 
       // Setup workspace
       const workspaceResult = await setupProjectWorkspace({
@@ -302,11 +312,13 @@ export async function spawnAgent(
         taskRunId,
         taskId,
         theme: options.theme,
+        teamSlugOrId,
       });
     }
 
     // Update the task run with the worktree path
-    await convex.mutation(api.taskRuns.updateWorktreePath, {
+    await getConvex().mutation(api.taskRuns.updateWorktreePath, {
+      teamSlugOrId,
       id: taskRunId,
       worktreePath: worktreePath,
     });
@@ -381,6 +393,7 @@ export async function spawnAgent(
           exitCode: data.exitCode ?? 0,
           worktreePath,
           vscodeInstance,
+          teamSlugOrId,
         });
       }
     });
@@ -433,6 +446,7 @@ export async function spawnAgent(
           exitCode: 0,
           worktreePath,
           vscodeInstance,
+          teamSlugOrId,
         });
       } else {
         serverLogger.warn(
@@ -474,6 +488,7 @@ export async function spawnAgent(
           exitCode: 0,
           worktreePath,
           vscodeInstance,
+          teamSlugOrId,
         });
       } else {
         serverLogger.warn(
@@ -499,14 +514,16 @@ export async function spawnAgent(
 
         // Append error to log for context
         if (data.errorMessage) {
-          await convex.mutation(api.taskRuns.appendLogPublic, {
+          await getConvex().mutation(api.taskRuns.appendLogPublic, {
+            teamSlugOrId,
             id: taskRunId,
             content: `\n\n=== ERROR ===\n${data.errorMessage}\n=== END ERROR ===\n`,
           });
         }
 
         // Mark the run as failed with error message
-        await convex.mutation(api.taskRuns.fail, {
+        await getConvex().mutation(api.taskRuns.fail, {
+          teamSlugOrId,
           id: taskRunId,
           errorMessage: data.errorMessage || "Terminal failed",
           // WorkerTerminalFailed does not include exitCode in schema; default to 1
@@ -542,7 +559,8 @@ export async function spawnAgent(
     }
 
     // Update VSCode instance information in Convex
-    await convex.mutation(api.taskRuns.updateVSCodeInstance, {
+    await getConvex().mutation(api.taskRuns.updateVSCodeInstance, {
+      teamSlugOrId,
       id: taskRunId,
       vscode: {
         provider: vscodeInfo.provider,
@@ -871,7 +889,8 @@ export async function spawnAllAgents(
       altText: string;
     }>;
     theme?: "dark" | "light" | "system";
-  }
+  },
+  teamSlugOrId: string
 ): Promise<AgentSpawnResult[]> {
   // If selectedAgents is provided, filter AGENT_CONFIGS to only include selected agents
   const agentsToSpawn = options.selectedAgents
@@ -885,7 +904,8 @@ export async function spawnAllAgents(
     ? generateUniqueBranchNamesFromTitle(options.prTitle!, agentsToSpawn.length)
     : await generateUniqueBranchNames(
         options.taskDescription,
-        agentsToSpawn.length
+        agentsToSpawn.length,
+        teamSlugOrId
       );
 
   serverLogger.info(
@@ -895,10 +915,15 @@ export async function spawnAllAgents(
   // Spawn all agents in parallel with their pre-generated branch names
   const results = await Promise.all(
     agentsToSpawn.map((agent, index) =>
-      spawnAgent(agent, taskId, {
-        ...options,
-        newBranch: branchNames[index],
-      })
+      spawnAgent(
+        agent,
+        taskId,
+        {
+          ...options,
+          newBranch: branchNames[index],
+        },
+        teamSlugOrId
+      )
     )
   );
 

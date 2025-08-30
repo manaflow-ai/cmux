@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { kitties } from "./kitties";
 
 interface GitDiffViewerProps {
   diffs: ReplaceDiffEntry[];
@@ -76,31 +77,6 @@ function getStatusIcon(status: ReplaceDiffEntry["status"]) {
       return <FileText className={iconClass} />;
   }
 }
-
-const kitties = [
-  // kitty1
-  `\
-   /\\_/\\     
-  ( =.= )    💤
-   (> <)>☕   
-_____|_____
-|  LAPTOP   |
-|  ======== |
-| if(tired) |
-| sleep();  |
-|___________|
- ||    ||`,
-  // kitty2
-  `\
-/\\_/\\
-(='.'=)
-(")_(")`,
-  // bunny
-  `\
-(\\  /)
-( ^.^ )
-c(")(")`,
-];
 
 export function GitDiffViewer({
   diffs,

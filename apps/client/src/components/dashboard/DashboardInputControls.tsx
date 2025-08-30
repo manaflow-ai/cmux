@@ -18,6 +18,7 @@ interface DashboardInputControlsProps {
   onCloudModeToggle: () => void;
   isLoadingProjects: boolean;
   isLoadingBranches: boolean;
+  teamSlugOrId: string;
 }
 
 export const DashboardInputControls = memo(function DashboardInputControls({
@@ -33,6 +34,7 @@ export const DashboardInputControls = memo(function DashboardInputControls({
   onCloudModeToggle,
   isLoadingProjects,
   isLoadingBranches,
+  teamSlugOrId,
 }: DashboardInputControlsProps) {
   const agentOptions = useMemo(
     () => AGENT_CONFIGS.map((agent) => agent.name),
@@ -94,6 +96,7 @@ export const DashboardInputControls = memo(function DashboardInputControls({
         <ModeToggleTooltip
           isCloudMode={isCloudMode}
           onToggle={onCloudModeToggle}
+          teamSlugOrId={teamSlugOrId}
         />
 
         <button

@@ -1,8 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { getTeamId } from "../_shared/team";
+import { authMutation, authQuery } from "./users/utils";
 
-export const evaluateAndCrownWinner = mutation({
+export const evaluateAndCrownWinner = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     taskId: v.id("tasks"),
   },
   handler: async (ctx, args) => {
@@ -11,21 +13,31 @@ export const evaluateAndCrownWinner = mutation({
       console.log(`[Crown] EVALUATE AND CROWN WINNER CALLED`);
       console.log(`[Crown] Task ID: ${args.taskId}`);
       console.log(`[Crown] ============================================`);
-      
+
+      const userId = ctx.identity.subject;
       const task = await ctx.db.get(args.taskId);
       if (!task) {
         console.error(`[Crown] Task ${args.taskId} not found`);
         throw new Error("Task not found");
       }
+      const teamId = await getTeamId(ctx, args.teamSlugOrId);
+      if (task.teamId !== teamId || task.userId !== userId) {
+        throw new Error("Unauthorized");
+      }
 
       // Get all completed runs for this task
       const taskRuns = await ctx.db
         .query("taskRuns")
-        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+        .withIndex("by_team_user", (q) =>
+          q.eq("teamId", teamId).eq("userId", userId)
+        )
+        .filter((q) => q.eq(q.field("taskId"), args.taskId))
         .filter((q) => q.eq(q.field("status"), "completed"))
         .collect();
 
-      console.log(`[Crown] Found ${taskRuns.length} completed runs for task ${args.taskId}`);
+      console.log(
+        `[Crown] Found ${taskRuns.length} completed runs for task ${args.taskId}`
+      );
 
       // If only one model or less, crown it by default
       if (taskRuns.length <= 1) {
@@ -46,18 +58,27 @@ export const evaluateAndCrownWinner = mutation({
       // Check if evaluation already exists or is pending
       const existingEvaluation = await ctx.db
         .query("crownEvaluations")
-        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+        .withIndex("by_team_user", (q) =>
+          q.eq("teamId", teamId).eq("userId", userId)
+        )
+        .filter((q) => q.eq(q.field("taskId"), args.taskId))
         .first();
-      
+
       if (existingEvaluation) {
-        console.log(`[Crown] Evaluation already exists for task ${args.taskId}, returning winner`);
+        console.log(
+          `[Crown] Evaluation already exists for task ${args.taskId}, returning winner`
+        );
         return existingEvaluation.winnerRunId;
       }
-      
+
       // Check if already marked for evaluation
-      if (task.crownEvaluationError === "pending_evaluation" || 
-          task.crownEvaluationError === "in_progress") {
-        console.log(`[Crown] Task ${args.taskId} already marked for evaluation (${task.crownEvaluationError})`);
+      if (
+        task.crownEvaluationError === "pending_evaluation" ||
+        task.crownEvaluationError === "in_progress"
+      ) {
+        console.log(
+          `[Crown] Task ${args.taskId} already marked for evaluation (${task.crownEvaluationError})`
+        );
         return "pending";
       }
 
@@ -70,18 +91,19 @@ export const evaluateAndCrownWinner = mutation({
 
       console.log(`[Crown] Marked task ${args.taskId} for crown evaluation`);
       return "pending";
-
     } catch (error) {
-      console.error(`[Crown] Crown evaluation failed for task ${args.taskId}:`, error);
+      console.error(
+        `[Crown] Crown evaluation failed for task ${args.taskId}:`,
+        error
+      );
       throw error;
     }
   },
 });
 
-
-
-export const setCrownWinner = mutation({
+export const setCrownWinner = authMutation({
   args: {
+    teamSlugOrId: v.string(),
     taskRunId: v.id("taskRuns"),
     reason: v.string(),
   },
@@ -91,16 +113,24 @@ export const setCrownWinner = mutation({
     console.log(`[Crown] Task Run ID: ${args.taskRunId}`);
     console.log(`[Crown] Reason: ${args.reason}`);
     console.log(`[Crown] ============================================`);
-    
+
+    const userId = ctx.identity.subject;
     const taskRun = await ctx.db.get(args.taskRunId);
     if (!taskRun) {
       throw new Error("Task run not found");
+    }
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (taskRun.teamId !== teamId || taskRun.userId !== userId) {
+      throw new Error("Unauthorized");
     }
 
     // Get all runs for this task
     const taskRuns = await ctx.db
       .query("taskRuns")
-      .withIndex("by_task", (q) => q.eq("taskId", taskRun.taskId))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .filter((q) => q.eq(q.field("taskId"), taskRun.taskId))
       .collect();
 
     // Update the selected run as crowned
@@ -133,6 +163,8 @@ export const setCrownWinner = mutation({
       evaluationPrompt: "Evaluated by Claude Code",
       evaluationResponse: args.reason,
       createdAt: Date.now(),
+      userId,
+      teamId,
     });
 
     // Mark PR creation needed
@@ -144,35 +176,47 @@ export const setCrownWinner = mutation({
   },
 });
 
-export const getCrownedRun = query({
+export const getCrownedRun = authQuery({
   args: {
+    teamSlugOrId: v.string(),
     taskId: v.id("tasks"),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const crownedRun = await ctx.db
       .query("taskRuns")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .filter((q) => q.eq(q.field("taskId"), args.taskId))
       .filter((q) => q.eq(q.field("isCrowned"), true))
       .first();
 
-    console.log(`[Crown] getCrownedRun for task ${args.taskId}: ${crownedRun ? `found ${crownedRun._id}` : 'not found'}`);
-    
+    console.log(
+      `[Crown] getCrownedRun for task ${args.taskId}: ${crownedRun ? `found ${crownedRun._id}` : "not found"}`
+    );
+
     return crownedRun;
   },
 });
 
-export const getCrownEvaluation = query({
+export const getCrownEvaluation = authQuery({
   args: {
+    teamSlugOrId: v.string(),
     taskId: v.id("tasks"),
   },
   handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const evaluation = await ctx.db
       .query("crownEvaluations")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .filter((q) => q.eq(q.field("taskId"), args.taskId))
       .first();
 
     return evaluation;
   },
 });
-
-

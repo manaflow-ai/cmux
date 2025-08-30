@@ -11,6 +11,7 @@ export interface VSCodeInstanceConfig {
   taskRunId: Id<"taskRuns">;
   taskId: Id<"tasks">;
   theme?: "dark" | "light" | "system";
+  teamSlugOrId: string;
 }
 
 export interface VSCodeInstanceInfo {
@@ -23,10 +24,10 @@ export interface VSCodeInstanceInfo {
 
 export abstract class VSCodeInstance extends EventEmitter {
   // Static registry of all VSCode instances
-  protected static instances = new Map<string, VSCodeInstance>();
+  protected static instances = new Map<Id<"taskRuns">, VSCodeInstance>();
 
   protected config: VSCodeInstanceConfig;
-  protected instanceId: string;
+  protected instanceId: Id<"taskRuns">;
   protected taskRunId: Id<"taskRuns">;
   protected taskId: Id<"tasks">;
   protected workerSocket: Socket<
@@ -34,12 +35,14 @@ export abstract class VSCodeInstance extends EventEmitter {
     ServerToWorkerEvents
   > | null = null;
   protected workerConnected: boolean = false;
+  protected teamSlugOrId: string;
 
   constructor(config: VSCodeInstanceConfig) {
     super();
     this.config = config;
     this.taskRunId = config.taskRunId;
     this.taskId = config.taskId;
+    this.teamSlugOrId = config.teamSlugOrId;
     // Use taskRunId as instanceId for backward compatibility
     this.instanceId = config.taskRunId;
 
@@ -52,7 +55,7 @@ export abstract class VSCodeInstance extends EventEmitter {
     return VSCodeInstance.instances;
   }
 
-  static getInstance(instanceId: string): VSCodeInstance | undefined {
+  static getInstance(instanceId: Id<"taskRuns">): VSCodeInstance | undefined {
     return VSCodeInstance.instances.get(instanceId);
   }
 
@@ -215,11 +218,11 @@ export abstract class VSCodeInstance extends EventEmitter {
     }
   }
 
-  getInstanceId(): string {
+  getInstanceId(): Id<"taskRuns"> {
     return this.instanceId;
   }
 
-  getTaskRunId(): string {
+  getTaskRunId(): Id<"taskRuns"> {
     return this.taskRunId;
   }
 

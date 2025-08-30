@@ -1,29 +1,23 @@
-import { convexQueryClient } from "@/contexts/convex/convex-query-client";
 import { isElectron } from "@/lib/electron";
-import { QueryClient } from "@tanstack/react-query";
+import { useStackApp } from "@stackframe/react";
 import {
-  createRouter as createTanStackRouter,
   createHashHistory,
+  createRouter as createTanStackRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
+import { queryClient } from "./query-client";
 import { routeTree } from "./routeTree.gen";
 
-export function createRouter() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        queryKeyHashFn: convexQueryClient.hashFn(),
-        queryFn: convexQueryClient.queryFn(),
-      },
-    },
-  });
-  convexQueryClient.connect(queryClient);
-
+function createRouter() {
   const router = routerWithQueryClient(
     createTanStackRouter({
       routeTree,
       defaultPreload: "intent",
-      context: { queryClient },
+      context: {
+        queryClient: undefined!,
+        auth: undefined!,
+      },
       scrollRestoration: true,
       // When running under Electron, use hash-based history so
       // file:// URLs don't break route matching in production builds.
@@ -35,7 +29,12 @@ export function createRouter() {
   return router;
 }
 
-export const router = createRouter();
+const router = createRouter();
+
+export function RouterProviderWithAuth() {
+  const auth = useStackApp();
+  return <RouterProvider router={router} context={{ queryClient, auth }} />;
+}
 
 declare module "@tanstack/react-router" {
   interface Register {

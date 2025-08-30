@@ -51,6 +51,8 @@ describe("stopContainersForRunsFromTree - morph path", () => {
         log: "",
         createdAt: now,
         updatedAt: now,
+        userId: "test-user",
+        teamId: "default",
         vscode: {
           provider: "morph",
           status: "running",

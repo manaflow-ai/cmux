@@ -14,22 +14,27 @@ import { useClipboard } from "@mantine/hooks";
 import { useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
 import { useQuery as useConvexQuery, useMutation } from "convex/react";
+// Read team slug from path to avoid route type coupling
 import { Archive, ArchiveRestore, Check, Copy, Pin } from "lucide-react";
 import { memo, useCallback, useMemo } from "react";
 
 interface TaskItemProps {
   task: Doc<"tasks">;
+  teamSlugOrId: string;
 }
 
-export const TaskItem = memo(function TaskItem({ task }: TaskItemProps) {
+export const TaskItem = memo(function TaskItem({
+  task,
+  teamSlugOrId,
+}: TaskItemProps) {
   const navigate = useNavigate();
   const clipboard = useClipboard({ timeout: 2000 });
-  const { archiveWithUndo, unarchive } = useArchiveTask();
+  const { archiveWithUndo, unarchive } = useArchiveTask(teamSlugOrId);
 
   // Query for task runs to find VSCode instances
   const taskRunsQuery = useConvexQuery(
     api.taskRuns.getByTask,
-    isFakeConvexId(task._id) ? "skip" : { taskId: task._id }
+    isFakeConvexId(task._id) ? "skip" : { teamSlugOrId, taskId: task._id }
   );
 
   // Mutation for toggling keep-alive status
@@ -87,11 +92,11 @@ export const TaskItem = memo(function TaskItem({ task }: TaskItemProps) {
 
   const handleClick = useCallback(() => {
     navigate({
-      to: "/task/$taskId",
-      params: { taskId: task._id },
+      to: "/$teamSlugOrId/task/$taskId",
+      params: { teamSlugOrId, taskId: task._id },
       search: { runId: undefined },
     });
-  }, [navigate, task._id]);
+  }, [navigate, task._id, teamSlugOrId]);
 
   const handleCopy = useCallback(
     (e: React.MouseEvent) => {
@@ -110,6 +115,7 @@ export const TaskItem = memo(function TaskItem({ task }: TaskItemProps) {
       e.stopPropagation();
       if (runWithVSCode) {
         await toggleKeepAlive({
+          teamSlugOrId,
           id: runWithVSCode._id,
           keepAlive: !runWithVSCode.vscode?.keepAlive,
         });

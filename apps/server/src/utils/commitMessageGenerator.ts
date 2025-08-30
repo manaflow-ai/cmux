@@ -3,10 +3,12 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { api } from "@cmux/convex/api";
 import { generateText, type LanguageModel } from "ai";
-import { convex } from "../utils/convexClient.js";
+import { getConvex } from "../utils/convexClient.js";
 import { serverLogger } from "./fileLogger.js";
 
-function getModelAndProvider(apiKeys: Record<string, string>): { model: LanguageModel; providerName: string } | null {
+function getModelAndProvider(
+  apiKeys: Record<string, string>
+): { model: LanguageModel; providerName: string } | null {
   if (apiKeys.OPENAI_API_KEY) {
     const openai = createOpenAI({ apiKey: apiKeys.OPENAI_API_KEY });
     return { model: openai("gpt-5-nano"), providerName: "OpenAI" };
@@ -17,16 +19,26 @@ function getModelAndProvider(apiKeys: Record<string, string>): { model: Language
   }
   if (apiKeys.ANTHROPIC_API_KEY) {
     const anthropic = createAnthropic({ apiKey: apiKeys.ANTHROPIC_API_KEY });
-    return { model: anthropic("claude-3-5-haiku-20241022"), providerName: "Anthropic" };
+    return {
+      model: anthropic("claude-3-5-haiku-20241022"),
+      providerName: "Anthropic",
+    };
   }
   return null;
 }
 
-export async function generateCommitMessageFromDiff(diff: string): Promise<string | null> {
-  const apiKeys = await convex.query(api.apiKeys.getAllForAgents);
+export async function generateCommitMessageFromDiff(
+  diff: string,
+  teamSlugOrId: string
+): Promise<string | null> {
+  const apiKeys = await getConvex().query(api.apiKeys.getAllForAgents, {
+    teamSlugOrId,
+  });
   const config = getModelAndProvider(apiKeys);
   if (!config) {
-    serverLogger.warn("[CommitMsg] No API keys available, skipping AI generation");
+    serverLogger.warn(
+      "[CommitMsg] No API keys available, skipping AI generation"
+    );
     return null;
   }
   const { model, providerName } = config;
@@ -46,7 +58,8 @@ export async function generateCommitMessageFromDiff(diff: string): Promise<strin
     "Don't include code fences, markdown headers, or extraneous commentary.",
   ].join("\n");
 
-  const examples = `Examples:\n\n` +
+  const examples =
+    `Examples:\n\n` +
     [
       "feat(auth): add OAuth login with Google\n\n- Add /auth/google route and callback\n- Store tokens securely; add env vars\n- Update client to handle login state",
       "fix(api): prevent crash on missing user id\n\n- Validate id param before database call\n- Return 400 with error details",
@@ -74,11 +87,12 @@ export async function generateCommitMessageFromDiff(diff: string): Promise<strin
       maxRetries: 2,
     });
     const cleaned = text.trim();
-    serverLogger.info(`[CommitMsg] Generated via ${providerName}: ${cleaned.split("\n")[0]}`);
+    serverLogger.info(
+      `[CommitMsg] Generated via ${providerName}: ${cleaned.split("\n")[0]}`
+    );
     return cleaned || null;
   } catch (error) {
     serverLogger.error(`[CommitMsg] ${providerName} API error:`, error);
     return null;
   }
 }
-

@@ -18,11 +18,16 @@ vi.mock("ai", () => ({
   generateObject: vi.fn(),
 }));
 
-vi.mock("../utils/convexClient.js", () => ({
-  convex: {
+vi.mock("../utils/convexClient.js", () => {
+  const mockClient = {
     query: vi.fn(),
-  },
-}));
+    mutation: vi.fn(),
+  };
+  return {
+    getConvex: () => mockClient,
+    __mockClient: mockClient,
+  };
+});
 
 vi.mock("./fileLogger.js", () => ({
   serverLogger: {
@@ -308,7 +313,7 @@ describe("branchNameGenerator", () => {
 
     it("should generate base name from API response", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({ 
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({ 
         OPENAI_API_KEY: "test-key" 
       });
 
@@ -319,15 +324,21 @@ describe("branchNameGenerator", () => {
       const mockResponse = createMockGenerateObjectResult(mockObject);
       vi.mocked(generateObject).mockResolvedValueOnce(mockResponse as GenerateObjectResult<PRGeneration>);
 
-      const baseName = await generateBranchBaseName("Add new feature to the app");
+      const baseName = await generateBranchBaseName(
+        "Add new feature to the app",
+        "default"
+      );
       expect(baseName).toBe("cmux/add-feature");
     });
 
     it("should use fallback when API fails", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({});
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({});
 
-      const baseName = await generateBranchBaseName("Test task description here");
+      const baseName = await generateBranchBaseName(
+        "Test task description here",
+        "default"
+      );
       expect(baseName).toBe("cmux/test-task-description-here");
     });
   });
@@ -335,17 +346,21 @@ describe("branchNameGenerator", () => {
   describe("generateNewBranchName", () => {
     it("should generate branch name with provided ID", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({});
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({});
 
-      const branchName = await generateNewBranchName("Fix bug", "abc12");
+      const branchName = await generateNewBranchName(
+        "Fix bug",
+        "default",
+        "abc12"
+      );
       expect(branchName).toBe("cmux/fix-bug-abc12");
     });
 
     it("should generate branch name with random ID when not provided", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({});
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({});
 
-      const branchName = await generateNewBranchName("Fix bug");
+      const branchName = await generateNewBranchName("Fix bug", "default");
       expect(branchName).toMatch(/^cmux\/fix-bug-[a-z0-9]{5}$/);
     });
   });
@@ -353,9 +368,13 @@ describe("branchNameGenerator", () => {
   describe("generateUniqueBranchNames", () => {
     it("should generate multiple unique branch names", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({});
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({});
 
-      const branches = await generateUniqueBranchNames("Add feature", 3);
+      const branches = await generateUniqueBranchNames(
+        "Add feature",
+        3,
+        "default"
+      );
       
       expect(branches).toHaveLength(3);
       expect(new Set(branches).size).toBe(3);
@@ -369,7 +388,7 @@ describe("branchNameGenerator", () => {
   describe("getPRTitleFromTaskDescription", () => {
     it("should return PR title from API", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({ 
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({ 
         OPENAI_API_KEY: "test-key" 
       });
 
@@ -380,15 +399,21 @@ describe("branchNameGenerator", () => {
       const mockResponse = createMockGenerateObjectResult(mockObject);
       vi.mocked(generateObject).mockResolvedValueOnce(mockResponse as GenerateObjectResult<PRGeneration>);
 
-      const title = await getPRTitleFromTaskDescription("Fix the authentication bug");
+      const title = await getPRTitleFromTaskDescription(
+        "Fix the authentication bug",
+        "default"
+      );
       expect(title).toBe("Fix authentication bug");
     });
 
     it("should return fallback title when API unavailable", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked(mockConvex.convex.query).mockResolvedValueOnce({});
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({});
 
-      const title = await getPRTitleFromTaskDescription("This is a long task description that should be truncated");
+      const title = await getPRTitleFromTaskDescription(
+        "This is a long task description that should be truncated",
+        "default"
+      );
       expect(title).toBe("This is a long task");
     });
   });

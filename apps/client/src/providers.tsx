@@ -1,13 +1,14 @@
 import { ThemeProvider } from "@/components/theme/theme-provider";
-import { SocketProvider } from "@/contexts/socket/socket-provider";
 import { HeroUIProvider } from "@heroui/react";
 import { StackProvider, StackTheme } from "@stackframe/react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
   ConfigProvider as AntdConfigProvider,
   theme,
   type ThemeConfig,
 } from "antd";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
+import { queryClient } from "./query-client";
 import { stackClientApp } from "./stack";
 
 interface ProvidersProps {
@@ -68,15 +69,19 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <ThemeProvider>
-      <HeroUIProvider>
-        <StackTheme>
+      <StackTheme>
+        <Suspense fallback={<div>Loading stack...</div>}>
           <StackProvider app={stackClientApp}>
-            <AntdConfigProvider theme={antdTheme}>
-              <SocketProvider>{children}</SocketProvider>
-            </AntdConfigProvider>
+            <QueryClientProvider client={queryClient}>
+              <HeroUIProvider>
+                <AntdConfigProvider theme={antdTheme}>
+                  {children}
+                </AntdConfigProvider>
+              </HeroUIProvider>
+            </QueryClientProvider>
           </StackProvider>
-        </StackTheme>
-      </HeroUIProvider>
+        </Suspense>
+      </StackTheme>
     </ThemeProvider>
   );
 }

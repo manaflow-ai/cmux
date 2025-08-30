@@ -22,12 +22,12 @@ import { useMutation } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_layout/dashboard")({
+export const Route = createFileRoute("/_layout/$teamSlugOrId/dashboard")({
   component: DashboardComponent,
 });
 
 function DashboardComponent() {
-  // Authentication is handled by the parent layout
+  const { teamSlugOrId } = Route.useParams();
   const { socket } = useSocket();
   const { theme } = useTheme();
   const { addTaskToExpand } = useExpandTasks();
@@ -82,7 +82,9 @@ function DashboardComponent() {
   }, []);
 
   // Fetch repos from Convex
-  const reposByOrgQuery = useQuery(convexQuery(api.github.getReposByOrg, {}));
+  const reposByOrgQuery = useQuery(
+    convexQuery(api.github.getReposByOrg, { teamSlugOrId })
+  );
   const reposByOrg = useMemo(
     () => reposByOrgQuery.data || {},
     [reposByOrgQuery.data]
@@ -90,7 +92,10 @@ function DashboardComponent() {
 
   // Fetch branches for selected repo from Convex
   const branchesQuery = useQuery({
-    ...convexQuery(api.github.getBranches, { repo: selectedProject[0] || "" }),
+    ...convexQuery(api.github.getBranches, {
+      teamSlugOrId,
+      repo: selectedProject[0] || "",
+    }),
     enabled: !!selectedProject[0],
   });
   const branches = useMemo(
@@ -116,23 +121,29 @@ function DashboardComponent() {
       if (!socket) return;
 
       setIsLoadingBranches(true);
-      socket.emit("github-fetch-branches", { repo }, (response) => {
-        setIsLoadingBranches(false);
-        if (response.success) {
-          // Refetch from Convex to get updated data
-          branchesQuery.refetch();
-        } else if (response.error) {
-          console.error("Error fetching branches:", response.error);
+      socket.emit(
+        "github-fetch-branches",
+        { teamSlugOrId, repo },
+        (response) => {
+          setIsLoadingBranches(false);
+          if (response.success) {
+            // Refetch from Convex to get updated data
+            branchesQuery.refetch();
+          } else if (response.error) {
+            console.error("Error fetching branches:", response.error);
+          }
         }
-      });
+      );
     },
-    [socket, branchesQuery]
+    [socket, teamSlugOrId, branchesQuery]
   );
 
   // Mutation to create tasks with optimistic update
   const createTask = useMutation(api.tasks.create).withOptimisticUpdate(
     (localStore, args) => {
-      const currentTasks = localStore.getQuery(api.tasks.get, {});
+      const currentTasks = localStore.getQuery(api.tasks.get, {
+        teamSlugOrId,
+      });
 
       if (currentTasks !== undefined) {
         const now = Date.now();
@@ -149,10 +160,19 @@ function DashboardComponent() {
           createdAt: now,
           updatedAt: now,
           images: args.images,
+          userId: "optimistic",
+          teamId: teamSlugOrId,
         };
 
         // Add the new task at the beginning (since we order by desc)
-        localStore.setQuery(api.tasks.get, {}, [
+        const listArgs: {
+          teamSlugOrId: string;
+          projectFullName?: string;
+          archived?: boolean;
+        } = {
+          teamSlugOrId,
+        };
+        localStore.setQuery(api.tasks.get, listArgs, [
           optimisticTask,
           ...currentTasks,
         ]);
@@ -217,7 +237,9 @@ function DashboardComponent() {
             }
             const byteArray = new Uint8Array(byteNumbers);
             const blob = new Blob([byteArray], { type: "image/png" });
-            const uploadUrl = await generateUploadUrl();
+            const uploadUrl = await generateUploadUrl({
+              teamSlugOrId,
+            });
             const result = await fetch(uploadUrl, {
               method: "POST",
               headers: { "Content-Type": blob.type },
@@ -244,6 +266,7 @@ function DashboardComponent() {
 
       // Create task in Convex with storage IDs
       const taskId = await createTask({
+        teamSlugOrId,
         text: content?.text || taskDescription, // Use content.text which includes image references
         projectFullName,
         baseBranch: branch,
@@ -290,6 +313,7 @@ function DashboardComponent() {
     effectiveSelectedBranch,
     handleTaskDescriptionChange,
     createTask,
+    teamSlugOrId,
     addTaskToExpand,
     selectedAgents,
     isCloudMode,
@@ -498,7 +522,7 @@ function DashboardComponent() {
               )}
             >
               {/* Provider Status Pills */}
-              <ProviderStatusPills />
+              <ProviderStatusPills teamSlugOrId={teamSlugOrId} />
 
               {/* Editor Input */}
               <DashboardInput
@@ -528,6 +552,7 @@ function DashboardComponent() {
                   isLoadingBranches={
                     isLoadingBranches || branchesQuery.isLoading
                   }
+                  teamSlugOrId={teamSlugOrId}
                 />
                 <DashboardStartTaskButton
                   canSubmit={canSubmit}
@@ -537,7 +562,7 @@ function DashboardComponent() {
             </div>
 
             {/* Task List */}
-            <TaskList />
+            <TaskList teamSlugOrId={teamSlugOrId} />
           </div>
         </div>
       </div>

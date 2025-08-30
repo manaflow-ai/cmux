@@ -17,9 +17,10 @@ import CmuxLogo from "./logo/cmux-logo";
 interface SidebarProps {
   tasks: Doc<"tasks">[] | undefined;
   tasksWithRuns: TaskWithRuns[];
+  teamSlugOrId: string;
 }
 
-export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
+export function Sidebar({ tasks, tasksWithRuns, teamSlugOrId }: SidebarProps) {
   const DEFAULT_WIDTH = 256;
   const MIN_WIDTH = 200;
   const MAX_WIDTH = 600;
@@ -123,6 +124,7 @@ export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
 
   const resetWidth = useCallback(() => setWidth(DEFAULT_WIDTH), []);
 
+
   return (
     <div
       ref={containerRef}
@@ -140,7 +142,8 @@ export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
       >
         {isElectron && <div className="w-[68px]"></div>}
         <Link
-          to="/dashboard"
+          to="/$teamSlugOrId/dashboard"
+          params={{ teamSlugOrId }}
           className="flex items-center gap-2 select-none cursor-pointer"
           style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
         >
@@ -149,7 +152,8 @@ export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
         </Link>
         <div className="grow"></div>
         <Link
-          to="/dashboard"
+          to="/$teamSlugOrId/dashboard"
+          params={{ teamSlugOrId }}
           className="w-[25px] h-[25px] border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-lg flex items-center justify-center transition-colors cursor-default"
           title="New task"
           style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
@@ -177,6 +181,7 @@ export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
                     key={task._id}
                     task={task}
                     defaultExpanded={expandTaskIds?.includes(task._id) ?? false}
+                    teamSlugOrId={teamSlugOrId}
                   />
                 ))
               ) : (
@@ -190,6 +195,26 @@ export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
       </nav>
 
       <div className="pb-2 shrink-0 flex flex-col">
+        <Link
+          to="/$teamSlugOrId/environments"
+          params={{ teamSlugOrId }}
+          className="flex items-center px-7 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors select-none cursor-default"
+        >
+          <svg
+            className="w-4 h-4 mr-3 text-neutral-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 7h18M3 12h18M3 17h18"
+            />
+          </svg>
+          Environments
+        </Link>
         <a
           href="https://github.com/manaflow-ai/cmux/issues/new"
           target="_blank"
@@ -212,7 +237,8 @@ export function Sidebar({ tasks, tasksWithRuns }: SidebarProps) {
           Feedback
         </a>
         <Link
-          to="/settings"
+          to="/$teamSlugOrId/settings"
+          params={{ teamSlugOrId }}
           className="flex items-center px-7 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors select-none cursor-default"
         >
           <svg

@@ -1,11 +1,11 @@
+import { api } from "@cmux/convex/api";
+import type { Id } from "@cmux/convex/dataModel";
+import type { FunctionReturnType } from "convex/server";
+import { MorphCloudClient } from "morphcloud";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { getConvex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
-import { convex } from "./utils/convexClient.js";
-import { api } from "@cmux/convex/api";
-import type { FunctionReturnType } from "convex/server";
-import type { Id } from "@cmux/convex/dataModel";
-import { MorphCloudClient } from "morphcloud";
 
 const execAsync = promisify(exec);
 
@@ -47,13 +47,19 @@ async function pauseMorphInstance(instanceId: string): Promise<void> {
 
 export async function stopContainersForRuns(
   taskId: Id<"tasks">,
+  teamSlugOrId: string,
   query: (
     ref: typeof api.taskRuns.getByTask,
-    args: { taskId: Id<"tasks"> }
-  ) => Promise<FunctionReturnType<typeof api.taskRuns.getByTask>> = (ref, args) =>
-    convex.query(ref, args)
+    args: { teamSlugOrId: string; taskId: Id<"tasks"> }
+  ) => Promise<FunctionReturnType<typeof api.taskRuns.getByTask>> = (
+    ref,
+    args
+  ) => getConvex().query(ref, args)
 ): Promise<StopResult[]> {
-  const tree = await query(api.taskRuns.getByTask, { taskId });
+  const tree = await query(api.taskRuns.getByTask, {
+    teamSlugOrId,
+    taskId,
+  });
   return stopContainersForRunsFromTree(tree, String(taskId));
 }
 
@@ -76,13 +82,15 @@ export function stopContainersForRunsFromTree(
   walk(tree);
 
   if (typeof taskIdLabel === "string") {
-    serverLogger.info(
-      `Archiving task ${taskIdLabel} with ${flat.length} runs`
-    );
+    serverLogger.info(`Archiving task ${taskIdLabel} with ${flat.length} runs`);
   }
 
   // Collect valid docker/morph targets
-  const targets: { provider: VSCodeProvider; containerName: string; runId: string }[] = [];
+  const targets: {
+    provider: VSCodeProvider;
+    containerName: string;
+    runId: string;
+  }[] = [];
   for (const r of flat) {
     if (typeof r !== "object" || r === null) continue;
     const vscode = Reflect.get(Object(r), "vscode");
@@ -96,9 +104,17 @@ export function stopContainersForRunsFromTree(
         ? Reflect.get(Object(vscode), "containerName")
         : undefined;
 
-    if (provider === "docker" && typeof name === "string" && typeof runId === "string") {
+    if (
+      provider === "docker" &&
+      typeof name === "string" &&
+      typeof runId === "string"
+    ) {
       targets.push({ provider: "docker", containerName: name, runId });
-    } else if (provider === "morph" && typeof name === "string" && typeof runId === "string") {
+    } else if (
+      provider === "morph" &&
+      typeof name === "string" &&
+      typeof runId === "string"
+    ) {
       targets.push({ provider: "morph", containerName: name, runId });
     }
   }
@@ -111,21 +127,29 @@ export function stopContainersForRunsFromTree(
         );
         if (t.provider === "docker") {
           // Remove 'docker-' prefix for actual Docker commands
-          const actualContainerName = t.containerName.startsWith("docker-") 
-            ? t.containerName.substring(7) 
+          const actualContainerName = t.containerName.startsWith("docker-")
+            ? t.containerName.substring(7)
             : t.containerName;
           await stopDockerContainer(actualContainerName);
           serverLogger.info(
             `Successfully stopped Docker container: ${t.containerName} (actual: ${actualContainerName})`
           );
-          return { success: true, containerName: t.containerName, provider: t.provider };
+          return {
+            success: true,
+            containerName: t.containerName,
+            provider: t.provider,
+          };
         }
         if (t.provider === "morph") {
           await pauseMorphInstance(t.containerName);
           serverLogger.info(
             `Successfully paused Morph instance: ${t.containerName}`
           );
-          return { success: true, containerName: t.containerName, provider: t.provider };
+          return {
+            success: true,
+            containerName: t.containerName,
+            provider: t.provider,
+          };
         }
         serverLogger.warn(
           `Unsupported provider '${t.provider}' for container ${t.containerName}`
@@ -141,7 +165,12 @@ export function stopContainersForRunsFromTree(
           `Failed to stop ${t.provider} container ${t.containerName}:`,
           error
         );
-        return { success: false, containerName: t.containerName, provider: t.provider, error };
+        return {
+          success: false,
+          containerName: t.containerName,
+          provider: t.provider,
+          error,
+        };
       }
     })
   );

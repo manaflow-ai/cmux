@@ -1,8 +1,8 @@
 import { api } from "@cmux/convex/api";
+import { Switch } from "@heroui/react";
 import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Switch } from "@heroui/react";
 
 interface ContainerSettingsProps {
   onDataChange?: (data: {
@@ -12,10 +12,16 @@ interface ContainerSettingsProps {
     stopImmediatelyOnCompletion: boolean;
     minContainersToKeep: number;
   }) => void;
+  teamSlugOrId: string;
 }
 
-export function ContainerSettings({ onDataChange }: ContainerSettingsProps) {
-  const settings = useQuery(api.containerSettings.get);
+export function ContainerSettings({
+  onDataChange,
+  teamSlugOrId,
+}: ContainerSettingsProps) {
+  const settings = useQuery(api.containerSettings.get, {
+    teamSlugOrId,
+  });
   const isInitialized = useRef(false);
 
   const [formData, setFormData] = useState({
