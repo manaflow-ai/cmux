@@ -1,39 +1,37 @@
-import { createEnv } from "@t3-oss/env-core";
-import { z } from "zod";
+type EnvShape = {
+  NEXT_PUBLIC_CONVEX_URL: string;
+  NEXT_PUBLIC_STACK_PROJECT_ID: string;
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: string;
+  NEXT_PUBLIC_GITHUB_APP_SLUG?: string;
+  NEXT_PUBLIC_WWW_ORIGIN: string;
+};
 
-export const env = createEnv({
-  server: {},
-  /**
-   * The prefix that client-side variables must have. This is enforced both at
-   * a type-level and at runtime.
-   */
-  clientPrefix: "NEXT_PUBLIC_",
-  client: {
-    NEXT_PUBLIC_CONVEX_URL: z.string().min(1),
-    NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
-    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1),
-    NEXT_PUBLIC_GITHUB_APP_SLUG: z.string().optional(),
-    NEXT_PUBLIC_WWW_ORIGIN: z.string().default("http://localhost:9779"),
-  },
+type ImportMetaLike = { env?: Record<string, string | undefined> };
+type NodeProcessLike = { env?: Record<string, string | undefined> };
 
-  /**
-   * What object holds the environment variables at runtime. This is usually
-   * `process.env` or `import.meta.env`.
-   */
-  runtimeEnv: import.meta.env,
+const metaEnv = (typeof import.meta !== "undefined"
+  ? ((import.meta as unknown as ImportMetaLike).env ?? {})
+  : {}) as Record<string, string | undefined>;
 
-  /**
-   * By default, this library will feed the environment variables directly to
-   * the Zod validator.
-   *
-   * This means that if you have an empty string for a value that is supposed
-   * to be a number (e.g. `PORT=` in a ".env" file), Zod will incorrectly flag
-   * it as a type mismatch violation. Additionally, if you have an empty string
-   * for a value that is supposed to be a string with a default value (e.g.
-   * `DOMAIN=` in an ".env" file), the default value will never be applied.
-   *
-   * In order to solve these issues, we recommend that all new projects
-   * explicitly specify this option as true.
-   */
-  emptyStringAsUndefined: true,
-});
+const nodeEnv = (typeof process !== "undefined"
+  ? ((process as unknown as NodeProcessLike).env ?? {})
+  : {}) as Record<string, string | undefined>;
+
+function read(key: keyof EnvShape): string | undefined {
+  return nodeEnv[key as string] ?? metaEnv[key as string];
+}
+
+function required(key: keyof EnvShape): string {
+  const val = read(key);
+  if (!val) throw new Error(`Missing required env var: ${String(key)}`);
+  return val;
+}
+
+export const env: EnvShape = {
+  NEXT_PUBLIC_CONVEX_URL: required("NEXT_PUBLIC_CONVEX_URL"),
+  NEXT_PUBLIC_STACK_PROJECT_ID: required("NEXT_PUBLIC_STACK_PROJECT_ID"),
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: required("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"),
+  NEXT_PUBLIC_GITHUB_APP_SLUG: read("NEXT_PUBLIC_GITHUB_APP_SLUG"),
+  NEXT_PUBLIC_WWW_ORIGIN: read("NEXT_PUBLIC_WWW_ORIGIN") ?? "http://localhost:9779",
+};
+

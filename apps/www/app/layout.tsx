@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
+import "@cmux/client/src/index.css";
+import "@cmux/client/src/antd-overrides.css";
 
 export const metadata: Metadata = {
   title: "cmux - Orchestrate AI coding agents in parallel",

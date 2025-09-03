@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["@cmux/client"],
   env: {
     NEXT_PUBLIC_STACK_PROJECT_ID: process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
     NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY:
