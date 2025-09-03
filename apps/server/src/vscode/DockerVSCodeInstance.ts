@@ -310,6 +310,75 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           dockerLogger.info(`  No SSH directory found at ${sshDir}`);
         }
 
+        // Helper to conditionally mount a host path if it exists
+        const tryBind = async (
+          hostPath: string,
+          containerPath: string,
+          mode: "ro" | "rw",
+          label: string
+        ) => {
+          try {
+            const fs = await import("fs");
+            await fs.promises.access(hostPath);
+            binds.push(`${hostPath}:${containerPath}:${mode}`);
+            dockerLogger.info(
+              `  ${label} mount: ${hostPath} -> ${containerPath} (${mode})`
+            );
+          } catch {
+            dockerLogger.info(`  No ${label.toLowerCase()} found at ${hostPath}`);
+          }
+        };
+
+        // Mount common CLI auth/config directories so CLIs don't ask to login
+        await tryBind(
+          path.join(homeDir, ".gemini"),
+          "/root/.gemini",
+          "ro",
+          "Gemini config"
+        );
+        await tryBind(
+          path.join(homeDir, ".augment"),
+          "/root/.augment",
+          "ro",
+          "Augment config"
+        );
+        await tryBind(
+          path.join(homeDir, ".claude"),
+          "/root/.claude",
+          "ro",
+          "Claude config"
+        );
+        await tryBind(
+          path.join(homeDir, ".local", "share", "opencode"),
+          "/root/.local/share/opencode",
+          "ro",
+          "OpenCode data"
+        );
+        await tryBind(
+          path.join(homeDir, ".config", "amp"),
+          "/root/.config/amp",
+          "ro",
+          "AMP config"
+        );
+        await tryBind(
+          path.join(homeDir, ".local", "share", "amp"),
+          "/root/.local/share/amp",
+          "ro",
+          "AMP data"
+        );
+        await tryBind(
+          path.join(homeDir, ".config", "gcloud"),
+          "/root/.config/gcloud",
+          "ro",
+          "gcloud config"
+        );
+        await tryBind(
+          path.join(homeDir, ".npmrc"),
+          "/root/.npmrc",
+          "ro",
+          "npmrc"
+        );
+
         // Mount git config if it exists
         try {
           const fs = await import("fs");
@@ -363,6 +432,25 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           dockerLogger.info(`  No SSH directory found at ${sshDir}`);
         }
 
+        // Helper to conditionally mount a host path if it exists
+        const tryBind = async (
+          hostPath: string,
+          containerPath: string,
+          mode: "ro" | "rw",
+          label: string
+        ) => {
+          try {
+            const fs = await import("fs");
+            await fs.promises.access(hostPath);
+            binds.push(`${hostPath}:${containerPath}:${mode}`);
+            dockerLogger.info(
+              `  ${label} mount: ${hostPath} -> ${containerPath} (${mode})`
+            );
+          } catch {
+            dockerLogger.info(`  No ${label.toLowerCase()} found at ${hostPath}`);
+          }
+        };
+
         // Mount GitHub CLI config for authentication
         const ghConfigDir = path.join(homeDir, ".config", "gh");
         try {
@@ -375,6 +463,56 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         } catch {
           dockerLogger.info(`  No GitHub CLI config found at ${ghConfigDir}`);
         }
+
+        // Mount common CLI auth/config directories so CLIs don't ask to login
+        await tryBind(
+          path.join(homeDir, ".gemini"),
+          "/root/.gemini",
+          "ro",
+          "Gemini config"
+        );
+        await tryBind(
+          path.join(homeDir, ".augment"),
+          "/root/.augment",
+          "ro",
+          "Augment config"
+        );
+        await tryBind(
+          path.join(homeDir, ".claude"),
+          "/root/.claude",
+          "ro",
+          "Claude config"
+        );
+        await tryBind(
+          path.join(homeDir, ".local", "share", "opencode"),
+          "/root/.local/share/opencode",
+          "ro",
+          "OpenCode data"
+        );
+        await tryBind(
+          path.join(homeDir, ".config", "amp"),
+          "/root/.config/amp",
+          "ro",
+          "AMP config"
+        );
+        await tryBind(
+          path.join(homeDir, ".local", "share", "amp"),
+          "/root/.local/share/amp",
+          "ro",
+          "AMP data"
+        );
+        await tryBind(
+          path.join(homeDir, ".config", "gcloud"),
+          "/root/.config/gcloud",
+          "ro",
+          "gcloud config"
+        );
+        await tryBind(
+          path.join(homeDir, ".npmrc"),
+          "/root/.npmrc",
+          "ro",
+          "npmrc"
+        );
 
         // Mount git config if it exists
         try {

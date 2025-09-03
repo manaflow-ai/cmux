@@ -118,7 +118,7 @@ export async function getGeminiEnvironment(_ctx: EnvironmentContext): Promise<En
   await copyFile("installation_id", "$HOME/.gemini/installation_id");
   await copyFile("user_id", "$HOME/.gemini/user_id");
 
-  // 5. Check for .env files
+  // 5. Check for .env files and propagate GEMINI_API_KEY if present
   const envPaths = [join(geminiDir, ".env"), join(homedir(), ".env")];
 
   for (const envPath of envPaths) {
@@ -131,6 +131,12 @@ export async function getGeminiEnvironment(_ctx: EnvironmentContext): Promise<En
         contentBase64: Buffer.from(content).toString("base64"),
         mode: "600",
       });
+      // Best-effort parse GEMINI_API_KEY and inject as env for CLI
+      const match = content.match(/^\s*GEMINI_API_KEY\s*=\s*([^\n\r]+)\s*$/m);
+      if (match && match[1] && !env.GEMINI_API_KEY) {
+        // Trim surrounding quotes if any
+        env.GEMINI_API_KEY = match[1].replace(/^['"]|['"]$/g, "");
+      }
       break; // Use first found .env file
     } catch {
       // Continue to next path
