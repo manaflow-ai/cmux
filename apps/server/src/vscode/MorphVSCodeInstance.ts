@@ -10,6 +10,7 @@ import {
   type VSCodeInstanceConfig,
   type VSCodeInstanceInfo,
 } from "./VSCodeInstance.js";
+import { readLocalVSCodeData } from "../utils/localVSCode.js";
 
 interface MorphVSCodeInstanceConfig extends VSCodeInstanceConfig {
   morphSnapshotId?: string;
@@ -74,6 +75,33 @@ export class MorphVSCodeInstance extends VSCodeInstance {
       dockerLogger.info(
         `Successfully connected to worker for Morph instance ${this.instance.id}`
       );
+
+      // Sync local VS Code settings to Convex (if present)
+      try {
+        const local = readLocalVSCodeData();
+        if (local) {
+          await getConvex().mutation(api.vscodeSettings.upsert, {
+            teamSlugOrId: this.teamSlugOrId,
+            settings: local.settings,
+            keybindings: local.keybindings,
+            snippets: local.snippets,
+            extensions: local.extensions,
+          });
+          dockerLogger.info("Synchronized local VS Code settings to Convex");
+        } else {
+          dockerLogger.info(
+            "No local VS Code settings directory detected; skipping sync"
+          );
+        }
+      } catch (e) {
+        dockerLogger.warn(
+          "Failed to sync local VS Code settings to Convex",
+          e
+        );
+      }
+
+      // Apply VS Code settings from Convex
+      await this.applyVSCodeSettingsFromConvex();
     } catch (error) {
       dockerLogger.error(
         `Failed to connect to worker for Morph instance ${this.instance.id}:`,
@@ -89,6 +117,33 @@ export class MorphVSCodeInstance extends VSCodeInstance {
       taskRunId: this.taskRunId,
       provider: "morph",
     };
+  }
+
+  private async applyVSCodeSettingsFromConvex(): Promise<void> {
+    try {
+      const doc = await getConvex().query(api.vscodeSettings.get, {
+        teamSlugOrId: this.teamSlugOrId,
+      });
+      if (!doc) return;
+      if (!this.isWorkerConnected()) return;
+      const socket = this.getWorkerSocket();
+      await new Promise<void>((resolve) => {
+        socket.emit(
+          "worker:apply-vscode-settings",
+          {
+            settings: doc.settings,
+            keybindings: doc.keybindings,
+            snippets: doc.snippets,
+            extensions: doc.extensions,
+          },
+          (_res: { ok: true } | { ok: false; error: string }) => {
+            resolve();
+          }
+        );
+      });
+    } catch (e) {
+      dockerLogger.warn("[MorphVSCodeInstance] Failed to apply VS Code settings", e);
+    }
   }
 
   async stop(): Promise<void> {

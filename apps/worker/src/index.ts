@@ -31,6 +31,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { Server, type Namespace, type Socket } from "socket.io";
 import { checkDockerReadiness } from "./checkDockerReadiness.js";
+import { WorkerApplyVSCodeSettingsSchema } from "@cmux/shared";
 import { detectTerminalIdle } from "./detectTerminalIdle.js";
 import { runWorkerExec } from "./execRunner.js";
 import { FileWatcher, computeGitDiff, getFileWithDiff } from "./fileWatcher.js";
@@ -688,6 +689,69 @@ managementIO.on("connection", (socket) => {
         error: error instanceof Error ? error : new Error(String(error)),
         data: null,
       });
+    }
+  });
+
+  // Apply VS Code settings (settings.json, keybindings.json, snippets, extensions)
+  socket.on("worker:apply-vscode-settings", async (data, callback) => {
+    try {
+      const validated = WorkerApplyVSCodeSettingsSchema.parse(data);
+      const userDir = "/root/.openvscode-server/data/User";
+      const settingsPath = path.join(userDir, "settings.json");
+      const keybindingsPath = path.join(userDir, "keybindings.json");
+      const snippetsDir = path.join(userDir, "snippets");
+      await fs.mkdir(userDir, { recursive: true });
+
+      if (validated.settings !== undefined) {
+        await fs.writeFile(
+          settingsPath,
+          JSON.stringify(validated.settings, null, 2)
+        );
+        log("INFO", `Wrote VS Code settings to ${settingsPath}`);
+      }
+
+      if (validated.keybindings !== undefined) {
+        await fs.writeFile(
+          keybindingsPath,
+          JSON.stringify(validated.keybindings, null, 2)
+        );
+        log("INFO", `Wrote VS Code keybindings to ${keybindingsPath}`);
+      }
+
+      if (validated.snippets && typeof validated.snippets === "object") {
+        await fs.mkdir(snippetsDir, { recursive: true });
+        // Expecting object of { filename: content }
+        const snippets = validated.snippets as Record<string, unknown>;
+        for (const [file, content] of Object.entries(snippets)) {
+          const filePath = path.join(snippetsDir, file.endsWith(".json") ? file : `${file}.json`);
+          await fs.writeFile(filePath, JSON.stringify(content, null, 2));
+          log("INFO", `Wrote VS Code snippet: ${filePath}`);
+        }
+      }
+
+      // Install extensions if provided
+      if (validated.extensions && validated.extensions.length > 0) {
+        for (const ext of validated.extensions) {
+          try {
+            await execAsync(
+              `/app/openvscode-server/bin/openvscode-server --install-extension ${ext}`
+            );
+            log("INFO", `Installed extension: ${ext}`);
+          } catch (e) {
+            // openvscode-server returns non-zero if already installed sometimes; log and continue
+            log(
+              "WARNING",
+              `Failed to install extension ${ext} (may already be installed)`,
+              e
+            );
+          }
+        }
+      }
+
+      callback({ ok: true });
+    } catch (error) {
+      log("ERROR", "Failed to apply VS Code settings", error);
+      callback({ ok: false, error: error instanceof Error ? error.message : "Unknown error" });
     }
   });
 

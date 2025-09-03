@@ -187,6 +187,14 @@ export const WorkerExecResultSchema = z.object({
   signal: z.string().optional(),
 });
 
+// Apply VS Code settings payload
+export const WorkerApplyVSCodeSettingsSchema = z.object({
+  settings: z.any().optional(),
+  keybindings: z.any().optional(),
+  snippets: z.any().optional(),
+  extensions: z.array(z.string()).optional(),
+});
+
 // Server to Worker Events
 export const ServerToWorkerCommandSchema = z.object({
   command: z.enum(["create-terminal", "destroy-terminal", "execute-command"]),
@@ -215,6 +223,9 @@ export type WorkerUploadFiles = z.infer<typeof WorkerUploadFilesSchema>;
 export type WorkerConfigureGit = z.infer<typeof WorkerConfigureGitSchema>;
 export type WorkerExec = z.infer<typeof WorkerExecSchema>;
 export type WorkerExecResult = z.infer<typeof WorkerExecResultSchema>;
+export type WorkerApplyVSCodeSettings = z.infer<
+  typeof WorkerApplyVSCodeSettingsSchema
+>;
 
 // Socket.io event maps for Server <-> Worker communication
 // Docker readiness response type
@@ -245,6 +256,12 @@ export interface ServerToWorkerEvents {
   "worker:exec": (
     data: WorkerExec,
     callback: (result: ErrorOr<WorkerExecResult>) => void
+  ) => void;
+
+  // Apply VS Code settings and install extensions
+  "worker:apply-vscode-settings": (
+    data: WorkerApplyVSCodeSettings,
+    callback: (response: { ok: true } | { ok: false; error: string }) => void
   ) => void;
 
   // File watching events

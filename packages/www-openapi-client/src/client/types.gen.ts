@@ -111,6 +111,44 @@ export type ProvisionInstanceBody = {
     ttlSeconds?: number;
 };
 
+export type VsCodeGetResponse = {
+    userId: string;
+    teamId: string;
+    settings?: unknown;
+    keybindings?: unknown;
+    snippets?: unknown;
+    extensions?: Array<string>;
+    hash: string;
+    createdAt: number;
+    updatedAt: number;
+    _id: string;
+} | null;
+
+export type VsCodeUpsertResponse = {
+    updated: boolean;
+    hash: string;
+    updatedAt: number;
+};
+
+export type VsCodeSettingsPayload = {
+    /**
+     * User settings.json contents
+     */
+    settings?: unknown;
+    /**
+     * User keybindings.json contents
+     */
+    keybindings?: unknown;
+    /**
+     * Record of snippet files -> JSON
+     */
+    snippets?: unknown;
+    /**
+     * Array of extension identifiers (publisher.name)
+     */
+    extensions?: Array<string>;
+};
+
 export type GetApiHealthData = {
     body?: never;
     path?: never;
@@ -538,6 +576,62 @@ export type PostApiMorphProvisionInstanceResponses = {
 };
 
 export type PostApiMorphProvisionInstanceResponse = PostApiMorphProvisionInstanceResponses[keyof PostApiMorphProvisionInstanceResponses];
+
+export type GetApiVscodeSettingsData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Team slug or UUID
+         */
+        team: string;
+    };
+    url: '/api/vscode/settings';
+};
+
+export type GetApiVscodeSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+};
+
+export type GetApiVscodeSettingsResponses = {
+    /**
+     * OK
+     */
+    200: VsCodeGetResponse;
+};
+
+export type GetApiVscodeSettingsResponse = GetApiVscodeSettingsResponses[keyof GetApiVscodeSettingsResponses];
+
+export type PostApiVscodeSettingsData = {
+    body: VsCodeSettingsPayload;
+    path?: never;
+    query: {
+        /**
+         * Team slug or UUID
+         */
+        team: string;
+    };
+    url: '/api/vscode/settings';
+};
+
+export type PostApiVscodeSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+};
+
+export type PostApiVscodeSettingsResponses = {
+    /**
+     * Upserted or unchanged
+     */
+    200: VsCodeUpsertResponse;
+};
+
+export type PostApiVscodeSettingsResponse = PostApiVscodeSettingsResponses[keyof PostApiVscodeSettingsResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});

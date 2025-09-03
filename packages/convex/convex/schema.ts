@@ -410,6 +410,20 @@ const convexSchema = defineSchema({
     ),
     createdAt: v.number(),
   }).index("by_nonce", ["nonce"]),
+
+  // VS Code user-level settings synced per team+user
+  vscodeSettings: defineTable({
+    userId: v.string(),
+    teamId: v.string(),
+    // Raw JSON blobs from user's local VS Code
+    settings: v.optional(v.any()),
+    keybindings: v.optional(v.any()),
+    snippets: v.optional(v.any()),
+    extensions: v.optional(v.array(v.string())), // e.g. "esbenp.prettier-vscode"
+    hash: v.string(), // stable hash of the canonical payload
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_team_user", ["teamId", "userId"]),
 });
 
 export default convexSchema;

@@ -26,6 +26,7 @@ import type * as taskRuns from "../taskRuns.js";
 import type * as tasks from "../tasks.js";
 import type * as teams from "../teams.js";
 import type * as users_utils from "../users/utils.js";
+import type * as vscodeSettings from "../vscodeSettings.js";
 import type * as workspaceSettings from "../workspaceSettings.js";
 
 import type {
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   tasks: typeof tasks;
   teams: typeof teams;
   "users/utils": typeof users_utils;
+  vscodeSettings: typeof vscodeSettings;
   workspaceSettings: typeof workspaceSettings;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
