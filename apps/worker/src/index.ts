@@ -30,6 +30,7 @@ import { cpus, platform, totalmem } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { Server, type Namespace, type Socket } from "socket.io";
+import { getWorkerServerSocketOptions } from "@cmux/shared/node/socket";
 import { checkDockerReadiness } from "./checkDockerReadiness.js";
 import { detectTerminalIdle } from "./detectTerminalIdle.js";
 import { runWorkerExec } from "./execRunner.js";
@@ -119,16 +120,7 @@ app.post("/upload-image", upload.single("image"), async (req, res) => {
 const httpServer = createServer(app);
 
 // Socket.IO server with namespaces
-const io = new Server(httpServer, {
-  cors: {
-    origin: "*", // In production, restrict this
-    methods: ["GET", "POST"],
-  },
-  maxHttpBufferSize: 50 * 1024 * 1024, // 50MB to handle large images
-  pingTimeout: 240000, // 120 seconds - increased for long tasks
-  pingInterval: 30000, // 30 seconds
-  upgradeTimeout: 30000, // 30 seconds
-});
+const io = new Server(httpServer, getWorkerServerSocketOptions());
 
 // Client namespace
 const vscodeIO = io.of("/vscode") as Namespace<

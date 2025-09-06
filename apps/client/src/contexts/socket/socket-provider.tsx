@@ -1,19 +1,17 @@
 import type {
   AvailableEditors,
-  ClientToServerEvents,
-  ServerToClientEvents,
 } from "@cmux/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import React, { useEffect, useMemo } from "react";
-import { io, Socket } from "socket.io-client";
+import { connectToMainServer } from "@cmux/shared/socket";
 import { authJsonQueryOptions } from "../convex/authJsonQueryOptions";
 import { cachedGetUser } from "../../lib/cachedGetUser";
 import { stackClientApp } from "../../lib/stack";
 import { SocketContext } from "./socket-context";
 
 export interface SocketContextType {
-  socket: Socket<ServerToClientEvents, ClientToServerEvents> | null;
+  socket: ReturnType<typeof connectToMainServer> | null;
   isConnected: boolean;
   availableEditors: AvailableEditors | null;
 }
@@ -30,9 +28,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   const authJsonQuery = useQuery(authJsonQueryOptions());
   const authToken = authJsonQuery.data?.accessToken;
   const location = useLocation();
-  const [socket, setSocket] = React.useState<
-    SocketContextType["socket"] | null
-  >(null);
+  const [socket, setSocket] = React.useState<SocketContextType["socket"] | null>(
+    null
+  );
   const [isConnected, setIsConnected] = React.useState(false);
   const [availableEditors, setAvailableEditors] =
     React.useState<AvailableEditors | null>(null);
@@ -50,7 +48,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       return;
     }
     let disposed = false;
-    let createdSocket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
+    let createdSocket: ReturnType<typeof connectToMainServer> | null = null;
     (async () => {
       // Fetch full auth JSON for server to forward as x-stack-auth
       const user = await cachedGetUser(stackClientApp);
@@ -64,9 +62,11 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
         query.auth_json = JSON.stringify(authJson);
       }
 
-      const newSocket = io(url, {
-        transports: ["websocket"],
-        query,
+      const newSocket = connectToMainServer({
+        url,
+        authToken,
+        teamSlugOrId,
+        authJson,
       });
       createdSocket = newSocket;
       if (disposed) {

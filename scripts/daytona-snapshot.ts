@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { io } from "socket.io-client";
+import { connectToWorkerManagement } from "@cmux/shared/socket";
 
 try {
   const daytona = new Daytona();
@@ -141,7 +141,7 @@ try {
 
   const { url } = await sandbox.getPreviewLink(39377);
 
-  const managementSocket = io(url);
+  const managementSocket = connectToWorkerManagement({ url });
 
   managementSocket.on("connect", () => {
     console.log("Connected to worker management port");

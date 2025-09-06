@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { io } from "socket.io-client";
+import { connectToWorkerManagement } from "@cmux/shared/socket";
 
 async function main() {
   const workerUrl = process.argv[2];
@@ -10,10 +10,7 @@ async function main() {
 
   console.log(`Connecting to ${workerUrl}/management...`);
   
-  const socket = io(`${workerUrl}/management`, {
-    reconnection: false,
-    timeout: 10000,
-  });
+  const socket = connectToWorkerManagement({ url: workerUrl, timeoutMs: 10_000, reconnectionAttempts: 0 });
 
   socket.on("connect", () => {
     console.log("Connected! Socket ID:", socket.id);

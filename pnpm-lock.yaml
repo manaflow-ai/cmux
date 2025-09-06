@@ -804,6 +804,9 @@ importers:
       '@cmux/convex':
         specifier: workspace:*
         version: link:../convex
+      socket.io-client:
+        specifier: ^4.8.1
+        version: 4.8.1
       zod:
         specifier: ^3.25.67
         version: 3.25.76
@@ -814,6 +817,9 @@ importers:
       '@xterm/xterm':
         specifier: ^5.5.0
         version: 5.5.0
+      socket.io:
+        specifier: ^4.8.1
+        version: 4.8.1
       typescript:
         specifier: ^5.8.3
         version: 5.8.3

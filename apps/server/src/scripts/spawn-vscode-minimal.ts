@@ -1,6 +1,6 @@
 import type { ServerToWorkerEvents, WorkerToServerEvents } from "@cmux/shared";
 import Docker from "dockerode";
-import { io, type Socket } from "socket.io-client";
+import { connectToWorkerManagement, type Socket } from "@cmux/shared/socket";
 
 interface ContainerInfo {
   containerId: string;
@@ -106,10 +106,7 @@ async function createTerminalWithPrompt(
   console.log(`Connecting to worker at ${workerUrl}...`);
 
   // Connect to worker
-  const socket = io(`${workerUrl}/management`, {
-    reconnection: false,
-    timeout: 10000,
-  }) as Socket<WorkerToServerEvents, ServerToWorkerEvents>;
+  const socket = connectToWorkerManagement({ url: workerUrl, timeoutMs: 10_000, reconnectionAttempts: 0 });
 
   return new Promise((resolve, reject) => {
     socket.on("connect", () => {

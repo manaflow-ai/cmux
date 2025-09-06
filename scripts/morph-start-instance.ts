@@ -1,7 +1,7 @@
 import type { ServerToWorkerEvents, WorkerToServerEvents } from "@cmux/shared";
 import { MorphCloudClient } from "morphcloud";
 import readline from "readline";
-import { io, Socket } from "socket.io-client";
+import { connectToWorkerManagement, type Socket } from "@cmux/shared/socket";
 
 const client = new MorphCloudClient();
 
@@ -97,13 +97,12 @@ workerUrl.pathname = "/management";
 console.log("workerUrl", workerUrl.toString());
 
 // connect to the worker management namespace with socketio
-const clientSocket = io(workerUrl.toString(), {
-  timeout: 10000,
+const clientSocket = connectToWorkerManagement({
+  url: workerService.url,
+  timeoutMs: 10_000,
   reconnectionAttempts: 3,
-  autoConnect: true,
-  transports: ["websocket"],
   forceNew: true,
-}) as Socket<WorkerToServerEvents, ServerToWorkerEvents>;
+});
 
 clientSocket.on("disconnect", () => {
   console.log("Disconnected from worker");

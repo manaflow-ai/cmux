@@ -13,6 +13,14 @@
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     },
+    "./socket": {
+      "import": "./src/socket-client.ts",
+      "types": "./src/socket-client.ts"
+    },
+    "./node/socket": {
+      "import": "./src/node/socket-server.ts",
+      "types": "./src/node/socket-server.ts"
+    },
     "./src/providers/amp/start-amp-proxy.ts": {
       "import": "./src/providers/amp/start-amp-proxy.ts",
       "types": "./src/providers/amp/start-amp-proxy.ts"
@@ -48,11 +56,13 @@
   },
   "dependencies": {
     "@cmux/convex": "workspace:*",
-    "zod": "^3.25.67"
+    "zod": "^3.25.67",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@xterm/xterm": "^5.5.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "socket.io": "^4.8.1"
   }
 }

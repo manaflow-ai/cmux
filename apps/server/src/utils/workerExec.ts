@@ -1,5 +1,5 @@
 import type { ServerToWorkerEvents, WorkerToServerEvents } from "@cmux/shared";
-import { Socket } from "socket.io-client";
+import type { Socket } from "@cmux/shared/socket";
 
 export async function workerExec({
   workerSocket,

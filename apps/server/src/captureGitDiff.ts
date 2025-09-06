@@ -1,6 +1,6 @@
 import { serverLogger } from "./utils/fileLogger";
 import { VSCodeInstance } from "./vscode/VSCodeInstance";
-import type { Socket } from "socket.io-client";
+import type { Socket } from "@cmux/shared/socket";
 import type { WorkerToServerEvents, ServerToWorkerEvents } from "@cmux/shared";
 
 /**

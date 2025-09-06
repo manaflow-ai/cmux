@@ -26,6 +26,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { Server } from "socket.io";
+import { getMainServerSocketOptions } from "@cmux/shared/node/socket";
 import { spawnAllAgents } from "./agentSpawner.js";
 import { stopContainersForRuns } from "./archiveTask.js";
 import { execWithEnv } from "./execWithEnv.js";
@@ -135,16 +136,7 @@ export async function startServer({
     ServerToClientEvents,
     InterServerEvents,
     SocketData
-  >(httpServer, {
-    cors: {
-      origin: "http://localhost:5173",
-      methods: ["GET", "POST"],
-    },
-    maxHttpBufferSize: 50 * 1024 * 1024, // 50MB to handle multiple images
-    pingTimeout: 120000, // 120 seconds - match worker settings
-    pingInterval: 30000, // 30 seconds - match worker settings
-    allowEIO3: true, // Allow different Socket.IO versions
-  });
+  >(httpServer, getMainServerSocketOptions());
 
   // Attach auth context from socket.io connection query param ?auth=JWT
   io.use((socket, next) => {
