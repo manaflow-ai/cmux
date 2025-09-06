@@ -1,22 +1,16 @@
-import type {
-  AvailableEditors,
-  ClientToServerEvents,
-  ServerToClientEvents,
-} from "@cmux/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import React, { useEffect, useMemo } from "react";
-import { io, Socket } from "socket.io-client";
 import { authJsonQueryOptions } from "../convex/authJsonQueryOptions";
 import { cachedGetUser } from "../../lib/cachedGetUser";
 import { stackClientApp } from "../../lib/stack";
-import { SocketContext } from "./socket-context";
-
-export interface SocketContextType {
-  socket: Socket<ServerToClientEvents, ClientToServerEvents> | null;
-  isConnected: boolean;
-  availableEditors: AvailableEditors | null;
-}
+import { WebSocketContext } from "./socket-context";
+import type { SocketContextType } from "./types";
+import type {
+  ClientToServerEvents,
+  ServerToClientEvents,
+} from "@cmux/shared";
+import type { Socket } from "socket.io-client";
 
 interface SocketProviderProps {
   children: React.ReactNode;
@@ -35,7 +29,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   >(null);
   const [isConnected, setIsConnected] = React.useState(false);
   const [availableEditors, setAvailableEditors] =
-    React.useState<AvailableEditors | null>(null);
+    React.useState<SocketContextType["availableEditors"]>(null);
 
   // Derive the current teamSlugOrId from the first URL segment, ignoring the team-picker route
   const teamSlugOrId = React.useMemo(() => {
@@ -47,6 +41,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
   useEffect(() => {
     if (!authToken) {
+      console.warn("[Socket] No auth token yet; delaying connect");
       return;
     }
     let disposed = false;
@@ -64,10 +59,15 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
         query.auth_json = JSON.stringify(authJson);
       }
 
+      // Always use Socket.IO - the server runs separately
+      console.log("[Socket] Using Socket.IO transport", { url });
+      // Dynamic import to reduce initial bundle size
+      const { io } = await import("socket.io-client");
       const newSocket = io(url, {
         transports: ["websocket"],
         query,
       });
+      
       createdSocket = newSocket;
       if (disposed) {
         newSocket.disconnect();
@@ -75,18 +75,25 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       }
       setSocket(newSocket);
 
-      newSocket.on("connect", () => {
-        console.log("Socket connected");
-        setIsConnected(true);
-      });
+    newSocket.on("connect", () => {
+      console.log("[Socket] connected", { url, team: teamSlugOrId });
+      setIsConnected(true);
+    });
 
-      newSocket.on("disconnect", () => {
-        console.log("Socket disconnected");
-        setIsConnected(false);
-      });
+    newSocket.on("disconnect", () => {
+      console.warn("[Socket] disconnected");
+      setIsConnected(false);
+    });
+
+    newSocket.on("connect_error", (err) => {
+      const errorMessage = err && typeof err === 'object' && 'message' in err 
+        ? (err as Error).message 
+        : String(err);
+      console.error("[Socket] connect_error", errorMessage);
+    });
 
       newSocket.on("available-editors", (data) => {
-        setAvailableEditors(data);
+        setAvailableEditors(data as SocketContextType["availableEditors"]);
       });
     })();
 
@@ -106,8 +113,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   );
 
   return (
-    <SocketContext.Provider value={contextValue}>
+    <WebSocketContext.Provider value={contextValue}>
       {children}
-    </SocketContext.Provider>
+    </WebSocketContext.Provider>
   );
 };

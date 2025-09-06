@@ -4,7 +4,11 @@
   "description": "cmux server",
   "main": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts",
+    "./socket-handlers": "./src/socket-handlers.ts",
+    "./gitDiff": "./src/gitDiff.ts",
+    "./realtime": "./src/realtime.ts"
   },
   "type": "module",
   "scripts": {

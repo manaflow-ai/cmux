@@ -1,6 +1,6 @@
 import { convexAuthReadyPromise } from "@/contexts/convex/convex-auth-ready";
 import { ConvexClientProvider } from "@/contexts/convex/convex-client-provider";
-import { SocketProvider } from "@/contexts/socket/socket-provider";
+import { RealSocketProvider } from "@/contexts/socket/real-socket-provider";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_layout")({
@@ -13,9 +13,9 @@ export const Route = createFileRoute("/_layout")({
 function Layout() {
   return (
     <ConvexClientProvider>
-      <SocketProvider>
+      <RealSocketProvider>
         <Outlet />
-      </SocketProvider>
+      </RealSocketProvider>
     </ConvexClientProvider>
   );
 }

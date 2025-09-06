@@ -110,6 +110,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.7
         version: 1.2.8(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@socket.io/component-emitter':
+        specifier: ^3.1.2
+        version: 3.1.2
       '@stackframe/react':
         specifier: ^2.8.36
         version: 2.8.36(@types/react-dom@19.1.7(@types/react@19.1.11))(@types/react@19.1.11)(buffer@6.0.3)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(tailwindcss@4.1.12)
@@ -176,6 +179,12 @@ importers:
       electron-updater:
         specifier: ^6.6.2
         version: 6.6.2
+      engine.io-client:
+        specifier: ^6.6.3
+        version: 6.6.3
+      engine.io-parser:
+        specifier: ^5.2.1
+        version: 5.2.3
       framer-motion:
         specifier: ^12.23.3
         version: 12.23.12(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -197,6 +206,9 @@ importers:
       jsonfile:
         specifier: ^6.1.0
         version: 6.2.0
+      jwt-decode:
+        specifier: ^4.0.0
+        version: 4.0.0
       lazy-val:
         specifier: ^1.0.5
         version: 1.0.5
@@ -245,6 +257,9 @@ importers:
       socket.io-client:
         specifier: ^4.8.1
         version: 4.8.1
+      socket.io-parser:
+        specifier: ^4.2.4
+        version: 4.2.4
       sonner:
         specifier: ^2.0.6
         version: 2.0.7(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -266,6 +281,12 @@ importers:
       vscode-icons-js:
         specifier: ^11.6.1
         version: 11.6.1
+      ws:
+        specifier: ^8.17.1
+        version: 8.18.3
+      xmlhttprequest-ssl:
+        specifier: ^2.1.1
+        version: 2.1.2
       zod:
         specifier: ^3.25.67
         version: 3.25.76

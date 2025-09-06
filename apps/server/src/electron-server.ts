@@ -1,36 +1,21 @@
 import { api } from "@cmux/convex/api";
 import { exec } from "node:child_process";
-import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { GitDiffManager } from "./gitDiff.js";
-import { createProxyApp, setupWebSocketProxy } from "./proxyApp.js";
-import { createSocketIOTransport } from "./transports/socketio-transport.js";
+import { createIPCTransport } from "./transports/ipc-transport.js";
 import { setupSocketHandlers } from "./socket-handlers.js";
-import { dockerLogger, serverLogger } from "./utils/fileLogger.js";
+import { serverLogger, dockerLogger } from "./utils/fileLogger.js";
 import { getConvex } from "./utils/convexClient.js";
 import { waitForConvex } from "./utils/waitForConvex.js";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance.js";
 import { VSCodeInstance } from "./vscode/VSCodeInstance.js";
-// Team is supplied via socket handshake query param 'team'
+import type { GitRepoInfo } from "./server.js";
 
 const execAsync = promisify(exec);
 
-export type GitRepoInfo = {
-  path: string;
-  isGitRepo: boolean;
-  remoteName?: string;
-  remoteUrl?: string;
-  currentBranch?: string;
-  defaultBranch?: string;
-};
-
-export async function startServer({
-  port,
-  publicPath,
+export async function electronStartServer({
   defaultRepo,
 }: {
-  port: number;
-  publicPath: string;
   defaultRepo?: GitRepoInfo | null;
 }) {
   // Set up global error handlers to prevent crashes
@@ -78,71 +63,53 @@ export async function startServer({
   // Git diff manager instance
   const gitDiffManager = new GitDiffManager();
 
-  // Create Express proxy app
-  const proxyApp = createProxyApp({ publicPath });
-
-  // Create HTTP server with Express app
-  const httpServer = createServer(proxyApp);
-
-  // Set up WebSocket proxy for containers
-  setupWebSocketProxy(httpServer);
-
-  // Create Socket.IO transport
-  const rt = createSocketIOTransport(httpServer);
+  // Create IPC transport for Electron (no HTTP server!)
+  const rt = createIPCTransport();
 
   // Set up all socket handlers
   setupSocketHandlers(rt, gitDiffManager, defaultRepo);
 
-  const server = httpServer.listen(port, async () => {
-    serverLogger.info(`Terminal server listening on port ${port}`);
-    serverLogger.info(`Visit http://localhost:${port} to see the app`);
+  serverLogger.info(`Electron IPC server started (no HTTP port)`);
 
-    // Wait for Convex
-    await waitForConvex();
+  // Wait for Convex
+  await waitForConvex();
 
-    // Crown evaluation is now triggered immediately after all tasks complete
-    // in agentSpawner.ts handleTaskCompletion() function
-    // No need for periodic checking
-
-    // Store default repo info if provided
-    if (defaultRepo?.remoteName) {
-      try {
-        serverLogger.info(
-          `Storing default repository: ${defaultRepo.remoteName}`
-        );
-        await getConvex().mutation(api.github.upsertRepo, {
-          teamSlugOrId: "default",
-          fullName: defaultRepo.remoteName,
-          org: defaultRepo.remoteName.split("/")[0] || "",
-          name: defaultRepo.remoteName.split("/")[1] || "",
-          gitRemote: defaultRepo.remoteUrl || "",
-          provider: "github", // Default to github, could be enhanced to detect provider
-        });
-
-        // Also emit to all connected clients
-        const defaultRepoData = {
-          repoFullName: defaultRepo.remoteName,
-          branch: defaultRepo.currentBranch || defaultRepo.defaultBranch,
-          localPath: defaultRepo.path,
-        };
-        serverLogger.info(`Emitting default-repo event:`, defaultRepoData);
-        rt.emit("default-repo", defaultRepoData);
-
-        serverLogger.info(
-          `Successfully set default repository: ${defaultRepo.remoteName}`
-        );
-      } catch (error) {
-        serverLogger.error("Error storing default repo:", error);
-      }
-    } else if (defaultRepo) {
-      serverLogger.warn(
-        `Default repo provided but no remote name found:`,
-        defaultRepo
+  // Store default repo info if provided
+  if (defaultRepo?.remoteName) {
+    try {
+      serverLogger.info(
+        `Storing default repository: ${defaultRepo.remoteName}`
       );
-    }
+      await getConvex().mutation(api.github.upsertRepo, {
+        teamSlugOrId: "default",
+        fullName: defaultRepo.remoteName,
+        org: defaultRepo.remoteName.split("/")[0] || "",
+        name: defaultRepo.remoteName.split("/")[1] || "",
+        gitRemote: defaultRepo.remoteUrl || "",
+        provider: "github", // Default to github, could be enhanced to detect provider
+      });
 
-    // Startup refresh moved to first authenticated socket connection
-  });
+      // Also emit to all connected clients
+      const defaultRepoData = {
+        repoFullName: defaultRepo.remoteName,
+        branch: defaultRepo.currentBranch || defaultRepo.defaultBranch,
+        localPath: defaultRepo.path,
+      };
+      serverLogger.info(`Emitting default-repo event:`, defaultRepoData);
+      rt.emit("default-repo", defaultRepoData);
+
+      serverLogger.info(
+        `Successfully set default repository: ${defaultRepo.remoteName}`
+      );
+    } catch (error) {
+      serverLogger.error("Error storing default repo:", error);
+    }
+  } else if (defaultRepo) {
+    serverLogger.warn(
+      `Default repo provided but no remote name found:`,
+      defaultRepo
+    );
+  }
 
   let isCleaningUp = false;
   let isCleanedUp = false;
@@ -156,7 +123,7 @@ export async function startServer({
     }
 
     isCleaningUp = true;
-    serverLogger.info("Cleaning up terminals and server...");
+    serverLogger.info("Cleaning up terminals and IPC server...");
 
     // Dispose of all file watchers
     serverLogger.info("Disposing file watchers...");
@@ -206,14 +173,9 @@ export async function startServer({
     // Clean up git diff manager
     gitDiffManager.dispose();
 
-    // Close the HTTP server
-    serverLogger.info("Closing HTTP server...");
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        serverLogger.info("HTTP server closed");
-        resolve();
-      });
-    });
+    // Close IPC transport
+    serverLogger.info("Closing IPC transport...");
+    await rt.close();
 
     isCleanedUp = true;
     serverLogger.info("Cleanup completed");

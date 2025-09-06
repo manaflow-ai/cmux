@@ -1,10 +1,17 @@
 import { useContext } from "react";
-import { SocketContext } from "./socket-context";
+import { isElectron } from "@/lib/electron";
+import { ElectronSocketContext, WebSocketContext } from "./socket-context";
 
 export const useSocket = () => {
-  const context = useContext(SocketContext);
-  if (!context) {
-    throw new Error("useSocket must be used within a SocketProvider");
+  // Always call hooks in a consistent order
+  const webCtx = useContext(WebSocketContext);
+  const electronCtx = useContext(ElectronSocketContext);
+
+  const ctx = isElectron && electronCtx ? electronCtx : webCtx;
+  if (!ctx) {
+    throw new Error(
+      "useSocket must be used within a RealSocketProvider (web/electron)"
+    );
   }
-  return context;
+  return ctx;
 };

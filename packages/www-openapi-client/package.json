@@ -3,28 +3,30 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./src/client/index.ts",
-  "types": "./src/client/index.ts",
+  "main": "./dist/client/index.js",
+  "types": "./dist/client/index.d.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "pnpm run build"
   },
   "exports": {
     ".": {
-      "import": "./src/client/index.ts",
-      "types": "./src/client/index.ts"
+      "import": "./dist/client/index.js",
+      "types": "./dist/client/index.d.ts"
     },
     "./client": {
-      "import": "./src/client/client/index.ts",
-      "types": "./src/client/client/index.ts"
+      "import": "./dist/client/client/index.js",
+      "types": "./dist/client/client/index.d.ts"
     },
     "./client.gen": {
-      "import": "./src/client/client.gen.ts",
-      "types": "./src/client/client.gen.ts"
+      "import": "./dist/client/client.gen.js",
+      "types": "./dist/client/client.gen.d.ts"
     },
     "./react-query": {
-      "import": "./src/client/@tanstack/react-query.gen.ts",
-      "types": "./src/client/@tanstack/react-query.gen.ts"
+      "import": "./dist/client/@tanstack/react-query.gen.js",
+      "types": "./dist/client/@tanstack/react-query.gen.d.ts"
     }
   },
   "devDependencies": {

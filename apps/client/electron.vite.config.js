@@ -4,12 +4,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { resolve } from "node:path";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { resolveWorkspacePackages } from "./electron-vite-plugin-resolve-workspace.js";
 
 const envDir = resolve("../../");
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [],
     build: {
       rollupOptions: {
         input: {
@@ -22,7 +23,7 @@ export default defineConfig({
     envPrefix: "NEXT_PUBLIC_",
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [],
     build: {
       rollupOptions: {
         input: {
