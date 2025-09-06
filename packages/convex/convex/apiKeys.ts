@@ -1,12 +1,12 @@
 import { v } from "convex/values";
-import { resolveTeamIdLoose } from "../_shared/team";
+import { getTeamId } from "../_shared/team";
 import { authMutation, authQuery } from "./users/utils";
 
 export const getAll = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     return await ctx.db
       .query("apiKeys")
       .withIndex("by_team_user", (q) =>
@@ -23,7 +23,7 @@ export const getByEnvVar = authQuery({
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     return await ctx.db
       .query("apiKeys")
       .withIndex("by_team_user", (q) =>
@@ -44,7 +44,7 @@ export const upsert = authMutation({
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const existing = await ctx.db
       .query("apiKeys")
       .withIndex("by_team_user", (q) =>
@@ -83,7 +83,7 @@ export const remove = authMutation({
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const existing = await ctx.db
       .query("apiKeys")
       .withIndex("by_team_user", (q) =>
@@ -102,7 +102,7 @@ export const getAllForAgents = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const apiKeys = await ctx.db
       .query("apiKeys")
       .withIndex("by_team_user", (q) =>

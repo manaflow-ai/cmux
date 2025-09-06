@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { getTeamId, resolveTeamIdLoose } from "../_shared/team";
+import { getTeamId } from "../_shared/team";
 import { authMutation, authQuery } from "./users/utils";
 import { internalQuery } from "./_generated/server";
 
@@ -24,8 +24,8 @@ function validateSlug(slug: string): void {
 export const get = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, { teamSlugOrId }) => {
-    // Loose resolution to avoid blocking reads when membership rows lag
-    const teamId = await resolveTeamIdLoose(ctx, teamSlugOrId);
+    // Enforce membership for team info reads
+    const teamId = await getTeamId(ctx, teamSlugOrId);
     const team = await ctx.db
       .query("teams")
       .withIndex("by_teamId", (q) => q.eq("teamId", teamId))

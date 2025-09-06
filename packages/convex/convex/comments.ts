@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { resolveTeamIdLoose } from "../_shared/team";
+import { getTeamId } from "../_shared/team";
 import { authMutation, authQuery } from "./users/utils";
 
 export const createComment = authMutation({
@@ -20,7 +20,7 @@ export const createComment = authMutation({
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const commentId = await ctx.db.insert("comments", {
       url: args.url,
       page: args.page,
@@ -54,13 +54,10 @@ export const listComments = authQuery({
     includeArchived: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const comments = await ctx.db
       .query("comments")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .collect();
 
     const filtered = comments.filter((comment) => {
@@ -82,10 +79,9 @@ export const resolveComment = authMutation({
     commentId: v.id("comments"),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const comment = await ctx.db.get(args.commentId);
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (!comment || comment.teamId !== teamId || comment.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (!comment || comment.teamId !== teamId) {
       throw new Error("Comment not found or unauthorized");
     }
     await ctx.db.patch(args.commentId, {
@@ -102,10 +98,9 @@ export const archiveComment = authMutation({
     archived: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const comment = await ctx.db.get(args.commentId);
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (!comment || comment.teamId !== teamId || comment.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (!comment || comment.teamId !== teamId) {
       throw new Error("Comment not found or unauthorized");
     }
     await ctx.db.patch(args.commentId, {
@@ -124,8 +119,8 @@ export const addReply = authMutation({
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const comment = await ctx.db.get(args.commentId);
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (!comment || comment.teamId !== teamId || comment.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (!comment || comment.teamId !== teamId) {
       throw new Error("Comment not found or unauthorized");
     }
     const replyId = await ctx.db.insert("commentReplies", {
@@ -146,14 +141,12 @@ export const getReplies = authQuery({
     commentId: v.id("comments"),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment || comment.teamId !== teamId) return [];
     const replies = await ctx.db
       .query("commentReplies")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
-      .filter((q) => q.eq(q.field("commentId"), args.commentId))
+      .withIndex("by_comment", (q) => q.eq("commentId", args.commentId))
       .collect();
     return replies;
   },

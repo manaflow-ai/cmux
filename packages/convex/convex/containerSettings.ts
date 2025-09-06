@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { resolveTeamIdLoose } from "../_shared/team";
+import { getTeamId } from "../_shared/team";
 import { authMutation, authQuery } from "./users/utils";
 
 // Default settings
@@ -15,13 +15,10 @@ const DEFAULT_SETTINGS = {
 export const get = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const settings = await ctx.db
       .query("containerSettings")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .first();
     if (!settings) {
       // Return defaults if no settings exist
@@ -51,26 +48,33 @@ export const update = authMutation({
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const existing = await ctx.db
       .query("containerSettings")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .first();
     const now = Date.now();
 
+    // Only persist allowed fields; exclude teamSlugOrId
+    const updates = {
+      maxRunningContainers: args.maxRunningContainers,
+      reviewPeriodMinutes: args.reviewPeriodMinutes,
+      autoCleanupEnabled: args.autoCleanupEnabled,
+      stopImmediatelyOnCompletion: args.stopImmediatelyOnCompletion,
+      minContainersToKeep: args.minContainersToKeep,
+    } as const;
+
     if (existing) {
       await ctx.db.patch(existing._id, {
-        ...args,
+        ...updates,
         userId,
         teamId,
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("containerSettings", {
-        ...args,
-        userId,
+        ...updates,
+        userId, // keep modifier for auditing
         teamId,
         createdAt: now,
         updatedAt: now,
@@ -83,13 +87,10 @@ export const update = authMutation({
 export const getEffective = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const settings = await ctx.db
       .query("containerSettings")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .first();
     return {
       maxRunningContainers:

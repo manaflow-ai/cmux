@@ -18,7 +18,8 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["vitest/globals", "node"]
   },
   "include": ["./convex/**/*"],
   "exclude": ["./convex/_generated"]

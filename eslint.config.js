@@ -17,6 +17,7 @@ export default tseslint.config([
     '**/dist-electron',
     '**/.next',
     '**/build',
+    '**/convex/_generated',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
