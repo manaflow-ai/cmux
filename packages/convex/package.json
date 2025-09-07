@@ -7,7 +7,11 @@
   "types": "./convex/_generated/server.d.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "lint": "eslint . --ext .ts,.tsx --max-warnings=0",
+    "test": "vitest run",
+    "test:once": "vitest run",
+    "test:debug": "vitest --inspect-brk --no-file-parallelism",
+    "test:coverage": "vitest run --coverage --coverage.reporter=text"
   },
   "exports": {
     ".": {
@@ -36,6 +40,8 @@
   },
   "devDependencies": {
     "@octokit/webhooks-types": "^7.6.1",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "3.2.4",
     "vitest": "3.2.4"
   }
 }

@@ -129,7 +129,8 @@ const convexSchema = defineSchema({
   })
     .index("by_created", ["createdAt"])
     .index("by_user", ["userId", "createdAt"])
-    .index("by_team_user", ["teamId", "userId"]),
+    .index("by_team_user", ["teamId", "userId"]) // legacy user scoping
+    .index("by_team", ["teamId"]),
 
   taskRuns: defineTable({
     taskId: v.id("tasks"),
@@ -218,6 +219,7 @@ const convexSchema = defineSchema({
     .index("by_parent", ["parentRunId"])
     .index("by_status", ["status"])
     .index("by_vscode_status", ["vscode.status"])
+    .index("by_team", ["teamId"]) // team-scoped listing
     .index("by_vscode_container_name", ["vscode.containerName"])
     .index("by_user", ["userId", "createdAt"])
     .index("by_team_user", ["teamId", "userId"]),
@@ -295,7 +297,8 @@ const convexSchema = defineSchema({
     teamId: v.string(),
   })
     .index("by_envVar", ["envVar"])
-    .index("by_team_user", ["teamId", "userId"]),
+    .index("by_team_user", ["teamId", "userId"]) // legacy user scoping
+    .index("by_team", ["teamId"]),
   workspaceSettings: defineTable({
     worktreePath: v.optional(v.string()), // Custom path for git worktrees
     autoPrEnabled: v.optional(v.boolean()), // Auto-create PR for crown winner (default: false)
@@ -303,7 +306,9 @@ const convexSchema = defineSchema({
     updatedAt: v.number(),
     userId: v.string(),
     teamId: v.string(),
-  }).index("by_team_user", ["teamId", "userId"]),
+  })
+    .index("by_team_user", ["teamId", "userId"]) // legacy user scoping
+    .index("by_team", ["teamId"]),
   crownEvaluations: defineTable({
     taskId: v.id("tasks"),
     evaluatedAt: v.number(),
@@ -328,7 +333,9 @@ const convexSchema = defineSchema({
     updatedAt: v.number(),
     userId: v.string(),
     teamId: v.string(),
-  }).index("by_team_user", ["teamId", "userId"]),
+  })
+    .index("by_team_user", ["teamId", "userId"]) // legacy user scoping
+    .index("by_team", ["teamId"]),
 
   // System and user comments attached to a task
   taskComments: defineTable({
@@ -367,7 +374,8 @@ const convexSchema = defineSchema({
     .index("by_page", ["page", "createdAt"])
     .index("by_user", ["userId", "createdAt"])
     .index("by_resolved", ["resolved", "createdAt"])
-    .index("by_team_user", ["teamId", "userId"]),
+    .index("by_team_user", ["teamId", "userId"]) // legacy user scoping
+    .index("by_team", ["teamId"]),
 
   commentReplies: defineTable({
     commentId: v.id("comments"),

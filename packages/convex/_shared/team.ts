@@ -10,20 +10,34 @@ export function isUuid(value: string): boolean {
 type AnyCtx = QueryCtx | MutationCtx;
 
 // Resolve a teamSlugOrId to a canonical team UUID string.
-// Falls back to the input if no team is found (for backwards compatibility).
 export async function getTeamId(
   ctx: AnyCtx,
   teamSlugOrId: string
 ): Promise<string> {
-  if (isUuid(teamSlugOrId)) return teamSlugOrId;
+  const identity = await ctx.auth.getUserIdentity();
+  const userId = identity?.subject;
+
+  if (isUuid(teamSlugOrId)) {
+    if (userId) {
+      const membership = await ctx.db
+        .query("teamMemberships")
+        .withIndex("by_team_user", (q) =>
+          q.eq("teamId", teamSlugOrId).eq("userId", userId)
+        )
+        .first();
+      if (!membership) {
+        throw new Error("Forbidden: Not a member of this team");
+      }
+    }
+    return teamSlugOrId;
+  }
 
   const team = await ctx.db
     .query("teams")
     .filter((q) => q.eq(q.field("slug"), teamSlugOrId))
     .first();
 
-  const identity = await ctx.auth.getUserIdentity();
-  const userId = identity?.subject;
+  // identity already fetched above
   if (team) {
     const teamId = team.teamId;
     if (userId) {
@@ -40,37 +54,7 @@ export async function getTeamId(
     return team.teamId;
   }
 
-  // Back-compat: allow legacy string teamIds (e.g., "default").
-  // When identity is available, ensure membership if such a team exists in memberships.
-  if (userId) {
-    const membership = await ctx.db
-      .query("teamMemberships")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamSlugOrId).eq("userId", userId)
-      )
-      .first();
-    if (!membership) {
-      throw new Error("Forbidden: Not a member of this team");
-    }
-  }
-  return teamSlugOrId;
-}
-
-// Resolve a teamSlugOrId to a team UUID without enforcing membership.
-// Use this when the caller already scopes by userId and does not need
-// team membership guarantees (e.g., per-user comments).
-export async function resolveTeamIdLoose(
-  ctx: AnyCtx,
-  teamSlugOrId: string
-): Promise<string> {
-  if (isUuid(teamSlugOrId)) return teamSlugOrId;
-
-  const team = await ctx.db
-    .query("teams")
-    .filter((q) => q.eq(q.field("slug"), teamSlugOrId))
-    .first();
-  if (team) return team.teamId;
-
-  // Back-compat: allow legacy string teamIds (e.g., "default").
-  return teamSlugOrId;
+  // If we get here, the value is not a UUID and no team was found by slug
+  // Treat as invalid/not found
+  throw new Error("Team not found or invalid identifier");
 }

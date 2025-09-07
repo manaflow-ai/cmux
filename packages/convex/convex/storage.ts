@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getTeamId } from "../_shared/team";
 import { authMutation, authQuery } from "./users/utils";
 
 const IS_LIVE_CONVEX_DEPLOYMENT = true;
@@ -16,8 +17,9 @@ function fixUrl(url: string) {
 // Generate an upload URL for the client to upload files
 export const generateUploadUrl = authMutation({
   args: { teamSlugOrId: v.string() },
-  handler: async (ctx) => {
-    // You can add authentication/authorization here
+  handler: async (ctx, args) => {
+    // Enforce membership to the team context
+    await getTeamId(ctx, args.teamSlugOrId);
     const url = await ctx.storage.generateUploadUrl();
     return fixUrl(url);
   },
@@ -27,6 +29,7 @@ export const generateUploadUrl = authMutation({
 export const getUrl = authQuery({
   args: { teamSlugOrId: v.string(), storageId: v.id("_storage") },
   handler: async (ctx, args) => {
+    await getTeamId(ctx, args.teamSlugOrId);
     const url = await ctx.storage.getUrl(args.storageId);
     if (!url) {
       throw new Error(`Failed to get URL for storage ID: ${args.storageId}`);
@@ -39,6 +42,7 @@ export const getUrl = authQuery({
 export const getUrls = authQuery({
   args: { teamSlugOrId: v.string(), storageIds: v.array(v.id("_storage")) },
   handler: async (ctx, args) => {
+    await getTeamId(ctx, args.teamSlugOrId);
     const urls = await Promise.all(
       args.storageIds.map(async (id) => {
         const url = await ctx.storage.getUrl(id);

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { resolveTeamIdLoose } from "../_shared/team";
+import { getTeamId } from "../_shared/team";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
@@ -17,7 +17,12 @@ export const create = authMutation({
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const now = Date.now();
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    // Ensure the task belongs to this team
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.teamId !== teamId) {
+      throw new Error("Task not found or unauthorized");
+    }
     const taskRunId = await ctx.db.insert("taskRuns", {
       taskId: args.taskId,
       parentRunId: args.parentRunId,
@@ -39,14 +44,12 @@ export const create = authMutation({
 export const getByTask = authQuery({
   args: { teamSlugOrId: v.string(), taskId: v.id("tasks") },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.teamId !== teamId) return [];
     const runs = await ctx.db
       .query("taskRuns")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
-      .filter((q) => q.eq(q.field("taskId"), args.taskId))
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .collect();
 
     // Build tree structure
@@ -151,10 +154,9 @@ export const updateSummary = authMutation({
     summary: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     await ctx.db.patch(args.id, {
@@ -168,10 +170,9 @@ export const updateSummary = authMutation({
 export const get = authQuery({
   args: { teamSlugOrId: v.string(), id: v.id("taskRuns") },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       return null;
     }
     return doc;
@@ -182,10 +183,9 @@ export const get = authQuery({
 export const subscribe = authQuery({
   args: { teamSlugOrId: v.string(), id: v.id("taskRuns") },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       return null;
     }
     return doc;
@@ -214,10 +214,9 @@ export const updateWorktreePath = authMutation({
     worktreePath: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     await ctx.db.patch(args.id, {
@@ -248,11 +247,10 @@ export const updateStatusPublic = authMutation({
     exitCode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const now = Date.now();
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     const updates: {
@@ -283,13 +281,12 @@ export const appendLogPublic = authMutation({
     content: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run) {
       throw new Error("Task run not found");
     }
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId) {
       throw new Error("Unauthorized");
     }
 
@@ -336,10 +333,9 @@ export const updateVSCodeInstance = authMutation({
     }),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     await ctx.db.patch(args.id, {
@@ -362,13 +358,12 @@ export const updateVSCodeStatus = authMutation({
     stoppedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const run = await ctx.db.get(args.id);
     if (!run) {
       throw new Error("Task run not found");
     }
-    if (run.teamId !== teamId || run.userId !== userId) {
+    if (run.teamId !== teamId) {
       throw new Error("Unauthorized");
     }
 
@@ -400,13 +395,12 @@ export const updateVSCodePorts = authMutation({
     }),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const run = await ctx.db.get(args.id);
     if (!run) {
       throw new Error("Task run not found");
     }
-    if (run.teamId !== teamId || run.userId !== userId) {
+    if (run.teamId !== teamId) {
       throw new Error("Unauthorized");
     }
 
@@ -429,19 +423,14 @@ export const updateVSCodePorts = authMutation({
 export const getByContainerName = authQuery({
   args: { teamSlugOrId: v.string(), containerName: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const runs = await ctx.db
       .query("taskRuns")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
+      .withIndex("by_vscode_container_name", (q) =>
+        q.eq("vscode.containerName", args.containerName)
       )
-      .filter((q) => q.eq(q.field("vscode.containerName"), args.containerName))
       .collect();
-    return (
-      runs.find((run) => run.vscode?.containerName === args.containerName) ??
-      null
-    );
+    return runs.find((run) => run.teamId === teamId) ?? null;
   },
 });
 
@@ -453,10 +442,9 @@ export const complete = authMutation({
     exitCode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     const now = Date.now();
@@ -478,10 +466,9 @@ export const fail = authMutation({
     exitCode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
+    if (!doc || doc.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     const now = Date.now();
@@ -499,13 +486,10 @@ export const fail = authMutation({
 export const getActiveVSCodeInstances = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const runs = await ctx.db
       .query("taskRuns")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .collect();
     return runs.filter(
       (run) =>
@@ -522,13 +506,12 @@ export const updateLastAccessed = authMutation({
     id: v.id("taskRuns"),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run || !run.vscode) {
       throw new Error("Task run or VSCode instance not found");
     }
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId) {
       throw new Error("Unauthorized");
     }
 
@@ -550,13 +533,12 @@ export const toggleKeepAlive = authMutation({
     keepAlive: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run || !run.vscode) {
       throw new Error("Task run or VSCode instance not found");
     }
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId) {
       throw new Error("Unauthorized");
     }
 
@@ -581,13 +563,12 @@ export const updateScheduledStop = authMutation({
     scheduledStopAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
     if (!run || !run.vscode) {
       throw new Error("Task run or VSCode instance not found");
     }
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId) {
       throw new Error("Unauthorized");
     }
 
@@ -621,10 +602,9 @@ export const updatePullRequestUrl = authMutation({
     number: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (!run || run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (!run || run.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     await ctx.db.patch(args.id, {
@@ -654,10 +634,9 @@ export const updatePullRequestState = authMutation({
     url: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (!run || run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (!run || run.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     await ctx.db.patch(args.id, {
@@ -690,10 +669,9 @@ export const updateNetworking = authMutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const run = await ctx.db.get(args.id);
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
-    if (!run || run.teamId !== teamId || run.userId !== userId) {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    if (!run || run.teamId !== teamId) {
       throw new Error("Task run not found or unauthorized");
     }
     await ctx.db.patch(args.id, {
@@ -707,13 +685,10 @@ export const updateNetworking = authMutation({
 export const getContainersToStop = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const settings = await ctx.db
       .query("containerSettings")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .first();
     const autoCleanupEnabled = settings?.autoCleanupEnabled ?? true;
     const minContainersToKeep = settings?.minContainersToKeep ?? 0;
@@ -725,9 +700,7 @@ export const getContainersToStop = authQuery({
     const now = Date.now();
     const activeRuns = await ctx.db
       .query("taskRuns")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .collect();
 
     const runningContainers = activeRuns.filter(
@@ -761,21 +734,16 @@ export const getContainersToStop = authQuery({
 export const getRunningContainersByCleanupPriority = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
-    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const settings = await ctx.db
       .query("containerSettings")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .first();
     const minContainersToKeep = settings?.minContainersToKeep ?? 0;
 
     const activeRuns = await ctx.db
       .query("taskRuns")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
       .collect();
 
     const runningContainers = activeRuns.filter(

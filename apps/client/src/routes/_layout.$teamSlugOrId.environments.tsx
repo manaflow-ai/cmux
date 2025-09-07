@@ -25,3 +25,4 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/environments")({
 function EnvironmentsLayout() {
   return <Outlet />;
 }
+
