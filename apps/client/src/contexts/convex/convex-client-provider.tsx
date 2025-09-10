@@ -19,6 +19,7 @@ import {
 } from "react";
 import { authJsonQueryOptions } from "./authJsonQueryOptions";
 import { convexQueryClient } from "./convex-query-client";
+import { decodeJwt } from "jose";
 
 function OnReadyComponent({ onReady }: { onReady: () => void }) {
   useEffect(() => {
@@ -37,14 +38,43 @@ function useAuthFromStack() {
   const isAuthenticated = useMemo(() => !!user, [user]);
   // Important: keep this function identity stable unless auth context truly changes.
   const fetchAccessToken = useCallback(
-    async (_opts: { forceRefreshToken: boolean }) => {
-      const cached = authJsonQuery.data;
-      if (cached?.accessToken) {
-        return cached.accessToken;
+    async (opts: { forceRefreshToken: boolean }) => {
+      // Helper to fetch a fresh token from Stack
+      const fetchFresh = async () => {
+        try {
+          const fresh = await user?.getAuthJson();
+          return fresh?.accessToken ?? null;
+        } catch (_err) {
+          console.warn("[ConvexAuth] Failed to fetch fresh token", _err);
+          return null;
+        }
+      };
+
+      if (opts.forceRefreshToken) {
+        return await fetchFresh();
       }
-      return null;
+
+      const cached = authJsonQuery.data?.accessToken ?? null;
+      if (!cached) {
+        return await fetchFresh();
+      }
+
+      try {
+        const payload = decodeJwt(cached);
+        const exp = typeof payload.exp === "number" ? payload.exp : undefined;
+        const nowSec = Date.now() / 1000;
+        // Refresh if within 60s of expiry
+        if (exp && exp - nowSec <= 60) {
+          return await fetchFresh();
+        }
+      } catch (_err) {
+        // If we can't decode, fall back to fresh
+        return await fetchFresh();
+      }
+
+      return cached;
     },
-    [authJsonQuery.data]
+    [authJsonQuery.data, user]
   );
 
   const authResult = useMemo(
