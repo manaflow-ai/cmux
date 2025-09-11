@@ -33,3 +33,6 @@ out
 # Binary files
 cmux-cli
 .vercel
+ 
+# Rust build artifacts
+target/

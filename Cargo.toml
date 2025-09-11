@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "crates/cmux-proxy",
+  "crates/cmux-env",
+]
+
