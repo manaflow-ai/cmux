@@ -12,6 +12,7 @@
     "precheck": "bun run generate-openapi-client",
     "check": "bun run scripts/check.ts",
     "lint": "bun run scripts/lint.ts",
+    "debug:vscode": "bash scripts/debug-openvscode.sh",
     "test": "bun run scripts/test.ts",
     "typecheck": "run-p typecheck:*",
     "typecheck:client": "cd apps/client && bun run typecheck",

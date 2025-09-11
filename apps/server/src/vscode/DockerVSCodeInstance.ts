@@ -3,8 +3,8 @@ import type { Id } from "@cmux/convex/dataModel";
 import { getShortId } from "@cmux/shared";
 import Docker from "dockerode";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import * as os from "os";
-import * as path from "path";
+import * as os from "node:os";
+import * as path from "node:path";
 import { getConvex } from "../utils/convexClient.js";
 import { cleanupGitCredentials } from "../utils/dockerGitSetup.js";
 import { dockerLogger } from "../utils/fileLogger.js";
@@ -238,12 +238,98 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       // Container doesn't exist, which is fine
     }
 
-    const envVars = ["NODE_ENV=production", "WORKER_PORT=39377"];
+    const envVars = [
+      "NODE_ENV=production",
+      "WORKER_PORT=39377",
+      "HOST_VSCODE_SYNC_MODE=watch",
+    ];
 
     // Add theme environment variable if provided
     if (this.config.theme) {
       envVars.push(`VSCODE_THEME=${this.config.theme}`);
     }
+
+    // Resolve host VS Code settings directory (best effort)
+    const resolveVSCodeUserDir = async (): Promise<string | null> => {
+      try {
+        const homeDir = os.homedir();
+        const platform = os.platform();
+        const fs = await import("fs");
+        const candidates: string[] = [];
+        if (platform === "darwin") {
+          candidates.push(
+            path.join(
+              homeDir,
+              "Library",
+              "Application Support",
+              "Code",
+              "User"
+            ),
+            path.join(
+              homeDir,
+              "Library",
+              "Application Support",
+              "Code - Insiders",
+              "User"
+            )
+          );
+        } else if (platform === "linux") {
+          candidates.push(
+            path.join(homeDir, ".config", "Code", "User"),
+            path.join(homeDir, ".config", "Code - Insiders", "User")
+          );
+        } else if (platform === "win32") {
+          candidates.push(
+            path.join(homeDir, "AppData", "Roaming", "Code", "User"),
+            path.join(homeDir, "AppData", "Roaming", "Code - Insiders", "User")
+          );
+        }
+        for (const dir of candidates) {
+          try {
+            await fs.promises.access(dir);
+            return dir;
+          } catch {}
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    // Resolve host VS Code extensions directory (best effort)
+    const resolveVSCodeExtensionsDir = async (): Promise<string | null> => {
+      try {
+        const homeDir = os.homedir();
+        const platform = os.platform();
+        const fs = await import("fs");
+        const candidates: string[] = [];
+        if (platform === "darwin") {
+          candidates.push(
+            path.join(homeDir, ".vscode", "extensions"),
+            path.join(homeDir, ".vscode-insiders", "extensions")
+          );
+        } else if (platform === "linux") {
+          candidates.push(
+            path.join(homeDir, ".vscode", "extensions"),
+            path.join(homeDir, ".vscode-insiders", "extensions")
+          );
+        } else if (platform === "win32") {
+          candidates.push(
+            path.join(homeDir, ".vscode", "extensions"),
+            path.join(homeDir, ".vscode-insiders", "extensions")
+          );
+        }
+        for (const dir of candidates) {
+          try {
+            await fs.promises.access(dir);
+            return dir;
+          } catch {}
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
 
     // Create container configuration
     const createOptions: Docker.ContainerCreateOptions = {
@@ -293,6 +379,45 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           // Mount the origin directory at the same absolute path to preserve git references
           `${originPath}:${originPath}:rw`, // Read-write mount for git operations
         ];
+
+        // Mount host VS Code settings (read-only) at a stable path for startup.sh to copy from
+        try {
+          const hostVSCodeDir = await resolveVSCodeUserDir();
+          if (hostVSCodeDir) {
+            binds.push(`${hostVSCodeDir}:/cmux-host-vscode/User:ro`);
+            envVars.push("HOST_VSCODE_USER_DIR=/cmux-host-vscode/User");
+            dockerLogger.info(
+              `  VS Code settings: ${hostVSCodeDir} -> /cmux-host-vscode/User (read-only)`
+            );
+          } else {
+            dockerLogger.info(
+              "  VS Code settings: not found on host, using defaults"
+            );
+          }
+        } catch (e) {
+          dockerLogger.warn("  VS Code settings detection failed:", e as Error);
+        }
+
+        // Mount host VS Code extensions (read-only) at a stable path; startup will copy needed themes
+        try {
+          const hostVSExtDir = await resolveVSCodeExtensionsDir();
+          if (hostVSExtDir) {
+            binds.push(`${hostVSExtDir}:/cmux-host-vscode/extensions:ro`);
+            envVars.push("HOST_VSCODE_EXT_DIR=/cmux-host-vscode/extensions");
+            dockerLogger.info(
+              `  VS Code extensions: ${hostVSExtDir} -> /cmux-host-vscode/extensions (read-only)`
+            );
+          } else {
+            dockerLogger.info(
+              "  VS Code extensions: not found on host; theme extensions may be missing"
+            );
+          }
+        } catch (e) {
+          dockerLogger.warn(
+            "  VS Code extensions detection failed:",
+            e as Error
+          );
+        }
 
         // Mount SSH directory for git authentication
         const sshDir = path.join(homeDir, ".ssh");

@@ -148,39 +148,279 @@ mkdir -p /var/log/cmux /root/lifecycle
 echo "[Startup] Environment variables:" > /var/log/cmux/startup.log
 env >> /var/log/cmux/startup.log
 
-# Configure VS Code theme based on environment variable
-if [ -n "$VSCODE_THEME" ]; then
-    echo "[Startup] Configuring VS Code theme: $VSCODE_THEME" >> /var/log/cmux/startup.log
-    
-    # Determine the color theme based on the setting
-    COLOR_THEME="Default Light Modern"
-    if [ "$VSCODE_THEME" = "dark" ]; then
-        COLOR_THEME="Default Dark Modern"
-    elif [ "$VSCODE_THEME" = "system" ]; then
-        # Default to dark for system (could be enhanced to detect system preference)
-        COLOR_THEME="Default Dark Modern"
+CMUX_USED_HOST_VSCODE_SETTINGS=0
+
+# If a host VS Code settings directory is provided, copy it into OpenVSCode's data
+copy_host_vscode_settings() {
+    if [ -n "${HOST_VSCODE_USER_DIR:-}" ] && [ -d "$HOST_VSCODE_USER_DIR" ]; then
+        echo "[Startup] Found host VS Code settings at: $HOST_VSCODE_USER_DIR" >> /var/log/cmux/startup.log
+        mkdir -p /root/.openvscode-server/data/User /root/.openvscode-server/data/User/profiles/default-profile /root/.openvscode-server/data/Machine
+
+        # Copy the entire User directory contents (best effort), excluding heavy caches
+        # Excludes: workspaceStorage, History, logs
+        if command -v tar >/dev/null 2>&1; then
+          (cd "$HOST_VSCODE_USER_DIR" && tar --exclude 'workspaceStorage' --exclude 'History' --exclude 'logs' -cf - .) \
+            | (cd /root/.openvscode-server/data/User && tar -xpf -) || true
+        else
+          # Fallback: cp -a (may include caches)
+          cp -a "$HOST_VSCODE_USER_DIR/." /root/.openvscode-server/data/User/ || true
+        fi
+
+        # Mirror key settings into default-profile so the active profile matches host theme/keybindings
+        if [ -f "/root/.openvscode-server/data/User/settings.json" ]; then
+          cp /root/.openvscode-server/data/User/settings.json /root/.openvscode-server/data/User/profiles/default-profile/settings.json || true
+        fi
+        if [ -f "/root/.openvscode-server/data/User/keybindings.json" ]; then
+          cp /root/.openvscode-server/data/User/keybindings.json /root/.openvscode-server/data/User/profiles/default-profile/keybindings.json || true
+        fi
+
+        CMUX_USED_HOST_VSCODE_SETTINGS=1
     fi
-    
-    # Update VS Code settings files with theme and git configuration
-    SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}, "workbench.colorTheme": "'$COLOR_THEME'", "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
-    
-    # Update all VS Code settings locations
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/settings.json
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/profiles/default-profile/settings.json
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/Machine/settings.json
-    
-    echo "[Startup] VS Code theme configured to: $COLOR_THEME" >> /var/log/cmux/startup.log
+}
+
+copy_host_vscode_settings
+
+# If host settings are mounted, optionally keep them in sync (one-way: host -> container)
+maybe_start_host_vscode_watch() {
+    if [ "$CMUX_USED_HOST_VSCODE_SETTINGS" = "1" ]; then
+        MODE="${HOST_VSCODE_SYNC_MODE:-watch}"
+        INTERVAL="${HOST_VSCODE_SYNC_INTERVAL:-2}"
+        if [ "$MODE" = "watch" ]; then
+            echo "[Startup] Starting VS Code settings sync loop (every ${INTERVAL}s)" >> /var/log/cmux/startup.log
+            (
+              while true; do
+                if [ -d "$HOST_VSCODE_USER_DIR" ]; then
+                  # Sync only if host settings changed (hash compare)
+                  host_settings="$HOST_VSCODE_USER_DIR/settings.json"
+                  container_user_dir="/root/.openvscode-server/data/User"
+                  profile_settings="$container_user_dir/profiles/default-profile/settings.json"
+                  user_settings="$container_user_dir/settings.json"
+
+                  if [ -f "$host_settings" ]; then
+                    host_sha=$(sha256sum "$host_settings" 2>/dev/null | awk '{print $1}')
+                  else
+                    host_sha=""
+                  fi
+                  last_sha_file="$CMUX_STATE_DIR/host_settings.sha"
+                  last_sha=""
+                  [ -f "$last_sha_file" ] && last_sha=$(cat "$last_sha_file" 2>/dev/null || echo "")
+
+                  if [ "$host_sha" != "$last_sha" ]; then
+                    echo "[Startup] Host settings changed; syncing (sha: ${host_sha})" >> /var/log/cmux/startup.log
+                    # Sync host -> container, excluding heavy caches
+                    tar -C "$HOST_VSCODE_USER_DIR" \
+                      --exclude 'workspaceStorage' \
+                      --exclude 'History' \
+                      --exclude 'logs' \
+                      -cf - . 2>/dev/null | tar -C "$container_user_dir" -xpf - 2>/dev/null || true
+
+                    # Merge into profile: preserve existing profile theme/icon if host didn't specify them
+                    if command -v jq >/dev/null 2>&1 && [ -f "$user_settings" ]; then
+                      tmp_profile=$(mktemp)
+                      # Read host user and current profile
+                      if [ -f "$profile_settings" ]; then
+                        # Compute merged profile
+                        jq -s 'def haskey(o;k): (o|type)=="object" and (o|has(k));
+                               def keepTheme(u,p): if haskey(u;"workbench.colorTheme") then u["workbench.colorTheme"] 
+                                 else (p["workbench.colorTheme"] // empty) end;
+                               def keepIcon(u,p): if haskey(u;"workbench.iconTheme") then u["workbench.iconTheme"] 
+                                 else (p["workbench.iconTheme"] // empty) end;
+                               . as $a | ($a[0] * $a[1])
+                               | (if ($a[0]|has("workbench.colorTheme")) then . else (if ($a[1]|has("workbench.colorTheme")) then .+{"workbench.colorTheme":$a[1]["workbench.colorTheme"]} else . end) end)
+                               | (if ($a[0]|has("workbench.iconTheme")) then . else (if ($a[1]|has("workbench.iconTheme")) then .+{"workbench.iconTheme":$a[1]["workbench.iconTheme"]} else . end) end)' \
+                           "$user_settings" "$profile_settings" > "$tmp_profile" 2>/dev/null || cp "$user_settings" "$tmp_profile"
+                      else
+                        cp "$user_settings" "$tmp_profile"
+                      fi
+                      mv "$tmp_profile" "$profile_settings"
+                    else
+                      # Fallback: copy user -> profile
+                      [ -f "$user_settings" ] && cp "$user_settings" "$profile_settings" || true
+                    fi
+
+                    # If we still lack an explicit colorTheme, try to derive and set one in profile
+                    if command -v jq >/dev/null 2>&1; then
+                      current_theme=$(jq -r '."workbench.colorTheme" // empty' "$profile_settings" 2>/dev/null || true)
+                      if [ -z "$current_theme" ]; then
+                        # derive from preferredDark/Light + VSCODE_THEME
+                        pref_dark=""; pref_light=""
+                        pref_dark=$(jq -r '."workbench.preferredDarkColorTheme" // empty' "$user_settings" 2>/dev/null || true)
+                        pref_light=$(jq -r '."workbench.preferredLightColorTheme" // empty' "$user_settings" 2>/dev/null || true)
+                        choose="$pref_dark"
+                        if [ "${VSCODE_THEME:-dark}" = "light" ] && [ -n "$pref_light" ]; then choose="$pref_light"; fi
+                        if [ -n "$choose" ]; then
+                          tmp=$(mktemp); jq --arg th "$choose" '. + {"workbench.colorTheme": $th}' "$profile_settings" > "$tmp" && mv "$tmp" "$profile_settings"
+                        fi
+                      fi
+                    fi
+
+                    # Copy matching theme/icon extensions if necessary
+                    copy_required_theme_extensions || true
+
+                    echo -n "$host_sha" > "$last_sha_file" 2>/dev/null || true
+                  fi
+                fi
+                sleep "$INTERVAL"
+              done
+            ) &
+        fi
+    fi
+}
+
+maybe_start_host_vscode_watch
+
+# Copy required theme/icon extensions from host (if available)
+copy_required_theme_extensions() {
+    # Require host extensions dir
+    if [ -z "${HOST_VSCODE_EXT_DIR:-}" ] || [ ! -d "$HOST_VSCODE_EXT_DIR" ]; then
+        return 0
+    fi
+    local user_settings="/root/.openvscode-server/data/User/settings.json"
+    local profile_settings="/root/.openvscode-server/data/User/profiles/default-profile/settings.json"
+    # Extract selected themes from profile first (active), then fallback to user
+    if command -v jq >/dev/null 2>&1; then
+        local color_theme icon_theme
+        if [ -f "$profile_settings" ]; then
+          color_theme=$(jq -r '."workbench.colorTheme" // empty' "$profile_settings" 2>/dev/null || true)
+          icon_theme=$(jq -r '."workbench.iconTheme" // empty' "$profile_settings" 2>/dev/null || true)
+        fi
+        if [ -z "$color_theme" ] && [ -f "$user_settings" ]; then
+          color_theme=$(jq -r '."workbench.colorTheme" // empty' "$user_settings" 2>/dev/null || true)
+        fi
+        if [ -z "$icon_theme" ] && [ -f "$user_settings" ]; then
+          icon_theme=$(jq -r '."workbench.iconTheme" // empty' "$user_settings" 2>/dev/null || true)
+        fi
+
+        # helper to see if an extension dir provides a theme/icon by label or id
+        provides_theme() {
+            local pkg="$1/package.json"; local label="$2"; local kind="$3" # kind: themes|iconThemes
+            [ -f "$pkg" ] || return 1
+            jq -e --arg label "$label" --arg kind "$kind" '(.contributes[$kind] // []) | any(.label == $label or (.id? // "") == $label)' "$pkg" >/dev/null 2>&1
+        }
+
+        mkdir -p /root/.openvscode-server/extensions
+
+        # Search host extensions for matching color theme
+        if [ -n "$color_theme" ]; then
+            for d in "$HOST_VSCODE_EXT_DIR"/*; do
+                [ -d "$d" ] || continue
+                if provides_theme "$d" "$color_theme" themes; then
+                    base=$(basename "$d")
+                    if [ ! -d "/root/.openvscode-server/extensions/$base" ]; then
+                        echo "[Startup] Copying color theme extension: $base" >> /var/log/cmux/startup.log
+                        cp -R "$d" "/root/.openvscode-server/extensions/$base" || true
+                    fi
+                    break
+                fi
+            done
+        fi
+
+        # Search host extensions for matching icon theme
+        if [ -n "$icon_theme" ]; then
+            for d in "$HOST_VSCODE_EXT_DIR"/*; do
+                [ -d "$d" ] || continue
+                if provides_theme "$d" "$icon_theme" iconThemes; then
+                    base=$(basename "$d")
+                    if [ ! -d "/root/.openvscode-server/extensions/$base" ]; then
+                        echo "[Startup] Copying icon theme extension: $base" >> /var/log/cmux/startup.log
+                        cp -R "$d" "/root/.openvscode-server/extensions/$base" || true
+                    fi
+                    break
+                fi
+            done
+        fi
+    fi
+}
+
+# Ensure theme/icon extensions exist before starting server
+copy_required_theme_extensions
+
+# Ensure workbench.colorTheme is explicit when host settings use auto-detect
+ensure_explicit_color_theme() {
+    local user_settings="/root/.openvscode-server/data/User/settings.json"
+    [ -f "$user_settings" ] || return 0
+    if ! command -v jq >/dev/null 2>&1; then
+      return 0
+    fi
+    local current theme pref_dark pref_light autodetect
+    current=$(jq -r '."workbench.colorTheme" // empty' "$user_settings")
+    if [ -n "$current" ]; then
+      return 0
+    fi
+    pref_dark=$(jq -r '."workbench.preferredDarkColorTheme" // empty' "$user_settings")
+    pref_light=$(jq -r '."workbench.preferredLightColorTheme" // empty' "$user_settings")
+    autodetect=$(jq -r '."window.autoDetectColorScheme" // empty' "$user_settings")
+    # Choose based on VSCODE_THEME if provided, else prefer dark when autodetect
+    if [ -n "$VSCODE_THEME" ]; then
+      if [ "$VSCODE_THEME" = "dark" ] && [ -n "$pref_dark" ]; then theme="$pref_dark"; fi
+      if [ "$VSCODE_THEME" = "light" ] && [ -n "$pref_light" ]; then theme="$pref_light"; fi
+    fi
+    if [ -z "$theme" ] && [ "$autodetect" = "true" ]; then
+      if [ -n "$pref_dark" ]; then theme="$pref_dark"; fi
+    fi
+    if [ -z "$theme" ]; then
+      if [ -n "$pref_dark" ]; then theme="$pref_dark"; fi
+      if [ -z "$theme" ] && [ -n "$pref_light" ]; then theme="$pref_light"; fi
+    fi
+    if [ -n "$theme" ]; then
+      echo "[Startup] Setting explicit colorTheme to: $theme" >> /var/log/cmux/startup.log
+      tmp=$(mktemp)
+      jq --arg theme "$theme" '. + {"workbench.colorTheme": $theme}' "$user_settings" > "$tmp" && mv "$tmp" "$user_settings"
+      # Keep profile in sync
+      cp "$user_settings" /root/.openvscode-server/data/User/profiles/default-profile/settings.json || true
+    fi
+}
+
+ensure_explicit_color_theme
+
+# State dir for incremental sync
+CMUX_STATE_DIR="/root/.openvscode-server/data/.cmux"
+mkdir -p "$CMUX_STATE_DIR"
+
+# Configure VS Code settings
+if [ "$CMUX_USED_HOST_VSCODE_SETTINGS" = "1" ]; then
+    # When host settings are provided, don't override them. Optionally ensure some sane defaults exist.
+    echo "[Startup] Using host VS Code settings; skipping theme override" >> /var/log/cmux/startup.log
+    # Ensure terminal defaults exist without clobbering existing file
+    if [ -f /root/.openvscode-server/data/User/settings.json ]; then
+      # Append minimal defaults if keys missing using jq if available
+      if command -v jq >/dev/null 2>&1; then
+        tmp=$(mktemp)
+        jq '."terminal.integrated.defaultProfile.linux" //= "bash" | ."terminal.integrated.profiles.linux" //= {"bash": {"path": "/bin/bash", "args": ["-l"]}}' \
+           /root/.openvscode-server/data/User/settings.json > "$tmp" && mv "$tmp" /root/.openvscode-server/data/User/settings.json || true
+        cp /root/.openvscode-server/data/User/settings.json /root/.openvscode-server/data/User/profiles/default-profile/settings.json || true
+      fi
+    fi
 else
-    # Even if no theme is specified, configure git settings
-    echo "[Startup] Configuring VS Code git settings" >> /var/log/cmux/startup.log
-    SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}, "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
-    
-    # Update all VS Code settings locations
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/settings.json
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/profiles/default-profile/settings.json
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/Machine/settings.json
-    
-    echo "[Startup] VS Code git settings configured" >> /var/log/cmux/startup.log
+    # No host settings; fall back to app-provided defaults and optional theme
+    if [ -n "$VSCODE_THEME" ]; then
+        echo "[Startup] Configuring VS Code theme: $VSCODE_THEME" >> /var/log/cmux/startup.log
+        # Determine the color theme based on the setting
+        COLOR_THEME="Default Light Modern"
+        if [ "$VSCODE_THEME" = "dark" ]; then
+            COLOR_THEME="Default Dark Modern"
+        elif [ "$VSCODE_THEME" = "system" ]; then
+            # Default to dark for system (could be enhanced to detect system preference)
+            COLOR_THEME="Default Dark Modern"
+        fi
+        # Update VS Code settings files with theme and git configuration
+        SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}, "workbench.colorTheme": "'$COLOR_THEME'", "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
+        # Update all VS Code settings locations
+        mkdir -p /root/.openvscode-server/data/User /root/.openvscode-server/data/User/profiles/default-profile /root/.openvscode-server/data/Machine
+        echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/settings.json
+        echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/profiles/default-profile/settings.json
+        echo "$SETTINGS_JSON" > /root/.openvscode-server/data/Machine/settings.json
+        echo "[Startup] VS Code theme configured to: $COLOR_THEME" >> /var/log/cmux/startup.log
+    else
+        # Even if no theme is specified, configure defaults for git and terminal
+        echo "[Startup] Applying default VS Code settings" >> /var/log/cmux/startup.log
+        SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}, "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
+        mkdir -p /root/.openvscode-server/data/User /root/.openvscode-server/data/User/profiles/default-profile /root/.openvscode-server/data/Machine
+        echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/settings.json
+        echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/profiles/default-profile/settings.json
+        echo "$SETTINGS_JSON" > /root/.openvscode-server/data/Machine/settings.json
+        echo "[Startup] Default VS Code settings applied" >> /var/log/cmux/startup.log
+    fi
 fi
 
 # Start OpenVSCode server on port 39378 without authentication
