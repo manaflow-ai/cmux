@@ -253,6 +253,58 @@ export async function spawnAgent(
       }
     }
 
+    // If running a Gemini agent and an API key is available, ensure
+    // the CLI auto-selects API key auth without prompting.
+    // We do this by providing a minimal settings.json that sets
+    // selectedAuthType to USE_GEMINI when one isn't already supplied
+    // via environment preparation, or updating an existing one if needed.
+    if (
+      agent.name.startsWith("gemini/") &&
+      typeof envVars.GEMINI_API_KEY === "string" &&
+      envVars.GEMINI_API_KEY.trim().length > 0
+    ) {
+      const settingsFileIndex = authFiles.findIndex(
+        (f) =>
+          f.destinationPath === "$HOME/.gemini/settings.json" ||
+          f.destinationPath.endsWith("/.gemini/settings.json")
+      );
+      
+      if (settingsFileIndex !== -1) {
+        // Settings file exists, check if it needs updating
+        const existingFile = authFiles[settingsFileIndex];
+        try {
+          const existingContent = JSON.parse(
+            Buffer.from(existingFile.contentBase64, "base64").toString("utf-8")
+          );
+          // Only update if selectedAuthType is not already set to USE_API_KEY
+          if (existingContent.selectedAuthType !== "USE_API_KEY") {
+            existingContent.selectedAuthType = "USE_API_KEY";
+            authFiles[settingsFileIndex] = {
+              ...existingFile,
+              contentBase64: Buffer.from(JSON.stringify(existingContent)).toString("base64"),
+            };
+          }
+        } catch (e) {
+          // If we can't parse the existing settings, replace it entirely
+          const settingsJson = JSON.stringify({ selectedAuthType: "USE_API_KEY" });
+          authFiles[settingsFileIndex] = {
+            ...existingFile,
+            contentBase64: Buffer.from(settingsJson).toString("base64"),
+          };
+        }
+      } else {
+        // No settings file exists, create one
+        const settingsJson = JSON.stringify({ selectedAuthType: "USE_API_KEY" });
+        authFiles.push({
+          destinationPath: "$HOME/.gemini/settings.json",
+          contentBase64: Buffer.from(settingsJson).toString("base64"),
+          mode: "644",
+        });
+      }
+      // Also hint the default via env for good measure
+      envVars.GEMINI_DEFAULT_AUTH_TYPE = "USE_API_KEY";
+    }
+
     // Replace $PROMPT placeholders in args with $CMUX_PROMPT token for shell-time expansion
     const processedArgs = agent.args.map((arg) => {
       if (arg.includes("$PROMPT")) {
