@@ -7,6 +7,7 @@ import { Command } from "cmdk";
 import { useMutation, useQuery } from "convex/react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { isElectron } from "@/lib/electron";
 import { toast } from "sonner";
 
 interface CommandBarProps {
@@ -25,6 +26,20 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
   const createRun = useMutation(api.taskRuns.create);
 
   useEffect(() => {
+    // In Electron, prefer global shortcut from main via cmux event.
+    if (isElectron) {
+      const off = window.cmux?.on?.("shortcut:cmd-k", () => {
+        // Only handle Cmd+K (no shift/ctrl variations)
+        setOpenedWithShift(false);
+        setOpen((open) => !open);
+      });
+      return () => {
+        // Unsubscribe if available
+        if (typeof off === "function") off();
+      };
+    }
+
+    // Web/non-Electron fallback: local keydown listener for Cmd+K
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && e.metaKey) {
         e.preventDefault();
@@ -32,7 +47,6 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
         setOpen((open) => !open);
       }
     };
-
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);

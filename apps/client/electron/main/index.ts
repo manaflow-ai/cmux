@@ -6,6 +6,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  globalShortcut,
   Menu,
   nativeImage,
   net,
@@ -390,6 +391,37 @@ app.whenReady().then(async () => {
     } catch {
       // ignore if not supported
     }
+  }
+
+  // Register global shortcut for Cmd+K on macOS only
+  try {
+    if (process.platform === "darwin") {
+      const registered = globalShortcut.register("Command+K", () => {
+        try {
+          const target = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+          if (target && !target.isDestroyed()) {
+            // Use cmux-style event channel so renderer can subscribe via window.cmux.on
+            target.webContents.send("cmux:event:shortcut:cmd-k");
+          }
+        } catch (e) {
+          mainWarn("Failed to emit Cmd+K shortcut event", e);
+        }
+      });
+      if (!registered) {
+        mainWarn("Failed to register global shortcut: Command+K");
+      }
+
+      app.on("will-quit", () => {
+        try {
+          globalShortcut.unregister("Command+K");
+          globalShortcut.unregisterAll();
+        } catch {
+          // ignore
+        }
+      });
+    }
+  } catch (e) {
+    mainWarn("Error setting up global shortcuts", e);
   }
 
   // Start the embedded IPC server (registers cmux:register and cmux:rpc)
