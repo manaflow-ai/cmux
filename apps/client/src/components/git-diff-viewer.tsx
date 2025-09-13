@@ -41,6 +41,7 @@ export interface GitDiffViewerProps {
     totalDeletions: number;
   }) => void;
   classNames?: GitDiffViewerClassNames;
+  onFileToggle?: (filePath: string, isExpanded: boolean) => void;
 }
 
 type FileGroup = {
@@ -89,6 +90,7 @@ export function GitDiffViewer({
   diffs,
   onControlsChange,
   classNames,
+  onFileToggle,
 }: GitDiffViewerProps) {
   const { theme } = useTheme();
 
@@ -154,7 +156,11 @@ export function GitDiffViewer({
       const wasExpanded = newExpanded.has(filePath);
       if (wasExpanded) newExpanded.delete(filePath);
       else newExpanded.add(filePath);
-      // In refs mode, we do not lazy-fetch omitted content via workspace API.
+      try {
+        onFileToggle?.(filePath, !wasExpanded);
+      } catch {
+        // ignore
+      }
       return newExpanded;
     });
   };

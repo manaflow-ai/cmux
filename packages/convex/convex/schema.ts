@@ -443,6 +443,54 @@ const convexSchema = defineSchema({
     ),
     createdAt: v.number(),
   }).index("by_nonce", ["nonce"]),
+
+  // Pull Requests ingested from GitHub (via webhook or backfill)
+  pullRequests: defineTable({
+    // Identity within provider and repo context
+    provider: v.literal("github"),
+    installationId: v.number(),
+    repositoryId: v.optional(v.number()),
+    repoFullName: v.string(), // owner/repo
+    number: v.number(), // PR number
+    providerPrId: v.optional(v.number()), // GitHub numeric id
+
+    // Team scoping
+    teamId: v.string(),
+
+    // Core fields
+    title: v.string(),
+    state: v.union(v.literal("open"), v.literal("closed")),
+    merged: v.optional(v.boolean()),
+    draft: v.optional(v.boolean()),
+    authorLogin: v.optional(v.string()),
+    authorId: v.optional(v.number()),
+    htmlUrl: v.optional(v.string()),
+
+    // Branch and commit info
+    baseRef: v.optional(v.string()),
+    headRef: v.optional(v.string()),
+    baseSha: v.optional(v.string()),
+    headSha: v.optional(v.string()),
+
+    // Timestamps
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    closedAt: v.optional(v.number()),
+    mergedAt: v.optional(v.number()),
+
+    // Misc metrics
+    commentsCount: v.optional(v.number()),
+    reviewCommentsCount: v.optional(v.number()),
+    commitsCount: v.optional(v.number()),
+    additions: v.optional(v.number()),
+    deletions: v.optional(v.number()),
+    changedFiles: v.optional(v.number()),
+  })
+    .index("by_team", ["teamId", "updatedAt"]) // list by team, recent first client-side
+    .index("by_team_state", ["teamId", "state", "updatedAt"]) // filter by state
+    .index("by_team_repo_number", ["teamId", "repoFullName", "number"]) // upsert key
+    .index("by_installation", ["installationId", "updatedAt"]) // debug/ops
+    .index("by_repo", ["repoFullName", "updatedAt"]),
 });
 
 export default convexSchema;

@@ -1,4 +1,8 @@
-import type { InstallationEvent, WebhookEvent } from "@octokit/webhooks-types";
+import type {
+  InstallationEvent,
+  PullRequestEvent,
+  WebhookEvent,
+} from "@octokit/webhooks-types";
 import { env } from "../_shared/convex-env";
 import { bytesToHex } from "../_shared/encoding";
 import { hmacSha256, safeEqualHex, sha256Hex } from "../_shared/crypto";
@@ -104,7 +108,28 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
       case "status":
       case "workflow_run":
       case "workflow_job": {
-        // Future: additional mutations to persist repo/branch/PR/CI state.
+        if (event === "pull_request") {
+          try {
+            const prPayload = body as PullRequestEvent;
+            const repoFullName = String(prPayload.repository?.full_name ?? "");
+            const installation = Number(prPayload.installation?.id ?? 0);
+            if (!repoFullName || !installation) break;
+            const conn = await _ctx.runQuery(
+              internal.github_app.getProviderConnectionByInstallationId,
+              { installationId: installation }
+            );
+            const teamId = conn?.teamId;
+            if (!teamId) break;
+            await _ctx.runMutation(internal.github_prs.upsertFromWebhookPayload, {
+              installationId: installation,
+              repoFullName,
+              teamId,
+              payload: prPayload,
+            });
+          } catch (_err) {
+            // swallow
+          }
+        }
         break;
       }
       default: {

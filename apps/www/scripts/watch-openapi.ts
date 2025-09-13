@@ -23,8 +23,11 @@ const tsConfigPath = path.join(
   "../../../packages/www-openapi-client/tsconfig.json"
 );
 
-// write to tmp file
-const tmpFile = path.join(os.tmpdir(), "openapi.json");
+// write to tmp file (unique name to avoid concurrent collisions)
+const tmpFile = path.join(
+  os.tmpdir(),
+  `openapi-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+);
 fs.writeFileSync(tmpFile, await doc.text());
 
 console.time("generate client");
@@ -42,6 +45,10 @@ await createClient({
 });
 console.timeEnd("generate client");
 
-fs.unlinkSync(tmpFile);
+try {
+  fs.unlinkSync(tmpFile);
+} catch {
+  // ignore if already removed by concurrent runs
+}
 
 console.timeEnd("watch-openapi");
