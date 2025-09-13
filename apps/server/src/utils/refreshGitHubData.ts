@@ -3,6 +3,7 @@ import { ghApi } from "../ghApi.js";
 import { listRemoteBranches } from "../native/git.js";
 import { getConvex } from "./convexClient.js";
 import { serverLogger } from "./fileLogger.js";
+import { getAuthToken } from "./requestContext.js";
 
 export async function refreshGitHubData({
   teamSlugOrId,
@@ -11,6 +12,13 @@ export async function refreshGitHubData({
 }) {
   try {
     serverLogger.info("Starting GitHub data refresh...");
+    
+    // Check if we have auth context
+    const authToken = getAuthToken();
+    if (!authToken) {
+      serverLogger.error("No auth token in context for refreshGitHubData");
+      throw new Error("Authentication required for GitHub data refresh");
+    }
 
     // Try to get current user info
     let username: string;
@@ -91,6 +99,12 @@ export async function refreshBranchesForRepo(
   teamSlugOrId: string
 ) {
   try {
+    // Check if we have auth context
+    const authToken = getAuthToken();
+    if (!authToken) {
+      serverLogger.error("No auth token in context for refreshBranchesForRepo");
+      throw new Error("Authentication required for branch refresh");
+    }
     // Prefer local git via Rust (gitoxide) for branch listing, sorted by recency
     let branches: { name: string; lastCommitSha?: string; lastActivityAt?: number }[];
     try {

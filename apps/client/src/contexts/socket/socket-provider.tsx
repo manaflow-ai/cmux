@@ -57,9 +57,27 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const user = await cachedGetUser(stackClientApp);
       const authJson = user ? await user.getAuthJson() : undefined;
 
+      // Use teamSlugOrId from URL, or fall back to user's selected team or first team
+      let effectiveTeamId = teamSlugOrId;
+      if (!effectiveTeamId && user) {
+        // Try to get the user's selected team
+        const selectedTeam = user.selectedTeam;
+        if (selectedTeam) {
+          // Use the team's slug if available in metadata, otherwise use the ID
+          const meta = selectedTeam.clientMetadata;
+          if (meta && typeof meta === "object" && "slug" in meta && typeof meta.slug === "string") {
+            effectiveTeamId = meta.slug;
+            console.log("[Socket] Using selected team slug from metadata:", effectiveTeamId);
+          } else {
+            effectiveTeamId = selectedTeam.id;
+            console.log("[Socket] Using selected team ID:", effectiveTeamId);
+          }
+        }
+      }
+
       const query: Record<string, string> = { auth: authToken };
-      if (teamSlugOrId) {
-        query.team = teamSlugOrId;
+      if (effectiveTeamId) {
+        query.team = effectiveTeamId;
       }
       if (authJson) {
         query.auth_json = JSON.stringify(authJson);
@@ -68,7 +86,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const newSocket = connectToMainServer({
         url,
         authToken,
-        teamSlugOrId,
+        teamSlugOrId: effectiveTeamId,
         authJson,
       });
 

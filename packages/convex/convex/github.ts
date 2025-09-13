@@ -6,13 +6,10 @@ import { authMutation, authQuery } from "./users/utils";
 export const getReposByOrg = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const repos = await ctx.db
       .query("repos")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team_user", (q) => q.eq("teamId", teamId))
       .collect();
 
     // Group by organization
@@ -48,10 +45,7 @@ export const getBranches = authQuery({
     // 2) Most recent activity desc (undefined last)
     // 3) Creation time desc
     // 4) Name asc (stable, deterministic tie-breaker)
-    const pinnedOrder = new Map<
-      string,
-      number
-    >([
+    const pinnedOrder = new Map<string, number>([
       ["main", 0],
       ["dev", 1],
       ["master", 2],
