@@ -11,6 +11,7 @@ export function branchesQueryOptions({
   return queryOptions({
     queryKey: ["branches", teamSlugOrId, repoFullName],
     queryFn: async () => {
+      console.log("fetching branches", teamSlugOrId, repoFullName);
       const socket = await waitForConnectedSocket();
       return await new Promise<string[]>((resolve, reject) => {
         socket.emit(

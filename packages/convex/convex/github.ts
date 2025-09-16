@@ -6,13 +6,10 @@ import { authMutation, authQuery } from "./users/utils";
 export const getReposByOrg = authQuery({
   args: { teamSlugOrId: v.string() },
   handler: async (ctx, args) => {
-    const userId = ctx.identity.subject;
     const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const repos = await ctx.db
       .query("repos")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", teamId).eq("userId", userId)
-      )
+      .withIndex("by_team_user", (q) => q.eq("teamId", teamId))
       .collect();
 
     // Group by organization
@@ -48,10 +45,7 @@ export const getBranches = authQuery({
     // 2) Most recent activity desc (undefined last)
     // 3) Creation time desc
     // 4) Name asc (stable, deterministic tie-breaker)
-    const pinnedOrder = new Map<
-      string,
-      number
-    >([
+    const pinnedOrder = new Map<string, number>([
       ["main", 0],
       ["dev", 1],
       ["master", 2],
@@ -356,7 +350,7 @@ export const bulkInsertBranches = authMutation({
       )
     );
     return insertedIds;
-  },
+  }, 
 });
 
 // Upsert branches with activity metadata (name, lastActivityAt, lastCommitSha)
@@ -376,6 +370,11 @@ export const bulkUpsertBranchesWithActivity = authMutation({
     const userId = ctx.identity.subject;
     const teamId = await getTeamId(ctx, teamSlugOrId);
 
+    // Validate batch size to prevent overwhelming the database
+    if (branches.length > 100) {
+      throw new Error(`Too many branches in single mutation: ${branches.length}. Maximum is 100. Please batch your requests.`);
+    }
+
     const existing = await ctx.db
       .query("branches")
       .withIndex("by_team_user", (q) =>
@@ -386,37 +385,47 @@ export const bulkUpsertBranchesWithActivity = authMutation({
     const byName = new Map(existing.map((b) => [b.name, b] as const));
 
     const now = Date.now();
-    const ops = branches.map(async (b) => {
-      const row = byName.get(b.name);
-      if (row) {
-        // Patch only if values changed to reduce writes
-        const patch: Record<string, unknown> = {};
-        if (
-          typeof b.lastActivityAt === "number" &&
-          b.lastActivityAt !== row.lastActivityAt
-        ) {
-          patch.lastActivityAt = b.lastActivityAt;
+    
+    // Process operations in smaller chunks to avoid transaction limits
+    const CHUNK_SIZE = 20;
+    const allIds = [];
+    
+    for (let i = 0; i < branches.length; i += CHUNK_SIZE) {
+      const chunk = branches.slice(i, i + CHUNK_SIZE);
+      const ops = chunk.map(async (b) => {
+        const row = byName.get(b.name);
+        if (row) {
+          // Patch only if values changed to reduce writes
+          const patch: Record<string, unknown> = {};
+          if (
+            typeof b.lastActivityAt === "number" &&
+            b.lastActivityAt !== row.lastActivityAt
+          ) {
+            patch.lastActivityAt = b.lastActivityAt;
+          }
+          if (b.lastCommitSha && b.lastCommitSha !== row.lastCommitSha) {
+            patch.lastCommitSha = b.lastCommitSha;
+          }
+          if (Object.keys(patch).length > 0) {
+            await ctx.db.patch(row._id, patch);
+          }
+          return row._id;
         }
-        if (b.lastCommitSha && b.lastCommitSha !== row.lastCommitSha) {
-          patch.lastCommitSha = b.lastCommitSha;
-        }
-        if (Object.keys(patch).length > 0) {
-          await ctx.db.patch(row._id, patch);
-        }
-        return row._id;
-      }
-      return await ctx.db.insert("branches", {
-        repo,
-        name: b.name,
-        userId,
-        teamId,
-        lastCommitSha: b.lastCommitSha,
-        lastActivityAt: b.lastActivityAt ?? now,
+        return await ctx.db.insert("branches", {
+          repo,
+          name: b.name,
+          userId,
+          teamId,
+          lastCommitSha: b.lastCommitSha,
+          lastActivityAt: b.lastActivityAt ?? now,
+        });
       });
-    });
+      
+      const chunkIds = await Promise.all(ops);
+      allIds.push(...chunkIds);
+    }
 
-    const ids = await Promise.all(ops);
-    return ids;
+    return allIds;
   },
 });
 

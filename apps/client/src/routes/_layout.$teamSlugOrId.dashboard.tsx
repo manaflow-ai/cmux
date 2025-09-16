@@ -147,6 +147,25 @@ function DashboardComponent() {
     [reposByOrgQuery.data]
   );
 
+  // Trigger GitHub refresh if repos are empty
+  useEffect(() => {
+    if (!socket || !reposByOrgQuery.isSuccess) return;
+    
+    // If query succeeded but returned empty repos, trigger a GitHub refresh
+    const hasRepos = Object.keys(reposByOrg).length > 0;
+    if (!hasRepos) {
+      console.log("[Dashboard] No repos found, triggering GitHub refresh");
+      socket.emit("github-fetch-repos", { teamSlugOrId }, (response) => {
+        if (response?.success) {
+          console.log("[Dashboard] GitHub refresh triggered successfully");
+          // The query will automatically update when new repos are added to Convex
+        } else {
+          console.error("[Dashboard] GitHub refresh failed:", response?.error);
+        }
+      });
+    }
+  }, [socket, reposByOrgQuery.isSuccess, reposByOrg, teamSlugOrId]);
+
   // Socket-based functions to fetch data from GitHub
   // Removed unused fetchRepos function - functionality is handled by Convex queries
 
