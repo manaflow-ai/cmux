@@ -35,6 +35,17 @@ async function getHeadBranch(cwd: string): Promise<string> {
   return stdout.trim();
 }
 
+async function getRemoteFetchSpecs(cwd: string): Promise<string[]> {
+  const { stdout } = await exec(
+    "git config --get-all remote.origin.fetch",
+    { cwd }
+  );
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 describe.sequential("RepositoryManager branch behavior (no fallbacks)", () => {
   beforeAll(async () => {
     try {
@@ -98,6 +109,10 @@ describe.sequential("RepositoryManager branch behavior (no fallbacks)", () => {
 
       expect(await gitDirExists(originPath)).toBe(true);
       expect(await getHeadBranch(originPath)).toBe(repo.defaultBranch);
+      const fetchSpecs = await getRemoteFetchSpecs(originPath);
+      expect(fetchSpecs).toContain(
+        "+refs/heads/*:refs/remotes/origin/*"
+      );
     }
   }, 120_000);
 
