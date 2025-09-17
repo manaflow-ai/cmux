@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import CmuxLogo from "./logo/cmux-logo";
+import { TeamSwitcher } from "./TeamSwitcher";
 
 interface SidebarProps {
   tasks: Doc<"tasks">[] | undefined;
@@ -140,15 +140,9 @@ export function Sidebar({ tasks, tasksWithRuns, teamSlugOrId }: SidebarProps) {
         style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
         {isElectron && <div className="w-[80px]"></div>}
-        <Link
-          to="/$teamSlugOrId/dashboard"
-          params={{ teamSlugOrId }}
-          className="flex items-center gap-2 select-none cursor-pointer"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-        >
-          {/* <Terminals */}
-          <CmuxLogo height={32} />
-        </Link>
+        <div style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>
+          <TeamSwitcher teamSlugOrId={teamSlugOrId} />
+        </div>
         <div className="grow"></div>
         <Link
           to="/$teamSlugOrId/dashboard"
