@@ -6,10 +6,20 @@ mod repo;
 mod diff;
 mod merge_base;
 mod branches;
+mod files;
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use types::{BranchInfo, DiffEntry, GitDiffRefsOptions, GitDiffWorkspaceOptions, GitListRemoteBranchesOptions, GitDiffLandedOptions};
+use types::{
+  BranchInfo,
+  DiffEntry,
+  GitDiffRefsOptions,
+  GitDiffWorkspaceOptions,
+  GitListRemoteBranchesOptions,
+  GitDiffLandedOptions,
+  RepoFileInfo,
+  ListRepoFilesOptions,
+};
 
 #[napi]
 pub async fn get_time() -> String {
@@ -84,6 +94,14 @@ pub async fn git_list_remote_branches(opts: GitListRemoteBranchesOptions) -> Res
     opts.originPathOverride
   );
   tokio::task::spawn_blocking(move || branches::list_remote_branches(opts))
+    .await
+    .map_err(|e| Error::from_reason(format!("Join error: {e}")))?
+    .map_err(|e| Error::from_reason(format!("{e:#}")))
+}
+
+#[napi]
+pub async fn list_repository_files(opts: ListRepoFilesOptions) -> Result<Vec<RepoFileInfo>> {
+  tokio::task::spawn_blocking(move || crate::files::list_repository_files(opts))
     .await
     .map_err(|e| Error::from_reason(format!("Join error: {e}")))?
     .map_err(|e| Error::from_reason(format!("{e:#}")))

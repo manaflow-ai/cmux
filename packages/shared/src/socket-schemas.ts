@@ -496,6 +496,7 @@ export interface ClientToServerEvents {
     callback: (response: OpenInEditorResponse) => void
   ) => void;
   "list-files": (data: ListFilesRequest) => void;
+  "list-files-native": (data: ListFilesRequest) => void;
   // GitHub operations
   "github-test-auth": (
     callback: (response: GitHubAuthResponse) => void

@@ -28,6 +28,7 @@ import { getRunDiffs } from "./diffs/getRunDiffs.js";
 import { execWithEnv } from "./execWithEnv.js";
 import { GitDiffManager } from "./gitDiff.js";
 import { getRustTime } from "./native/core.js";
+import { listRepositoryFilesNative } from "./native/git.js";
 import type { RealtimeServer } from "./realtime.js";
 import { RepositoryManager } from "./repositoryManager.js";
 import type { GitRepoInfo } from "./server.js";
@@ -1271,6 +1272,66 @@ export function setupSocketHandlers(
         socket.emit("list-files-response", { files: fileList });
       } catch (error) {
         serverLogger.error("Error listing files:", error);
+        socket.emit("list-files-response", {
+          files: [],
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    socket.on("list-files-native", async (data) => {
+      try {
+        const {
+          repoPath: repoUrl,
+          branch,
+          pattern,
+        } = ListFilesRequestSchema.parse(data);
+        const repoManager = RepositoryManager.getInstance();
+
+        const projectPaths = await getProjectPaths(repoUrl, safeTeam);
+
+        await fs.mkdir(projectPaths.projectPath, { recursive: true });
+        await fs.mkdir(projectPaths.worktreesPath, { recursive: true });
+
+        await repoManager.ensureRepository(repoUrl, projectPaths.originPath);
+
+        const baseBranch =
+          branch ||
+          (await repoManager.getDefaultBranch(projectPaths.originPath));
+
+        await repoManager.ensureRepository(
+          repoUrl,
+          projectPaths.originPath,
+          baseBranch
+        );
+
+        try {
+          await fs.access(projectPaths.originPath);
+        } catch {
+          socket.emit("list-files-response", {
+            files: [],
+            error: "Repository directory not found",
+          });
+          return;
+        }
+
+        const trimmedPattern = pattern?.trim();
+        const files = await listRepositoryFilesNative({
+          repoUrl,
+          originPath: projectPaths.originPath,
+          branch: baseBranch,
+          pattern: trimmedPattern && trimmedPattern.length > 0
+            ? trimmedPattern
+            : undefined,
+          limit:
+            trimmedPattern && trimmedPattern.length > 0
+              ? 1000
+              : undefined,
+        });
+
+        socket.emit("list-files-response", { files });
+      } catch (error) {
+        serverLogger.error("Error listing files (native):", error);
         socket.emit("list-files-response", {
           files: [],
           error: error instanceof Error ? error.message : "Unknown error",

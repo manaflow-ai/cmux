@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
+import type { FileInfo } from "@cmux/shared";
 
 export type GitImplMode = "rust" | "js";
 
@@ -53,6 +54,14 @@ type NativeGitModule = {
       isDefault?: boolean;
     }>
   >;
+  listRepositoryFiles?: (opts: {
+    repoUrl?: string;
+    repoFullName?: string;
+    originPath?: string;
+    branch?: string;
+    pattern?: string;
+    limit?: number;
+  }) => Promise<FileInfo[]>;
 };
 
 function tryLoadNative(): NativeGitModule | null {
@@ -164,4 +173,28 @@ export async function listRemoteBranches(opts: {
     );
   }
   return mod.gitListRemoteBranches(opts);
+}
+
+export async function listRepositoryFilesNative(opts: {
+  repoUrl?: string;
+  repoFullName?: string;
+  originPath?: string;
+  branch?: string;
+  pattern?: string;
+  limit?: number;
+}): Promise<FileInfo[]> {
+  const mod = loadNativeGit();
+  if (!mod?.listRepositoryFiles) {
+    throw new Error(
+      "Native listRepositoryFiles not available; rebuild @cmux/native-core"
+    );
+  }
+  return mod.listRepositoryFiles({
+    repoUrl: opts.repoUrl,
+    repoFullName: opts.repoFullName,
+    originPath: opts.originPath,
+    branch: opts.branch,
+    pattern: opts.pattern,
+    limit: opts.limit,
+  });
 }

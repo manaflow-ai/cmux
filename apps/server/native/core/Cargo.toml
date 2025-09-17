@@ -17,6 +17,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 gix = { version = "0.66", default-features = true, features = ["status", "revision"] }
 similar = "2"
+globset = "0.4"
+fuzzy-matcher = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

@@ -30,6 +30,26 @@ pub struct BranchInfo {
 
 #[napi(object)]
 #[derive(Default, Debug, Clone)]
+pub struct RepoFileInfo {
+  pub path: String,
+  pub name: String,
+  pub isDirectory: bool,
+  pub relativePath: String,
+}
+
+#[napi(object)]
+#[derive(Default, Debug, Clone)]
+pub struct ListRepoFilesOptions {
+  pub repoUrl: Option<String>,
+  pub repoFullName: Option<String>,
+  pub originPath: Option<String>,
+  pub branch: Option<String>,
+  pub pattern: Option<String>,
+  pub limit: Option<i32>,
+}
+
+#[napi(object)]
+#[derive(Default, Debug, Clone)]
 pub struct GitListRemoteBranchesOptions {
   pub repoFullName: Option<String>,
   pub repoUrl: Option<String>,

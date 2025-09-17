@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getIconForFile } from "vscode-icons-js";
+import { isElectron } from "@/lib/electron";
 import { useSocket } from "../../contexts/socket/use-socket";
 
 const MENTION_TRIGGER = "@";
@@ -154,7 +155,8 @@ export function MentionPlugin({ repoUrl, branch }: MentionPluginProps) {
   useEffect(() => {
     if (repoUrl && socket) {
       setIsLoading(true);
-      socket.emit("list-files", {
+      const eventName = isElectron ? "list-files-native" : "list-files";
+      socket.emit(eventName, {
         repoPath: repoUrl,
         branch: branch || undefined,
         // Don't send pattern - we want all files
