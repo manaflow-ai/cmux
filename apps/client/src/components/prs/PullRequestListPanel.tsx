@@ -1,7 +1,7 @@
 import { api } from "@cmux/convex/api";
-import { useQuery as useConvexQuery } from "convex/react";
 import { Link } from "@tanstack/react-router";
 import clsx from "clsx";
+import { useQuery as useConvexQuery } from "convex/react";
 import { useMemo } from "react";
 
 type Connection = {
@@ -65,11 +65,13 @@ export function PullRequestListPanel({
 
   return (
     <div className="flex flex-col min-h-0 h-full">
-      <div className="p-3 border-b border-neutral-200 dark:border-neutral-800 flex gap-2 items-center">
+      <div className="p-3 border-b border-neutral-200 dark:border-neutral-800 flex gap-2 items-center h-[57px]">
         <select
           className="flex-0 rounded-md border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-sm"
           value={installationId ?? ""}
-          onChange={(e) => onInstallationIdChange(Number(e.target.value) || null)}
+          onChange={(e) =>
+            onInstallationIdChange(Number(e.target.value) || null)
+          }
         >
           {activeConnections.map((c) => (
             <option key={c.installationId} value={c.installationId}>
@@ -102,7 +104,8 @@ export function PullRequestListPanel({
           <ul className="flex flex-col gap-0.5 py-1">
             {list.map((pr) => {
               const [owner, repo] = pr.repoFullName.split("/", 2);
-              const isSelected = selectedKey === `${pr.repoFullName}#${pr.number}`;
+              const isSelected =
+                selectedKey === `${pr.repoFullName}#${pr.number}`;
               return (
                 <li key={`${pr.repoFullName}#${pr.number}`} className="">
                   <Link
@@ -125,7 +128,7 @@ export function PullRequestListPanel({
                         {pr.title}
                       </div>
                       <div className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-                        {pr.repoFullName}#{pr.number} • {pr.authorLogin || ""} • {" "}
+                        {pr.repoFullName}#{pr.number} • {pr.authorLogin || ""} •{" "}
                         {formatTimeAgo(pr.updatedAt)}
                       </div>
                     </div>
@@ -141,4 +144,3 @@ export function PullRequestListPanel({
 }
 
 export default PullRequestListPanel;
-
