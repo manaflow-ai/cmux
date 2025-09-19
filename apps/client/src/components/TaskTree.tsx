@@ -283,6 +283,7 @@ function TaskRunTreeInner({
   branch,
   teamSlugOrId,
 }: TaskRunTreeProps) {
+  const location = useLocation();
   const [isExpanded, setIsExpanded] = useState(true);
   const hasChildren = run.children.length > 0;
 
@@ -346,7 +347,9 @@ function TaskRunTreeInner({
         )}
         <div
           className={clsx(
-            "group flex items-center px-2 pr-10 py-1 text-xs rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-default"
+            "group flex items-center px-2 pr-10 py-1 text-xs rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-default",
+            location.pathname.includes(`/run/${run._id}`) &&
+              "bg-neutral-100 dark:bg-neutral-800"
           )}
           style={{ paddingLeft: `${8 + level * 16}px` }}
         >

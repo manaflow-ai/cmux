@@ -32,16 +32,16 @@ export function CloudModeWaitlistModal({
     }
     if (visible) {
       navigate({
-        to: "/$teamSlugOrId/dashboard",
+        to: "/$teamSlugOrId",
         params: { teamSlugOrId },
         search: {
-          after_auth_return_to: `/${teamSlugOrId}/dashboard?waitlist=true`,
+          after_auth_return_to: `/${teamSlugOrId}?waitlist=true`,
         },
         replace: true,
       });
     } else {
       navigate({
-        to: "/$teamSlugOrId/dashboard",
+        to: "/$teamSlugOrId",
         params: { teamSlugOrId },
         replace: true,
       });
@@ -64,7 +64,7 @@ export function CloudModeWaitlistModal({
       }
 
       navigate({
-        to: "/$teamSlugOrId/dashboard",
+        to: "/$teamSlugOrId",
         params: { teamSlugOrId },
         replace: true,
       });

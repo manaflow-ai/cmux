@@ -1,5 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
 import { getLastTeamSlugOrId } from "@/lib/lastTeam";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
@@ -7,7 +7,7 @@ export const Route = createFileRoute("/")({
       const last = getLastTeamSlugOrId();
       if (last && last.trim().length > 0) {
         throw redirect({
-          to: "/$teamSlugOrId/dashboard",
+          to: "/$teamSlugOrId",
           params: { teamSlugOrId: last },
         });
       }

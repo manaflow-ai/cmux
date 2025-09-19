@@ -9,8 +9,8 @@ import { api } from "@cmux/convex/api";
 import { type Id } from "@cmux/convex/dataModel";
 import { convexQuery } from "@convex-dev/react-query";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { useQueries, useQuery } from "convex/react";
 import { Suspense, useEffect, useMemo } from "react";
+import { useQueries, useQuery } from "convex/react";
 
 export const Route = createFileRoute("/_layout/$teamSlugOrId")({
   component: LayoutComponentWrapper,
@@ -42,18 +42,13 @@ function LayoutComponent() {
   const { teamSlugOrId } = Route.useParams();
   const tasks = useQuery(api.tasks.get, { teamSlugOrId });
 
-  // Sort tasks by creation date (newest first) and take the latest 5
-  const recentTasks = useMemo(() => {
-    return (
-      tasks
-        ?.filter((task) => task.createdAt)
-        ?.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) || []
-    );
+  const orderedTasks = useMemo(() => {
+    if (!tasks) return [] as NonNullable<typeof tasks>;
+    return [...tasks].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   }, [tasks]);
 
-  // Create queries object for all recent tasks with memoization, filtering out fake IDs
   const taskRunQueries = useMemo(() => {
-    return recentTasks
+    return orderedTasks
       .filter((task) => !isFakeConvexId(task._id))
       .reduce(
         (acc, task) => ({
@@ -76,23 +71,20 @@ function LayoutComponent() {
           }
         >
       );
-  }, [recentTasks, teamSlugOrId]);
+  }, [orderedTasks, teamSlugOrId]);
 
-  // Fetch task runs for all recent tasks using useQueries
   const taskRunResults = useQueries(
     taskRunQueries as Parameters<typeof useQueries>[0]
   );
 
-  // Map tasks with their respective runs
   const tasksWithRuns = useMemo(
     () =>
-      recentTasks.map((task) => ({
+      orderedTasks.map((task) => ({
         ...task,
-        runs: taskRunResults[task._id] || [],
+        runs: taskRunResults?.[task._id] ?? [],
       })),
-    [recentTasks, taskRunResults]
+    [orderedTasks, taskRunResults]
   );
-
   return (
     <>
       <CommandBar teamSlugOrId={teamSlugOrId} />
@@ -100,9 +92,9 @@ function LayoutComponent() {
       <ExpandTasksProvider>
         <div className="flex flex-row grow min-h-0 bg-white dark:bg-black">
           <Sidebar
+            teamSlugOrId={teamSlugOrId}
             tasks={tasks}
             tasksWithRuns={tasksWithRuns}
-            teamSlugOrId={teamSlugOrId}
           />
 
           {/* <div className="flex flex-col grow overflow-hidden bg-white dark:bg-neutral-950"> */}

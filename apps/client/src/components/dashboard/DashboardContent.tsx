@@ -25,19 +25,22 @@ import type { Doc } from "@cmux/convex/dataModel";
 import type { ProviderStatusResponse } from "@cmux/shared";
 import { convexQuery } from "@convex-dev/react-query";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import { Server as ServerIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_layout/$teamSlugOrId/dashboard")({
-  component: DashboardComponent,
-});
+interface DashboardContentProps {
+  teamSlugOrId: string;
+  environmentId?: string;
+  showTitleBar?: boolean;
+}
 
-function DashboardComponent() {
-  const { teamSlugOrId } = Route.useParams();
-  const searchParams = Route.useSearch() as { environmentId?: string };
+export function DashboardContent({
+  teamSlugOrId,
+  environmentId,
+  showTitleBar = false,
+}: DashboardContentProps) {
   const { socket } = useSocket();
   const { theme } = useTheme();
   const { addTaskToExpand } = useExpandTasks();
@@ -64,16 +67,16 @@ function DashboardComponent() {
   // Ref to access editor API
   const editorApiRef = useRef<EditorApi | null>(null);
 
-  // Preselect environment if provided in URL search params
+  // Preselect environment if provided
   useEffect(() => {
-    if (searchParams?.environmentId) {
-      const val = `env:${searchParams.environmentId}`;
+    if (environmentId) {
+      const val = `env:${environmentId}`;
       setSelectedProject([val]);
       localStorage.setItem("selectedProject", JSON.stringify([val]));
       setIsCloudMode(true);
       localStorage.setItem("isCloudMode", JSON.stringify(true));
     }
-  }, [searchParams?.environmentId]);
+  }, [environmentId]);
 
   // Callback for task description changes
   const handleTaskDescriptionChange = useCallback((value: string) => {
@@ -638,44 +641,53 @@ function DashboardComponent() {
     effectiveSelectedBranch,
   ]);
 
-  return (
-    <FloatingPane header={<TitleBar title="cmux" />}>
-      <div className="flex flex-col grow overflow-y-auto">
-        {/* Main content area */}
-        <div className="flex-1 flex justify-center px-4 pt-60 pb-4">
-          <div className="w-full max-w-4xl min-w-0">
-            <DashboardMainCard
-              editorApiRef={editorApiRef}
-              onTaskDescriptionChange={handleTaskDescriptionChange}
-              onSubmit={handleSubmit}
-              lexicalRepoUrl={lexicalRepoUrl}
-              lexicalBranch={lexicalBranch}
-              projectOptions={projectOptions}
-              selectedProject={selectedProject}
-              onProjectChange={handleProjectChange}
-              branchOptions={branchOptions}
-              selectedBranch={effectiveSelectedBranch}
-              onBranchChange={handleBranchChange}
-              selectedAgents={selectedAgents}
-              onAgentChange={handleAgentChange}
-              isCloudMode={isCloudMode}
-              onCloudModeToggle={handleCloudModeToggle}
-              isLoadingProjects={reposByOrgQuery.isLoading}
-              isLoadingBranches={branchesQuery.isPending}
-              teamSlugOrId={teamSlugOrId}
-              cloudToggleDisabled={isEnvSelected}
-              branchDisabled={isEnvSelected || !selectedProject[0]}
-              providerStatus={providerStatus}
-              canSubmit={canSubmit}
-              onStartTask={handleStartTask}
-            />
+  const mainContent = (
+    <div className="flex-1 flex justify-center px-4 pt-60 pb-4">
+      <div className="w-full max-w-4xl min-w-0">
+        <DashboardMainCard
+          editorApiRef={editorApiRef}
+          onTaskDescriptionChange={handleTaskDescriptionChange}
+          onSubmit={handleSubmit}
+          lexicalRepoUrl={lexicalRepoUrl}
+          lexicalBranch={lexicalBranch}
+          projectOptions={projectOptions}
+          selectedProject={selectedProject}
+          onProjectChange={handleProjectChange}
+          branchOptions={branchOptions}
+          selectedBranch={effectiveSelectedBranch}
+          onBranchChange={handleBranchChange}
+          selectedAgents={selectedAgents}
+          onAgentChange={handleAgentChange}
+          isCloudMode={isCloudMode}
+          onCloudModeToggle={handleCloudModeToggle}
+          isLoadingProjects={reposByOrgQuery.isLoading}
+          isLoadingBranches={branchesQuery.isPending}
+          teamSlugOrId={teamSlugOrId}
+          cloudToggleDisabled={isEnvSelected}
+          branchDisabled={isEnvSelected || !selectedProject[0]}
+          providerStatus={providerStatus}
+          canSubmit={canSubmit}
+          onStartTask={handleStartTask}
+        />
 
-            {/* Task List */}
-            <TaskList teamSlugOrId={teamSlugOrId} />
-          </div>
-        </div>
+        {/* Task List */}
+        <TaskList teamSlugOrId={teamSlugOrId} />
       </div>
-    </FloatingPane>
+    </div>
+  );
+
+  if (showTitleBar) {
+    return (
+      <FloatingPane header={<TitleBar title="cmux" />}>
+        <div className="flex flex-col grow overflow-y-auto">{mainContent}</div>
+      </FloatingPane>
+    );
+  }
+
+  return (
+    <div className="flex flex-col grow min-h-0 h-full overflow-y-auto">
+      {mainContent}
+    </div>
   );
 }
 

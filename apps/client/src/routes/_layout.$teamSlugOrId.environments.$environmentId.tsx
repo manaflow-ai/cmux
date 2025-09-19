@@ -91,7 +91,7 @@ function EnvironmentDetailsPage() {
 
   const handleLaunch = () => {
     navigate({
-      to: "/$teamSlugOrId/dashboard",
+      to: "/$teamSlugOrId",
       params: { teamSlugOrId },
       search: { environmentId },
     });

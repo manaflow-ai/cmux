@@ -187,7 +187,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
     async (value: string) => {
       if (value === "new-task") {
         navigate({
-          to: "/$teamSlugOrId/dashboard",
+          to: "/$teamSlugOrId",
           params: { teamSlugOrId },
         });
       } else if (value === "pull-requests") {

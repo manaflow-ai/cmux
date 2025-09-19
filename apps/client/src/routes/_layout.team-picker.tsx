@@ -98,7 +98,7 @@ function TeamPicker() {
       await user.setSelectedTeam(newTeam);
       setLastTeamSlugOrId(teamSlugOrId);
       await navigate({
-        to: "/$teamSlugOrId/dashboard",
+        to: "/$teamSlugOrId",
         params: { teamSlugOrId },
       });
     } catch (err) {
@@ -189,7 +189,7 @@ function TeamItem({ team, getClientSlug }: TeamItemProps) {
   return (
     <li>
       <Link
-        to="/$teamSlugOrId/dashboard"
+        to="/$teamSlugOrId"
         params={{ teamSlugOrId }}
         onClick={() => {
           setLastTeamSlugOrId(teamSlugOrId);

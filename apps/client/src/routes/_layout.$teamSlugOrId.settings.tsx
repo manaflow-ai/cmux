@@ -472,7 +472,7 @@ function SettingsComponent() {
                             <path d="M14.5 12.5a5 5 0 1 0-7 7"></path>
                           </svg>
                           <span className="truncate">
-                            {`https://cmux.dev/${(teamSlug || "your-team").replace(/^\/+/, "")}/dashboard`}
+                            {`https://cmux.dev/${(teamSlug || "your-team").replace(/^\/+/, "")}`}
                           </span>
                         </div>
                       </div>
@@ -517,7 +517,7 @@ function SettingsComponent() {
                     URL Slug
                   </label>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-                    Set the slug used in links, e.g. /your-team/dashboard.
+                    Set the slug used in links, e.g. /your-team.
                     Lowercase letters, numbers, and hyphens. 3–48 characters.
                   </p>
                   <div
