@@ -2,6 +2,7 @@ import { CmuxComments } from "@/components/cmux-comments";
 import { CommandBar } from "@/components/CommandBar";
 import { Sidebar } from "@/components/Sidebar";
 import { convexQueryClient } from "@/contexts/convex/convex-query-client";
+import { GitViewerPreferenceProvider } from "@/contexts/git-viewer-preference";
 import { ExpandTasksProvider } from "@/contexts/expand-tasks/ExpandTasksProvider";
 import { isFakeConvexId } from "@/lib/fakeConvexId";
 import { setLastTeamSlugOrId } from "@/lib/lastTeam";
@@ -94,7 +95,7 @@ function LayoutComponent() {
   );
 
   return (
-    <>
+    <GitViewerPreferenceProvider>
       <CommandBar teamSlugOrId={teamSlugOrId} />
 
       <ExpandTasksProvider>
@@ -141,7 +142,7 @@ function LayoutComponent() {
       >
         Add Debug Note
       </button>
-    </>
+    </GitViewerPreferenceProvider>
   );
 }
 

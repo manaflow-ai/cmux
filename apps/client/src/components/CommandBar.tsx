@@ -1,4 +1,5 @@
 import { useTheme } from "@/components/theme/use-theme";
+import { useGitViewerPreference } from "@/contexts/git-viewer-preference";
 import { isElectron } from "@/lib/electron";
 import { copyAllElectronLogs } from "@/lib/electron-logs/electron-logs";
 import { api } from "@cmux/convex/api";
@@ -7,7 +8,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { Command } from "cmdk";
 import { useQuery } from "convex/react";
-import { GitPullRequest, Monitor, Moon, Plus, Sun } from "lucide-react";
+import { GitCompare, GitPullRequest, Monitor, Moon, Plus, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ElectronLogsCommandItems } from "./command-bar/ElectronLogsCommandItems";
@@ -26,6 +27,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
   const navigate = useNavigate();
   const router = useRouter();
   const { setTheme } = useTheme();
+  const { viewer: diffViewerPreference, toggleViewer } = useGitViewerPreference();
 
   const allTasks = useQuery(api.tasks.getTasksWithTaskRuns, { teamSlugOrId });
 
@@ -208,6 +210,8 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
         } catch {
           toast.error("Unable to copy logs");
         }
+      } else if (value === "git-viewer:toggle") {
+        toggleViewer();
       } else if (value === "theme-light") {
         setTheme("light");
       } else if (value === "theme-dark") {
@@ -259,7 +263,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
       setSearch("");
       setOpenedWithShift(false);
     },
-    [navigate, teamSlugOrId, setTheme, allTasks]
+    [navigate, teamSlugOrId, setTheme, allTasks, toggleViewer]
   );
 
   if (!open) return null;
@@ -330,6 +334,24 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
               >
                 <GitPullRequest className="h-4 w-4 text-neutral-500" />
                 <span className="text-sm">Pull Requests</span>
+              </Command.Item>
+              <Command.Item
+                value="git-viewer:toggle"
+                onSelect={() => handleSelect("git-viewer:toggle")}
+                className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
+                hover:bg-neutral-100 dark:hover:bg-neutral-800
+                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
+                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
+              >
+                <GitCompare className="h-4 w-4 text-neutral-500" />
+                <span className="flex-1 text-sm">
+                  {diffViewerPreference === "monaco"
+                    ? "Use CodeMirror diff viewer"
+                    : "Use Monaco diff viewer"}
+                </span>
+                <span className="text-[11px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                  {diffViewerPreference === "monaco" ? "Monaco" : "CodeMirror"}
+                </span>
               </Command.Item>
             </Command.Group>
 

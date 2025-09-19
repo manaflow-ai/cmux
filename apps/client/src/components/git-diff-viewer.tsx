@@ -1,8 +1,53 @@
 import { useTheme } from "@/components/theme/use-theme";
+import {
+  useGitViewerPreference,
+  type GitViewerPreference,
+} from "@/contexts/git-viewer-preference";
 // No socket usage in refs-only viewer
 import { cn } from "@/lib/utils";
 import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
 import { DiffEditor } from "@monaco-editor/react";
+import { EditorState, type Extension } from "@codemirror/state";
+import {
+  EditorView,
+  drawSelection,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  lineNumbers,
+} from "@codemirror/view";
+import {
+  StreamLanguage,
+  defaultHighlightStyle,
+  syntaxHighlighting,
+} from "@codemirror/language";
+import { MergeView } from "@codemirror/merge";
+import { javascript } from "@codemirror/lang-javascript";
+import { json } from "@codemirror/lang-json";
+import { markdown } from "@codemirror/lang-markdown";
+import { css } from "@codemirror/lang-css";
+import { html } from "@codemirror/lang-html";
+import { xml } from "@codemirror/lang-xml";
+import { yaml } from "@codemirror/lang-yaml";
+import { python } from "@codemirror/lang-python";
+import { go as goLang } from "@codemirror/lang-go";
+import { rust } from "@codemirror/lang-rust";
+import { java as javaLang } from "@codemirror/lang-java";
+import { php as phpLang } from "@codemirror/lang-php";
+import { sql } from "@codemirror/lang-sql";
+import {
+  cpp as cppMode,
+  csharp as csharpLang,
+  kotlin as kotlinLang,
+  scala as scalaLang,
+} from "@codemirror/legacy-modes/mode/clike";
+import { swift as swiftLang } from "@codemirror/legacy-modes/mode/swift";
+import { ruby as rubyLang } from "@codemirror/legacy-modes/mode/ruby";
+import { shell as shellLang } from "@codemirror/legacy-modes/mode/shell";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { toml as tomlLang } from "@codemirror/legacy-modes/mode/toml";
+import { properties as propertiesLang } from "@codemirror/legacy-modes/mode/properties";
+import { sass as sassMode } from "@codemirror/legacy-modes/mode/sass";
 import {
   ChevronDown,
   ChevronRight,
@@ -20,6 +65,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
 } from "react";
 import { kitties } from "./kitties";
 
@@ -94,6 +140,7 @@ export function GitDiffViewer({
   onFileToggle,
 }: GitDiffViewerProps) {
   const { theme } = useTheme();
+  const { viewer: diffViewerPreference } = useGitViewerPreference();
 
   const kitty = useMemo(() => {
     return kitties[Math.floor(Math.random() * kitties.length)];
@@ -230,6 +277,7 @@ export function GitDiffViewer({
                 editorRefs.current[`refs:${file.filePath}`] = ed;
             }}
             classNames={classNames?.fileDiffRow}
+            viewerPreference={diffViewerPreference}
           />
         ))}
         {/* End-of-diff message */}
@@ -260,6 +308,7 @@ interface FileDiffRowProps {
     button?: string;
     container?: string;
   };
+  viewerPreference: GitViewerPreference;
 }
 
 function FileDiffRow({
@@ -271,6 +320,7 @@ function FileDiffRow({
   setEditorRef,
   runId,
   classNames,
+  viewerPreference,
 }: FileDiffRowProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rafIdRef = useRef<number | null>(null);
@@ -282,9 +332,16 @@ function FileDiffRow({
     const initial = calculateEditorHeight(file.oldContent, file.newContent);
     if (containerRef.current) {
       containerRef.current.style.height = `${Math.max(120, initial)}px`;
+      containerRef.current.style.visibility = "hidden";
     }
+    revealedRef.current = false;
     // Only depend on file contents used for initial sizing
-  }, [file.oldContent, file.newContent, calculateEditorHeight]);
+  }, [
+    file.oldContent,
+    file.newContent,
+    calculateEditorHeight,
+    viewerPreference,
+  ]);
 
   // No debug logs in production
   useEffect(() => {
@@ -352,86 +409,97 @@ function FileDiffRow({
               File was deleted
             </div>
           ) : (
-            <div ref={containerRef}>
-              <DiffEditor
-                key={`${runId ?? "_"}:${theme ?? "_"}:${file.filePath}`}
-                original={file.oldContent}
-                modified={file.newContent}
-                language={getLanguageFromPath(file.filePath)}
-                theme={theme === "dark" ? "vs-dark" : "vs"}
-                onMount={(editor, monaco) => {
-                  setEditorRef(editor);
-                  // Start hidden to avoid intermediate flashes
-                  if (containerRef.current) {
-                    containerRef.current.style.visibility = "hidden";
-                  }
-
-                  // Create fresh models per run+file to avoid reuse across runs
-                  try {
-                    const language = getLanguageFromPath(file.filePath);
-                    const originalUri = monaco.Uri.parse(
-                      `inmemory://diff/${runId ?? "_"}/${encodeURIComponent(
-                        file.filePath
-                      )}?side=original`
-                    );
-                    const modifiedUri = monaco.Uri.parse(
-                      `inmemory://diff/${runId ?? "_"}/${encodeURIComponent(
-                        file.filePath
-                      )}?side=modified`
-                    );
-                    const originalModel = monaco.editor.createModel(
-                      file.oldContent,
-                      language,
-                      originalUri
-                    );
-                    const modifiedModel = monaco.editor.createModel(
-                      file.newContent,
-                      language,
-                      modifiedUri
-                    );
-                    editor.setModel({
-                      original: originalModel,
-                      modified: modifiedModel,
-                    });
-                  } catch {
-                    // ignore if monaco not available
-                  }
-                  const scheduleMeasureAndLayout = () => {
-                    if (rafIdRef.current != null) {
-                      cancelAnimationFrame(rafIdRef.current);
+            <div ref={containerRef} className="relative">
+              {viewerPreference === "monaco" ? (
+                <DiffEditor
+                  key={`${runId ?? "_"}:${theme ?? "_"}:${file.filePath}`}
+                  original={file.oldContent}
+                  modified={file.newContent}
+                  language={getLanguageFromPath(file.filePath)}
+                  theme={theme === "dark" ? "vs-dark" : "vs"}
+                  onMount={(editor, monaco) => {
+                    setEditorRef(editor);
+                    // Start hidden to avoid intermediate flashes
+                    if (containerRef.current) {
+                      containerRef.current.style.visibility = "hidden";
                     }
-                    rafIdRef.current = requestAnimationFrame(() => {
-                      const modifiedEditor = editor.getModifiedEditor();
-                      const originalEditor = editor.getOriginalEditor();
-                      const modifiedContentHeight =
-                        modifiedEditor.getContentHeight();
-                      const originalContentHeight =
-                        originalEditor.getContentHeight();
-                      const newHeight = Math.max(
-                        120,
-                        Math.max(modifiedContentHeight, originalContentHeight) +
-                          20
+
+                    // Create fresh models per run+file to avoid reuse across runs
+                    try {
+                      const language = getLanguageFromPath(file.filePath);
+                      const originalUri = monaco.Uri.parse(
+                        `inmemory://diff/${runId ?? "_"}/${encodeURIComponent(
+                          file.filePath
+                        )}?side=original`
                       );
-                      if (containerRef.current) {
-                        const current = parseInt(
-                          containerRef.current.style.height || "0",
-                          10
+                      const modifiedUri = monaco.Uri.parse(
+                        `inmemory://diff/${runId ?? "_"}/${encodeURIComponent(
+                          file.filePath
+                        )}?side=modified`
+                      );
+                      const originalModel = monaco.editor.createModel(
+                        file.oldContent,
+                        language,
+                        originalUri
+                      );
+                      const modifiedModel = monaco.editor.createModel(
+                        file.newContent,
+                        language,
+                        modifiedUri
+                      );
+                      editor.setModel({
+                        original: originalModel,
+                        modified: modifiedModel,
+                      });
+                    } catch {
+                      // ignore if monaco not available
+                    }
+                    const scheduleMeasureAndLayout = () => {
+                      if (rafIdRef.current != null) {
+                        cancelAnimationFrame(rafIdRef.current);
+                      }
+                      rafIdRef.current = requestAnimationFrame(() => {
+                        const modifiedEditor = editor.getModifiedEditor();
+                        const originalEditor = editor.getOriginalEditor();
+                        const modifiedContentHeight =
+                          modifiedEditor.getContentHeight();
+                        const originalContentHeight =
+                          originalEditor.getContentHeight();
+                        const newHeight = Math.max(
+                          120,
+                          Math.max(modifiedContentHeight, originalContentHeight) +
+                            20
                         );
-                        if (current !== newHeight) {
-                          containerRef.current.style.height = `${newHeight}px`;
-                        }
-                        const width =
-                          containerRef.current.clientWidth || undefined;
-                        if (typeof width === "number") {
-                          editor.layout({ width, height: newHeight });
-                          // Double-rAF to ensure Monaco settles after DOM style changes
-                          requestAnimationFrame(() => {
+                        if (containerRef.current) {
+                          const current = parseInt(
+                            containerRef.current.style.height || "0",
+                            10
+                          );
+                          if (current !== newHeight) {
+                            containerRef.current.style.height = `${newHeight}px`;
+                          }
+                          const width =
+                            containerRef.current.clientWidth || undefined;
+                          if (typeof width === "number") {
                             editor.layout({ width, height: newHeight });
-                            if (containerRef.current && !revealedRef.current) {
-                              containerRef.current.style.visibility = "visible";
-                              revealedRef.current = true;
-                            }
-                          });
+                            // Double-rAF to ensure Monaco settles after DOM style changes
+                            requestAnimationFrame(() => {
+                              editor.layout({ width, height: newHeight });
+                              if (containerRef.current && !revealedRef.current) {
+                                containerRef.current.style.visibility = "visible";
+                                revealedRef.current = true;
+                              }
+                            });
+                          } else {
+                            editor.layout();
+                            requestAnimationFrame(() => {
+                              editor.layout();
+                              if (containerRef.current && !revealedRef.current) {
+                                containerRef.current.style.visibility = "visible";
+                                revealedRef.current = true;
+                              }
+                            });
+                          }
                         } else {
                           editor.layout();
                           requestAnimationFrame(() => {
@@ -442,121 +510,120 @@ function FileDiffRow({
                             }
                           });
                         }
-                      } else {
-                        editor.layout();
-                        requestAnimationFrame(() => {
-                          editor.layout();
-                          if (containerRef.current && !revealedRef.current) {
-                            containerRef.current.style.visibility = "visible";
-                            revealedRef.current = true;
-                          }
-                        });
-                      }
-                    });
-                  };
-                  const mod = editor.getModifiedEditor();
-                  const orig = editor.getOriginalEditor();
-                  const d1 = mod.onDidContentSizeChange(
-                    scheduleMeasureAndLayout
-                  );
-                  const d2 = orig.onDidContentSizeChange(
-                    scheduleMeasureAndLayout
-                  );
-                  const d3 = mod.onDidChangeHiddenAreas(
-                    scheduleMeasureAndLayout
-                  );
-                  const d4 = orig.onDidChangeHiddenAreas(
-                    scheduleMeasureAndLayout
-                  );
-                  const d5 = editor.onDidUpdateDiff?.(scheduleMeasureAndLayout);
+                      });
+                    };
+                    const mod = editor.getModifiedEditor();
+                    const orig = editor.getOriginalEditor();
+                    const d1 = mod.onDidContentSizeChange(
+                      scheduleMeasureAndLayout
+                    );
+                    const d2 = orig.onDidContentSizeChange(
+                      scheduleMeasureAndLayout
+                    );
+                    const d3 = mod.onDidChangeHiddenAreas(
+                      scheduleMeasureAndLayout
+                    );
+                    const d4 = orig.onDidChangeHiddenAreas(
+                      scheduleMeasureAndLayout
+                    );
+                    const d5 = editor.onDidUpdateDiff?.(scheduleMeasureAndLayout);
 
-                  // Observe container size changes to trigger layout
-                  if (containerRef.current && !resizeObserverRef.current) {
-                    resizeObserverRef.current = new ResizeObserver(() => {
+                    // Observe container size changes to trigger layout
+                    if (containerRef.current && !resizeObserverRef.current) {
+                      resizeObserverRef.current = new ResizeObserver(() => {
+                        scheduleMeasureAndLayout();
+                      });
+                      resizeObserverRef.current.observe(containerRef.current);
+                    }
+
+                    // Kick initial layout after mount using rAF
+                    requestAnimationFrame(() => {
                       scheduleMeasureAndLayout();
                     });
-                    resizeObserverRef.current.observe(containerRef.current);
-                  }
-
-                  // Kick initial layout after mount using rAF
-                  requestAnimationFrame(() => {
-                    scheduleMeasureAndLayout();
-                  });
-                  return () => {
-                    d1.dispose();
-                    d2.dispose();
-                    d3.dispose();
-                    d4.dispose();
-                    d5?.dispose?.();
-                    if (rafIdRef.current != null) {
-                      cancelAnimationFrame(rafIdRef.current);
-                      rafIdRef.current = null;
-                    }
-                    if (resizeObserverRef.current) {
-                      resizeObserverRef.current.disconnect();
-                      resizeObserverRef.current = null;
-                    }
-                    // Dispose models we created to avoid leaks and reuse
-                    try {
-                      const model = editor.getModel();
-                      if (model?.original) {
-                        model.original.dispose?.();
+                    return () => {
+                      d1.dispose();
+                      d2.dispose();
+                      d3.dispose();
+                      d4.dispose();
+                      d5?.dispose?.();
+                      if (rafIdRef.current != null) {
+                        cancelAnimationFrame(rafIdRef.current);
+                        rafIdRef.current = null;
                       }
-                      if (model?.modified) {
-                        model.modified.dispose?.();
+                      if (resizeObserverRef.current) {
+                        resizeObserverRef.current.disconnect();
+                        resizeObserverRef.current = null;
                       }
-                    } catch (_e) {
-                      // ignore if monaco not available
-                    }
-                  };
-                }}
-                options={{
-                  readOnly: true,
-                  renderSideBySide: true,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  fontSize: 12,
-                  lineHeight: 18,
-                  fontFamily:
-                    "'JetBrains Mono', 'SF Mono', Monaco, 'Courier New', monospace",
-                  wordWrap: "on",
-                  automaticLayout: false,
-                  renderOverviewRuler: false,
-                  scrollbar: {
-                    vertical: "hidden",
-                    horizontal: "auto",
-                    verticalScrollbarSize: 8,
-                    horizontalScrollbarSize: 8,
-                    handleMouseWheel: true,
-                    alwaysConsumeMouseWheel: false,
-                  },
-                  lineNumbers: "on",
-                  renderLineHighlight: "none",
-                  hideCursorInOverviewRuler: true,
-                  overviewRulerBorder: false,
-                  overviewRulerLanes: 0,
-                  renderValidationDecorations: "off",
-                  diffWordWrap: "on",
-                  renderIndicators: true,
-                  renderMarginRevertIcon: false,
-                  lineDecorationsWidth: 12,
-                  lineNumbersMinChars: 4,
-                  glyphMargin: false,
-                  folding: false,
-                  contextmenu: false,
-                  renderWhitespace: "selection",
-                  guides: {
-                    indentation: false,
-                  },
-                  padding: { top: 2, bottom: 2 },
-                  hideUnchangedRegions: {
-                    enabled: true,
-                    revealLineCount: 3,
-                    minimumLineCount: 50,
-                    contextLineCount: 3,
-                  },
-                }}
-              />
+                      // Dispose models we created to avoid leaks and reuse
+                      try {
+                        const model = editor.getModel();
+                        if (model?.original) {
+                          model.original.dispose?.();
+                        }
+                        if (model?.modified) {
+                          model.modified.dispose?.();
+                        }
+                      } catch (_e) {
+                        // ignore if monaco not available
+                      }
+                    };
+                  }}
+                  options={{
+                    readOnly: true,
+                    renderSideBySide: true,
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    fontSize: 12,
+                    lineHeight: 18,
+                    fontFamily:
+                      "'JetBrains Mono', 'SF Mono', Monaco, 'Courier New', monospace",
+                    wordWrap: "on",
+                    automaticLayout: false,
+                    renderOverviewRuler: false,
+                    scrollbar: {
+                      vertical: "hidden",
+                      horizontal: "auto",
+                      verticalScrollbarSize: 8,
+                      horizontalScrollbarSize: 8,
+                      handleMouseWheel: true,
+                      alwaysConsumeMouseWheel: false,
+                    },
+                    lineNumbers: "on",
+                    renderLineHighlight: "none",
+                    hideCursorInOverviewRuler: true,
+                    overviewRulerBorder: false,
+                    overviewRulerLanes: 0,
+                    renderValidationDecorations: "off",
+                    diffWordWrap: "on",
+                    renderIndicators: true,
+                    renderMarginRevertIcon: false,
+                    lineDecorationsWidth: 12,
+                    lineNumbersMinChars: 4,
+                    glyphMargin: false,
+                    folding: false,
+                    contextmenu: false,
+                    renderWhitespace: "selection",
+                    guides: {
+                      indentation: false,
+                    },
+                    padding: { top: 2, bottom: 2 },
+                    hideUnchangedRegions: {
+                      enabled: true,
+                      revealLineCount: 3,
+                      minimumLineCount: 50,
+                      contextLineCount: 3,
+                    },
+                  }}
+                />
+              ) : (
+                <CodeMirrorDiff
+                  key={`${runId ?? "_"}:${theme ?? "_"}:${file.filePath}:cm`}
+                  containerRef={containerRef}
+                  file={file}
+                  theme={theme}
+                  calculateEditorHeight={calculateEditorHeight}
+                />
+              )}
             </div>
           )}
         </div>
@@ -565,12 +632,176 @@ function FileDiffRow({
   );
 }
 
+interface CodeMirrorDiffProps {
+  containerRef: MutableRefObject<HTMLDivElement | null>;
+  file: FileGroup;
+  theme: string | undefined;
+  calculateEditorHeight: (oldContent: string, newContent: string) => number;
+}
+
+function CodeMirrorDiff({
+  containerRef,
+  file,
+  theme,
+  calculateEditorHeight,
+}: CodeMirrorDiffProps) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const mergeViewRef = useRef<MergeView | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const revealedRef = useRef(false);
+
+  const languageId = useMemo(
+    () => getLanguageFromPath(file.filePath),
+    [file.filePath]
+  );
+
+  useEffect(() => {
+    const mountEl = mountRef.current;
+    const containerEl = containerRef.current;
+    if (!mountEl || !containerEl) {
+      return;
+    }
+
+    mountEl.innerHTML = "";
+    mountEl.className = "absolute inset-0";
+    containerEl.style.visibility = "hidden";
+    const fallbackHeight = Math.max(
+      120,
+      calculateEditorHeight(file.oldContent, file.newContent)
+    );
+
+    const scheduleMeasure = () => {
+      if (rafIdRef.current != null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+      rafIdRef.current = requestAnimationFrame(() => {
+        const cmView = mergeViewRef.current;
+        const container = containerEl;
+        if (!cmView || !container) {
+          return;
+        }
+
+        const leftHeight = cmView.a?.contentHeight ?? 0;
+        const rightHeight = cmView.b?.contentHeight ?? 0;
+        const measuredHeight = Math.max(leftHeight, rightHeight);
+        const newHeight =
+          measuredHeight > 0
+            ? Math.max(120, measuredHeight + 20)
+            : fallbackHeight;
+        const current = parseInt(container.style.height || "0", 10);
+        if (!Number.isNaN(newHeight) && current !== newHeight) {
+          container.style.height = `${newHeight}px`;
+        }
+        cmView.dom.style.height = "100%";
+        cmView.dom.style.width = "100%";
+        if (cmView.a) {
+          cmView.a.dom.style.height = "100%";
+        }
+        if (cmView.b) {
+          cmView.b.dom.style.height = "100%";
+        }
+        if (!revealedRef.current && container) {
+          container.style.visibility = "visible";
+          revealedRef.current = true;
+        }
+      });
+    };
+
+    const baseExtensions: Extension[] = [
+      EditorState.readOnly.of(true),
+      EditorView.editable.of(false),
+      EditorView.lineWrapping,
+      lineNumbers(),
+      highlightActiveLine(),
+      highlightActiveLineGutter(),
+      highlightSpecialChars(),
+      drawSelection({ cursorBlinkRate: 0 }),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      createCodeMirrorTheme(theme === "dark"),
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged || update.viewportChanged) {
+          scheduleMeasure();
+        }
+      }),
+    ];
+
+    const languageExtensions = getCodeMirrorLanguageExtensions(
+      file.filePath,
+      languageId
+    );
+
+    const extensions = [...baseExtensions, ...languageExtensions];
+
+    const view = new MergeView({
+      a: {
+        doc: file.oldContent,
+        extensions,
+      },
+      b: {
+        doc: file.newContent,
+        extensions,
+      },
+      parent: mountEl,
+      highlightChanges: true,
+      gutter: true,
+      orientation: "a-b",
+      collapseUnchanged: {
+        margin: 3,
+        minSize: 40,
+      },
+    });
+
+    mergeViewRef.current = view;
+    revealedRef.current = false;
+    scheduleMeasure();
+    requestAnimationFrame(() => {
+      scheduleMeasure();
+    });
+
+    const observer = new ResizeObserver(() => {
+      scheduleMeasure();
+    });
+    observer.observe(containerEl);
+    resizeObserverRef.current = observer;
+
+    return () => {
+      if (rafIdRef.current != null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
+      }
+      mergeViewRef.current?.destroy();
+      mergeViewRef.current = null;
+      revealedRef.current = false;
+      mountEl.innerHTML = "";
+      if (containerEl) {
+        containerEl.style.visibility = "hidden";
+      }
+    };
+  }, [
+    calculateEditorHeight,
+    containerRef,
+    file.filePath,
+    file.newContent,
+    file.oldContent,
+    languageId,
+    theme,
+  ]);
+
+  return <div ref={mountRef} className="absolute inset-0" />;
+}
+
 const MemoFileDiffRow = memo(FileDiffRow, (prev, next) => {
   const a = prev.file;
   const b = next.file;
   return (
     prev.isExpanded === next.isExpanded &&
     prev.theme === next.theme &&
+    prev.viewerPreference === next.viewerPreference &&
     a.filePath === b.filePath &&
     a.oldPath === b.oldPath &&
     a.status === b.status &&
@@ -588,10 +819,15 @@ function getLanguageFromPath(path: string): string {
   const languageMap: Record<string, string> = {
     ts: "typescript",
     tsx: "typescript",
+    mts: "typescript",
+    cts: "typescript",
     js: "javascript",
     jsx: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
     json: "json",
     md: "markdown",
+    mdx: "markdown",
     css: "css",
     scss: "scss",
     html: "html",
@@ -603,6 +839,11 @@ function getLanguageFromPath(path: string): string {
     rs: "rust",
     java: "java",
     c: "c",
+    h: "cpp",
+    hh: "cpp",
+    hpp: "cpp",
+    hxx: "cpp",
+    cxx: "cpp",
     cpp: "cpp",
     cs: "csharp",
     php: "php",
@@ -612,9 +853,176 @@ function getLanguageFromPath(path: string): string {
     scala: "scala",
     sh: "shell",
     bash: "shell",
+    zsh: "shell",
+    fish: "shell",
     sql: "sql",
     dockerfile: "dockerfile",
+    toml: "toml",
+    ini: "ini",
+    conf: "ini",
+    env: "ini",
+    properties: "ini",
+    vue: "html",
+    svelte: "html",
+    astro: "html",
+    txt: "plaintext",
+    log: "plaintext",
+    makefile: "shell",
+    prisma: "sql",
   };
 
   return languageMap[ext || ""] || "plaintext";
+}
+
+const CODEMIRROR_FONT_FAMILY =
+  "'JetBrains Mono', 'SF Mono', Monaco, 'Courier New', monospace";
+
+function getCodeMirrorLanguageExtensions(
+  filePath: string,
+  languageId: string
+): Extension[] {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  switch (languageId) {
+    case "typescript":
+      return [javascript({ jsx: ext === "tsx", typescript: true })];
+    case "javascript":
+      return [javascript({ jsx: ext === "jsx" || ext === "tsx" })];
+    case "json":
+      return [json()];
+    case "markdown":
+      return [markdown()];
+    case "css":
+      return [css()];
+    case "scss":
+      return [StreamLanguage.define(sassMode)];
+    case "html":
+      return [html()];
+    case "xml":
+      return [xml()];
+    case "yaml":
+      return [yaml()];
+    case "python":
+      return [python()];
+    case "go":
+      return [goLang()];
+    case "rust":
+      return [rust()];
+    case "java":
+      return [javaLang()];
+    case "c":
+    case "cpp":
+      return [StreamLanguage.define(cppMode)];
+    case "csharp":
+      return [StreamLanguage.define(csharpLang)];
+    case "php":
+      return [phpLang()];
+    case "ruby":
+      return [StreamLanguage.define(rubyLang)];
+    case "swift":
+      return [StreamLanguage.define(swiftLang)];
+    case "kotlin":
+      return [StreamLanguage.define(kotlinLang)];
+    case "scala":
+      return [StreamLanguage.define(scalaLang)];
+    case "shell":
+      return [StreamLanguage.define(shellLang)];
+    case "sql":
+      return [sql()];
+    case "dockerfile":
+      return [StreamLanguage.define(dockerFile)];
+    case "toml":
+      return [StreamLanguage.define(tomlLang)];
+    case "ini":
+      return [StreamLanguage.define(propertiesLang)];
+    default:
+      if (languageId === "plaintext") {
+        if (ext === "toml") {
+          return [StreamLanguage.define(tomlLang)];
+        }
+        if (ext === "ini" || ext === "env" || ext === "properties") {
+          return [StreamLanguage.define(propertiesLang)];
+        }
+      }
+      return [];
+  }
+}
+
+function createCodeMirrorTheme(isDark: boolean): Extension {
+  const background = isDark ? "#111827" : "#ffffff";
+  const gutterBackground = isDark ? "#171717" : "#f5f5f5";
+  const gutterColor = isDark ? "#9ca3af" : "#6b7280";
+  const selection = isDark
+    ? "rgba(59,130,246,0.35)"
+    : "rgba(59,130,246,0.25)";
+
+  return EditorView.theme(
+    {
+      "&": {
+        backgroundColor: background,
+        color: isDark ? "#e5e7eb" : "#1f2937",
+        fontFamily: CODEMIRROR_FONT_FAMILY,
+        fontSize: "12px",
+      },
+      ".cm-editor": {
+        height: "100%",
+        fontFamily: CODEMIRROR_FONT_FAMILY,
+      },
+      ".cm-content": {
+        fontFamily: CODEMIRROR_FONT_FAMILY,
+        fontSize: "12px",
+        lineHeight: "18px",
+        padding: "0",
+      },
+      ".cm-line": {
+        padding: "0 4px",
+      },
+      ".cm-activeLine": {
+        backgroundColor: isDark
+          ? "rgba(255,255,255,0.05)"
+          : "rgba(0,0,0,0.04)",
+      },
+      ".cm-activeLineGutter": {
+        backgroundColor: isDark
+          ? "rgba(255,255,255,0.08)"
+          : "rgba(0,0,0,0.06)",
+      },
+      ".cm-gutters": {
+        backgroundColor: gutterBackground,
+        color: gutterColor,
+        border: "none",
+        fontFamily: CODEMIRROR_FONT_FAMILY,
+        fontSize: "12px",
+      },
+      ".cm-gutterElement": {
+        padding: "0 8px 0 4px",
+      },
+      ".cm-selectionBackground": {
+        backgroundColor: selection,
+      },
+      ".cm-content ::selection": {
+        backgroundColor: selection,
+      },
+      ".cm-cursor": {
+        display: "none",
+      },
+      ".cm-scroller": {
+        overflow: "auto",
+      },
+      ".cm-mergeView": {
+        backgroundColor: "inherit",
+        height: "100%",
+      },
+      ".cm-mergeView .cm-editor": {
+        height: "100%",
+      },
+      ".cm-mergeView .cm-gutters": {
+        backgroundColor: gutterBackground,
+      },
+      ".cm-panels": {
+        backgroundColor: "inherit",
+        color: "inherit",
+      },
+    },
+    { dark: isDark }
+  );
 }
