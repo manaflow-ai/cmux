@@ -265,6 +265,33 @@ export interface ServerToWorkerEvents {
   "worker:check-docker": (
     callback: (response: DockerReadinessResponse) => void
   ) => void;
+
+  // Crown evaluation events
+  "worker:crownEvaluate": (
+    data: {
+      prompt: string;
+      teamSlugOrId: string;
+      authToken: string;
+      wwwBaseUrl: string;
+    },
+    callback: (
+      error: Error | null,
+      response: { data: { winner: number; reason: string } } | null
+    ) => void
+  ) => void;
+
+  "worker:crownSummarize": (
+    data: {
+      prompt: string;
+      teamSlugOrId?: string;
+      authToken: string;
+      wwwBaseUrl: string;
+    },
+    callback: (
+      error: Error | null,
+      response: { summary: string } | null
+    ) => void
+  ) => void;
 }
 
 export interface WorkerFileChange {

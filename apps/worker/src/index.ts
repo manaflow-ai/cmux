@@ -683,6 +683,62 @@ managementIO.on("connection", (socket) => {
     }
   });
 
+  // Handle crown evaluation request from server
+  socket.on("worker:crownEvaluate", async (data: any, callback: any) => {
+    try {
+      const { evaluateCrownDirectly } = await import("./crownEvaluatorClient.js");
+
+      log("INFO", "[Worker] Received crown evaluation request", {
+        promptLength: data.prompt?.length,
+        teamSlugOrId: data.teamSlugOrId,
+      });
+
+      const result = await evaluateCrownDirectly({
+        prompt: data.prompt,
+        teamSlugOrId: data.teamSlugOrId,
+        authToken: data.authToken,
+        wwwBaseUrl: data.wwwBaseUrl,
+      });
+
+      if (result) {
+        callback(null, { data: result });
+      } else {
+        callback(new Error("Crown evaluation failed"), null);
+      }
+    } catch (error) {
+      log("ERROR", "[Worker] Crown evaluation error", error);
+      callback(error instanceof Error ? error : new Error(String(error)), null);
+    }
+  });
+
+  // Handle crown summarization request from server
+  socket.on("worker:crownSummarize", async (data: any, callback: any) => {
+    try {
+      const { summarizeCrownDirectly } = await import("./crownEvaluatorClient.js");
+
+      log("INFO", "[Worker] Received crown summarization request", {
+        promptLength: data.prompt?.length,
+        teamSlugOrId: data.teamSlugOrId,
+      });
+
+      const summary = await summarizeCrownDirectly({
+        prompt: data.prompt,
+        teamSlugOrId: data.teamSlugOrId,
+        authToken: data.authToken,
+        wwwBaseUrl: data.wwwBaseUrl,
+      });
+
+      if (summary) {
+        callback(null, { summary });
+      } else {
+        callback(new Error("Crown summarization failed"), null);
+      }
+    } catch (error) {
+      log("ERROR", "[Worker] Crown summarization error", error);
+      callback(error instanceof Error ? error : new Error(String(error)), null);
+    }
+  });
+
   socket.on("worker:shutdown", () => {
     console.log(`Worker ${WORKER_ID} received shutdown command`);
     gracefulShutdown();

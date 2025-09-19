@@ -10,6 +10,8 @@ import {
   postApiCrownEvaluate,
   postApiCrownSummarize,
 } from "@cmux/www-openapi-client";
+import { getAuthHeaderJson } from "./utils/requestContext.js";
+import { getWwwBaseUrl } from "./utils/server-env.js";
 
 const UNKNOWN_AGENT_NAME = "unknown agent";
 
@@ -409,20 +411,76 @@ export async function evaluateCrown({
 
         let commentText = "";
         try {
-          // Call the crown summarize endpoint
-          const res = await postApiCrownSummarize({
-            client: getWwwClient(),
-            body: {
-              prompt: summarizationPrompt,
-              teamSlugOrId,
-            },
-          });
+          // Try to use worker for crown summarization if available
+          const instances = VSCodeInstance.getInstances();
+          let workerSummarized = false;
 
-          if (!res.data) {
-            serverLogger.error(`[CrownEvaluator] Crown summarize failed`);
-            return;
+          for (const [, inst] of instances) {
+            if (inst.getTaskRunId() === winnerRunId && inst.isWorkerConnected()) {
+              const workerSocket = inst.getWorkerSocket();
+              if (workerSocket) {
+                try {
+                  const authHeaderJson = getAuthHeaderJson();
+                  const wwwBaseUrl = getWwwBaseUrl();
+
+                  const result = await new Promise<{ success: boolean; summary?: string }>(
+                    (resolve) => {
+                      workerSocket.timeout(30000).emit(
+                        "worker:crownSummarize" as any,
+                        {
+                          prompt: summarizationPrompt,
+                          teamSlugOrId,
+                          authToken: authHeaderJson || "",
+                          wwwBaseUrl,
+                        },
+                        (timeoutError: any, response: any) => {
+                          if (timeoutError || !response?.summary) {
+                            resolve({ success: false });
+                          } else {
+                            resolve({ success: true, summary: response.summary });
+                          }
+                        }
+                      );
+                    }
+                  );
+
+                  if (result.success && result.summary) {
+                    commentText = result.summary;
+                    workerSummarized = true;
+                    serverLogger.info(
+                      `[CrownEvaluator] PR summary generated via worker`
+                    );
+                  }
+                } catch (e) {
+                  serverLogger.warn(
+                    `[CrownEvaluator] Worker summarization failed, falling back to server:`,
+                    e
+                  );
+                }
+              }
+              break;
+            }
           }
-          commentText = res.data.summary;
+
+          // Fallback to server-side API call if worker didn't succeed
+          if (!workerSummarized) {
+            const res = await postApiCrownSummarize({
+              client: getWwwClient(),
+              body: {
+                prompt: summarizationPrompt,
+                teamSlugOrId,
+              },
+            });
+
+            if (!res.data) {
+              serverLogger.error(`[CrownEvaluator] Crown summarize failed`);
+              return;
+            }
+            commentText = res.data.summary;
+            serverLogger.info(
+              `[CrownEvaluator] PR summary generated via server`
+            );
+          }
         } catch (e) {
           serverLogger.error(
             `[CrownEvaluator] Failed to generate PR summary:`,
@@ -639,18 +697,80 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
     } catch {
       /* empty */
     }
-    const res = await postApiCrownEvaluate({
-      client: getWwwClient(),
-      body: {
-        prompt: evaluationPrompt,
-        teamSlugOrId,
-      },
-    });
 
-    if (!res.data) {
-      serverLogger.error(`[CrownEvaluator] Crown evaluate failed`);
+    let jsonResponse: { winner: number; reason: string } | undefined;
+
+    // Try to use worker for crown evaluation if available
+    const instances = VSCodeInstance.getInstances();
+    let workerEvaluated = false;
+
+    for (const [, inst] of instances) {
+      // Use any available worker connection for the evaluation
+      if (inst.isWorkerConnected()) {
+        const workerSocket = inst.getWorkerSocket();
+        if (workerSocket) {
+          try {
+            const authHeaderJson = getAuthHeaderJson();
+            const wwwBaseUrl = getWwwBaseUrl();
+
+            const result = await new Promise<{ success: boolean; data?: { winner: number; reason: string } }>(
+              (resolve) => {
+                workerSocket.timeout(60000).emit(
+                  "worker:crownEvaluate" as any,
+                  {
+                    prompt: evaluationPrompt,
+                    teamSlugOrId,
+                    authToken: authHeaderJson || "",
+                    wwwBaseUrl,
+                  },
+                  (timeoutError: any, response: any) => {
+                    if (timeoutError || !response?.data) {
+                      resolve({ success: false });
+                    } else {
+                      resolve({ success: true, data: response.data });
+                    }
+                  }
+                );
+              }
+            );
+
+            if (result.success && result.data) {
+              jsonResponse = result.data;
+              workerEvaluated = true;
+              serverLogger.info(
+                `[CrownEvaluator] Crown evaluation completed via worker`
+              );
+            }
+          } catch (e) {
+            serverLogger.warn(
+              `[CrownEvaluator] Worker evaluation failed, falling back to server:`,
+              e
+            );
+          }
+        }
+        break; // Use first available worker
+      }
     }
-    const jsonResponse = res.data;
+
+    // Fallback to server-side API call if worker didn't succeed
+    if (!workerEvaluated) {
+      const res = await postApiCrownEvaluate({
+        client: getWwwClient(),
+        body: {
+          prompt: evaluationPrompt,
+          teamSlugOrId,
+        },
+      });
+
+      if (!res.data) {
+        serverLogger.error(`[CrownEvaluator] Crown evaluate failed`);
+      } else {
+        jsonResponse = res.data;
+        serverLogger.info(
+          `[CrownEvaluator] Crown evaluation completed via server`
+        );
+      }
+    }
 
     if (!jsonResponse) {
       // Fallback: Pick the first completed run as winner
