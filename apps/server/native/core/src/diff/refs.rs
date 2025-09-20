@@ -199,20 +199,17 @@ pub fn diff_refs(opts: GitDiffRefsOptions) -> Result<Vec<DiffEntry>> {
     let new_data = get_blob_bytes(oid);
     _blob_read_ns += t_bl.elapsed().as_nanos();
     // New content may be missing (e.g., submodule) -> treat as binary
-    let (bin, new_sz) = match &new_data {
-      Some(buf) => (is_binary(buf), buf.len()),
-      None => (true, 0),
+    let bin = match &new_data {
+      Some(buf) => is_binary(buf),
+      None => true,
     };
     let mut e = DiffEntry{ filePath: new_path.clone(), oldPath: Some(old_path.clone()), status: "renamed".into(), additions: 0, deletions: 0, isBinary: bin, ..Default::default() };
+    if let Some(buf) = &new_data {
+      e.newSize = Some(buf.len() as i32);
+      e.oldSize = Some(buf.len() as i32);
+    }
     if include && !bin {
-      let new_str = String::from_utf8_lossy(new_data.as_ref().unwrap()).into_owned();
-      e.newSize = Some(new_sz as i32);
-      e.oldSize = Some(new_sz as i32);
-      if new_sz <= max_bytes {
-        e.oldContent = Some(new_str.clone());
-        e.newContent = Some(new_str);
-        e.contentOmitted = Some(false);
-      } else { e.contentOmitted = Some(true); }
+      e.contentOmitted = Some(true);
     } else { e.contentOmitted = Some(false); }
     out.push(e);
   }

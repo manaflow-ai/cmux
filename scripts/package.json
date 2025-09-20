@@ -9,7 +9,7 @@
   "dependencies": {
     "@cmux/shared": "workspace:*",
     "@daytonaio/sdk": "^0.22.1",
-    "convex": "^1.27.0",
+    "convex": "^1.27.1",
     "commander": "^12.1.0",
     "prompts": "^2.4.2",
     "dotenv": "^16.6.1",

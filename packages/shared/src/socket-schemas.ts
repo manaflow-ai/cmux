@@ -241,7 +241,7 @@ export const GitHubFetchBranchesSchema = z.object({
 
 export const GitHubBranchesResponseSchema = z.object({
   success: z.boolean(),
-  branches: z.array(z.string()).optional(),
+  branches: z.array(z.string()),
   error: z.string().optional(),
 });
 
@@ -442,7 +442,11 @@ export interface ClientToServerEvents {
     data: z.infer<typeof GitSmartRefsSchema>,
     callback: (
       response:
-        | { ok: true; diffs: import("./diff-types.js").ReplaceDiffEntry[]; strategy?: "latest" | "landed" }
+        | {
+            ok: true;
+            diffs: import("./diff-types.js").ReplaceDiffEntry[];
+            strategy?: "latest" | "landed";
+          }
         | { ok: false; error: string; diffs?: [] }
     ) => void
   ) => void;

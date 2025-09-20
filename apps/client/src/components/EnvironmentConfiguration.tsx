@@ -1,7 +1,11 @@
 import { GitHubIcon } from "@/components/icons/github";
 import { ResizableColumns } from "@/components/ResizableColumns";
 import { parseEnvBlock } from "@/lib/parseEnvBlock";
-import { postApiEnvironmentsMutation } from "@cmux/www-openapi-client/react-query";
+import { formatEnvVarsContent } from "@cmux/shared/utils/format-env-vars-content";
+import {
+  postApiEnvironmentsMutation,
+  postApiSandboxesByIdEnvMutation,
+} from "@cmux/www-openapi-client/react-query";
 import { Accordion, AccordionItem } from "@heroui/react";
 import { useMutation as useRQMutation } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -39,6 +43,14 @@ export function EnvironmentConfiguration({
   const [pendingFocusIndex, setPendingFocusIndex] = useState<number | null>(
     null
   );
+  const lastSubmittedEnvContent = useRef<string | null>(null);
+  const createEnvironmentMutation = useRQMutation(
+    postApiEnvironmentsMutation()
+  );
+  const applySandboxEnvMutation = useRQMutation(
+    postApiSandboxesByIdEnvMutation()
+  );
+  const applySandboxEnv = applySandboxEnvMutation.mutate;
 
   useEffect(() => {
     if (pendingFocusIndex !== null) {
@@ -64,9 +76,53 @@ export function EnvironmentConfiguration({
 
   // no-op placeholder removed; using onSnapshot instead
 
-  const createEnvironmentMutation = useRQMutation(
-    postApiEnvironmentsMutation()
-  );
+  useEffect(() => {
+    lastSubmittedEnvContent.current = null;
+  }, [instanceId]);
+
+  useEffect(() => {
+    if (!instanceId) {
+      return;
+    }
+
+    const envVarsContent = formatEnvVarsContent(
+      envVars
+        .filter((r) => r.name.trim().length > 0)
+        .map((r) => ({ name: r.name, value: r.value }))
+    );
+
+    if (
+      envVarsContent.length === 0 &&
+      lastSubmittedEnvContent.current === null
+    ) {
+      return;
+    }
+
+    if (envVarsContent === lastSubmittedEnvContent.current) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      applySandboxEnv(
+        {
+          path: { id: instanceId },
+          body: { teamSlugOrId, envVarsContent },
+        },
+        {
+          onSuccess: () => {
+            lastSubmittedEnvContent.current = envVarsContent;
+          },
+          onError: (error) => {
+            console.error("Failed to apply sandbox environment vars", error);
+          },
+        }
+      );
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [envVars, instanceId, teamSlugOrId, applySandboxEnv]);
 
   const onSnapshot = async (): Promise<void> => {
     if (!instanceId) {
@@ -78,10 +134,11 @@ export function EnvironmentConfiguration({
       return;
     }
 
-    const envVarsContent = envVars
-      .filter((r) => r.name.trim().length > 0)
-      .map((r) => `${r.name}=${r.value}`)
-      .join("\n");
+    const envVarsContent = formatEnvVarsContent(
+      envVars
+        .filter((r) => r.name.trim().length > 0)
+        .map((r) => ({ name: r.name, value: r.value }))
+    );
 
     const ports = exposedPorts
       .split(",")

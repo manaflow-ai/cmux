@@ -1,16 +1,45 @@
 import { CmuxComments } from "@/components/cmux-comments";
 import { CommandBar } from "@/components/CommandBar";
 import { Sidebar } from "@/components/Sidebar";
+import type { TaskWithRuns } from "@/components/TaskTree";
 import { convexQueryClient } from "@/contexts/convex/convex-query-client";
 import { ExpandTasksProvider } from "@/contexts/expand-tasks/ExpandTasksProvider";
 import { isFakeConvexId } from "@/lib/fakeConvexId";
+import { setLastTeamSlugOrId } from "@/lib/lastTeam";
 import { api } from "@cmux/convex/api";
 import { type Id } from "@cmux/convex/dataModel";
 import { convexQuery } from "@convex-dev/react-query";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useQueries, useQuery } from "convex/react";
 import { Suspense, useEffect, useMemo } from "react";
-import { setLastTeamSlugOrId } from "@/lib/lastTeam";
+
+type TaskRunWithChildren = TaskWithRuns["runs"][number];
+
+function sortRunsForSidebar(
+  runs: readonly TaskRunWithChildren[] | undefined
+): TaskRunWithChildren[] {
+  if (!runs) {
+    return [];
+  }
+
+  const runsWithSortedChildren = runs.map((run) => ({
+    ...run,
+    children: sortRunsForSidebar(run.children),
+  }));
+
+  runsWithSortedChildren.sort((a, b) => {
+    const aCrowned = a.isCrowned === true;
+    const bCrowned = b.isCrowned === true;
+
+    if (aCrowned !== bCrowned) {
+      return aCrowned ? -1 : 1;
+    }
+
+    return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
+
+  return runsWithSortedChildren;
+}
 
 export const Route = createFileRoute("/_layout/$teamSlugOrId")({
   component: LayoutComponentWrapper,
@@ -19,9 +48,14 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId")({
     const teamMemberships = await convexQueryClient.convexClient.query(
       api.teams.listTeamMemberships
     );
-    const teamMembership = teamMemberships.find(
-      (m) => m.team.slug === teamSlugOrId || m.team.teamId === teamSlugOrId
-    );
+    const teamMembership = teamMemberships.find((membership) => {
+      const team = membership.team;
+      const membershipTeamId = team?.teamId ?? membership.teamId;
+      const membershipSlug = team?.slug;
+      return (
+        membershipSlug === teamSlugOrId || membershipTeamId === teamSlugOrId
+      );
+    });
     if (!teamMembership) {
       throw redirect({ to: "/team-picker" });
     }
@@ -78,12 +112,14 @@ function LayoutComponent() {
     taskRunQueries as Parameters<typeof useQueries>[0]
   );
 
-  // Map tasks with their respective runs
+  // Map tasks with their respective runs, ensuring crowned runs appear first
   const tasksWithRuns = useMemo(
     () =>
       recentTasks.map((task) => ({
         ...task,
-        runs: taskRunResults[task._id] || [],
+        runs: sortRunsForSidebar(
+          taskRunResults[task._id] as TaskRunWithChildren[] | undefined
+        ),
       })),
     [recentTasks, taskRunResults]
   );

@@ -37,6 +37,68 @@ export const get = authQuery({
   },
 });
 
+export const getTasksWithTaskRuns = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    projectFullName: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    let q = ctx.db
+      .query("tasks")
+      .withIndex("by_team_user", (idx) =>
+        idx.eq("teamId", teamId).eq("userId", userId)
+      );
+
+    if (args.archived === true) {
+      q = q.filter((qq) => qq.eq(qq.field("isArchived"), true));
+    } else {
+      q = q.filter((qq) => qq.neq(qq.field("isArchived"), true));
+    }
+
+    if (args.projectFullName) {
+      q = q.filter((qq) =>
+        qq.eq(qq.field("projectFullName"), args.projectFullName)
+      );
+    }
+
+    const tasks = await q.collect();
+    const sortedTasks = tasks.sort(
+      (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+    );
+
+    const tasksWithRuns = await Promise.all(
+      sortedTasks.map(async (task) => {
+        const crownedRun = await ctx.db
+          .query("taskRuns")
+          .withIndex("by_task", (query) => query.eq("taskId", task._id))
+          .filter((query) => query.eq(query.field("isCrowned"), true))
+          .first();
+
+        let selectedTaskRun = crownedRun ?? null;
+
+        if (!selectedTaskRun) {
+          const [latestRun] = await ctx.db
+            .query("taskRuns")
+            .withIndex("by_task", (query) => query.eq("taskId", task._id))
+            .order("desc")
+            .take(1);
+          selectedTaskRun = latestRun ?? null;
+        }
+
+        return {
+          ...task,
+          selectedTaskRun,
+        };
+      })
+    );
+
+    return tasksWithRuns;
+  },
+});
+
 export const create = authMutation({
   args: {
     teamSlugOrId: v.string(),
@@ -54,10 +116,17 @@ export const create = authMutation({
         })
       )
     ),
+    environmentId: v.optional(v.id("environments")),
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (args.environmentId) {
+      const environment = await ctx.db.get(args.environmentId);
+      if (!environment || environment.teamId !== teamId) {
+        throw new Error("Environment not found");
+      }
+    }
     const now = Date.now();
     const taskId = await ctx.db.insert("tasks", {
       text: args.text,
@@ -71,6 +140,7 @@ export const create = authMutation({
       images: args.images,
       userId,
       teamId,
+      environmentId: args.environmentId,
     });
 
     return taskId;

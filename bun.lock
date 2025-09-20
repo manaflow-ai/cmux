@@ -20,7 +20,7 @@
     },
     "apps/client": {
       "name": "@cmux/client",
-      "version": "1.0.14",
+      "version": "1.0.26",
       "dependencies": {
         "@base-ui-components/react": "1.0.0-beta.2",
         "@cmux/convex": "workspace:*",
@@ -66,7 +66,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
-        "convex": "1.27.0",
+        "convex": "1.27.1",
         "date-fns": "^4.1.0",
         "debug": "^4.4.1",
         "dockerode": "^4.0.2",
@@ -155,7 +155,7 @@
       "version": "0.1.0",
       "dependencies": {
         "bun-plugin-tailwind": "^0.0.15",
-        "convex": "1.27.0",
+        "convex": "1.27.1",
         "lucide-react": "^0.540.0",
         "react": "^19.1.0",
         "react-dom": "^19.1.0",
@@ -187,7 +187,7 @@
         "ansi-escape-sequences": "^6.2.4",
         "archiver": "^7.0.1",
         "chokidar": "^4.0.3",
-        "convex": "1.27.0",
+        "convex": "1.27.1",
         "dockerode": "^4.0.2",
         "dotenv": "^16.6.1",
         "express": "^4.21.2",
@@ -260,7 +260,7 @@
         "ai": "^5.0.22",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "convex": "^1.27.0",
+        "convex": "^1.27.1",
         "hono": "^4.9.1",
         "jose": "^6.1.0",
         "lucide-react": "^0.460.0",
@@ -304,7 +304,7 @@
         "@cmux/server": "workspace:*",
         "@cmux/shared": "workspace:*",
         "commander": "^11.1.0",
-        "convex": "1.27.0",
+        "convex": "1.27.1",
         "cors": "^2.8.5",
         "express": "^4.18.2",
         "socket.io": "^4.7.2",
@@ -326,7 +326,7 @@
         "@convex-dev/migrations": "^0.2.9",
         "@stackframe/js": "^2.8.36",
         "@t3-oss/env-core": "^0.13.8",
-        "convex": "1.27.0",
+        "convex": "1.27.1",
         "convex-helpers": "^0.1.104",
         "socket.io-client": "^4.8.1",
         "svix": "^1.75.0",
@@ -338,36 +338,12 @@
         "vitest": "3.2.4",
       },
     },
-    "packages/envctl": {
-      "name": "@cmux/envctl",
-      "version": "0.1.0",
-      "bin": {
-        "envctl": "./dist/index.js",
-      },
-      "devDependencies": {
-        "@types/node": "^24.3.1",
-        "tsx": "^4.7.1",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/envd": {
-      "name": "@cmux/envd",
-      "version": "0.1.0",
-      "bin": {
-        "envd": "./dist/index.js",
-      },
-      "devDependencies": {
-        "@types/node": "^24.3.1",
-        "tsx": "^4.7.1",
-        "typescript": "^5.8.3",
-      },
-    },
     "packages/shared": {
       "name": "@cmux/shared",
       "version": "1.0.0",
       "dependencies": {
         "@cmux/convex": "workspace:*",
-        "convex": "^1.27.0",
+        "convex": "^1.27.1",
         "jose": "^6.1.0",
         "socket.io-client": "^4.8.1",
         "zod": "^4.1.5",
@@ -377,6 +353,7 @@
         "@xterm/xterm": "^5.5.0",
         "socket.io": "^4.8.1",
         "typescript": "^5.8.3",
+        "vitest": "^3.2.4",
       },
     },
     "packages/vscode-extension": {
@@ -419,7 +396,7 @@
         "@cmux/shared": "workspace:*",
         "@daytonaio/sdk": "^0.22.1",
         "commander": "^12.1.0",
-        "convex": "^1.27.0",
+        "convex": "^1.27.1",
         "dotenv": "^16.6.1",
         "ignore": "^6.0.2",
         "morphcloud": "^0.0.18",
@@ -670,10 +647,6 @@
     "@cmux/convex": ["@cmux/convex@workspace:packages/convex"],
 
     "@cmux/edge-router": ["@cmux/edge-router@workspace:apps/edge-router"],
-
-    "@cmux/envctl": ["@cmux/envctl@workspace:packages/envctl"],
-
-    "@cmux/envd": ["@cmux/envd@workspace:packages/envd"],
 
     "@cmux/scripts": ["@cmux/scripts@workspace:scripts"],
 
@@ -2561,7 +2534,7 @@
 
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 
-    "convex": ["convex@1.27.0", "", { "dependencies": { "esbuild": "0.25.4", "jwt-decode": "^4.0.0", "prettier": "^3.0.0" }, "peerDependencies": { "@auth0/auth0-react": "^2.0.1", "@clerk/clerk-react": "^4.12.8 || ^5.0.0", "react": "^18.0.0 || ^19.0.0-0 || ^19.0.0" }, "optionalPeers": ["@auth0/auth0-react", "@clerk/clerk-react", "react"], "bin": { "convex": "bin/main.js" } }, "sha512-IHkqZX3GtY4nKFPTAR4mvWHHhDiQX9PM7EjpEv0pJWoMoq0On6oOL3iZ7Xz4Ls96dF7WJd4AjfitJsg2hUnLSQ=="],
+    "convex": ["convex@1.27.1", "", { "dependencies": { "esbuild": "0.25.4", "jwt-decode": "^4.0.0", "prettier": "^3.0.0" }, "peerDependencies": { "@auth0/auth0-react": "^2.0.1", "@clerk/clerk-react": "^4.12.8 || ^5.0.0", "react": "^18.0.0 || ^19.0.0-0 || ^19.0.0" }, "optionalPeers": ["@auth0/auth0-react", "@clerk/clerk-react", "react"], "bin": { "convex": "bin/main.js" } }, "sha512-kep7JFn5Bil9/OUZUsL1bgoo0G9DmEf7stkBW67+NqP2FrzBt2TX8yz4V6oKLygzepGy90Ura2FtqXawYKXYIg=="],
 
     "convex-helpers": ["convex-helpers@0.1.104", "", { "peerDependencies": { "@standard-schema/spec": "^1.0.0", "convex": "^1.24.0", "hono": "^4.0.5", "react": "^17.0.2 || ^18.0.0 || ^19.0.0", "typescript": "^5.5", "zod": "^3.22.4 || ^4.0.15" }, "optionalPeers": ["@standard-schema/spec", "hono", "react", "typescript", "zod"], "bin": { "convex-helpers": "bin.cjs" } }, "sha512-7CYvx7T3K6n+McDTK4ZQaQNNGBzq5aWezpjzsKbOxPXx7oNcTP9wrpef3JxeXWFzkByJv5hRCjseh9B7eNJ7Ig=="],
 
@@ -4699,6 +4672,8 @@
 
     "builder-util/fs-extra": ["fs-extra@10.1.0", "", { "dependencies": { "graceful-fs": "^4.2.0", "jsonfile": "^6.0.1", "universalify": "^2.0.0" } }, "sha512-oRXApq54ETRj4eMiFzGnHWGy+zo5raudjuxN0b8H7s/RU2oW0Wvsx9O0ACRN/kRq9E8Vu/ReskGB5o3ji+FzHQ=="],
 
+    "bun-react-template/@types/bun": ["@types/bun@1.2.22", "", { "dependencies": { "bun-types": "1.2.22" } }, "sha512-5A/KrKos2ZcN0c6ljRSOa1fYIyCKhZfIVYeuyb4snnvomnpFqC0tTsEkdqNxbAgExV384OETQ//WAjl3XbYqQA=="],
+
     "bun-react-template/lucide-react": ["lucide-react@0.540.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-armkCAqQvO62EIX4Hq7hqX/q11WSZu0Jd23cnnqx0/49yIxGXyL/zyZfBxNN9YDx0ensPTb4L+DjTh3yQXUxtQ=="],
 
     "c12/ohash": ["ohash@1.1.6", "", {}, "sha512-TBu7PtV8YkAZn0tSxobKY2n2aAQva936lhRrj6957aDaCf9IEtqsKbgMzXE/F/sjqYOwmrukeORHNLe5glk7Cg=="],
@@ -4738,6 +4713,8 @@
     "cliui/strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "clone-response/mimic-response": ["mimic-response@1.0.1", "", {}, "sha512-j5EctnkH7amfV/q5Hgmoal1g2QHFJRraOtmx0JpIqkxhBhI/lJSl1nMpQ45hVarwNETOoWEimndZ4QK0RHxuxQ=="],
+
+    "cmux/@types/bun": ["@types/bun@1.2.22", "", { "dependencies": { "bun-types": "1.2.22" } }, "sha512-5A/KrKos2ZcN0c6ljRSOa1fYIyCKhZfIVYeuyb4snnvomnpFqC0tTsEkdqNxbAgExV384OETQ//WAjl3XbYqQA=="],
 
     "cmux/commander": ["commander@11.1.0", "", {}, "sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ=="],
 
@@ -5211,6 +5188,8 @@
 
     "body-parser/debug/ms": ["ms@2.0.0", "", {}, "sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A=="],
 
+    "bun-react-template/@types/bun/bun-types": ["bun-types@1.2.22", "", { "dependencies": { "@types/node": "*" }, "peerDependencies": { "@types/react": "^19" } }, "sha512-hwaAu8tct/Zn6Zft4U9BsZcXkYomzpHJX28ofvx7k0Zz2HNz54n1n+tDgxoWFGB4PcFvJXJQloPhaV2eP3Q6EA=="],
+
     "cacache/glob/minimatch": ["minimatch@5.1.6", "", { "dependencies": { "brace-expansion": "^2.0.1" } }, "sha512-lKwV/1brpG6mBUFHtb7NUmtABCb2WZZmm2wNiOA5hAb8VdCS4B3dtMWyvcoViccwAW/COERjXLt0zP1zXUN26g=="],
 
     "cacache/minipass/yallist": ["yallist@4.0.0", "", {}, "sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A=="],
@@ -5230,6 +5209,8 @@
     "cli-truncate/slice-ansi/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 
     "cliui/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
+
+    "cmux/@types/bun/bun-types": ["bun-types@1.2.22", "", { "dependencies": { "@types/node": "*" }, "peerDependencies": { "@types/react": "^19" } }, "sha512-hwaAu8tct/Zn6Zft4U9BsZcXkYomzpHJX28ofvx7k0Zz2HNz54n1n+tDgxoWFGB4PcFvJXJQloPhaV2eP3Q6EA=="],
 
     "color/color-convert/color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
 

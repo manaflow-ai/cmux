@@ -73,6 +73,7 @@ jobs:
           # GitHub App
           CMUX_GITHUB_APP_ID: ${{ secrets.CMUX_GITHUB_APP_ID }}
           CMUX_GITHUB_APP_PRIVATE_KEY: ${{ secrets.CMUX_GITHUB_APP_PRIVATE_KEY }}
+          CMUX_TASK_RUN_JWT_SECRET: ${{ secrets.CMUX_TASK_RUN_JWT_SECRET }}
           # API Keys
           MORPH_API_KEY: ${{ secrets.MORPH_API_KEY }}
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

@@ -1,5 +1,5 @@
-import { getShortId } from "@cmux/shared";
 import { persistentIframeManager } from "./persistentIframeManager";
+import { getTaskRunPersistKey } from "./persistent-webview-keys";
 
 /**
  * Preload iframes for task runs
@@ -7,9 +7,10 @@ import { persistentIframeManager } from "./persistentIframeManager";
  * @returns Promise that resolves when all iframes are loaded
  */
 export async function preloadTaskRunIframes(
-  data: { url: string; key: string }[]
+  data: { url: string; taskRunId: string }[]
 ): Promise<void> {
-  const entries = data.map(({ url, key }) => {
+  const entries = data.map(({ url, taskRunId }) => {
+    const key = getTaskRunPersistKey(taskRunId);
     return {
       key,
       url,
@@ -27,11 +28,11 @@ export async function preloadTaskRunIframes(
  * @param taskRunId - Task run ID to preload
  * @returns Promise that resolves when the iframe is loaded
  */
-export async function preloadTaskRunIframe(taskRunId: string): Promise<void> {
-  const shortId = getShortId(taskRunId);
-  const url = `http://${shortId}.39378.localhost:9776/?folder=/root/workspace`;
-
-  await persistentIframeManager.preloadIframe(`task-run-${taskRunId}`, url, {
+export async function preloadTaskRunIframe(
+  taskRunId: string,
+  url: string
+): Promise<void> {
+  await persistentIframeManager.preloadIframe(getTaskRunPersistKey(taskRunId), url, {
     allow: "clipboard-read; clipboard-write",
     sandbox:
       "allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation",
@@ -43,7 +44,7 @@ export async function preloadTaskRunIframe(taskRunId: string): Promise<void> {
  * @param taskRunId - Task run ID to remove
  */
 export function removeTaskRunIframe(taskRunId: string): void {
-  persistentIframeManager.removeIframe(`task-run-${taskRunId}`);
+  persistentIframeManager.removeIframe(getTaskRunPersistKey(taskRunId));
 }
 
 /**
@@ -53,6 +54,6 @@ export function removeTaskRunIframe(taskRunId: string): void {
 export function getLoadedTaskRunIframes(): string[] {
   return persistentIframeManager
     .getLoadedKeys()
-    .filter((key) => key.startsWith("task-run-"))
-    .map((key) => key.replace("task-run-", ""));
+    .filter((key) => key.startsWith("task-run:"))
+    .map((key) => key.replace("task-run:", ""));
 }

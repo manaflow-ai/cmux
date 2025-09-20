@@ -434,6 +434,7 @@ export function setupSocketHandlers(
             isCloudMode: taskData.isCloudMode,
             images: taskData.images,
             theme: taskData.theme,
+            environmentId: taskData.environmentId,
           },
           safeTeam
         );

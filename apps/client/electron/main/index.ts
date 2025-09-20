@@ -5,7 +5,9 @@ import { is } from "@electron-toolkit/utils";
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
+  ipcMain,
   Menu,
   nativeImage,
   net,
@@ -15,21 +17,19 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { startEmbeddedServer } from "./embedded-server";
+import { registerWebContentsViewHandlers } from "./web-contents-view";
 // Auto-updater
-import electronUpdater from "electron-updater";
+import electronUpdater, { type UpdateInfo } from "electron-updater";
 import {
   createRemoteJWKSet,
   decodeJwt,
   jwtVerify,
   type JWTPayload,
 } from "jose";
-import {
-  createWriteStream,
-  existsSync,
-  promises as fs,
-  mkdirSync,
-  type WriteStream,
-} from "node:fs";
+import { promises as fs } from "node:fs";
+import { appendLogWithRotation, type LogRotationOptions } from "./log-management/log-rotation";
+import { ensureLogDirectory } from "./log-management/log-paths";
+import { collectAllLogs } from "./log-management/collect-logs";
 const { autoUpdater } = electronUpdater;
 
 import util from "node:util";
@@ -40,49 +40,71 @@ import { env } from "./electron-main-env";
 const PARTITION = "persist:cmux";
 const APP_HOST = "cmux.local";
 
+function resolveMaxSuspendedWebContents(): number | undefined {
+  const raw =
+    process.env.CMUX_ELECTRON_MAX_SUSPENDED_WEBVIEWS ??
+    process.env.CMUX_ELECTRON_MAX_SUSPENDED_WEB_CONTENTS;
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
 let rendererLoaded = false;
 let pendingProtocolUrl: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 
+type AutoUpdateToastPayload = {
+  version: string | null;
+};
+
+let queuedAutoUpdateToast: AutoUpdateToastPayload | null = null;
+
+
 // Persistent log files
 let logsDir: string | null = null;
-let mainLogStream: WriteStream | null = null;
-let rendererLogStream: WriteStream | null = null;
+let mainLogPath: string | null = null;
+let rendererLogPath: string | null = null;
+
+const LOG_ROTATION: LogRotationOptions = {
+  maxBytes: 5 * 1024 * 1024,
+  maxBackups: 3,
+};
 
 function getTimestamp(): string {
   return new Date().toISOString();
 }
 
-function ensureLogStreams(): void {
-  if (logsDir) return; // already initialized
-  const base = app.getPath("userData");
-  const dir = path.join(base, "logs");
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+function ensureLogFiles(): void {
+  if (logsDir && mainLogPath && rendererLogPath) return;
+  const dir = ensureLogDirectory();
   logsDir = dir;
-  mainLogStream = createWriteStream(path.join(dir, "main.log"), {
-    flags: "a",
-    encoding: "utf8",
-  });
-  rendererLogStream = createWriteStream(path.join(dir, "renderer.log"), {
-    flags: "a",
-    encoding: "utf8",
-  });
+  mainLogPath = join(dir, "main.log");
+  rendererLogPath = join(dir, "renderer.log");
 }
 
 function writeMainLogLine(level: "LOG" | "WARN" | "ERROR", line: string): void {
-  if (!mainLogStream) return;
-  mainLogStream.write(`[${getTimestamp()}] [MAIN] [${level}] ${line}\n`);
+  if (!mainLogPath) ensureLogFiles();
+  if (!mainLogPath) return;
+  appendLogWithRotation(
+    mainLogPath,
+    `[${getTimestamp()}] [MAIN] [${level}] ${line}\n`,
+    LOG_ROTATION
+  );
 }
 
 function writeRendererLogLine(
   level: "info" | "warning" | "error" | "debug",
   line: string
 ): void {
-  if (!rendererLogStream) return;
-  rendererLogStream.write(
-    `[${getTimestamp()}] [RENDERER] [${level.toUpperCase()}] ${line}\n`
+  if (!rendererLogPath) ensureLogFiles();
+  if (!rendererLogPath) return;
+  appendLogWithRotation(
+    rendererLogPath,
+    `[${getTimestamp()}] [RENDERER] [${level.toUpperCase()}] ${line}\n`,
+    LOG_ROTATION
   );
 }
 
@@ -178,6 +200,68 @@ export function mainError(...args: unknown[]) {
   emitToRenderer("error", `[MAIN] ${line}`);
 }
 
+function emitAutoUpdateToastIfPossible(): void {
+  if (!queuedAutoUpdateToast) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererLoaded) return;
+  try {
+    mainWindow.webContents.send(
+      "cmux:event:auto-update:ready",
+      queuedAutoUpdateToast
+    );
+    queuedAutoUpdateToast = null;
+  } catch (error) {
+    mainWarn("Failed to send auto-update toast to renderer", error);
+  }
+}
+
+function queueAutoUpdateToast(payload: AutoUpdateToastPayload): void {
+  queuedAutoUpdateToast = payload;
+  emitAutoUpdateToastIfPossible();
+}
+
+function registerLogIpcHandlers(): void {
+  ipcMain.handle("cmux:logs:read-all", async () => {
+    try {
+      return await collectAllLogs();
+    } catch (error) {
+      mainWarn("Failed to read logs for renderer", error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw err;
+    }
+  });
+
+  ipcMain.handle("cmux:logs:copy-all", async () => {
+    try {
+      const { combinedText } = await collectAllLogs();
+      clipboard.writeText(combinedText);
+      return { ok: true };
+    } catch (error) {
+      mainWarn("Failed to copy logs for renderer", error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw err;
+    }
+  });
+}
+
+function registerAutoUpdateIpcHandlers(): void {
+  ipcMain.handle("cmux:auto-update:install", async () => {
+    if (!app.isPackaged) {
+      mainLog("Auto-update install requested while app is not packaged; ignoring request");
+      return { ok: false, reason: "not-packaged" as const };
+    }
+
+    try {
+      queuedAutoUpdateToast = null;
+      autoUpdater.quitAndInstall();
+      return { ok: true } as const;
+    } catch (error) {
+      mainWarn("Failed to trigger quitAndInstall", error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw err;
+    }
+  });
+}
+
 // Write critical errors to a file to aid debugging packaged crashes
 async function writeFatalLog(...args: unknown[]) {
   try {
@@ -242,31 +326,14 @@ function setupAutoUpdates(): void {
       `${p.percent?.toFixed?.(1) ?? 0}% (${p.transferred}/${p.total})`
     )
   );
-  autoUpdater.on("update-downloaded", async () => {
-    if (!mainWindow) {
-      mainLog("No main window; skipping update prompt");
-      return;
-    }
+  autoUpdater.on("update-downloaded", (_event, info?: UpdateInfo) => {
+    const version =
+      info && typeof info === "object" && "version" in info && typeof info.version === "string"
+        ? info.version
+        : null;
 
-    try {
-      const res = await dialog.showMessageBox(mainWindow, {
-        type: "info",
-        buttons: ["Restart Now", "Later"],
-        defaultId: 0,
-        cancelId: 1,
-        message: "An update is ready to install.",
-        detail: "Restart Cmux to apply the latest version.",
-      });
-      if (res.response === 0) {
-        mainLog("User accepted update; quitting and installing");
-        autoUpdater.quitAndInstall();
-      } else {
-        mainLog("User deferred update installation");
-      }
-    } catch (e) {
-      mainWarn("Failed to prompt for installing update", e);
-      autoUpdater.quitAndInstall();
-    }
+    mainLog("Update downloaded; notifying renderer", { version });
+    queueAutoUpdateToast({ version });
   });
 
   // Initial check and periodic re-checks
@@ -352,6 +419,7 @@ function createWindow(): void {
       void handleProtocolUrl(pendingProtocolUrl);
       pendingProtocolUrl = null;
     }
+    emitAutoUpdateToastIfPossible();
   });
 
   mainWindow.webContents.on("did-navigate", (_e, url) => {
@@ -380,14 +448,24 @@ app.on("open-url", (_event, url) => {
 });
 
 app.whenReady().then(async () => {
-  ensureLogStreams();
+  ensureLogFiles();
   setupConsoleFileMirrors();
+  registerLogIpcHandlers();
+  registerAutoUpdateIpcHandlers();
   initCmdK({
     getMainWindow: () => mainWindow,
     logger: {
       log: mainLog,
       warn: mainWarn,
     },
+  });
+  registerWebContentsViewHandlers({
+    logger: {
+      log: mainLog,
+      warn: mainWarn,
+      error: mainError,
+    },
+    maxSuspendedEntries: resolveMaxSuspendedWebContents(),
   });
 
   // Ensure macOS menu and About panel use "cmux" instead of package.json name
@@ -530,7 +608,7 @@ app.whenReady().then(async () => {
         {
           label: "Open Logs Folder",
           click: async () => {
-            if (!logsDir) ensureLogStreams();
+            if (!logsDir) ensureLogFiles();
             if (logsDir) await shell.openPath(logsDir);
           },
         },
@@ -550,15 +628,6 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
-  }
-});
-
-app.on("before-quit", () => {
-  try {
-    mainLogStream?.end();
-    rendererLogStream?.end();
-  } catch {
-    // ignore
   }
 });
 

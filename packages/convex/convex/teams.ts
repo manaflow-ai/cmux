@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { getTeamId, resolveTeamIdLoose } from "../_shared/team";
-import { authMutation, authQuery } from "./users/utils";
 import { internalQuery } from "./_generated/server";
+import { authMutation, authQuery } from "./users/utils";
 
 function normalizeSlug(input: string): string {
   const s = input.trim().toLowerCase();
@@ -47,14 +47,14 @@ export const listTeamMemberships = authQuery({
       .query("teamMemberships")
       .withIndex("by_user", (q) => q.eq("userId", ctx.identity.subject))
       .collect();
-  const teams = await Promise.all(
-    memberships.map((m) =>
-      ctx.db
-        .query("teams")
-        .withIndex("by_teamId", (q) => q.eq("teamId", m.teamId))
-        .first()
-    )
-  );
+    const teams = await Promise.all(
+      memberships.map((m) =>
+        ctx.db
+          .query("teams")
+          .withIndex("by_teamId", (q) => q.eq("teamId", m.teamId))
+          .first()
+      )
+    );
     return memberships.map((m, i) => ({
       ...m,
       team: teams[i]!,

@@ -4,7 +4,7 @@ import type {
 } from "../common/environment-result.js";
 
 export async function getClaudeEnvironment(
-  _ctx: EnvironmentContext
+  ctx: EnvironmentContext
 ): Promise<EnvironmentResult> {
   // These must be lazy since configs are imported into the browser
   const { exec } = await import("node:child_process");
@@ -15,7 +15,10 @@ export async function getClaudeEnvironment(
   const execAsync = promisify(exec);
 
   const files: EnvironmentResult["files"] = [];
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = {
+    ANTHROPIC_BASE_URL: "https://www.cmux.dev/api/anthropic",
+    ANTHROPIC_CUSTOM_HEADERS: `x-cmux-token:${ctx.taskRunJwt}`,
+  };
   const startupCommands: string[] = [];
 
   // Prepare .claude.json
@@ -154,7 +157,7 @@ exit 0`;
   // Create settings.json with hooks configuration
   const settingsConfig: Record<string, unknown> = {
     // Configure helper to avoid env-var based prompting
-    // apiKeyHelper: "/root/.claude/bin/anthropic_key_helper.sh",
+    apiKeyHelper: "/root/.claude/bin/anthropic_key_helper.sh",
     hooks: {
       Stop: [
         {

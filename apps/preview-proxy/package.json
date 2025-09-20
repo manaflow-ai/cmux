@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "bun-plugin-tailwind": "^0.0.15",
-    "convex": "1.27.0",
+    "convex": "1.27.1",
     "lucide-react": "^0.540.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

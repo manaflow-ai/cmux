@@ -9,7 +9,7 @@ set -euo pipefail
 
 EXECUTE=${EXECUTE:-0}
 ALLOW_DANGEROUS=${ALLOW_DANGEROUS:-0}
-BUILD_CONTEXT=/Users/lawrencechen/fun/cmux
+BUILD_CONTEXT=/Users/lawrencechen/fun/cmux12
 DESTDIR=${DESTDIR:-$(pwd)/_dockerfile_rootfs}
 mkdir -p "$DESTDIR"
 CURRENT_WORKDIR=/
@@ -89,12 +89,11 @@ fi
 CURRENT_WORKDIR="/cmux"
 do_safe mkdir -p "$DESTDIR$CURRENT_WORKDIR"
 do_safe cd "$DESTDIR$CURRENT_WORKDIR"
-# COPY  package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+# COPY  package.json bun.lock .npmrc ./
 # COPY -> copying into './' under DESTDIR
 do_safe mkdir -p "$DESTDIR./" 2>/dev/null || true
 do_safe cp -R "$BUILD_CONTEXT/package.json" "$DESTDIR./"
-do_safe cp -R "$BUILD_CONTEXT/pnpm-lock.yaml" "$DESTDIR./"
-do_safe cp -R "$BUILD_CONTEXT/pnpm-workspace.yaml" "$DESTDIR./"
+do_safe cp -R "$BUILD_CONTEXT/bun.lock" "$DESTDIR./"
 do_safe cp -R "$BUILD_CONTEXT/.npmrc" "$DESTDIR./"
 # COPY --parents apps/*/package.json packages/*/package.json scripts/package.json ./
 # COPY -> copying into './' under DESTDIR
@@ -102,22 +101,15 @@ do_safe mkdir -p "$DESTDIR./" 2>/dev/null || true
 do_safe cp -R "$BUILD_CONTEXT/apps/*/package.json" "$DESTDIR./"
 do_safe cp -R "$BUILD_CONTEXT/packages/*/package.json" "$DESTDIR./"
 do_safe cp -R "$BUILD_CONTEXT/scripts/package.json" "$DESTDIR./"
-# Copy postinstall script
-# COPY  scripts/postinstall.cjs ./scripts/
-# COPY -> copying into './scripts/' under DESTDIR
-do_safe mkdir -p "$DESTDIR./scripts/" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/scripts/postinstall.cjs" "$DESTDIR./scripts/"
 
-# Install dependencies with cache (non-interactive)
-# Note: vscode-extension filter uses the new package name without @
 if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
   bash -euo pipefail <<'__CMUX_RUN__'
 cd "${DESTDIR}${CURRENT_WORKDIR}"
-CI=1 pnpm install --frozen-lockfile=true --filter @cmux/worker... --filter @cmux/shared... --filter cmux-vscode-extension...
+bun install --frozen-lockfile --production
 __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
-CI=1 pnpm install --frozen-lockfile=true --filter @cmux/worker... --filter @cmux/shared... --filter cmux-vscode-extension...
+bun install --frozen-lockfile --production
 __CMUX_SHOW__
 fi
 
@@ -195,32 +187,6 @@ do_safe cp -R "$BUILD_CONTEXT/packages/vscode-extension/.vscodeignore" "$DESTDIR
 do_safe mkdir -p "$DESTDIR./packages/vscode-extension/" 2>/dev/null || true
 do_safe cp -R "$BUILD_CONTEXT/packages/vscode-extension/LICENSE.md" "$DESTDIR./packages/vscode-extension/"
 
-# Copy envctl/envd sources for build
-# COPY  packages/envctl/tsconfig.json ./packages/envctl/
-# COPY -> copying into './packages/envctl/' under DESTDIR
-do_safe mkdir -p "$DESTDIR./packages/envctl/" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/packages/envctl/tsconfig.json" "$DESTDIR./packages/envctl/"
-# COPY  packages/envctl/tsconfig.build.json ./packages/envctl/
-# COPY -> copying into './packages/envctl/' under DESTDIR
-do_safe mkdir -p "$DESTDIR./packages/envctl/" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/packages/envctl/tsconfig.build.json" "$DESTDIR./packages/envctl/"
-# COPY  packages/envctl/src ./packages/envctl/src
-# COPY -> copying into './packages/envctl/src' under DESTDIR
-do_safe mkdir -p "$DESTDIR./packages/envctl/src" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/packages/envctl/src" "$DESTDIR./packages/envctl/src"
-# COPY  packages/envd/tsconfig.json ./packages/envd/
-# COPY -> copying into './packages/envd/' under DESTDIR
-do_safe mkdir -p "$DESTDIR./packages/envd/" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/packages/envd/tsconfig.json" "$DESTDIR./packages/envd/"
-# COPY  packages/envd/tsconfig.build.json ./packages/envd/
-# COPY -> copying into './packages/envd/' under DESTDIR
-do_safe mkdir -p "$DESTDIR./packages/envd/" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/packages/envd/tsconfig.build.json" "$DESTDIR./packages/envd/"
-# COPY  packages/envd/src ./packages/envd/src
-# COPY -> copying into './packages/envd/src' under DESTDIR
-do_safe mkdir -p "$DESTDIR./packages/envd/src" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/packages/envd/src" "$DESTDIR./packages/envd/src"
-
 # Build worker with bundling, using the installed node_modules
 if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
   bash -euo pipefail <<'__CMUX_RUN__'
@@ -230,19 +196,6 @@ __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
 cd /cmux && bun build ./apps/worker/src/index.ts --target node --outdir ./apps/worker/build --external @cmux/convex --external node:* && echo Built worker && cp -r ./apps/worker/build /builtins/build && cp ./apps/worker/wait-for-docker.sh /usr/local/bin/ && chmod +x /usr/local/bin/wait-for-docker.sh
-__CMUX_SHOW__
-fi
-
-
-# Build envctl/envd (TypeScript → JS)
-if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
-  bash -euo pipefail <<'__CMUX_RUN__'
-cd "${DESTDIR}${CURRENT_WORKDIR}"
-cd /cmux && pnpm install --frozen-lockfile --filter @cmux/envctl --filter @cmux/envd && pnpm -F @cmux/envctl -F @cmux/envd build
-__CMUX_RUN__
-else
-  cat <<'__CMUX_SHOW__'
-cd /cmux && pnpm install --frozen-lockfile --filter @cmux/envctl --filter @cmux/envd && pnpm -F @cmux/envctl -F @cmux/envd build
 __CMUX_SHOW__
 fi
 
@@ -286,19 +239,6 @@ __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
 /app/openvscode-server/bin/openvscode-server --install-extension /tmp/cmux-vscode-extension-0.0.1.vsix && rm /tmp/cmux-vscode-extension-0.0.1.vsix
-__CMUX_SHOW__
-fi
-
-
-# Create VS Code user settings
-if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
-  bash -euo pipefail <<'__CMUX_RUN__'
-cd "${DESTDIR}${CURRENT_WORKDIR}"
-mkdir -p /root/.openvscode-server/data/User && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true} > /root/.openvscode-server/data/User/settings.json && mkdir -p /root/.openvscode-server/data/User/profiles/default-profile && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true} > /root/.openvscode-server/data/User/profiles/default-profile/settings.json && mkdir -p /root/.openvscode-server/data/Machine && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true} > /root/.openvscode-server/data/Machine/settings.json
-__CMUX_RUN__
-else
-  cat <<'__CMUX_SHOW__'
-mkdir -p /root/.openvscode-server/data/User && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true} > /root/.openvscode-server/data/User/settings.json && mkdir -p /root/.openvscode-server/data/User/profiles/default-profile && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true} > /root/.openvscode-server/data/User/profiles/default-profile/settings.json && mkdir -p /root/.openvscode-server/data/Machine && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true} > /root/.openvscode-server/data/Machine/settings.json
 __CMUX_SHOW__
 fi
 
@@ -370,14 +310,15 @@ bun --version && bunx --version
 __CMUX_SHOW__
 fi
 
+
 if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
   bash -euo pipefail <<'__CMUX_RUN__'
 cd "${DESTDIR}${CURRENT_WORKDIR}"
-bun add -g @openai/codex@0.25.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.5.28 codebuff @devcontainers/cli @sourcegraph/amp
+bun add -g @openai/codex@0.36.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
 __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
-bun add -g @openai/codex@0.25.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.5.28 codebuff @devcontainers/cli @sourcegraph/amp
+bun add -g @openai/codex@0.36.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
 __CMUX_SHOW__
 fi
 
@@ -522,43 +463,11 @@ fi
 if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
   bash -euo pipefail <<'__CMUX_RUN__'
 cd "${DESTDIR}${CURRENT_WORKDIR}"
-mkdir -p /usr/local/lib/cmux
+CMUX_ENV_VERSION=0.0.7 curl https://raw.githubusercontent.com/lawrencecchen/cmux-env/refs/heads/main/scripts/install.sh | bash && envctl --version && envctl install-hook bash && echo [ -f ~/.bashrc ] && . ~/.bashrc > /root/.profile && echo [ -f ~/.bashrc ] && . ~/.bashrc > /root/.bash_profile && echo [ -f ~/.bashrc ] && . ~/.bashrc >> /app/openvscode-server/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh
 __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
-mkdir -p /usr/local/lib/cmux
-__CMUX_SHOW__
-fi
-
-# COPY --from=builder /cmux/packages/envctl/dist /usr/local/lib/cmux/envctl/dist
-# Skipping stage copy on host (requires image layer)
-# COPY --from=builder /cmux/packages/envctl/package.json /usr/local/lib/cmux/envctl/package.json
-# Skipping stage copy on host (requires image layer)
-# COPY --from=builder /cmux/packages/envd/dist /usr/local/lib/cmux/envd/dist
-# Skipping stage copy on host (requires image layer)
-# COPY --from=builder /cmux/packages/envd/package.json /usr/local/lib/cmux/envd/package.json
-# Skipping stage copy on host (requires image layer)
-if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
-  bash -euo pipefail <<'__CMUX_RUN__'
-cd "${DESTDIR}${CURRENT_WORKDIR}"
-set -eux; printf #!/bin/sh\nexec node /usr/local/lib/cmux/envctl/dist/index.js "$@"\n > /usr/local/bin/envctl && printf #!/bin/sh\nexec node /usr/local/lib/cmux/envd/dist/index.js "$@"\n > /usr/local/bin/envd && chmod +x /usr/local/bin/envctl /usr/local/bin/envd
-__CMUX_RUN__
-else
-  cat <<'__CMUX_SHOW__'
-set -eux; printf #!/bin/sh\nexec node /usr/local/lib/cmux/envctl/dist/index.js "$@"\n > /usr/local/bin/envctl && printf #!/bin/sh\nexec node /usr/local/lib/cmux/envd/dist/index.js "$@"\n > /usr/local/bin/envd && chmod +x /usr/local/bin/envctl /usr/local/bin/envd
-__CMUX_SHOW__
-fi
-
-
-# Setup pnpm and install global packages
-if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
-  bash -euo pipefail <<'__CMUX_RUN__'
-cd "${DESTDIR}${CURRENT_WORKDIR}"
-SHELL=/bin/bash pnpm setup && . /root/.bashrc
-__CMUX_RUN__
-else
-  cat <<'__CMUX_SHOW__'
-SHELL=/bin/bash pnpm setup && . /root/.bashrc
+CMUX_ENV_VERSION=0.0.7 curl https://raw.githubusercontent.com/lawrencecchen/cmux-env/refs/heads/main/scripts/install.sh | bash && envctl --version && envctl install-hook bash && echo [ -f ~/.bashrc ] && . ~/.bashrc > /root/.profile && echo [ -f ~/.bashrc ] && . ~/.bashrc > /root/.bash_profile && echo [ -f ~/.bashrc ] && . ~/.bashrc >> /app/openvscode-server/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh
 __CMUX_SHOW__
 fi
 
@@ -568,24 +477,7 @@ fi
 # COPY -> copying into '/etc/tmux.conf' under DESTDIR
 do_safe mkdir -p "$DESTDIR/etc/tmux.conf" 2>/dev/null || true
 do_safe cp -R "$BUILD_CONTEXT/configs/tmux.conf" "$DESTDIR/etc/tmux.conf"
-# COPY  configs/envctl.sh /etc/profile.d/envctl.sh
-# COPY -> copying into '/etc/profile.d/envctl.sh' under DESTDIR
-do_safe mkdir -p "$DESTDIR/etc/profile.d/envctl.sh" 2>/dev/null || true
-do_safe cp -R "$BUILD_CONTEXT/configs/envctl.sh" "$DESTDIR/etc/profile.d/envctl.sh"
-if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
-  bash -euo pipefail <<'__CMUX_RUN__'
-cd "${DESTDIR}${CURRENT_WORKDIR}"
-bash -lc echo "# Source envctl hook for interactive non-login shells" >> /etc/bash.bashrc &&      echo "if [ -f /etc/profile.d/envctl.sh ]; then . /etc/profile.d/envctl.sh; fi" >> /etc/bash.bashrc
-__CMUX_RUN__
-else
-  cat <<'__CMUX_SHOW__'
-bash -lc echo "# Source envctl hook for interactive non-login shells" >> /etc/bash.bashrc &&      echo "if [ -f /etc/profile.d/envctl.sh ]; then . /etc/profile.d/envctl.sh; fi" >> /etc/bash.bashrc
-__CMUX_SHOW__
-fi
 
-
-
-# Find and install claude-code.vsix from Bun cache using ripgrep
 if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
   bash -euo pipefail <<'__CMUX_RUN__'
 cd "${DESTDIR}${CURRENT_WORKDIR}"
@@ -701,6 +593,19 @@ __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
 chmod +x /startup.sh /usr/local/bin/prompt-wrapper
+__CMUX_SHOW__
+fi
+
+
+# Create VS Code user settings
+if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
+  bash -euo pipefail <<'__CMUX_RUN__'
+cd "${DESTDIR}${CURRENT_WORKDIR}"
+mkdir -p /root/.openvscode-server/data/User && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]} > /root/.openvscode-server/data/User/settings.json && mkdir -p /root/.openvscode-server/data/User/profiles/default-profile && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]} > /root/.openvscode-server/data/User/profiles/default-profile/settings.json && mkdir -p /root/.openvscode-server/data/Machine && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]} > /root/.openvscode-server/data/Machine/settings.json
+__CMUX_RUN__
+else
+  cat <<'__CMUX_SHOW__'
+mkdir -p /root/.openvscode-server/data/User && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]} > /root/.openvscode-server/data/User/settings.json && mkdir -p /root/.openvscode-server/data/User/profiles/default-profile && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]} > /root/.openvscode-server/data/User/profiles/default-profile/settings.json && mkdir -p /root/.openvscode-server/data/Machine && echo {"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]} > /root/.openvscode-server/data/Machine/settings.json
 __CMUX_SHOW__
 fi
 

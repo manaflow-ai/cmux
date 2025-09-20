@@ -118,6 +118,7 @@ export async function computeEntriesNodeGit(
       let isBinary = false;
       let patchText: string | undefined;
       let newContent: string | undefined;
+      const isRename = status === "renamed";
 
       try {
         // additions/deletions from global numstat map
@@ -128,7 +129,7 @@ export async function computeEntriesNodeGit(
           isBinary = nd.isBinary;
         }
 
-        if (!isBinary) {
+        if (!isBinary && !isRename) {
           if (includeContents) {
             if (status !== "deleted") {
               try {
@@ -161,13 +162,10 @@ export async function computeEntriesNodeGit(
         !isBinary &&
         includeContents &&
         status !== "added" &&
+        status !== "renamed" &&
         patchSize + newSize <= maxBytes;
 
-      const oldFetchPath = needOld
-        ? status === "renamed" && oldPath
-          ? oldPath
-          : fp
-        : null;
+      const oldFetchPath = needOld ? fp : null;
 
       trackedIntermediates[i] = {
         status,
@@ -229,7 +227,12 @@ export async function computeEntriesNodeGit(
     } = it;
     let oldContent: string | undefined = undefined;
     let oldSize = 0;
-    if (!isBinary && status !== "added" && includeContents) {
+    if (
+      !isBinary &&
+      status !== "added" &&
+      status !== "renamed" &&
+      includeContents
+    ) {
       if (it.needOld) {
         oldContent = oldMap.get(oldFetchPath ?? fp) ?? "";
         oldSize = oldContent ? Buffer.byteLength(oldContent, "utf8") : 0;
@@ -252,7 +255,9 @@ export async function computeEntriesNodeGit(
       newSize,
     };
 
-    if (!isBinary && includeContents) {
+    if (status === "renamed") {
+      base.contentOmitted = includeContents ? true : false;
+    } else if (!isBinary && includeContents) {
       if (totalApprox <= maxBytes) {
         base.patch = patchText;
         base.oldContent = oldContent;

@@ -31,7 +31,7 @@
     "@t3-oss/env-core": "^0.13.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "convex": "^1.27.0",
+    "convex": "^1.27.1",
     "hono": "^4.9.1",
     "jose": "^6.1.0",
     "lucide-react": "^0.460.0",

@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { SignJWT } from "jose";
+import { env } from "../_shared/convex-env";
 import { resolveTeamIdLoose } from "../_shared/team";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -13,11 +15,18 @@ export const create = authMutation({
     prompt: v.string(),
     agentName: v.optional(v.string()),
     newBranch: v.optional(v.string()),
+    environmentId: v.optional(v.id("environments")),
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const now = Date.now();
     const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (args.environmentId) {
+      const environment = await ctx.db.get(args.environmentId);
+      if (!environment || environment.teamId !== teamId) {
+        throw new Error("Environment not found");
+      }
+    }
     const taskRunId = await ctx.db.insert("taskRuns", {
       taskId: args.taskId,
       parentRunId: args.parentRunId,
@@ -29,8 +38,19 @@ export const create = authMutation({
       updatedAt: now,
       userId,
       teamId,
+      environmentId: args.environmentId,
     });
-    return taskRunId;
+    const jwt = await new SignJWT({
+      taskRunId,
+      teamId,
+      userId,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("12h")
+      .sign(new TextEncoder().encode(env.CMUX_TASK_RUN_JWT_SECRET));
+
+    return { taskRunId, jwt };
   },
 });
 
@@ -59,7 +79,11 @@ export const getByTask = authQuery({
     runs.forEach((run) => {
       // Strip heavy/deprecated log field from payload to reduce bandwidth
       // Send empty string to avoid large payloads and keep type compatibility.
-      runMap.set(run._id, { ...(run as Doc<"taskRuns">), log: "", children: [] });
+      runMap.set(run._id, {
+        ...run,
+        log: "",
+        children: [],
+      });
     });
 
     // Second pass: build tree

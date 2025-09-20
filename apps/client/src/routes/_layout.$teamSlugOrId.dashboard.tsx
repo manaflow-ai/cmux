@@ -8,7 +8,6 @@ import { DashboardStartTaskButton } from "@/components/dashboard/DashboardStartT
 import { TaskList } from "@/components/dashboard/TaskList";
 import { FloatingPane } from "@/components/floating-pane";
 import { GitHubIcon } from "@/components/icons/github";
-import { ProviderStatusPills } from "@/components/provider-status-pills";
 import { useTheme } from "@/components/theme/use-theme";
 import { TitleBar } from "@/components/TitleBar";
 import type { SelectOption } from "@/components/ui/searchable-select";
@@ -20,13 +19,13 @@ import {
 import { useExpandTasks } from "@/contexts/expand-tasks/ExpandTasksContext";
 import { useSocket } from "@/contexts/socket/use-socket";
 import { createFakeConvexId } from "@/lib/fakeConvexId";
+import { branchesQueryOptions } from "@/queries/branches";
 import { api } from "@cmux/convex/api";
-import type { Doc } from "@cmux/convex/dataModel";
+import type { Doc, Id } from "@cmux/convex/dataModel";
+import type { ProviderStatusResponse } from "@cmux/shared";
 import { convexQuery } from "@convex-dev/react-query";
 import { useQuery } from "@tanstack/react-query";
-import { branchesQueryOptions } from "@/queries/branches";
 import { createFileRoute } from "@tanstack/react-router";
-import clsx from "clsx";
 import { useMutation } from "convex/react";
 import { Server as ServerIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -58,9 +57,9 @@ function DashboardComponent() {
     return stored ? JSON.parse(stored) : false;
   });
 
-  // State for loading states
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [dockerReady, setDockerReady] = useState<boolean | null>(null);
+  const [providerStatus, setProviderStatus] =
+    useState<ProviderStatusResponse | null>(null);
 
   // Ref to access editor API
   const editorApiRef = useRef<EditorApi | null>(null);
@@ -87,25 +86,17 @@ function DashboardComponent() {
     [selectedProject]
   );
 
-  const branchesQuery = useQuery(
-    branchesQueryOptions({
+  const branchesQuery = useQuery({
+    ...branchesQueryOptions({
       teamSlugOrId,
       repoFullName: selectedProject[0] || "",
-    })
-  );
+    }),
+    enabled: !!selectedProject[0] && !isEnvSelected,
+  });
   const branches = useMemo(
     () => branchesQuery.data || [],
     [branchesQuery.data]
   );
-
-  const fetchBranches = useCallback((_repo?: string) => {
-    setIsLoadingBranches(true);
-    branchesQuery
-      .refetch()
-      .finally(() => setIsLoadingBranches(false))
-      .catch(() => setIsLoadingBranches(false));
-  }, [branchesQuery]);
-
   // Callback for project selection changes
   const handleProjectChange = useCallback(
     (newProjects: string[]) => {
@@ -118,11 +109,9 @@ function DashboardComponent() {
       if ((newProjects[0] || "").startsWith("env:")) {
         setIsCloudMode(true);
         localStorage.setItem("isCloudMode", JSON.stringify(true));
-      } else {
-        void fetchBranches(newProjects[0]);
       }
     },
-    [selectedProject, fetchBranches]
+    [selectedProject]
   );
 
   // Callback for branch selection changes
@@ -154,10 +143,13 @@ function DashboardComponent() {
     if (!socket) return;
 
     socket.emit("check-provider-status", (response) => {
-      if (!response?.success) return;
-      const isRunning = response.dockerStatus?.isRunning;
-      if (typeof isRunning === "boolean") {
-        setDockerReady(isRunning);
+      if (!response) return;
+      setProviderStatus(response);
+      if (response.success) {
+        const isRunning = response.dockerStatus?.isRunning;
+        if (typeof isRunning === "boolean") {
+          setDockerReady(isRunning);
+        }
       }
     });
   }, [socket]);
@@ -186,6 +178,7 @@ function DashboardComponent() {
           images: args.images,
           userId: "optimistic",
           teamId: teamSlugOrId,
+          environmentId: args.environmentId,
         };
 
         // Add the new task at the beginning (since we order by desc)
@@ -255,6 +248,9 @@ function DashboardComponent() {
     const branch = effectiveSelectedBranch[0];
     const projectFullName = selectedProject[0];
     const envSelected = projectFullName.startsWith("env:");
+    const environmentId = envSelected
+      ? (projectFullName.replace(/^env:/, "") as Id<"environments">)
+      : undefined;
 
     try {
       // Extract content including images from the editor
@@ -312,6 +308,7 @@ function DashboardComponent() {
         projectFullName: envSelected ? undefined : projectFullName,
         baseBranch: envSelected ? undefined : branch,
         images: uploadedImages.length > 0 ? uploadedImages : undefined,
+        environmentId,
       });
 
       // Hint the sidebar to auto-expand this task once it appears
@@ -333,16 +330,7 @@ function DashboardComponent() {
           selectedAgents:
             selectedAgents.length > 0 ? selectedAgents : undefined,
           isCloudMode: envSelected ? true : isCloudMode,
-          ...(envSelected
-            ? {
-                environmentId: projectFullName.replace(
-                  /^env:/,
-                  ""
-                ) as string & {
-                  __tableName: "environments";
-                },
-              }
-            : {}),
+          ...(environmentId ? { environmentId } : {}),
           images: images.length > 0 ? images : undefined,
           theme,
         },
@@ -403,18 +391,6 @@ function DashboardComponent() {
     };
   }, [checkProviderStatus]);
 
-  // Fetch branches when repo changes
-  // const selectedRepo = selectedProject[0];
-  // useEffect(() => {
-  //   if (
-  //     selectedRepo &&
-  //     !selectedRepo.startsWith("env:") &&
-  //     branches.length === 0
-  //   ) {
-  //     fetchBranches(selectedRepo);
-  //   }
-  // }, [selectedRepo, branches, fetchBranches]);
-
   // Format repos for multiselect
   // Fetch environments
   const environmentsQuery = useQuery(
@@ -423,16 +399,32 @@ function DashboardComponent() {
 
   const projectOptions = useMemo(() => {
     // Repo options as objects with GitHub icon
-    const repoValues = Array.from(
-      new Set(
-        Object.entries(reposByOrg || {}).flatMap(([, repos]) =>
-          repos.map((repo) => repo.fullName)
-        )
-      )
-    );
-    const repoOptions = repoValues.map((fullName) => ({
-      label: fullName,
-      value: fullName,
+    const repoDocs = Object.values(reposByOrg || {}).flatMap((repos) => repos);
+    const uniqueRepos = repoDocs.reduce((acc, repo) => {
+      const existing = acc.get(repo.fullName);
+      if (!existing) {
+        acc.set(repo.fullName, repo);
+        return acc;
+      }
+      const existingActivity =
+        existing.lastPushedAt ?? Number.NEGATIVE_INFINITY;
+      const candidateActivity = repo.lastPushedAt ?? Number.NEGATIVE_INFINITY;
+      if (candidateActivity > existingActivity) {
+        acc.set(repo.fullName, repo);
+      }
+      return acc;
+    }, new Map<string, Doc<"repos">>());
+    const sortedRepos = Array.from(uniqueRepos.values()).sort((a, b) => {
+      const aPushedAt = a.lastPushedAt ?? Number.NEGATIVE_INFINITY;
+      const bPushedAt = b.lastPushedAt ?? Number.NEGATIVE_INFINITY;
+      if (aPushedAt !== bPushedAt) {
+        return bPushedAt - aPushedAt;
+      }
+      return a.fullName.localeCompare(b.fullName);
+    });
+    const repoOptions = sortedRepos.map((repo) => ({
+      label: repo.fullName,
+      value: repo.fullName,
       icon: (
         <GitHubIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
       ),
@@ -649,52 +641,31 @@ function DashboardComponent() {
         {/* Main content area */}
         <div className="flex-1 flex justify-center px-4 pt-60 pb-4">
           <div className="w-full max-w-4xl min-w-0">
-            <div
-              className={clsx(
-                "relative bg-white dark:bg-neutral-700/50 border border-neutral-200 dark:border-neutral-500/15 rounded-2xl transition-all"
-              )}
-            >
-              {/* Provider Status Pills */}
-              <ProviderStatusPills teamSlugOrId={teamSlugOrId} />
-
-              {/* Editor Input */}
-              <DashboardInput
-                ref={editorApiRef}
-                onTaskDescriptionChange={handleTaskDescriptionChange}
-                onSubmit={handleSubmit}
-                repoUrl={lexicalRepoUrl}
-                branch={lexicalBranch}
-                persistenceKey="dashboard-task-description"
-                maxHeight="300px"
-              />
-
-              {/* Bottom bar: controls + submit button */}
-              <DashboardInputFooter>
-                <DashboardInputControls
-                  projectOptions={projectOptions}
-                  selectedProject={selectedProject}
-                  onProjectChange={handleProjectChange}
-                  branchOptions={branchOptions}
-                  selectedBranch={effectiveSelectedBranch}
-                  onBranchChange={handleBranchChange}
-                  selectedAgents={selectedAgents}
-                  onAgentChange={handleAgentChange}
-                  isCloudMode={isCloudMode}
-                  onCloudModeToggle={handleCloudModeToggle}
-                  isLoadingProjects={reposByOrgQuery.isLoading}
-                  isLoadingBranches={
-                    isLoadingBranches || branchesQuery.isLoading
-                  }
-                  teamSlugOrId={teamSlugOrId}
-                  cloudToggleDisabled={isEnvSelected}
-                  branchDisabled={isEnvSelected}
-                />
-                <DashboardStartTaskButton
-                  canSubmit={canSubmit}
-                  onStartTask={handleStartTask}
-                />
-              </DashboardInputFooter>
-            </div>
+            <DashboardMainCard
+              editorApiRef={editorApiRef}
+              onTaskDescriptionChange={handleTaskDescriptionChange}
+              onSubmit={handleSubmit}
+              lexicalRepoUrl={lexicalRepoUrl}
+              lexicalBranch={lexicalBranch}
+              projectOptions={projectOptions}
+              selectedProject={selectedProject}
+              onProjectChange={handleProjectChange}
+              branchOptions={branchOptions}
+              selectedBranch={effectiveSelectedBranch}
+              onBranchChange={handleBranchChange}
+              selectedAgents={selectedAgents}
+              onAgentChange={handleAgentChange}
+              isCloudMode={isCloudMode}
+              onCloudModeToggle={handleCloudModeToggle}
+              isLoadingProjects={reposByOrgQuery.isLoading}
+              isLoadingBranches={branchesQuery.isPending}
+              teamSlugOrId={teamSlugOrId}
+              cloudToggleDisabled={isEnvSelected}
+              branchDisabled={isEnvSelected || !selectedProject[0]}
+              providerStatus={providerStatus}
+              canSubmit={canSubmit}
+              onStartTask={handleStartTask}
+            />
 
             {/* Task List */}
             <TaskList teamSlugOrId={teamSlugOrId} />
@@ -702,5 +673,96 @@ function DashboardComponent() {
         </div>
       </div>
     </FloatingPane>
+  );
+}
+
+type DashboardMainCardProps = {
+  editorApiRef: React.MutableRefObject<EditorApi | null>;
+  onTaskDescriptionChange: (value: string) => void;
+  onSubmit: () => void;
+  lexicalRepoUrl?: string;
+  lexicalBranch?: string;
+  projectOptions: SelectOption[];
+  selectedProject: string[];
+  onProjectChange: (newProjects: string[]) => void;
+  branchOptions: string[];
+  selectedBranch: string[];
+  onBranchChange: (newBranches: string[]) => void;
+  selectedAgents: string[];
+  onAgentChange: (newAgents: string[]) => void;
+  isCloudMode: boolean;
+  onCloudModeToggle: () => void;
+  isLoadingProjects: boolean;
+  isLoadingBranches: boolean;
+  teamSlugOrId: string;
+  cloudToggleDisabled: boolean;
+  branchDisabled: boolean;
+  providerStatus: ProviderStatusResponse | null;
+  canSubmit: boolean;
+  onStartTask: () => void;
+};
+
+function DashboardMainCard({
+  editorApiRef,
+  onTaskDescriptionChange,
+  onSubmit,
+  lexicalRepoUrl,
+  lexicalBranch,
+  projectOptions,
+  selectedProject,
+  onProjectChange,
+  branchOptions,
+  selectedBranch,
+  onBranchChange,
+  selectedAgents,
+  onAgentChange,
+  isCloudMode,
+  onCloudModeToggle,
+  isLoadingProjects,
+  isLoadingBranches,
+  teamSlugOrId,
+  cloudToggleDisabled,
+  branchDisabled,
+  providerStatus,
+  canSubmit,
+  onStartTask,
+}: DashboardMainCardProps) {
+  return (
+    <div className="relative bg-white dark:bg-neutral-700/50 border border-neutral-500/15 dark:border-neutral-500/15 rounded-2xl transition-all">
+      <DashboardInput
+        ref={editorApiRef}
+        onTaskDescriptionChange={onTaskDescriptionChange}
+        onSubmit={onSubmit}
+        repoUrl={lexicalRepoUrl}
+        branch={lexicalBranch}
+        persistenceKey="dashboard-task-description"
+        maxHeight="300px"
+      />
+
+      <DashboardInputFooter>
+        <DashboardInputControls
+          projectOptions={projectOptions}
+          selectedProject={selectedProject}
+          onProjectChange={onProjectChange}
+          branchOptions={branchOptions}
+          selectedBranch={selectedBranch}
+          onBranchChange={onBranchChange}
+          selectedAgents={selectedAgents}
+          onAgentChange={onAgentChange}
+          isCloudMode={isCloudMode}
+          onCloudModeToggle={onCloudModeToggle}
+          isLoadingProjects={isLoadingProjects}
+          isLoadingBranches={isLoadingBranches}
+          teamSlugOrId={teamSlugOrId}
+          cloudToggleDisabled={cloudToggleDisabled}
+          branchDisabled={branchDisabled}
+          providerStatus={providerStatus}
+        />
+        <DashboardStartTaskButton
+          canSubmit={canSubmit}
+          onStartTask={onStartTask}
+        />
+      </DashboardInputFooter>
+    </div>
   );
 }

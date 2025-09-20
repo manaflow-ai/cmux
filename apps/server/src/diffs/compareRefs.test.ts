@@ -38,7 +38,7 @@ describe("compareRefsForRepo (native)", () => {
       originPathOverride: repo,
     });
 
-    // Expect a single rename entry with identical content
+    // Expect a single rename entry noting the rename without loading contents
     expect(Array.isArray(diffs)).toBe(true);
     const rename = diffs.find((d) => d.status === "renamed");
     expect(rename).toBeTruthy();
@@ -48,8 +48,9 @@ describe("compareRefsForRepo (native)", () => {
     // unchanged content, additions/deletions 0
     expect(rename!.additions).toBe(0);
     expect(rename!.deletions).toBe(0);
-    expect(rename!.oldContent).toBe("hello\n");
-    expect(rename!.newContent).toBe("hello\n");
+    expect(rename!.contentOmitted).toBe(true);
+    expect(rename!.oldContent).toBeUndefined();
+    expect(rename!.newContent).toBeUndefined();
   });
 
   test("added and deleted without rename when content changes", async () => {

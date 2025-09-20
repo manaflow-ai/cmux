@@ -40,35 +40,25 @@ describe("DockerVSCodeInstance", () => {
     // Verify getName() returns the prefixed name
     const name = instance.getName();
     expect(name).toMatch(/^docker-cmux-/);
-    // getShortId takes first 12 chars
-    expect(name).toBe("docker-cmux-test12345678");
+    expect(name).toBe(`docker-cmux-${taskRunId}`);
   });
 
   it("should always return docker- prefixed names for different taskRunIds", () => {
     const testCases = [
-      {
-        taskRunId: "abcd1234567890abcdef12345678" as Id<"taskRuns">,
-        expected: "docker-cmux-abcd12345678",
-      },
-      {
-        taskRunId: "xyz9876543210xyzabc123456789" as Id<"taskRuns">,
-        expected: "docker-cmux-xyz987654321",
-      },
-      {
-        taskRunId: "000000000000111122223333444" as Id<"taskRuns">,
-        expected: "docker-cmux-000000000000",
-      },
+      "abcd1234567890abcdef12345678" as Id<"taskRuns">,
+      "xyz9876543210xyzabc123456789" as Id<"taskRuns">,
+      "000000000000111122223333444" as Id<"taskRuns">,
     ];
 
     const taskId = "task123456789012345678901234" as Id<"tasks">;
 
-    for (const { taskRunId, expected } of testCases) {
+    for (const taskRunId of testCases) {
       const instance = new DockerVSCodeInstance({
         taskRunId,
         taskId,
         teamSlugOrId: "default",
       });
-      expect(instance.getName()).toBe(expected);
+      expect(instance.getName()).toBe(`docker-cmux-${taskRunId}`);
     }
   });
 
@@ -88,12 +78,12 @@ describe("DockerVSCodeInstance", () => {
     // Should have docker- prefix
     expect(name.startsWith("docker-")).toBe(true);
     // Should contain the cmux- prefix after docker-
-    expect(name).toBe("docker-cmux-jn75ppcyksmh");
+    expect(name).toBe(`docker-cmux-${taskRunId}`);
 
     // The actual container name (without docker- prefix) should be cmux-jn75ppcyksmh
     // This is what Docker sees as the container name
     const actualDockerContainerName = name.replace("docker-", "");
-    expect(actualDockerContainerName).toBe("cmux-jn75ppcyksmh");
+    expect(actualDockerContainerName).toBe(`cmux-${taskRunId}`);
   });
 
   describe("docker event syncing", () => {

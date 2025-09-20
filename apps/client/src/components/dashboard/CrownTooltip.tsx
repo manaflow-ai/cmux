@@ -53,10 +53,10 @@ export function CrownStatus({ taskId, teamSlugOrId }: CrownStatusProps) {
     (run) => run.status === "completed" || run.status === "failed"
   );
 
-  // Extract agent names
-  const getAgentName = (prompt: string) => {
-    const match = prompt.match(/\(([^)]+)\)$/);
-    return match ? match[1] : "Unknown";
+  // Resolve agent name (prefer stored run.agentName)
+  const resolveAgentName = (run: { agentName?: string | null }) => {
+    const fromRun = run.agentName?.trim();
+    return fromRun && fromRun.length > 0 ? fromRun : "unknown agent";
   };
 
   // Determine the status pill content
@@ -97,7 +97,7 @@ export function CrownStatus({ taskId, teamSlugOrId }: CrownStatusProps) {
               <p className="text-xs font-medium mb-1">Competing models:</p>
               <ul className="text-xs text-muted-foreground space-y-0.5">
                 {taskRuns.map((run, idx) => {
-                  const agentName = getAgentName(run.prompt);
+                  const agentName = resolveAgentName(run);
                   const status =
                     run.status === "completed"
                       ? "✓"
@@ -125,7 +125,7 @@ export function CrownStatus({ taskId, teamSlugOrId }: CrownStatusProps) {
     const winnerContent = (
       <>
         <Crown className="w-3 h-3" />
-        <span>Winner: {getAgentName(crownedRun.prompt)}</span>
+        <span>Winner: {resolveAgentName(crownedRun)}</span>
       </>
     );
 
@@ -196,7 +196,7 @@ export function CrownStatus({ taskId, teamSlugOrId }: CrownStatusProps) {
               <p className="text-xs font-medium mb-1">Completed implementations:</p>
               <ul className="text-xs text-muted-foreground space-y-0.5">
                 {completedRuns.map((run, idx) => {
-                  const agentName = getAgentName(run.prompt);
+                  const agentName = resolveAgentName(run);
                   return <li key={idx}>• {agentName}</li>;
                 })}
               </ul>

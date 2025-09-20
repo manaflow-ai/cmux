@@ -39,11 +39,9 @@ function DebugComponent() {
             socket?.emit("rust-get-time", (res) => {
               if (res.ok) {
                 console.log("Rust time (ms since epoch):", res.time);
-                // eslint-disable-next-line no-alert
                 alert(`Rust time: ${new Date(Number(res.time)).toISOString()}`);
               } else {
                 console.error("Rust error:", res.error);
-                // eslint-disable-next-line no-alert
                 alert(`Rust error: ${res.error}`);
               }
             });

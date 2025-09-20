@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { getTeamId } from "../_shared/team";
+import type { Doc } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
 
@@ -182,6 +183,48 @@ export const removeProviderConnection = authMutation({
       updatedAt: Date.now(),
     });
     return { ok: true as const };
+  },
+});
+
+export const updateRepoActivityFromWebhook = internalMutation({
+  args: {
+    teamId: v.string(),
+    repoFullName: v.string(),
+    pushedAt: v.optional(v.number()),
+    providerRepoId: v.optional(v.number()),
+  },
+  handler: async (ctx, { teamId, repoFullName, pushedAt, providerRepoId }) => {
+    const repo = await ctx.db
+      .query("repos")
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
+      .filter((q) => q.eq(q.field("fullName"), repoFullName))
+      .first();
+    if (!repo) {
+      return { updated: false as const };
+    }
+
+    const patch: Partial<Doc<"repos">> = {};
+
+    if (
+      typeof providerRepoId === "number" &&
+      repo.providerRepoId !== providerRepoId
+    ) {
+      patch.providerRepoId = providerRepoId;
+    }
+
+    if (
+      typeof pushedAt === "number" &&
+      (repo.lastPushedAt === undefined || pushedAt > repo.lastPushedAt)
+    ) {
+      patch.lastPushedAt = pushedAt;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return { updated: false as const };
+    }
+
+    await ctx.db.patch(repo._id, patch);
+    return { updated: true as const };
   },
 });
 

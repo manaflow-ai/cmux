@@ -50,7 +50,7 @@ export async function handleTaskCompletion({
       `[AgentSpawner] ============================================`
     );
 
-    // Use the original captureGitDiff function which uses worker:exec
+    // Collect the relevant diff via the shared worker script
     const gitDiff = await captureGitDiff(vscodeInstance, worktreePath);
     serverLogger.info(
       `[AgentSpawner] Captured git diff for ${agent.name}: ${gitDiff.length} chars`
@@ -81,113 +81,141 @@ export async function handleTaskCompletion({
     );
 
     if (taskRunData) {
-      serverLogger.info(
-        `[AgentSpawner] Calling checkAndEvaluateCrown for task ${taskRunData.taskId}`
-      );
+      const task = await getConvex().query(api.tasks.getById, {
+        teamSlugOrId,
+        id: taskRunData.taskId,
+      });
 
-      const winnerId = await getConvex().mutation(
-        api.tasks.checkAndEvaluateCrown,
-        {
-          teamSlugOrId,
-          taskId: taskRunData.taskId,
+      if (!task) {
+        serverLogger.error(
+          `[AgentSpawner] Task ${taskRunData.taskId} not found for completion flow`
+        );
+        throw new Error(`Task ${taskRunData.taskId} not found`);
+      }
+
+      const autoCommitPromise: Promise<void> = (async () => {
+        serverLogger.info(
+          `[AgentSpawner] Performing auto-commit for ${agent.name}`
+        );
+
+        try {
+          await performAutoCommitAndPush(
+            vscodeInstance,
+            agent,
+            taskRunId,
+            task.text,
+            teamSlugOrId,
+            gitDiff
+          );
+          serverLogger.info(
+            `[AgentSpawner] Auto-commit completed successfully for ${agent.name}`
+          );
+        } catch (error) {
+          serverLogger.error(
+            `[AgentSpawner] Auto-commit failed for ${agent.name}:`,
+            error
+          );
         }
-      );
+      })();
 
-      serverLogger.info(
-        `[AgentSpawner] checkAndEvaluateCrown returned: ${winnerId}`
-      );
-
-      // If winnerId is "pending", trigger Claude Code evaluation
-      if (winnerId === "pending") {
+      const crownEvaluationPromise: Promise<void> = (async () => {
         serverLogger.info(
-          `[AgentSpawner] ==========================================`
-        );
-        serverLogger.info(
-          `[AgentSpawner] CROWN EVALUATION NEEDED - TRIGGERING NOW`
-        );
-        serverLogger.info(`[AgentSpawner] Task ID: ${taskRunData.taskId}`);
-        serverLogger.info(
-          `[AgentSpawner] ==========================================`
+          `[AgentSpawner] Calling checkAndEvaluateCrown for task ${taskRunData.taskId}`
         );
 
-        // Trigger crown evaluation immediately for faster response
-        // The periodic checker will also handle retries if this fails
-        serverLogger.info(
-          `[AgentSpawner] Triggering immediate crown evaluation`
+        const winnerId = await getConvex().mutation(
+          api.tasks.checkAndEvaluateCrown,
+          {
+            teamSlugOrId,
+            taskId: taskRunData.taskId,
+          }
         );
 
-        // Small delay for worker-side file system settle before diff collection
-        // Note: We need to preserve the auth context for the crown evaluation
-        setTimeout(async () => {
+        serverLogger.info(
+          `[AgentSpawner] checkAndEvaluateCrown returned: ${winnerId}`
+        );
+
+        if (winnerId === "pending") {
+          serverLogger.info(
+            `[AgentSpawner] ==========================================`
+          );
+          serverLogger.info(
+            `[AgentSpawner] CROWN EVALUATION NEEDED - TRIGGERING NOW`
+          );
+          serverLogger.info(`[AgentSpawner] Task ID: ${taskRunData.taskId}`);
+          serverLogger.info(
+            `[AgentSpawner] ==========================================`
+          );
+
+          serverLogger.info(
+            `[AgentSpawner] Triggering immediate crown evaluation`
+          );
+
           try {
-            // Check if evaluation is already in progress
-            const task = await getConvex().query(api.tasks.getById, {
+            const latestTask = await getConvex().query(api.tasks.getById, {
               teamSlugOrId,
               id: taskRunData.taskId,
             });
-            if (task?.crownEvaluationError === "in_progress") {
+            if (latestTask?.crownEvaluationError === "in_progress") {
               serverLogger.info(
                 `[AgentSpawner] Crown evaluation already in progress for task ${taskRunData.taskId}`
               );
-              return;
-            }
+            } else {
+              await evaluateCrown({
+                taskId: taskRunData.taskId,
+                teamSlugOrId,
+                crownRunId: taskRunId,
+                precollectedDiff: gitDiff,
+              });
 
-            await evaluateCrown(taskRunData.taskId, teamSlugOrId);
-
-            serverLogger.info(
-              `[AgentSpawner] Crown evaluation completed successfully`
-            );
-
-            // Check if this task run won
-            const updatedTaskRun = await getConvex().query(api.taskRuns.get, {
-              teamSlugOrId,
-              id: taskRunId,
-            });
-
-            if (updatedTaskRun?.isCrowned) {
               serverLogger.info(
-                `[AgentSpawner] 🏆 This task run won the crown! ${agent.name} is the winner!`
+                `[AgentSpawner] Crown evaluation completed successfully`
               );
+
+              const updatedTaskRun = await getConvex().query(api.taskRuns.get, {
+                teamSlugOrId,
+                id: taskRunId,
+              });
+
+              if (updatedTaskRun?.isCrowned) {
+                serverLogger.info(
+                  `[AgentSpawner] 🏆 This task run won the crown! ${agent.name} is the winner!`
+                );
+              }
             }
           } catch (error) {
             serverLogger.error(
               `[AgentSpawner] Crown evaluation failed:`,
               error
             );
-            // The periodic checker will retry
           }
-        }, 3000); // 3 second delay to ensure data persistence
-      } else if (winnerId) {
-        serverLogger.info(
-          `[AgentSpawner] Task completed with winner: ${winnerId}`
-        );
-
-        // For single agent scenario, trigger auto-PR if enabled
-        const taskRuns = await getConvex().query(api.taskRuns.getByTask, {
-          teamSlugOrId,
-          taskId: taskRunData.taskId,
-        });
-
-        if (taskRuns.length === 1) {
+        } else if (winnerId) {
           serverLogger.info(
-            `[AgentSpawner] Single agent scenario - checking auto-PR settings`
+            `[AgentSpawner] Task completed with winner: ${winnerId}`
           );
 
-          // Check if auto-PR is enabled
-          const ws = await getConvex().query(api.workspaceSettings.get, {
+          const taskRuns = await getConvex().query(api.taskRuns.getByTask, {
             teamSlugOrId,
+            taskId: taskRunData.taskId,
           });
-          const autoPrEnabled = ws?.autoPrEnabled ?? false;
 
-          if (autoPrEnabled && winnerId) {
+          if (taskRuns.length === 1) {
             serverLogger.info(
-              `[AgentSpawner] Triggering auto-PR for single agent completion`
+              `[AgentSpawner] Single agent scenario - checking auto-PR settings`
             );
 
-            const githubToken = await getGitHubTokenFromKeychain();
+            const ws = await getConvex().query(api.workspaceSettings.get, {
+              teamSlugOrId,
+            });
+            const autoPrEnabled = ws?.autoPrEnabled ?? false;
 
-            // Small delay to ensure git diff is persisted
-            setTimeout(async () => {
+            if (autoPrEnabled) {
+              serverLogger.info(
+                `[AgentSpawner] Triggering auto-PR for single agent completion`
+              );
+
+              const githubToken = await getGitHubTokenFromKeychain();
+
               try {
                 await createPullRequestForWinner(
                   winnerId,
@@ -204,50 +232,20 @@ export async function handleTaskCompletion({
                   error
                 );
               }
-            }, 3000);
-          } else {
-            serverLogger.info(
-              `[AgentSpawner] Auto-PR disabled or not applicable for single agent`
-            );
+            } else {
+              serverLogger.info(
+                `[AgentSpawner] Auto-PR disabled or not applicable for single agent`
+              );
+            }
           }
-        }
-      } else {
-        serverLogger.info(
-          `[AgentSpawner] No crown evaluation needed (winnerId: ${winnerId})`
-        );
-      }
-    }
-
-    // Enable auto-commit after task completion
-    if (taskRunData) {
-      const task = await getConvex().query(api.tasks.getById, {
-        teamSlugOrId,
-        id: taskRunData.taskId,
-      });
-
-      if (task) {
-        serverLogger.info(
-          `[AgentSpawner] Performing auto-commit for ${agent.name}`
-        );
-
-        try {
-          await performAutoCommitAndPush(
-            vscodeInstance,
-            agent,
-            taskRunId,
-            task.text,
-            teamSlugOrId
-          );
+        } else {
           serverLogger.info(
-            `[AgentSpawner] Auto-commit completed successfully for ${agent.name}`
-          );
-        } catch (error) {
-          serverLogger.error(
-            `[AgentSpawner] Auto-commit failed for ${agent.name}:`,
-            error
+            `[AgentSpawner] No crown evaluation needed (winnerId: ${winnerId})`
           );
         }
-      }
+      })();
+
+      await Promise.all([autoCommitPromise, crownEvaluationPromise]);
     }
 
     // Schedule container stop based on settings

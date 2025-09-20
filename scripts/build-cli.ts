@@ -150,7 +150,7 @@ log("Deploying convex functions to local backend...");
 
 const convexAdminKey =
   "cmux-dev|017aebe6643f7feb3fe831fbb93a348653c63e5711d2427d1a34b670e3151b0165d86a5ff9";
-await $`cd ./packages/cmux/src/convex/convex-bundle && bunx convex@1.27.0 deploy --url http://localhost:9777 --admin-key ${convexAdminKey}`;
+await $`cd ./packages/cmux/src/convex/convex-bundle && bunx convex@1.27.1 deploy --url http://localhost:9777 --admin-key ${convexAdminKey}`;
 
 log("Killing convex backend process...");
 convexBackendProcess.kill();

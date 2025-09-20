@@ -4,7 +4,6 @@ set -e
 # remove existing build artifacts; keep build/ to preserve entitlements between steps
 rm -rf dist-electron
 rm -rf out
-# Do NOT remove the entire build directory; it contains entitlements.mac.plist used for signing.
 # If you need to refresh icons, uncomment the next line to delete only icon outputs.
 # rm -f build/icon.icns build/icon.ico build/icon.png || true
 
@@ -33,14 +32,14 @@ node ./scripts/generate-icons.mjs
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 bash "$ROOT_DIR/scripts/prepare-macos-entitlements.sh" || true
 
-# Build electron bundles
-npx electron-vite build -c electron.vite.config.ts
+# Build electron bundles using Bun (avoids npm/npx ESM bin issues)
+bunx electron-vite build -c electron.vite.config.ts
 
 # Create a temporary directory for packaging
 TEMP_DIR=$(mktemp -d)
 APP_NAME="cmux"
 APP_DIR="$TEMP_DIR/$APP_NAME.app"
-APP_VERSION=$(node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); if (!pkg.version) { process.exitCode = 1; return; } process.stdout.write(pkg.version);")
+APP_VERSION=$(node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); if (!pkg.version) { process.exit(1); } process.stdout.write(String(pkg.version));")
 if [ -z "$APP_VERSION" ]; then
   echo "ERROR: Unable to determine app version from package.json" >&2
   exit 1
@@ -86,8 +85,21 @@ mkdir -p "$APP_ASAR_DIR"
 cp -r out "$APP_ASAR_DIR/"
 cp package.json "$APP_ASAR_DIR/"
 
+echo "Preparing production dependencies..."
+# Ensure local production node_modules exists for the packaged app. In workspaces,
+# Bun may hoist to the repo root; create a local node_modules if missing.
+if [ ! -d "node_modules" ]; then
+  echo "node_modules not found; installing production dependencies with Bun..."
+  bun install --frozen-lockfile --production
+fi
+
 echo "Copying dependencies..."
-cp -r node_modules "$APP_ASAR_DIR/"
+if [ -d "node_modules" ]; then
+  cp -r node_modules "$APP_ASAR_DIR/"
+else
+  echo "ERROR: node_modules still missing after install. Aborting." >&2
+  exit 1
+fi
 
 # Update Info.plist
 echo "Updating app metadata..."

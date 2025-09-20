@@ -1,6 +1,5 @@
 import { api } from "@cmux/convex/api";
 import type { Id } from "@cmux/convex/dataModel";
-import { getShortId } from "@cmux/shared";
 import Docker from "dockerode";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -66,11 +65,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
   constructor(config: VSCodeInstanceConfig) {
     super(config);
-    // Use a simplified container name based on taskRunId
-    // Since taskRunId is a Convex ID like "jb74m5s2g9d6c5w6qkbmxsm7sh744d"
-    // We'll take the first 12 chars for a shorter container name
-    const shortId = getShortId(this.taskRunId);
-    this.containerName = `cmux-${shortId}`;
+    this.containerName = `cmux-${this.taskRunId}`;
     this.imageName = process.env.WORKER_IMAGE_NAME || "cmux-worker:0.0.1";
     dockerLogger.info(`WORKER_IMAGE_NAME: ${process.env.WORKER_IMAGE_NAME}`);
     dockerLogger.info(`this.imageName: ${this.imageName}`);
@@ -494,14 +489,9 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     const workerUrl = `http://localhost:${workerPort}`;
 
     // Generate the proxy URL that clients will use
-    const shortId = getShortId(this.taskRunId);
-    const proxyBaseUrl = `http://${shortId}.39378.localhost:9776`;
-    const proxyWorkspaceUrl = `${proxyBaseUrl}/?folder=/root/workspace`;
-
     dockerLogger.info(`Docker VSCode instance started:`);
     dockerLogger.info(`  VS Code URL: ${workspaceUrl}`);
     dockerLogger.info(`  Worker URL: ${workerUrl}`);
-    dockerLogger.info(`  Proxy URL: ${proxyWorkspaceUrl}`);
 
     // Monitor container events
     this.setupContainerEventMonitoring();

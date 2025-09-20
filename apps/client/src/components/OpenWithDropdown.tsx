@@ -1,6 +1,7 @@
 import { Dropdown } from "@/components/ui/dropdown";
 import { editorIcons, type EditorType } from "@/components/ui/dropdown-types";
 import { useSocket } from "@/contexts/socket/use-socket";
+import { isElectron } from "@/lib/electron";
 import type { Doc } from "@cmux/convex/dataModel";
 import clsx from "clsx";
 import { EllipsisVertical, ExternalLink, GitBranch, Globe } from "lucide-react";
@@ -71,17 +72,16 @@ export function OpenWithDropdown({
           socket.emit(
             "open-in-editor",
             {
-              editor:
-                editor as
-                  | "cursor"
-                  | "vscode"
-                  | "windsurf"
-                  | "finder"
-                  | "iterm"
-                  | "terminal"
-                  | "ghostty"
-                  | "alacritty"
-                  | "xcode",
+              editor: editor as
+                | "cursor"
+                | "vscode"
+                | "windsurf"
+                | "finder"
+                | "iterm"
+                | "terminal"
+                | "ghostty"
+                | "alacritty"
+                | "xcode",
               path: worktreePath,
             },
             (response) => {
@@ -184,10 +184,13 @@ export function OpenWithDropdown({
         <EllipsisVertical className={iconClassName} />
       </Dropdown.Trigger>
       <Dropdown.Portal>
-        <Dropdown.Positioner sideOffset={8}>
+        <Dropdown.Positioner
+          sideOffset={8}
+          side={isElectron ? "left" : "bottom"}
+        >
           <Dropdown.Popup>
             <Dropdown.Arrow />
-            <div className="px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            <div className="px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400 select-none">
               Open with
             </div>
             {menuItems.map((item) => {
@@ -247,7 +250,7 @@ export function OpenWithDropdown({
             {networking && networking.length > 0 && (
               <>
                 <div className="my-1 h-px bg-neutral-200 dark:bg-neutral-700" />
-                <div className="px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                <div className="px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400 select-none">
                   Forwarded ports
                 </div>
                 {networking

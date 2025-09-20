@@ -1,3 +1,4 @@
+import { normalizeOrigin } from "@cmux/shared";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
@@ -14,10 +15,10 @@ export const env = createEnv({
 
 export function getWwwBaseUrl(): string {
   // Read from live process.env first to support tests that mutate env at runtime
-  return (
+  const rawOrigin =
     // Prefer the public origin for the WWW app when available
     process.env.NEXT_PUBLIC_WWW_ORIGIN ||
     env.NEXT_PUBLIC_WWW_ORIGIN ||
-    "http://localhost:9779"
-  );
+    "http://localhost:9779";
+  return normalizeOrigin(rawOrigin);
 }

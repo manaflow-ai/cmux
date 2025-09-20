@@ -10,7 +10,7 @@
     "build:release": "bunx --bun @napi-rs/cli build --platform --release"
   },
   "napi": {
-    "name": "cmux_native_core",
+    "binaryName": "cmux_native_core",
     "triples": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",

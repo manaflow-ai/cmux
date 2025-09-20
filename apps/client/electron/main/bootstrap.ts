@@ -6,38 +6,18 @@
 */
 
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import os from "node:os";
+import { appendFileSync } from "node:fs";
 import { app } from "electron";
+
+import { clearLogDirectory } from "./log-management/clear-log-directory";
+import { resolveLogFilePath } from "./log-management/log-paths";
 
 function timestamp(): string {
   return new Date().toISOString();
 }
 
-function userDataDirSafe(): string {
-  try {
-    // electron's app.getPath is safe to call before ready
-    return app.getPath("userData");
-  } catch {
-    // ultra‑fallback: per‑user tmp dir
-    return join(os.tmpdir(), "cmux-user-data");
-  }
-}
-
-function ensureDir(p: string): void {
-  try {
-    mkdirSync(p, { recursive: true });
-  } catch {
-    // ignore
-  }
-}
-
 function logFilePath(name: string): string {
-  const base = userDataDirSafe();
-  const dir = join(base, "logs");
-  ensureDir(dir);
-  return join(dir, name);
+  return resolveLogFilePath(name);
 }
 
 function writeEmergencyLog(prefix: string, body: unknown): void {
@@ -64,6 +44,8 @@ function safeFormat(v: unknown): string {
     }
   }
 }
+
+clearLogDirectory();
 
 // Install process‑level handlers as early as possible
 // 1) Mirror console to main.log even before app.whenReady()

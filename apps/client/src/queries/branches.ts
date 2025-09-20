@@ -17,8 +17,11 @@ export function branchesQueryOptions({
           "github-fetch-branches",
           { teamSlugOrId, repo: repoFullName },
           (response) => {
-            if (response.success) resolve(response.branches || []);
-            else reject(new Error(response.error || "Failed to load branches"));
+            if (response.success) {
+              resolve(response.branches);
+            } else {
+              reject(new Error(response.error || "Failed to load branches"));
+            }
           }
         );
       });

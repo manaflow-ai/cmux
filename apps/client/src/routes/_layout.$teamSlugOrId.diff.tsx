@@ -67,16 +67,20 @@ function DashboardDiffPage() {
     return () => {};
   }, [selectedProject]);
 
+  const isEnvironmentProject =
+    !!selectedProject && selectedProject.startsWith("env:");
+
   const reposByOrgQuery = useRQ(
     convexQuery(api.github.getReposByOrg, { teamSlugOrId })
   );
 
-  const branchesQuery = useRQ(
-    branchesQueryOptions({
+  const branchesQuery = useRQ({
+    ...branchesQueryOptions({
       teamSlugOrId,
       repoFullName: selectedProject || "",
-    })
-  );
+    }),
+    enabled: !!selectedProject && !isEnvironmentProject,
+  });
 
   const projectOptions: SelectOption[] = useMemo(() => {
     const byOrg =

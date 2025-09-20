@@ -59,7 +59,7 @@
     "ansi-escape-sequences": "^6.2.4",
     "archiver": "^7.0.1",
     "chokidar": "^4.0.3",
-    "convex": "1.27.0",
+    "convex": "1.27.1",
     "dockerode": "^4.0.2",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",

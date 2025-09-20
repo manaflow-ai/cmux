@@ -1,9 +1,74 @@
+import type {
+  ElectronLogsPayload,
+  ElectronMainLogMessage,
+} from "../lib/electron-logs/types";
+import type {
+  ElectronDevToolsMode,
+  ElectronWebContentsEvent,
+  ElectronWebContentsState,
+} from "./electron-webcontents";
+
 interface CmuxSocketAPI {
   connect: (query: Record<string, string>) => Promise<{ socketId: string; connected: boolean }>;
   disconnect: (socketId: string) => Promise<{ disconnected: boolean }>;
   emit: (socketId: string, eventName: string, ...args: unknown[]) => Promise<{ success: boolean }>;
   on: (socketId: string, eventName: string) => Promise<{ success: boolean }>;
   onEvent: (socketId: string, callback: (eventName: string, ...args: unknown[]) => void) => void;
+}
+
+interface CmuxLogsAPI {
+  onMainLog: (
+    callback: (entry: ElectronMainLogMessage) => void
+  ) => () => void;
+  readAll: () => Promise<ElectronLogsPayload>;
+  copyAll: () => Promise<{ ok: boolean }>;
+}
+
+interface CmuxRectangle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface CmuxWebContentsViewAPI {
+  create: (options: {
+    url: string;
+    bounds?: CmuxRectangle;
+    backgroundColor?: string;
+    borderRadius?: number;
+    persistKey?: string;
+  }) => Promise<
+    { id: number; webContentsId: number; restored: boolean }
+  >;
+  setBounds: (options: { id: number; bounds: CmuxRectangle; visible?: boolean }) => Promise<
+    { ok: boolean }
+  >;
+  loadURL: (id: number, url: string) => Promise<{ ok: boolean }>;
+  release: (options: { id: number; persist?: boolean }) => Promise<
+    { ok: boolean; suspended: boolean }
+  >;
+  destroy: (id: number) => Promise<{ ok: boolean }>;
+  updateStyle: (options: {
+    id: number;
+    backgroundColor?: string;
+    borderRadius?: number;
+  }) => Promise<{ ok: boolean }>;
+  goBack: (id: number) => Promise<{ ok: boolean }>;
+  goForward: (id: number) => Promise<{ ok: boolean }>;
+  reload: (id: number) => Promise<{ ok: boolean }>;
+  onEvent: (
+    id: number,
+    callback: (event: ElectronWebContentsEvent) => void
+  ) => () => void;
+  getState: (
+    id: number
+  ) => Promise<{ ok: boolean; state?: ElectronWebContentsState }>;
+  openDevTools: (
+    id: number,
+    options?: { mode?: ElectronDevToolsMode }
+  ) => Promise<{ ok: boolean }>;
+  closeDevTools: (id: number) => Promise<{ ok: boolean }>;
 }
 
 interface CmuxAPI {
@@ -23,6 +88,11 @@ interface CmuxAPI {
     restoreLastFocus: () => Promise<{ ok: boolean }>;
   };
   socket: CmuxSocketAPI;
+  logs: CmuxLogsAPI;
+  webContentsView: CmuxWebContentsViewAPI;
+  autoUpdate?: {
+    install: () => Promise<{ ok: boolean; reason?: string }>;
+  };
 }
 
 declare global {

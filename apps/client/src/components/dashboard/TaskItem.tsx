@@ -75,15 +75,12 @@ export const TaskItem = memo(function TaskItem({
   const hasActiveVSCode = runWithVSCode?.vscode?.status === "running";
 
   // Generate the VSCode URL if available
-  const vscodeUrl = useMemo(
-    () =>
-      hasActiveVSCode &&
-      runWithVSCode?.vscode?.containerName &&
-      runWithVSCode?.vscode?.ports?.vscode
-        ? `http://${runWithVSCode._id.substring(0, 12)}.39378.localhost:9776/`
-        : null,
-    [hasActiveVSCode, runWithVSCode]
-  );
+  const vscodeUrl = useMemo(() => {
+    if (hasActiveVSCode && runWithVSCode?.vscode?.workspaceUrl) {
+      return runWithVSCode.vscode.workspaceUrl;
+    }
+    return null;
+  }, [hasActiveVSCode, runWithVSCode]);
 
   const handleClick = useCallback(() => {
     navigate({

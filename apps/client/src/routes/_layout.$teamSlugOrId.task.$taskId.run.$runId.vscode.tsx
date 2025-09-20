@@ -1,5 +1,4 @@
 import { api } from "@cmux/convex/api";
-import { getShortId } from "@cmux/shared";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -7,11 +6,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import clsx from "clsx";
 import { useCallback } from "react";
 import z from "zod";
-import { usePersistentIframe } from "../hooks/usePersistentIframe";
+import { PersistentWebView } from "@/components/persistent-webview";
+import { getTaskRunPersistKey } from "@/lib/persistent-webview-keys";
 import { preloadTaskRunIframes } from "../lib/preloadTaskRunIframes";
 
-// Configuration: Set to true to use the proxy URL, false to use direct localhost URL
-const USE_PROXY_URL = false;
 
 const paramsSchema = z.object({
   taskId: typedZid("tasks"),
@@ -42,7 +40,7 @@ export const Route = createFileRoute(
       void preloadTaskRunIframes([
         {
           url: result.vscode?.workspaceUrl || "",
-          key: `task-run-${opts.params.runId}`,
+          taskRunId: opts.params.runId,
         },
       ]);
     }
@@ -58,53 +56,47 @@ function VSCodeComponent() {
     })
   );
 
-  const shortId = getShortId(taskRunId);
-
-  const iframeUrl = USE_PROXY_URL
-    ? `http://${shortId}.39378.localhost:9776/?folder=/root/workspace`
-    : taskRun?.data?.vscode?.workspaceUrl || "about:blank";
+  const workspaceUrl = taskRun?.data?.vscode?.workspaceUrl ?? null;
+  const persistKey = getTaskRunPersistKey(taskRunId);
+  const hasWorkspace = workspaceUrl !== null;
 
   const onLoad = useCallback(() => {
-    console.log(`Iframe loaded for task run ${taskRunId}`);
+    console.log(`Workspace view loaded for task run ${taskRunId}`);
   }, [taskRunId]);
 
   const onError = useCallback(
     (error: Error) => {
-      console.error(`Failed to load iframe for task run ${taskRunId}:`, error);
+      console.error(`Failed to load workspace view for task run ${taskRunId}:`, error);
     },
     [taskRunId]
   );
-
-  const { containerRef } = usePersistentIframe({
-    key: `task-run-${taskRunId}`,
-    url: iframeUrl,
-    className: "select-none",
-    allow:
-      "clipboard-read; clipboard-write; usb; serial; hid; cross-origin-isolated; autoplay; camera; microphone; geolocation; payment; fullscreen",
-    sandbox:
-      "allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation",
-    onLoad,
-    onError,
-  });
 
   return (
     <div className="pl-1 flex flex-col grow bg-neutral-50 dark:bg-black">
       <div className="flex flex-col grow min-h-0 border-l border-neutral-200 dark:border-neutral-800">
         <div className="flex flex-row grow min-h-0 relative">
-          <div
-            ref={containerRef}
-            className={clsx("grow flex relative", {
-              invisible: !taskRun?.data?.vscode?.workspaceUrl,
-            })}
-          />
+          {workspaceUrl ? (
+            <PersistentWebView
+              persistKey={persistKey}
+              src={workspaceUrl}
+              className="grow flex relative"
+              iframeClassName="select-none"
+              allow="clipboard-read; clipboard-write; usb; serial; hid; cross-origin-isolated; autoplay; camera; microphone; geolocation; payment; fullscreen"
+              sandbox="allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation"
+              retainOnUnmount
+              suspended={!hasWorkspace}
+              onLoad={onLoad}
+              onError={onError}
+            />
+          ) : (
+            <div className="grow" />
+          )}
           <div
             className={clsx(
-              "absolute inset-0 flex items-center justify-center transition",
+              "absolute inset-0 flex items-center justify-center transition pointer-events-none",
               {
-                "opacity-100 pointer-events-none":
-                  !taskRun?.data?.vscode?.workspaceUrl,
-                "opacity-0 pointer-events-auto":
-                  taskRun?.data?.vscode?.workspaceUrl,
+                "opacity-100": !hasWorkspace,
+                "opacity-0": hasWorkspace,
               }
             )}
           >

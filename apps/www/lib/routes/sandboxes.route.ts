@@ -7,12 +7,17 @@ import {
 import { fetchGithubUserInfoForRequest } from "@/lib/utils/githubUserInfo";
 import { selectGitIdentity } from "@/lib/utils/gitIdentity";
 import { DEFAULT_MORPH_SNAPSHOT_ID } from "@/lib/utils/morph-defaults";
+import { stackServerAppJs } from "@/lib/utils/stack";
 import { verifyTeamAccess } from "@/lib/utils/team-verification";
 import { env } from "@/lib/utils/www-env";
 import { api } from "@cmux/convex/api";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { MorphCloudClient } from "morphcloud";
+import {
+  encodeEnvContentForEnvctl,
+  envctlLoadCommand,
+} from "./utils/ensure-env-vars";
 
 export const sandboxesRouter = new OpenAPIHono();
 
@@ -42,6 +47,19 @@ const StartSandboxResponse = z
     provider: z.enum(["morph"]).default("morph"),
   })
   .openapi("StartSandboxResponse");
+
+const UpdateSandboxEnvBody = z
+  .object({
+    teamSlugOrId: z.string(),
+    envVarsContent: z.string(),
+  })
+  .openapi("UpdateSandboxEnvBody");
+
+const UpdateSandboxEnvResponse = z
+  .object({
+    applied: z.literal(true),
+  })
+  .openapi("UpdateSandboxEnvResponse");
 
 // Start a new sandbox (currently Morph-backed)
 sandboxesRouter.openapi(
@@ -102,6 +120,7 @@ sandboxesRouter.openapi(
       const convex = getConvex({ accessToken });
 
       let resolvedSnapshotId: string | null = null;
+      let environmentDataVaultKey: string | undefined;
 
       if (body.environmentId) {
         const environmentId = typedZid("environments").parse(
@@ -116,6 +135,7 @@ sandboxesRouter.openapi(
           return c.text("Environment not found or not accessible", 403);
         }
         resolvedSnapshotId = envDoc.morphSnapshotId;
+        environmentDataVaultKey = envDoc.dataVaultKey;
       } else if (body.snapshotId) {
         // Ensure the provided snapshotId belongs to one of the team's environments
         const envs = await convex.query(api.environments.list, {
@@ -132,6 +152,33 @@ sandboxesRouter.openapi(
       } else {
         // Fall back to default snapshot if nothing provided
         resolvedSnapshotId = DEFAULT_MORPH_SNAPSHOT_ID;
+      }
+
+      let environmentEnvVarsContent: string | null = null;
+      if (environmentDataVaultKey) {
+        try {
+          const store =
+            await stackServerAppJs.getDataVaultStore("cmux-snapshot-envs");
+          environmentEnvVarsContent = await store.getValue(
+            environmentDataVaultKey,
+            {
+              secret: env.STACK_DATA_VAULT_SECRET,
+            }
+          );
+          try {
+            const length = environmentEnvVarsContent?.length ?? 0;
+            console.log(
+              `[sandboxes.start] Loaded environment env vars (chars=${length})`
+            );
+          } catch {
+            /* noop */
+          }
+        } catch (error) {
+          console.error(
+            "[sandboxes.start] Failed to fetch environment env vars",
+            error
+          );
+        }
       }
 
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
@@ -153,6 +200,32 @@ sandboxesRouter.openapi(
       if (!vscodeService || !workerService) {
         await instance.stop().catch(() => {});
         return c.text("VSCode or worker service not found", 500);
+      }
+
+      if (
+        environmentEnvVarsContent &&
+        environmentEnvVarsContent.trim().length > 0
+      ) {
+        try {
+          const encodedEnv = encodeEnvContentForEnvctl(
+            environmentEnvVarsContent
+          );
+          const loadRes = await instance.exec(envctlLoadCommand(encodedEnv));
+          if (loadRes.exit_code === 0) {
+            console.log(
+              `[sandboxes.start] Applied environment env vars via envctl`
+            );
+          } else {
+            console.error(
+              `[sandboxes.start] Env var bootstrap failed exit=${loadRes.exit_code} stderr=${(loadRes.stderr || "").slice(0, 200)}`
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[sandboxes.start] Failed to apply environment env vars",
+            error
+          );
+        }
       }
 
       // Configure git identity from Convex + GitHub user info so commits don't fail
@@ -323,6 +396,94 @@ sandboxesRouter.openapi(
     } catch (error) {
       console.error("Failed to start sandbox:", error);
       return c.text("Failed to start sandbox", 500);
+    }
+  }
+);
+
+sandboxesRouter.openapi(
+  createRoute({
+    method: "post" as const,
+    path: "/sandboxes/{id}/env",
+    tags: ["Sandboxes"],
+    summary: "Apply environment variables to a running sandbox",
+    request: {
+      params: z.object({ id: z.string() }),
+      body: {
+        content: {
+          "application/json": {
+            schema: UpdateSandboxEnvBody,
+          },
+        },
+        required: true,
+      },
+    },
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            schema: UpdateSandboxEnvResponse,
+          },
+        },
+        description: "Environment variables applied",
+      },
+      401: { description: "Unauthorized" },
+      403: { description: "Forbidden" },
+      404: { description: "Sandbox not found" },
+      500: { description: "Failed to apply environment variables" },
+    },
+  }),
+  async (c) => {
+    const accessToken = await getAccessTokenFromRequest(c.req.raw);
+    if (!accessToken) return c.text("Unauthorized", 401);
+
+    const { id } = c.req.valid("param");
+    const { teamSlugOrId, envVarsContent } = c.req.valid("json");
+
+    try {
+      const team = await verifyTeamAccess({
+        req: c.req.raw,
+        teamSlugOrId,
+      });
+
+      const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+      const instance = await client.instances
+        .get({ instanceId: id })
+        .catch((error) => {
+          console.error("[sandboxes.env] Failed to load instance", error);
+          return null;
+        });
+
+      if (!instance) {
+        return c.text("Sandbox not found", 404);
+      }
+
+      const metadataTeamId = (
+        instance as unknown as {
+          metadata?: { teamId?: string };
+        }
+      ).metadata?.teamId;
+
+      if (metadataTeamId && metadataTeamId !== team.uuid) {
+        return c.text("Forbidden", 403);
+      }
+
+      const encodedEnv = encodeEnvContentForEnvctl(envVarsContent);
+      const command = envctlLoadCommand(encodedEnv);
+      const execResult = await instance.exec(command);
+      if (execResult.exit_code !== 0) {
+        console.error(
+          `[sandboxes.env] envctl load failed exit=${execResult.exit_code} stderr=${(execResult.stderr || "").slice(0, 200)}`
+        );
+        return c.text("Failed to apply environment variables", 500);
+      }
+
+      return c.json({ applied: true as const });
+    } catch (error) {
+      console.error(
+        "[sandboxes.env] Failed to apply environment variables",
+        error
+      );
+      return c.text("Failed to apply environment variables", 500);
     }
   }
 );

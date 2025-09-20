@@ -8,6 +8,152 @@ import { hmacSha256, safeEqualHex } from "../_shared/crypto";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
+type InstallationAccountInfo = {
+  accountLogin: string;
+  accountId?: number;
+  accountType?: "Organization" | "User";
+};
+
+const textEncoder = new TextEncoder();
+const privateKeyCache = new Map<string, CryptoKey>();
+
+function pemToDer(pem: string): Uint8Array {
+  const cleaned = pem
+    .replace(/-----BEGIN [A-Z ]+-----/g, "")
+    .replace(/-----END [A-Z ]+-----/g, "")
+    .replace(/\s+/g, "");
+  const base64Url = cleaned
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return base64urlToBytes(base64Url);
+}
+
+function base64urlEncodeJson(value: unknown): string {
+  return base64urlFromBytes(textEncoder.encode(JSON.stringify(value)));
+}
+
+async function importPrivateKey(pem: string): Promise<CryptoKey> {
+  const cached = privateKeyCache.get(pem);
+  if (cached) return cached;
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error("SubtleCrypto is not available in this environment");
+  }
+  const der = pemToDer(pem);
+  const keyData =
+    der.byteOffset === 0 && der.byteLength === der.buffer.byteLength
+      ? der
+      : der.slice();
+  const key = await subtle.importKey(
+    "pkcs8",
+    keyData,
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256",
+    },
+    false,
+    ["sign"]
+  );
+  privateKeyCache.set(pem, key);
+  return key;
+}
+
+async function createGithubAppJwt(
+  appId: string,
+  privateKey: string
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" } as const;
+  const payload = {
+    iat: now - 60,
+    exp: now + 600,
+    iss: appId,
+  } as const;
+  const signingInput = `${base64urlEncodeJson(header)}.${base64urlEncodeJson(
+    payload
+  )}`;
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error("SubtleCrypto is not available in this environment");
+  }
+  const key = await importPrivateKey(privateKey);
+  const signature = await subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    textEncoder.encode(signingInput)
+  );
+  const signaturePart = base64urlFromBytes(new Uint8Array(signature));
+  return `${signingInput}.${signaturePart}`;
+}
+
+function normalizeAccountType(
+  input: unknown
+): InstallationAccountInfo["accountType"] {
+  return input === "Organization" || input === "User"
+    ? input
+    : undefined;
+}
+
+async function fetchInstallationAccountInfo(
+  installationId: number
+): Promise<InstallationAccountInfo | null> {
+  const appId = env.CMUX_GITHUB_APP_ID;
+  const privateKey = env.CMUX_GITHUB_APP_PRIVATE_KEY;
+  if (!appId || !privateKey) {
+    return null;
+  }
+
+  try {
+    const normalizedPrivateKey = privateKey.replace(/\\n/g, "\n");
+    const jwt = await createGithubAppJwt(appId, normalizedPrivateKey);
+    const response = await fetch(
+      `https://api.github.com/app/installations/${installationId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "cmux-github-setup",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(
+        `[github_setup] Failed to fetch installation ${installationId} info (status ${response.status}): ${errorText}`
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      account?: {
+        login?: string | null;
+        id?: number | null;
+        type?: string | null;
+      };
+    };
+
+    const login = data.account?.login ?? undefined;
+    if (!login) {
+      return null;
+    }
+
+    return {
+      accountLogin: login,
+      accountId:
+        typeof data.account?.id === "number" ? data.account?.id : undefined,
+      accountType: normalizeAccountType(data.account?.type ?? undefined),
+    };
+  } catch (error) {
+    console.error(
+      `[github_setup] Unexpected error fetching installation ${installationId} info`,
+      error
+    );
+    return null;
+  }
+}
+
 export const githubSetup = httpAction(async (ctx, req) => {
   const url = new URL(req.url);
   const installationIdStr = url.searchParams.get("installation_id");
@@ -118,6 +264,16 @@ export const githubSetup = httpAction(async (ctx, req) => {
   });
 
   // Map installation -> team (create or patch connection)
+  const accountInfo = await fetchInstallationAccountInfo(installationId);
+  if (accountInfo) {
+    console.log(
+      `[github_setup] Installation ${installationId} account=${accountInfo.accountLogin} type=${accountInfo.accountType ?? "unknown"}`
+    );
+  } else {
+    console.warn(
+      `[github_setup] No account metadata fetched for installation ${installationId}`
+    );
+  }
   await ctx.runMutation(
     internal.github_app.upsertProviderConnectionFromInstallation,
     {
@@ -125,6 +281,15 @@ export const githubSetup = httpAction(async (ctx, req) => {
       teamId: payload.teamId,
       connectedByUserId: payload.userId,
       isActive: true,
+      ...(accountInfo?.accountLogin
+        ? { accountLogin: accountInfo.accountLogin }
+        : {}),
+      ...(accountInfo?.accountId !== undefined
+        ? { accountId: accountInfo.accountId }
+        : {}),
+      ...(accountInfo?.accountType
+        ? { accountType: accountInfo.accountType }
+        : {}),
     }
   );
 

@@ -1,14 +1,16 @@
 import { useTheme } from "@/components/theme/use-theme";
-import { api } from "@cmux/convex/api";
-import * as Dialog from "@radix-ui/react-dialog";
-
 import { isElectron } from "@/lib/electron";
+import { copyAllElectronLogs } from "@/lib/electron-logs/electron-logs";
+import { api } from "@cmux/convex/api";
+import type { Id } from "@cmux/convex/dataModel";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { Command } from "cmdk";
-import { useMutation, useQuery } from "convex/react";
-import { GitPullRequest, Monitor, Moon, Sun, Plus } from "lucide-react";
+import { useQuery } from "convex/react";
+import { GitPullRequest, Monitor, Moon, Plus, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ElectronLogsCommandItems } from "./command-bar/ElectronLogsCommandItems";
 
 interface CommandBarProps {
   teamSlugOrId: string;
@@ -25,8 +27,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
   const router = useRouter();
   const { setTheme } = useTheme();
 
-  const allTasks = useQuery(api.tasks.get, { teamSlugOrId });
-  const createRun = useMutation(api.taskRuns.create);
+  const allTasks = useQuery(api.tasks.getTasksWithTaskRuns, { teamSlugOrId });
 
   useEffect(() => {
     openRef.current = open;
@@ -116,10 +117,23 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
 
   const handleHighlight = useCallback(
     async (value: string) => {
-      if (value?.startsWith("task:")) {
+      if (value === "logs:view") {
+        try {
+          await router.preloadRoute({
+            to: "/$teamSlugOrId/logs",
+            params: { teamSlugOrId },
+          });
+        } catch {
+          // ignore preload errors
+        }
+      } else if (value?.startsWith("task:")) {
         const parts = value.slice(5).split(":");
         const taskId = parts[0];
         const action = parts[1];
+        const task = allTasks?.find(
+          (t) => t._id === (taskId as Id<"tasks">)
+        );
+        const runId = task?.selectedTaskRun?._id;
 
         try {
           if (!action) {
@@ -128,28 +142,45 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
               to: "/$teamSlugOrId/task/$taskId",
               // @ts-expect-error - taskId from string
               params: { teamSlugOrId, taskId },
+              search: { runId: undefined },
             });
           } else if (action === "vs") {
-            // Preload VS Code route (will need a runId when actually navigating)
-            await router.preloadRoute({
-              to: "/$teamSlugOrId/task/$taskId",
-              // @ts-expect-error - taskId from string
-              params: { teamSlugOrId, taskId },
-            });
+            if (runId) {
+              await router.preloadRoute({
+                to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
+                // @ts-expect-error - provided from runtime lookup
+                params: { teamSlugOrId, taskId, runId },
+              });
+            } else {
+              await router.preloadRoute({
+                to: "/$teamSlugOrId/task/$taskId",
+                // @ts-expect-error - taskId from string
+                params: { teamSlugOrId, taskId },
+                search: { runId: undefined },
+              });
+            }
           } else if (action === "gitdiff") {
-            // Preload git diff route (will need a runId when actually navigating)
-            await router.preloadRoute({
-              to: "/$teamSlugOrId/task/$taskId",
-              // @ts-expect-error - taskId from string
-              params: { teamSlugOrId, taskId },
-            });
+            if (runId) {
+              await router.preloadRoute({
+                to: "/$teamSlugOrId/task/$taskId/run/$runId/diff",
+                // @ts-expect-error - provided from runtime lookup
+                params: { teamSlugOrId, taskId, runId },
+              });
+            } else {
+              await router.preloadRoute({
+                to: "/$teamSlugOrId/task/$taskId",
+                // @ts-expect-error - taskId from string
+                params: { teamSlugOrId, taskId },
+                search: { runId: undefined },
+              });
+            }
           }
         } catch {
           // Silently fail preloading
         }
       }
     },
-    [router, teamSlugOrId]
+    [router, teamSlugOrId, allTasks]
   );
 
   const handleSelect = useCallback(
@@ -164,6 +195,19 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
           to: "/$teamSlugOrId/prs",
           params: { teamSlugOrId },
         });
+      } else if (value === "logs:view") {
+        navigate({ to: "/$teamSlugOrId/logs", params: { teamSlugOrId } });
+      } else if (value === "logs:copy") {
+        try {
+          const ok = await copyAllElectronLogs();
+          if (ok) {
+            toast.success("Copied logs to clipboard");
+          } else {
+            toast.error("Unable to copy logs");
+          }
+        } catch {
+          toast.error("Unable to copy logs");
+        }
       } else if (value === "theme-light") {
         setTheme("light");
       } else if (value === "theme-dark") {
@@ -172,57 +216,50 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
         setTheme("system");
       } else if (value.startsWith("task:")) {
         const parts = value.slice(5).split(":");
-        const taskId = parts[0];
+        const taskId = parts[0] as Id<"tasks">;
         const action = parts[1];
+        const task = allTasks?.find((t) => t._id === taskId);
+        const runId = task?.selectedTaskRun?._id;
 
-        if (action === "vs" || action === "gitdiff") {
-          try {
-            // Create a new run for VS Code or git diff
-            const runId = await createRun({
-              teamSlugOrId,
-              // @ts-expect-error - taskId from string
-              taskId,
-              prompt: action === "vs" ? "Opening VS Code" : "Viewing git diff",
+        if (!action) {
+          navigate({
+            to: "/$teamSlugOrId/task/$taskId",
+            params: { teamSlugOrId, taskId },
+            search: { runId: undefined },
+          });
+        } else if (action === "vs") {
+          if (runId) {
+            navigate({
+              to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
+              params: { teamSlugOrId, taskId, runId },
             });
-
-            if (runId) {
-              if (action === "vs") {
-                navigate({
-                  to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
-                  // @ts-expect-error - taskId and runId extracted from string
-                  params: { teamSlugOrId, taskId, runId },
-                });
-              } else {
-                navigate({
-                  to: "/$teamSlugOrId/task/$taskId/run/$runId/diff",
-                  // @ts-expect-error - taskId and runId extracted from string
-                  params: { teamSlugOrId, taskId, runId },
-                });
-              }
-            }
-          } catch (_error) {
-            toast.error("Failed to create run");
+          } else {
             navigate({
               to: "/$teamSlugOrId/task/$taskId",
-              // @ts-expect-error - taskId extracted from string
               params: { teamSlugOrId, taskId },
               search: { runId: undefined },
             });
           }
-        } else {
-          navigate({
-            to: "/$teamSlugOrId/task/$taskId",
-            // @ts-expect-error - taskId extracted from string
-            params: { teamSlugOrId, taskId },
-            search: { runId: undefined },
-          });
+        } else if (action === "gitdiff") {
+          if (runId) {
+            navigate({
+              to: "/$teamSlugOrId/task/$taskId/run/$runId/diff",
+              params: { teamSlugOrId, taskId, runId },
+            });
+          } else {
+            navigate({
+              to: "/$teamSlugOrId/task/$taskId",
+              params: { teamSlugOrId, taskId },
+              search: { runId: undefined },
+            });
+          }
         }
       }
       setOpen(false);
       setSearch("");
       setOpenedWithShift(false);
     },
-    [navigate, teamSlugOrId, setTheme, createRun]
+    [navigate, teamSlugOrId, setTheme, allTasks]
   );
 
   if (!open) return null;
@@ -337,100 +374,117 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
                 <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                   Tasks
                 </div>
-                {allTasks.slice(0, 9).flatMap((task, index) => [
-                  <Command.Item
-                    key={task._id}
-                    value={`${index + 1}:task:${task._id}`}
-                    onSelect={() => handleSelect(`task:${task._id}`)}
-                    data-value={`task:${task._id}`}
-                    className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800 
+                {allTasks.slice(0, 9).flatMap((task, index) => {
+                  const run = task.selectedTaskRun;
+                  const items = [
+                    <Command.Item
+                      key={task._id}
+                      value={`${index + 1}:task:${task._id}`}
+                      onSelect={() => handleSelect(`task:${task._id}`)}
+                      data-value={`task:${task._id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800 
                     data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
                     data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100
                     group"
-                  >
-                    <span
-                      className="flex h-5 w-5 items-center justify-center rounded text-xs font-semibold
+                    >
+                      <span
+                        className="flex h-5 w-5 items-center justify-center rounded text-xs font-semibold
                     bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300
                     group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600"
-                    >
-                      {index + 1}
-                    </span>
-                    <span className="flex-1 truncate text-sm">
-                      {task.pullRequestTitle || task.text}
-                    </span>
-                    {task.isCompleted ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                        completed
+                      >
+                        {index + 1}
                       </span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                        in progress
+                      <span className="flex-1 truncate text-sm">
+                        {task.pullRequestTitle || task.text}
                       </span>
-                    )}
-                  </Command.Item>,
-                  <Command.Item
-                    key={`${task._id}-vs`}
-                    value={`${index + 1} vs:task:${task._id}`}
-                    onSelect={() => handleSelect(`task:${task._id}:vs`)}
-                    data-value={`task:${task._id}:vs`}
-                    className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800 
+                      {task.isCompleted ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                          completed
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                          in progress
+                        </span>
+                      )}
+                    </Command.Item>,
+                  ];
+
+                  if (run) {
+                    items.push(
+                      <Command.Item
+                        key={`${task._id}-vs-${run._id}`}
+                        value={`${index + 1} vs:task:${task._id}`}
+                        onSelect={() => handleSelect(`task:${task._id}:vs`)}
+                        data-value={`task:${task._id}:vs`}
+                        className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800 
                     data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
                     data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100
                     group"
-                  >
-                    <span
-                      className="flex h-5 w-8 items-center justify-center rounded text-xs font-semibold
+                      >
+                        <span
+                          className="flex h-5 w-8 items-center justify-center rounded text-xs font-semibold
                     bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300
                     group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600"
-                    >
-                      {index + 1} VS
-                    </span>
-                    <span className="flex-1 truncate text-sm">
-                      {task.pullRequestTitle || task.text}
-                    </span>
-                    {task.isCompleted ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                        completed
-                      </span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                        in progress
-                      </span>
-                    )}
-                  </Command.Item>,
-                  <Command.Item
-                    key={`${task._id}-gitdiff`}
-                    value={`${index + 1} git diff:task:${task._id}`}
-                    onSelect={() => handleSelect(`task:${task._id}:gitdiff`)}
-                    data-value={`task:${task._id}:gitdiff`}
-                    className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800 
+                        >
+                          {index + 1} VS
+                        </span>
+                        <span className="flex-1 truncate text-sm">
+                          {task.pullRequestTitle || task.text}
+                        </span>
+                        {task.isCompleted ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                            completed
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                            in progress
+                          </span>
+                        )}
+                      </Command.Item>
+                    );
+
+                    items.push(
+                      <Command.Item
+                        key={`${task._id}-gitdiff-${run._id}`}
+                        value={`${index + 1} git diff:task:${task._id}`}
+                        onSelect={() => handleSelect(`task:${task._id}:gitdiff`)}
+                        data-value={`task:${task._id}:gitdiff`}
+                        className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800 
                     data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
                     data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100
                     group"
-                  >
-                    <span
-                      className="flex h-5 px-2 items-center justify-center rounded text-xs font-semibold
+                      >
+                        <span
+                          className="flex h-5 px-2 items-center justify-center rounded text-xs font-semibold
                     bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300
                     group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600"
-                    >
-                      {index + 1} git diff
-                    </span>
-                    <span className="flex-1 truncate text-sm">
-                      {task.pullRequestTitle || task.text}
-                    </span>
-                    {task.isCompleted ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                        completed
-                      </span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                        in progress
-                      </span>
-                    )}
-                  </Command.Item>,
-                ])}
+                        >
+                          {index + 1} git diff
+                        </span>
+                        <span className="flex-1 truncate text-sm">
+                          {task.pullRequestTitle || task.text}
+                        </span>
+                        {task.isCompleted ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                            completed
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                            in progress
+                          </span>
+                        )}
+                      </Command.Item>
+                    );
+                  }
+
+                  return items;
+                })}
               </Command.Group>
             )}
+
+            {isElectron ? (
+              <ElectronLogsCommandItems onSelect={handleSelect} />
+            ) : null}
           </Command.List>
         </div>
       </Command.Dialog>

@@ -1,11 +1,12 @@
 import { FloatingPane } from "@/components/floating-pane";
+import { PersistentWebView } from "@/components/persistent-webview";
+import { getTaskRunPullRequestPersistKey } from "@/lib/persistent-webview-keys";
 import { api } from "@cmux/convex/api";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { useMemo } from "react";
-import { ElectronWebViewOrIframe } from "@/components/electron-webview";
 import z from "zod";
 
 const paramsSchema = z.object({
@@ -51,7 +52,7 @@ function RunPullRequestPage() {
     teamSlugOrId,
     id: taskId,
   });
-  
+
   const taskRuns = useQuery(api.taskRuns.getByTask, {
     teamSlugOrId,
     taskId,
@@ -65,6 +66,10 @@ function RunPullRequestPage() {
   const pullRequestUrl = selectedRun?.pullRequestUrl;
   const isPending = pullRequestUrl === "pending";
   const hasUrl = pullRequestUrl && pullRequestUrl !== "pending";
+  const persistKey = useMemo(() => {
+    return getTaskRunPullRequestPersistKey(runId);
+  }, [runId]);
+  const paneBorderRadius = 6;
 
   return (
     <FloatingPane>
@@ -127,11 +132,11 @@ function RunPullRequestPage() {
                 <p className="text-sm">Pull request is being created...</p>
               </div>
             ) : hasUrl ? (
-              <ElectronWebViewOrIframe
+              <PersistentWebView
+                persistKey={persistKey}
                 src={pullRequestUrl}
                 className="w-full h-full border-0"
-                title="GitHub Pull Request"
-                allowPopups
+                borderRadius={paneBorderRadius}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-neutral-500 dark:text-neutral-400">

@@ -92,14 +92,6 @@ COPY packages/vscode-extension/tsconfig.json ./packages/vscode-extension/
 COPY packages/vscode-extension/.vscodeignore ./packages/vscode-extension/
 COPY packages/vscode-extension/LICENSE.md ./packages/vscode-extension/
 
-# Copy envctl/envd sources for build
-COPY packages/envctl/tsconfig.json ./packages/envctl/
-COPY packages/envctl/tsconfig.build.json ./packages/envctl/
-COPY packages/envctl/src ./packages/envctl/src
-COPY packages/envd/tsconfig.json ./packages/envd/
-COPY packages/envd/tsconfig.build.json ./packages/envd/
-COPY packages/envd/src ./packages/envd/src
-
 # Build worker with bundling, using the installed node_modules
 RUN cd /cmux && \
     bun build ./apps/worker/src/index.ts \
@@ -112,11 +104,6 @@ RUN cd /cmux && \
     cp ./apps/worker/wait-for-docker.sh /usr/local/bin/ && \
     chmod +x /usr/local/bin/wait-for-docker.sh
 
-# Build envctl/envd (TypeScript → JS)
-RUN cd /cmux && \
-    bun install --frozen-lockfile --production && \
-    bun -F @cmux/envctl -F @cmux/envd build
-
 # Verify bun is still working in builder
 RUN bun --version && bunx --version
 
@@ -127,14 +114,6 @@ RUN bun run package && cp cmux-vscode-extension-0.0.1.vsix /tmp/cmux-vscode-exte
 # Install VS Code extensions
 RUN /app/openvscode-server/bin/openvscode-server --install-extension /tmp/cmux-vscode-extension-0.0.1.vsix && \
     rm /tmp/cmux-vscode-extension-0.0.1.vsix
-
-# Create VS Code user settings
-RUN mkdir -p /root/.openvscode-server/data/User && \
-    echo '{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}}' > /root/.openvscode-server/data/User/settings.json && \
-    mkdir -p /root/.openvscode-server/data/User/profiles/default-profile && \
-    echo '{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}}' > /root/.openvscode-server/data/User/profiles/default-profile/settings.json && \
-    mkdir -p /root/.openvscode-server/data/Machine && \
-    echo '{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.defaultProfile.linux": "bash", "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash", "args": ["-l"]}}}' > /root/.openvscode-server/data/Machine/settings.json
 
 # Stage 2: Runtime stage
 FROM ubuntu:24.04 AS runtime
@@ -160,6 +139,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pigz \
     xz-utils \
     tmux \
+    htop \
     ripgrep \
     jq \
     && rm -rf /var/lib/apt/lists/*
@@ -186,7 +166,7 @@ COPY --from=builder /usr/local/bin/bunx /usr/local/bin/bunx
 # Verify bun works in runtime
 RUN bun --version && bunx --version
 
-RUN bun add -g @openai/codex@0.25.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
+RUN bun add -g @openai/codex@0.36.0 @anthropic-ai/claude-code@1.0.83 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
 
 # Install cursor cli
 RUN curl https://cursor.com/install -fsS | bash
@@ -241,27 +221,18 @@ COPY --from=builder /cmux/apps/worker/scripts/collect-relevant-diff.sh /usr/loca
 RUN chmod +x /usr/local/bin/cmux-collect-relevant-diff.sh
 
 # Install envctl/envd into runtime
-RUN mkdir -p /usr/local/lib/cmux
-COPY --from=builder /cmux/packages/envctl/dist /usr/local/lib/cmux/envctl/dist
-COPY --from=builder /cmux/packages/envctl/package.json /usr/local/lib/cmux/envctl/package.json
-COPY --from=builder /cmux/packages/envd/dist /usr/local/lib/cmux/envd/dist
-COPY --from=builder /cmux/packages/envd/package.json /usr/local/lib/cmux/envd/package.json
-RUN set -eux; \
-    printf '#!/bin/sh\nexec node /usr/local/lib/cmux/envctl/dist/index.js "$@"\n' > /usr/local/bin/envctl && \
-    printf '#!/bin/sh\nexec node /usr/local/lib/cmux/envd/dist/index.js "$@"\n' > /usr/local/bin/envd && \
-    chmod +x /usr/local/bin/envctl /usr/local/bin/envd
+RUN CMUX_ENV_VERSION=0.0.7 curl https://raw.githubusercontent.com/lawrencecchen/cmux-env/refs/heads/main/scripts/install.sh | bash && \
+    envctl --version && \
+    envctl install-hook bash && \
+    echo '[ -f ~/.bashrc ] && . ~/.bashrc' > /root/.profile && \
+    echo '[ -f ~/.bashrc ] && . ~/.bashrc' > /root/.bash_profile && \
+    mkdir -p /run/user/0 && \
+    chmod 700 /run/user/0 && \
+    echo 'export XDG_RUNTIME_DIR=/run/user/0' >> /root/.bashrc
 
 # Install tmux configuration for better mouse scrolling behavior
 COPY configs/tmux.conf /etc/tmux.conf
-COPY configs/envctl.sh /etc/profile.d/envctl.sh
-RUN bash -lc 'echo "# Source envctl hook for interactive non-login shells" >> /etc/bash.bashrc && \
-    echo "if [ -f /etc/profile.d/envctl.sh ]; then . /etc/profile.d/envctl.sh; fi" >> /etc/bash.bashrc'
-RUN mkdir -p /etc/zsh && \
-    bash -lc 'echo "# Source envctl hook for interactive zsh shells" >> /etc/zsh/zshrc && \
-    echo "if [ -f /etc/profile.d/envctl.sh ]; then . /etc/profile.d/envctl.sh; fi" >> /etc/zsh/zshrc'
 
-
-# Find and install claude-code.vsix from Bun cache using ripgrep
 RUN claude_vsix=$(rg --files /root/.bun/install/cache/@anthropic-ai 2>/dev/null | rg "claude-code\.vsix$" | head -1) && \
     if [ -n "$claude_vsix" ]; then \
         echo "Found claude-code.vsix at: $claude_vsix" && \
@@ -313,6 +284,14 @@ EOF
 COPY startup.sh /startup.sh
 COPY prompt-wrapper.sh /usr/local/bin/prompt-wrapper
 RUN chmod +x /startup.sh /usr/local/bin/prompt-wrapper
+
+# Create VS Code user settings
+RUN mkdir -p /root/.openvscode-server/data/User && \
+    echo '{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]}' > /root/.openvscode-server/data/User/settings.json && \
+    mkdir -p /root/.openvscode-server/data/User/profiles/default-profile && \
+    echo '{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]}' > /root/.openvscode-server/data/User/profiles/default-profile/settings.json && \
+    mkdir -p /root/.openvscode-server/data/Machine && \
+    echo '{"workbench.startupEditor": "none", "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"]}' > /root/.openvscode-server/data/Machine/settings.json
 
 # Ports
 # 39376: VS Code Extension Socket Server

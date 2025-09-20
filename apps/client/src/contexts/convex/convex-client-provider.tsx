@@ -1,11 +1,11 @@
 "use client";
 
-import { env } from "@/client-env";
 import { getRandomKitty } from "@/components/kitties";
 import CmuxLogoMarkAnimated from "@/components/logo/cmux-logo-mark-animated";
 import { cachedGetUser } from "@/lib/cachedGetUser";
 import { isElectron } from "@/lib/electron";
 import { stackClientApp } from "@/lib/stack";
+import { WWW_ORIGIN } from "@/lib/wwwOrigin";
 import { SignIn, useUser } from "@stackframe/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Authenticated, ConvexProviderWithAuth } from "convex/react";
@@ -108,8 +108,7 @@ function AuthenticatedOrSignIn({
                 </div>
                 <button
                   onClick={() => {
-                    const origin = env.NEXT_PUBLIC_WWW_ORIGIN;
-                    const url = `${origin}/handler/sign-in/`;
+                    const url = `${WWW_ORIGIN}/handler/sign-in/`;
                     // Open in external browser via Electron handler
                     window.open(url, "_blank", "noopener,noreferrer");
                   }}

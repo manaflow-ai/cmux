@@ -329,10 +329,14 @@ export function TaskDetailHeader({
                         <Dropdown.Popup className="min-w-[200px]">
                           <Dropdown.Arrow />
                           {taskRuns?.map((run) => {
+                            const trimmedAgentName = run.agentName?.trim();
+                            const summary = run.summary?.trim();
                             const agentName =
-                              run.agentName ||
-                              run.prompt?.match(/\(([^)]+)\)$/)?.[1] ||
-                              "Unknown agent";
+                              trimmedAgentName && trimmedAgentName.length > 0
+                                ? trimmedAgentName
+                                : summary && summary.length > 0
+                                  ? summary
+                                  : "unknown agent";
                             const isSelected = run._id === selectedRun?._id;
                             return (
                               <Dropdown.CheckboxItem

@@ -1,42 +1,16 @@
 import {
   AGENT_CONFIGS,
   checkDockerStatus,
-  checkGitStatus,
   type DockerStatus,
-  type GitStatus,
-  type GitHubStatus,
   type ProviderStatus as SharedProviderStatus,
 } from "@cmux/shared";
-import { getGitHubTokenFromKeychain } from "./getGitHubToken.js";
-
-async function checkGitHubStatus(): Promise<GitHubStatus> {
-  try {
-    const token = await getGitHubTokenFromKeychain();
-    return {
-      isConfigured: !!token,
-      hasToken: !!token,
-    };
-  } catch (error) {
-    return {
-      isConfigured: false,
-      hasToken: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
 
 export async function checkAllProvidersStatus(): Promise<{
   providers: SharedProviderStatus[];
   dockerStatus: DockerStatus;
-  gitStatus: GitStatus;
-  githubStatus: GitHubStatus;
 }> {
-  // Check Docker, Git, and GitHub status once
-  const [dockerStatus, gitStatus, githubStatus] = await Promise.all([
-    checkDockerStatus(),
-    checkGitStatus(),
-    checkGitHubStatus(),
-  ]);
+  // Check Docker status
+  const [dockerStatus] = await Promise.all([checkDockerStatus()]);
 
   // Check each provider's specific requirements
   const providerChecks = await Promise.all(
@@ -58,7 +32,5 @@ export async function checkAllProvidersStatus(): Promise<{
   return {
     providers: providerChecks,
     dockerStatus,
-    gitStatus,
-    githubStatus,
   };
 }

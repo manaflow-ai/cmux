@@ -11,6 +11,13 @@ import {
   postApiCrownSummarize,
 } from "@cmux/www-openapi-client";
 
+const UNKNOWN_AGENT_NAME = "unknown agent";
+
+function getAgentNameOrUnknown(agentName?: string | null): string {
+  const trimmed = agentName?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : UNKNOWN_AGENT_NAME;
+}
+
 // Auto PR behavior is controlled via workspace settings in Convex
 export async function createPullRequestForWinner(
   taskRunId: Id<"taskRuns">,
@@ -75,9 +82,7 @@ export async function createPullRequestForWinner(
       return;
     }
 
-    // Extract agent name from prompt
-    const agentMatch = taskRun.prompt.match(/\(([^)]+)\)$/);
-    const agentName = agentMatch ? agentMatch[1] : "Unknown";
+    const agentName = getAgentNameOrUnknown(taskRun.agentName);
 
     // Create PR title and body using stored task title when available
     const prTitle =
@@ -293,10 +298,19 @@ Completed: ${new Date().toISOString()}`;
   }
 }
 
-export async function evaluateCrown(
-  taskId: Id<"tasks">,
-  teamSlugOrId: string
-): Promise<void> {
+type EvaluateCrownOptions = {
+  taskId: Id<"tasks">;
+  teamSlugOrId: string;
+  crownRunId: Id<"taskRuns">;
+  precollectedDiff: string;
+};
+
+export async function evaluateCrown({
+  taskId,
+  teamSlugOrId,
+  crownRunId,
+  precollectedDiff,
+}: EvaluateCrownOptions): Promise<void> {
   serverLogger.info(
     `[CrownEvaluator] =================================================`
   );
@@ -464,7 +478,7 @@ export async function evaluateCrown(
       api.crown.getCrownEvaluation,
       {
         teamSlugOrId,
-        taskId: taskId,
+        taskId,
       }
     );
 
@@ -532,12 +546,19 @@ export async function evaluateCrown(
 
     const candidateData = await Promise.all(
       completedRuns.map(async (run, idx) => {
-        // Extract agent name from prompt
-        const agentMatch = run.prompt.match(/\(([^)]+)\)$/);
-        const agentName = agentMatch ? agentMatch[1] : "Unknown";
+        const agentName = getAgentNameOrUnknown(run.agentName);
         // Try to collect diff via worker
-        const workerDiff: string | null = await collectDiffViaWorker(run._id);
-        let gitDiff: string = workerDiff && workerDiff.length > 0 ? workerDiff : "No changes detected";
+        const precollected =
+          crownRunId && run._id === crownRunId
+            ? (precollectedDiff?.trim() ?? "")
+            : "";
+        const workerDiff: string | null = precollected
+          ? precollected
+          : await collectDiffViaWorker(run._id);
+        let gitDiff: string =
+          workerDiff && workerDiff.length > 0
+            ? workerDiff
+            : "No changes detected";
 
         // Limit to 5000 chars for the prompt
         if (gitDiff.length > 5000) {
@@ -559,22 +580,6 @@ export async function evaluateCrown(
         };
       })
     );
-
-    // Log what we found for debugging
-    for (const c of candidateData) {
-      serverLogger.info(
-        `[CrownEvaluator] ${c.agentName} diff preview: ${c.gitDiff.substring(0, 200)}...`
-      );
-
-      if (
-        c.gitDiff === "No changes detected" ||
-        c.gitDiff.startsWith("ERROR:")
-      ) {
-        serverLogger.error(
-          `[CrownEvaluator] WARNING: ${c.agentName} has no valid git diff!`
-        );
-      }
-    }
 
     // Create structured data for the evaluation
     const evaluationData = {
@@ -746,7 +751,6 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
       githubToken || undefined,
       teamSlugOrId
     );
-
     // After choosing a winner, generate and persist a task comment (by cmux)
     await generateSystemTaskComment(winner.runId, winner.gitDiff);
   } catch (error) {

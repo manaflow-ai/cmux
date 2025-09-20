@@ -9,4 +9,5 @@ export interface EnvironmentResult {
 export type EnvironmentContext = {
   taskRunId: string;
   prompt: string;
+  taskRunJwt: string;
 };

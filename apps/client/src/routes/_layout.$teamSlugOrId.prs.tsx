@@ -1,8 +1,8 @@
-import { FloatingPane } from "@/components/floating-pane";
-import { convexQueryClient } from "@/contexts/convex/convex-query-client";
 import { ResizableColumns } from "@/components/ResizableColumns";
-import { PullRequestListPanel } from "@/routes/prs/PullRequestListPanel";
-import { PRsRightPanel } from "@/routes/prs/PRsRightPanel";
+import { FloatingPane } from "@/components/floating-pane";
+import { PRsRightPanel } from "@/components/prs/PRsRightPanel";
+import { PullRequestListPanel } from "@/components/prs/PullRequestListPanel";
+import { convexQueryClient } from "@/contexts/convex/convex-query-client";
 import { api } from "@cmux/convex/api";
 import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { useQuery as useConvexQuery } from "convex/react";

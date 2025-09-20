@@ -2,29 +2,15 @@
 
 import { ClientIcon } from "@/components/client-icon";
 import CmuxLogo from "@/components/logo/cmux-logo";
-import {
-  Check,
-  Cloud,
-  Copy,
-  GitBranch,
-  GitPullRequest,
-  Star,
-  Terminal,
-  Users,
-  Zap,
-} from "lucide-react";
+import { Cloud, GitBranch, GitPullRequest, Star, Terminal, Users, Zap } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import cmuxDemo0 from "@/docs/assets/cmux-demo-0.png";
+import cmuxDemo1 from "@/docs/assets/cmux-demo-1.png";
+import cmuxDemo5 from "@/docs/assets/cmux-demo-5.png";
+ 
 
 export default function LandingPage() {
-  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCommand(text);
-    setTimeout(() => setCopiedCommand(null), 2000);
-  };
 
   return (
     <div className="min-h-dvh bg-background text-foreground overflow-y-auto">
@@ -45,7 +31,7 @@ export default function LandingPage() {
         <span className="whitespace-nowrap ml-2">
           <a
             href="#requirements"
-            className="whitespace-nowrap bg-black px-2 py-0.5 rounded-sm font-semibold text-blue-300 hover:text-blue-200"
+          className="whitespace-nowrap bg-black px-2 py-0.5 rounded-sm font-semibold text-blue-300 hover:text-blue-200"
           >
             See requirements
           </a>
@@ -122,7 +108,7 @@ export default function LandingPage() {
             <div className="bg-blue-500 rounded-sm" aria-hidden="true"></div>
             <div>
               <h1 className="text-4xl sm:text-4xl md:text-4xl font-semibold mb-6">
-                Orchestrate AI coding agents in parallel
+                Manage AI coding agents in parallel
               </h1>
 
               <p className="text-lg text-neutral-300 mb-4 leading-relaxed">
@@ -159,10 +145,31 @@ export default function LandingPage() {
 
               <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
                 <a
+                  href="https://github.com/manaflow-ai/cmux/releases/download/v1.0.31/cmux-1.0.31-arm64.dmg"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Requires macOS"
+                  className="inline-flex h-12 items-center gap-2 text-base font-medium text-black bg-white hover:bg-neutral-50 border border-neutral-800 rounded-lg px-4 transition-all whitespace-nowrap"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 16 16"
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill="currentColor"
+                      d="M12.665 15.358c-.905.844-1.893.711-2.843.311-1.006-.409-1.93-.427-2.991 0-1.33.551-2.03.391-2.825-.31C-.498 10.886.166 4.078 5.28 3.83c1.246.062 2.114.657 2.843.71 1.09-.213 2.133-.826 3.296-.746 1.393.107 2.446.64 3.138 1.6-2.88 1.662-2.197 5.315.443 6.337-.526 1.333-1.21 2.657-2.345 3.635zM8.03 3.778C7.892 1.794 9.563.16 11.483 0c.268 2.293-2.16 4-3.452 3.777"
+                    ></path>
+                  </svg>
+                  Download for Mac
+                </a>
+                <a
                   href="https://github.com/manaflow-ai/cmux"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 h-12 bg-white text-black hover:bg-neutral-200 rounded-lg font-medium transition-colors"
+                  className="inline-flex items-center gap-2 px-4 h-12 bg-neutral-900 text-white border border-neutral-800 hover:bg-neutral-800 rounded-lg font-medium transition-colors"
                 >
                   <svg
                     className="h-5 w-5"
@@ -174,58 +181,18 @@ export default function LandingPage() {
                   </svg>
                   <span>View on GitHub</span>
                 </a>
-                <div className="bg-neutral-900 border border-neutral-800 rounded-lg px-4 h-12 font-mono text-sm flex items-center gap-3">
-                  <span className="text-white">$ bunx cmux</span>
-                  <button
-                    onClick={() => copyToClipboard("bunx cmux")}
-                    className="text-neutral-500 hover:text-white transition-colors"
-                  >
-                    {copiedCommand === "bunx cmux" ? (
-                      <ClientIcon
-                        icon={Check}
-                        className="h-4 w-4 text-green-400"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <ClientIcon
-                        icon={Copy}
-                        className="h-4 w-4"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </button>
-                </div>
-                <div className="bg-neutral-900 border border-neutral-800 rounded-lg px-4 h-12 font-mono text-sm flex items-center gap-3">
-                  <span className="text-white">$ npx cmux</span>
-                  <button
-                    onClick={() => copyToClipboard("npx cmux")}
-                    className="text-neutral-500 hover:text-white transition-colors"
-                  >
-                    {copiedCommand === "npx cmux" ? (
-                      <ClientIcon
-                        icon={Check}
-                        className="h-4 w-4 text-green-400"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <ClientIcon
-                        icon={Copy}
-                        className="h-4 w-4"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </button>
-                </div>
               </div>
             </div>
           </div>
           {/* First demo image combined with hero */}
           <div className="mt-16 mb-8 relative overflow-hidden rounded-lg">
             <Image
-              src="/cmux-demo-2.png"
-              alt="cmux dashboard showing parallel AI agent execution"
-              width={1200}
-              height={800}
+              src={cmuxDemo1}
+              alt="cmux dashboard showing task management for AI agents"
+              width={3248}
+              height={2112}
+              sizes="(min-width: 1024px) 1024px, 100vw"
+              quality={100}
               className="w-full h-auto"
               priority
             />
@@ -303,11 +270,23 @@ export default function LandingPage() {
               </blockquote>
             </div>
           </div>
+          <div className="mt-16 mb-8 relative overflow-hidden rounded-lg">
+            <Image
+              src={cmuxDemo0}
+              alt="cmux dashboard showing task management for AI agents"
+              width={3248}
+              height={2112}
+              sizes="(min-width: 1024px) 1024px, 100vw"
+              quality={100}
+              className="w-full h-auto"
+              priority
+            />
+          </div>
         </div>
       </section>
 
       <div className="flex justify-center py-8">
-        <div className="w-48 h-px bg-neutral-200 dark:bg-neutral-800"></div>
+        <div className="w-48 h-px bg-neutral-800"></div>
       </div>
 
       <section id="features" className="pt-8 px-4 sm:px-6 lg:px-12">
@@ -414,19 +393,21 @@ export default function LandingPage() {
           </div>
           <div className="mt-8 relative overflow-hidden rounded-lg">
             <Image
-              src="/cmux-demo-3.png"
-              alt="cmux verification view highlighting git changes and previews"
-              width={1200}
-              height={800}
+              src={cmuxDemo5}
+              alt="cmux vscode instances showing diffs"
+              width={3248}
+              height={2112}
+              sizes="(min-width: 1024px) 1024px, 100vw"
+              quality={100}
               className="w-full h-auto"
-              loading="lazy"
+            loading="lazy"
             />
           </div>
         </div>
       </section>
 
       <div className="flex justify-center py-8">
-        <div className="w-48 h-px bg-neutral-200 dark:bg-neutral-800"></div>
+        <div className="w-48 h-px bg-neutral-800"></div>
       </div>
 
       <section id="roadmap" className="pt-8 pb-8 px-4 sm:px-6 lg:px-12">
@@ -504,7 +485,7 @@ export default function LandingPage() {
       </section>
 
       <div className="flex justify-center py-8">
-        <div className="w-48 h-px bg-neutral-200 dark:bg-neutral-800"></div>
+        <div className="w-48 h-px bg-neutral-800"></div>
       </div>
 
       <section id="requirements" className="py-8 px-4 sm:px-6 lg:px-12">
@@ -524,11 +505,12 @@ export default function LandingPage() {
               macOS or Linux
             </div>
           </div>
+          
         </div>
       </section>
 
       <div className="flex justify-center py-8">
-        <div className="w-48 h-px bg-neutral-200 dark:bg-neutral-800"></div>
+        <div className="w-48 h-px bg-neutral-800"></div>
       </div>
 
       <footer className="py-8 px-4 sm:px-6 lg:px-12">

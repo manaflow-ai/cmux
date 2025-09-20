@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "exports": {
     ".": {
@@ -56,11 +57,15 @@
     "./node/convex-cache": {
       "import": "./src/node/convex-cache.ts",
       "types": "./src/node/convex-cache.ts"
+    },
+    "./utils/format-env-vars-content": {
+      "import": "./src/utils/format-env-vars-content.ts",
+      "types": "./src/utils/format-env-vars-content.ts"
     }
   },
   "dependencies": {
     "@cmux/convex": "workspace:*",
-    "convex": "^1.27.0",
+    "convex": "^1.27.1",
     "jose": "^6.1.0",
     "zod": "^4.1.5",
     "socket.io-client": "^4.8.1"
@@ -69,6 +74,7 @@
     "@types/node": "^24.3.1",
     "@xterm/xterm": "^5.5.0",
     "typescript": "^5.8.3",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "vitest": "^3.2.4"
   }
 }
