@@ -226,8 +226,12 @@ export function GitDiffViewer({
             theme={theme}
             calculateEditorHeight={calculateEditorHeight}
             setEditorRef={(ed) => {
-              if (ed)
-                editorRefs.current[`refs:${file.filePath}`] = ed;
+              const key = `refs:${file.filePath}`;
+              if (ed) {
+                editorRefs.current[key] = ed;
+              } else {
+                delete editorRefs.current[key];
+              }
             }}
             classNames={classNames?.fileDiffRow}
           />
@@ -254,7 +258,7 @@ interface FileDiffRowProps {
   onToggle: () => void;
   theme: string | undefined;
   calculateEditorHeight: (oldContent: string, newContent: string) => number;
-  setEditorRef: (ed: editor.IStandaloneDiffEditor) => void;
+  setEditorRef: (ed: editor.IStandaloneDiffEditor | null) => void;
   runId?: string;
   classNames?: {
     button?: string;
@@ -361,6 +365,9 @@ function FileDiffRow({
                 theme={theme === "dark" ? "vs-dark" : "vs"}
                 onMount={(editor, monaco) => {
                   setEditorRef(editor);
+                  const modelsToDispose = new Set<editor.ITextModel>();
+                  const staleModels = new Set<editor.ITextModel>();
+                  let replacedModels = false;
                   // Start hidden to avoid intermediate flashes
                   if (containerRef.current) {
                     containerRef.current.style.visibility = "hidden";
@@ -368,6 +375,13 @@ function FileDiffRow({
 
                   // Create fresh models per run+file to avoid reuse across runs
                   try {
+                    const existingModel = editor.getModel();
+                    if (existingModel?.original) {
+                      staleModels.add(existingModel.original);
+                    }
+                    if (existingModel?.modified) {
+                      staleModels.add(existingModel.modified);
+                    }
                     const language = getLanguageFromPath(file.filePath);
                     const originalUri = monaco.Uri.parse(
                       `inmemory://diff/${runId ?? "_"}/${encodeURIComponent(
@@ -389,12 +403,28 @@ function FileDiffRow({
                       language,
                       modifiedUri
                     );
+                    modelsToDispose.add(originalModel);
+                    modelsToDispose.add(modifiedModel);
                     editor.setModel({
                       original: originalModel,
                       modified: modifiedModel,
                     });
+                    replacedModels = true;
                   } catch {
                     // ignore if monaco not available
+                  } finally {
+                    if (replacedModels) {
+                      for (const staleModel of staleModels) {
+                        try {
+                          if (!staleModel.isDisposed()) {
+                            staleModel.dispose();
+                          }
+                        } catch {
+                          // ignore if monaco not available
+                        }
+                      }
+                      staleModels.clear();
+                    }
                   }
                   const scheduleMeasureAndLayout = () => {
                     if (rafIdRef.current != null) {
@@ -498,16 +528,29 @@ function FileDiffRow({
                     }
                     // Dispose models we created to avoid leaks and reuse
                     try {
-                      const model = editor.getModel();
-                      if (model?.original) {
-                        model.original.dispose?.();
+                      const activeModel = editor.getModel();
+                      if (activeModel?.original) {
+                        modelsToDispose.add(activeModel.original);
                       }
-                      if (model?.modified) {
-                        model.modified.dispose?.();
+                      if (activeModel?.modified) {
+                        modelsToDispose.add(activeModel.modified);
                       }
                     } catch (_e) {
                       // ignore if monaco not available
                     }
+                    for (const staleModel of staleModels) {
+                      modelsToDispose.add(staleModel);
+                    }
+                    for (const model of modelsToDispose) {
+                      try {
+                        if (!model.isDisposed()) {
+                          model.dispose();
+                        }
+                      } catch {
+                        // ignore if monaco not available
+                      }
+                    }
+                    setEditorRef(null);
                   };
                 }}
                 options={{
