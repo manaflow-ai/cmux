@@ -115,6 +115,63 @@ environmentsRouter.openapi(
         return c.text("Forbidden: Instance does not belong to this team", 403);
       }
 
+      try {
+        const gitPullSweep = await instance.exec(
+          `if [ -d /root/workspaces ]; then
+  have_repos="false"
+  for dir in /root/workspaces/*; do
+    if [ ! -d "$dir" ]; then
+      continue
+    fi
+    if [ -d "$dir/.git" ]; then
+      have_repos="true"
+      echo "[environments.create] git pull $dir"
+      (
+        if cd "$dir"; then
+          if ! git pull --ff-only; then
+            echo "[environments.create] git pull failed $dir" >&2
+          fi
+        else
+          echo "[environments.create] failed to enter $dir" >&2
+        fi
+      ) &
+    fi
+  done
+
+  if [ "$have_repos" = "true" ]; then
+    wait || true
+  fi
+else
+  echo "[environments.create] /root/workspaces missing"
+fi`
+        );
+
+        const stdout = gitPullSweep.stdout?.trim();
+        if (stdout) {
+          console.log(
+            `[environments.create] git pull sweep stdout: ${stdout.slice(0, 500)}`
+          );
+        }
+
+        const stderr = gitPullSweep.stderr?.trim();
+        if (stderr) {
+          console.log(
+            `[environments.create] git pull sweep stderr: ${stderr.slice(0, 500)}`
+          );
+        }
+
+        if (gitPullSweep.exit_code !== 0) {
+          console.warn(
+            `[environments.create] git pull sweep exit code: ${gitPullSweep.exit_code}`
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[environments.create] Failed to run git pull sweep for /root/workspaces",
+          error
+        );
+      }
+
       const snapshot = await instance.snapshot();
 
       // Generate a unique key for this environment's data vault entry
