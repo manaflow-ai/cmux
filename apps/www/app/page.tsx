@@ -108,14 +108,16 @@ export default function LandingPage() {
             <div className="bg-blue-500 rounded-sm" aria-hidden="true"></div>
             <div>
               <h1 className="text-4xl sm:text-4xl md:text-4xl font-semibold mb-6">
-                Manage AI coding agents in parallel
+                Manage AI coding agents in parallel — 10x your 10x engineers
               </h1>
 
               <p className="text-lg text-neutral-300 mb-4 leading-relaxed">
                 cmux spawns Claude Code, Codex, Gemini CLI, Amp, Opencode, and
                 other coding agent CLIs in parallel across multiple tasks. For
                 each run, cmux spawns an isolated VS Code instance via Docker
-                with the git diff UI and terminal.
+                with the git diff UI and terminal — turning your top engineers
+                into force multipliers by making parallel agent work verifiable
+                and fast.
               </p>
               <p className="text-lg text-neutral-300 leading-relaxed">
                 Learn more about the{" "}
