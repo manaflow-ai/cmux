@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { CreateTeamDialog } from "@/components/team/create-team-dialog";
 import {
   Card,
   CardContent,
@@ -13,7 +14,8 @@ import { Skeleton } from "@heroui/react";
 import { useStackApp, useUser, type Team } from "@stackframe/react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { setLastTeamSlugOrId } from "@/lib/lastTeam";
-import { useQuery as useConvexQuery, useMutation } from "convex/react";
+import { useQuery as useConvexQuery } from "convex/react";
+import { useState } from "react";
 import type React from "react";
 
 export const Route = createFileRoute("/_layout/team-picker")({
@@ -24,12 +26,9 @@ function TeamPicker() {
   const app = useStackApp();
   const user = useUser({ or: "return-null" });
   const navigate = useNavigate();
+  const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   // Call the Stack teams hook at the top level (no memo to satisfy hook rules)
   const teams: Team[] = user?.useTeams() ?? [];
-
-  // Convex helpers to immediately reflect team creation/membership locally
-  const upsertTeamPublic = useMutation(api.stack.upsertTeamPublic);
-  const ensureMembershipPublic = useMutation(api.stack.ensureMembershipPublic);
 
   const getClientSlug = (meta: unknown): string | undefined => {
     if (meta && typeof meta === "object" && meta !== null) {
@@ -40,7 +39,7 @@ function TeamPicker() {
     return undefined;
   };
 
-  const handleCreateTeam = async () => {
+  const handleCreateTeamClick = async () => {
     if (!user) {
       await stackClientApp.redirectToAccountSettings?.().catch(() => {
         const url = app.urls.accountSettings;
@@ -48,69 +47,24 @@ function TeamPicker() {
       });
       return;
     }
+    setIsCreateTeamOpen(true);
+  };
 
-    const displayName = window.prompt("Name your new team");
-    if (!displayName || !displayName.trim()) return;
+  const handleTeamCreated = async ({
+    team,
+    teamSlugOrId,
+  }: {
+    team: Team;
+    teamSlugOrId: string;
+  }) => {
+    if (!user) return;
 
-    try {
-      const newTeam = await user.createTeam({
-        displayName: displayName.trim(),
-      });
-
-      // Ensure Convex mirrors the new team and membership immediately (webhooks may lag)
-      await upsertTeamPublic({
-        id: newTeam.id,
-        displayName: newTeam.displayName,
-        profileImageUrl: newTeam.profileImageUrl ?? undefined,
-        createdAtMillis: Date.now(),
-      });
-      await ensureMembershipPublic({ teamId: newTeam.id, userId: user.id });
-
-      // Invite onboarding
-      const inviteInput = window.prompt(
-        "Invite teammates (comma-separated emails), or leave blank"
-      );
-      if (inviteInput && inviteInput.trim()) {
-        const emails = inviteInput
-          .split(",")
-          .map((e) => e.trim())
-          .filter((e) => e.length > 0);
-        for (const email of emails) {
-          try {
-            await newTeam.inviteUser({ email });
-          } catch (e) {
-            console.error("Failed to invite", email, e);
-          }
-        }
-      }
-
-      // Navigate into the new team's dashboard
-      const teamSlugOrId =
-        (newTeam.clientMetadata &&
-        typeof newTeam.clientMetadata === "object" &&
-        newTeam.clientMetadata !== null &&
-        (newTeam.clientMetadata as Record<string, unknown>).slug &&
-        typeof (newTeam.clientMetadata as Record<string, unknown>).slug ===
-          "string"
-          ? ((newTeam.clientMetadata as Record<string, unknown>).slug as string)
-          : undefined) ?? newTeam.id;
-
-      await user.setSelectedTeam(newTeam);
-      setLastTeamSlugOrId(teamSlugOrId);
-      await navigate({
-        to: "/$teamSlugOrId/dashboard",
-        params: { teamSlugOrId },
-      });
-    } catch (err) {
-      console.error(
-        "Failed to create team via Stack, redirecting to settings",
-        err
-      );
-      await stackClientApp.redirectToAccountSettings?.().catch(() => {
-        const url = app.urls.accountSettings;
-        void navigate({ to: url });
-      });
-    }
+    await user.setSelectedTeam(team);
+    setLastTeamSlugOrId(teamSlugOrId);
+    await navigate({
+      to: "/$teamSlugOrId/dashboard",
+      params: { teamSlugOrId },
+    });
   };
 
   return (
@@ -142,7 +96,7 @@ function TeamPicker() {
                     Create a team to get started.
                   </p>
                 </div>
-                <Button onClick={handleCreateTeam} className="">
+                <Button onClick={handleCreateTeamClick} className="">
                   Create a team
                 </Button>
               </div>
@@ -161,7 +115,7 @@ function TeamPicker() {
                 <div className="flex items-center justify-end pt-2">
                   <Button
                     variant="ghost"
-                    onClick={handleCreateTeam}
+                    onClick={handleCreateTeamClick}
                     className="text-neutral-700 dark:text-neutral-300"
                   >
                     Create new team
@@ -172,6 +126,11 @@ function TeamPicker() {
           </CardContent>
         </Card>
       </div>
+      <CreateTeamDialog
+        open={isCreateTeamOpen}
+        onOpenChange={setIsCreateTeamOpen}
+        onCreated={handleTeamCreated}
+      />
     </div>
   );
 }
