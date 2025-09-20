@@ -126,25 +126,29 @@ describe("branchNameGenerator", () => {
   describe("generateBranchName", () => {
     it("should generate a branch name with prefix and random ID", () => {
       const branchName = generateBranchName("Fix authentication bug");
-      expect(branchName).toMatch(/^cmux\/fix-authentication-bug-[a-z0-9]{5}$/);
+      expect(branchName).toMatch(
+        /^cmux\/chore\/general\/fix-authentication-bug-[a-z0-9]{5}$/
+      );
     });
 
     it("should handle empty input", () => {
       const branchName = generateBranchName("");
-      expect(branchName).toMatch(/^cmux\/-[a-z0-9]{5}$/);
+      expect(branchName).toMatch(/^cmux\/chore\/general\/update-[a-z0-9]{5}$/);
     });
 
     it("should not create double hyphens with trailing hyphen titles", () => {
       const branchName = generateBranchName("fix-bug-");
       expect(branchName).not.toContain("--");
-      expect(branchName).toMatch(/^cmux\/fix-bug-[a-z0-9]{5}$/);
+      expect(branchName).toMatch(/^cmux\/chore\/general\/fix-bug-[a-z0-9]{5}$/);
     });
 
     it("should handle the specific problematic case", () => {
       const branchName = generateBranchName("add-llm-driven-auto-commit-and-push-for-completed-");
       expect(branchName).not.toContain("--");
       // Should be truncated and cleaned up
-      expect(branchName).toMatch(/^cmux\/add-llm-driven-auto-commit-and-push-for-completed-[a-z0-9]{5}$/);
+      expect(branchName).toMatch(
+        /^cmux\/chore\/general\/add-llm-driven-auto-commit-and-push-for-completed-[a-z0-9]{5}$/
+      );
     });
   });
 
@@ -155,8 +159,8 @@ describe("branchNameGenerator", () => {
 
     it("should generate PR info using OpenAI when API key is available", async () => {
       const mockObject = {
-        branchName: "fix-auth-bug",
-        prTitle: "Fix authentication bug in login flow",
+        branchName: "fix/auth/repair-login-flow",
+        prTitle: "fix(auth): repair login flow",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
       vi.mocked(generateObject).mockResolvedValueOnce(mockResponse as GenerateObjectResult<PRGeneration>);
@@ -177,8 +181,8 @@ describe("branchNameGenerator", () => {
 
     it("should use Gemini when only GEMINI_API_KEY is available", async () => {
       const mockObject = {
-        branchName: "add-user-profile",
-        prTitle: "Add user profile feature",
+        branchName: "feat/profile/add-user-profile",
+        prTitle: "feat(profile): add user profile feature",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
       vi.mocked(generateObject).mockResolvedValueOnce(mockResponse as GenerateObjectResult<PRGeneration>);
@@ -191,8 +195,8 @@ describe("branchNameGenerator", () => {
 
     it("should use Anthropic when only ANTHROPIC_API_KEY is available", async () => {
       const mockObject = {
-        branchName: "update-dependencies",
-        prTitle: "Update project dependencies",
+        branchName: "chore/deps/update-project-dependencies",
+        prTitle: "chore(deps): update project dependencies",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
       vi.mocked(generateObject).mockResolvedValueOnce(mockResponse as GenerateObjectResult<PRGeneration>);
@@ -208,7 +212,7 @@ describe("branchNameGenerator", () => {
       const result = await generatePRInfo("Fix the bug in authentication", apiKeys);
 
       expect(result).toEqual({
-        branchName: "fix-the-bug-in-authentication",
+        branchName: "chore/general/fix-the-bug-in-authentication",
         prTitle: "Fix the bug in authentication",
       });
       expect(generateObject).not.toHaveBeenCalled();
@@ -221,14 +225,14 @@ describe("branchNameGenerator", () => {
       const result = await generatePRInfo("Fix the bug", apiKeys);
 
       expect(result).toEqual({
-        branchName: "fix-the-bug",
+        branchName: "chore/general/fix-the-bug",
         prTitle: "Fix the bug",
       });
     });
 
     it("should prioritize OpenAI over Gemini", async () => {
       const mockObject = {
-        branchName: "test-branch",
+        branchName: "chore/general/test-branch",
         prTitle: "Test PR Title",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
@@ -254,7 +258,7 @@ describe("branchNameGenerator", () => {
   describe("generatePRTitle", () => {
     it("should return only the PR title from generatePRInfo", async () => {
       const mockObject = {
-        branchName: "fix-bug",
+        branchName: "fix/auth/fix-bug",
         prTitle: "Fix critical bug",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
@@ -277,31 +281,35 @@ describe("branchNameGenerator", () => {
   describe("generateUniqueBranchNamesFromTitle", () => {
     it("should generate the requested number of unique branch names", () => {
       const branches = generateUniqueBranchNamesFromTitle("Fix Bug", 5);
-      
+
       expect(branches).toHaveLength(5);
       expect(new Set(branches).size).toBe(5);
-      
+
       branches.forEach(branch => {
-        expect(branch).toMatch(/^cmux\/fix-bug-[a-z0-9]{5}$/);
+        expect(branch).toMatch(
+          /^cmux\/chore\/general\/fix-bug-[a-z0-9]{5}$/
+        );
       });
     });
 
     it("should handle empty title", () => {
       const branches = generateUniqueBranchNamesFromTitle("", 3);
-      
+
       expect(branches).toHaveLength(3);
       branches.forEach(branch => {
-        expect(branch).toMatch(/^cmux\/-[a-z0-9]{5}$/);
+        expect(branch).toMatch(/^cmux\/chore\/general\/update-[a-z0-9]{5}$/);
       });
     });
 
     it("should not create double hyphens with trailing hyphen titles", () => {
       const branches = generateUniqueBranchNamesFromTitle("fix-bug-", 3);
-      
+
       expect(branches).toHaveLength(3);
       branches.forEach(branch => {
         expect(branch).not.toContain("--");
-        expect(branch).toMatch(/^cmux\/fix-bug-[a-z0-9]{5}$/);
+        expect(branch).toMatch(
+          /^cmux\/chore\/general\/fix-bug-[a-z0-9]{5}$/
+        );
       });
     });
   });
@@ -313,13 +321,13 @@ describe("branchNameGenerator", () => {
 
     it("should generate base name from API response", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({ 
-        OPENAI_API_KEY: "test-key" 
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({
+        OPENAI_API_KEY: "test-key"
       });
 
       const mockObject = {
-        branchName: "add-feature",
-        prTitle: "Add new feature",
+        branchName: "feat/app/add-feature",
+        prTitle: "feat(app): add new feature",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
       vi.mocked(generateObject).mockResolvedValueOnce(mockResponse as GenerateObjectResult<PRGeneration>);
@@ -328,7 +336,7 @@ describe("branchNameGenerator", () => {
         "Add new feature to the app",
         "default"
       );
-      expect(baseName).toBe("cmux/add-feature");
+      expect(baseName).toBe("cmux/feat/app/add-feature");
     });
 
     it("should use fallback when API fails", async () => {
@@ -339,7 +347,7 @@ describe("branchNameGenerator", () => {
         "Test task description here",
         "default"
       );
-      expect(baseName).toBe("cmux/test-task-description-here");
+      expect(baseName).toBe("cmux/chore/general/test-task-description-here");
     });
   });
 
@@ -353,7 +361,7 @@ describe("branchNameGenerator", () => {
         "default",
         "abc12"
       );
-      expect(branchName).toBe("cmux/fix-bug-abc12");
+      expect(branchName).toBe("cmux/chore/general/fix-bug-abc12");
     });
 
     it("should generate branch name with random ID when not provided", async () => {
@@ -361,7 +369,7 @@ describe("branchNameGenerator", () => {
       vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({});
 
       const branchName = await generateNewBranchName("Fix bug", "default");
-      expect(branchName).toMatch(/^cmux\/fix-bug-[a-z0-9]{5}$/);
+      expect(branchName).toMatch(/^cmux\/chore\/general\/fix-bug-[a-z0-9]{5}$/);
     });
   });
 
@@ -375,12 +383,12 @@ describe("branchNameGenerator", () => {
         3,
         "default"
       );
-      
+
       expect(branches).toHaveLength(3);
       expect(new Set(branches).size).toBe(3);
-      
+
       branches.forEach(branch => {
-        expect(branch).toMatch(/^cmux\/add-feature-[a-z0-9]{5}$/);
+        expect(branch).toMatch(/^cmux\/chore\/general\/add-feature-[a-z0-9]{5}$/);
       });
     });
   });
@@ -388,12 +396,12 @@ describe("branchNameGenerator", () => {
   describe("getPRTitleFromTaskDescription", () => {
     it("should return PR title from API", async () => {
       const mockConvex = await import("../utils/convexClient.js");
-      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({ 
-        OPENAI_API_KEY: "test-key" 
+      vi.mocked((mockConvex as any).__mockClient.query).mockResolvedValueOnce({
+        OPENAI_API_KEY: "test-key"
       });
 
       const mockObject = {
-        branchName: "fix-bug",
+        branchName: "fix/auth/fix-bug",
         prTitle: "Fix authentication bug",
       };
       const mockResponse = createMockGenerateObjectResult(mockObject);
@@ -437,7 +445,7 @@ describe("branchNameGenerator", () => {
       const set = new Set(names);
       expect(set.size).toBe(count);
       for (const n of names) {
-        expect(n.startsWith("cmux/add-feature-")).toBe(true);
+        expect(n.startsWith("cmux/chore/general/add-feature-")).toBe(true);
         expect(n).toMatch(/-[a-z0-9]{5}$/);
       }
     });
