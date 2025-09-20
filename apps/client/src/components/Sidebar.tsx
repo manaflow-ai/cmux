@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import CmuxLogo from "./logo/cmux-logo";
+import { SidebarHistoryControls } from "./SidebarHistoryControls";
 
 interface SidebarProps {
   tasks: Doc<"tasks">[] | undefined;
@@ -150,6 +151,11 @@ export function Sidebar({ tasks, tasksWithRuns, teamSlugOrId }: SidebarProps) {
           {/* <Terminals */}
           <CmuxLogo height={32} />
         </Link>
+        {isElectron && (
+          <div className="ml-2">
+            <SidebarHistoryControls />
+          </div>
+        )}
         <div className="grow"></div>
         <Link
           to="/$teamSlugOrId/dashboard"
