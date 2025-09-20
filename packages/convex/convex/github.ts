@@ -49,10 +49,7 @@ export const getBranches = authQuery({
     // 2) Most recent activity desc (undefined last)
     // 3) Creation time desc
     // 4) Name asc (stable, deterministic tie-breaker)
-    const pinnedOrder = new Map<
-      string,
-      number
-    >([
+    const pinnedOrder = new Map<string, number>([
       ["main", 0],
       ["dev", 1],
       ["master", 2],
@@ -73,6 +70,23 @@ export const getBranches = authQuery({
       return a.name.localeCompare(b.name);
     });
     return branches.map((b) => b.name);
+  },
+});
+
+export const getRepoByFullName = authQuery({
+  args: { teamSlugOrId: v.string(), fullName: v.string() },
+  handler: async (ctx, { teamSlugOrId, fullName }) => {
+    const userId = ctx.identity.subject;
+    const teamId = await getTeamId(ctx, teamSlugOrId);
+    const repo = await ctx.db
+      .query("repos")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId)
+      )
+      .filter((q) => q.eq(q.field("fullName"), fullName))
+      .first();
+
+    return repo ?? null;
   },
 });
 

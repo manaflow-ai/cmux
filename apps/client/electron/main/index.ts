@@ -27,7 +27,10 @@ import {
   type JWTPayload,
 } from "jose";
 import { promises as fs } from "node:fs";
-import { appendLogWithRotation, type LogRotationOptions } from "./log-management/log-rotation";
+import {
+  appendLogWithRotation,
+  type LogRotationOptions,
+} from "./log-management/log-rotation";
 import { ensureLogDirectory } from "./log-management/log-paths";
 import { collectAllLogs } from "./log-management/collect-logs";
 const { autoUpdater } = electronUpdater;
@@ -61,7 +64,6 @@ type AutoUpdateToastPayload = {
 };
 
 let queuedAutoUpdateToast: AutoUpdateToastPayload | null = null;
-
 
 // Persistent log files
 let logsDir: string | null = null;
@@ -246,7 +248,9 @@ function registerLogIpcHandlers(): void {
 function registerAutoUpdateIpcHandlers(): void {
   ipcMain.handle("cmux:auto-update:install", async () => {
     if (!app.isPackaged) {
-      mainLog("Auto-update install requested while app is not packaged; ignoring request");
+      mainLog(
+        "Auto-update install requested while app is not packaged; ignoring request"
+      );
       return { ok: false, reason: "not-packaged" as const };
     }
 
@@ -328,7 +332,10 @@ function setupAutoUpdates(): void {
   );
   autoUpdater.on("update-downloaded", (_event, info?: UpdateInfo) => {
     const version =
-      info && typeof info === "object" && "version" in info && typeof info.version === "string"
+      info &&
+      typeof info === "object" &&
+      "version" in info &&
+      typeof info.version === "string"
         ? info.version
         : null;
 

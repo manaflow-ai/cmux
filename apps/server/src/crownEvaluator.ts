@@ -1,21 +1,101 @@
+import path from "node:path";
+import { tmpdir } from "node:os";
+import * as fs from "node:fs/promises";
 import { api } from "@cmux/convex/api";
 import type { Id } from "@cmux/convex/dataModel";
 import { getConvex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
 import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken.js";
-import { workerExec } from "./utils/workerExec.js";
 import { VSCodeInstance } from "./vscode/VSCodeInstance.js";
-import { getWwwClient } from "./utils/wwwClient.js";
-import {
-  postApiCrownEvaluate,
-  postApiCrownSummarize,
-} from "@cmux/www-openapi-client";
+import { RepositoryManager } from "./repositoryManager.js";
+import { getProjectPaths } from "./workspace.js";
+import { collectRelevantDiff } from "./utils/collectRelevantDiff.js";
 
 const UNKNOWN_AGENT_NAME = "unknown agent";
 
 function getAgentNameOrUnknown(agentName?: string | null): string {
   const trimmed = agentName?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : UNKNOWN_AGENT_NAME;
+}
+
+// Collect a filtered git diff between two refs using the Node implementation
+async function getFilteredGitDiff(
+  repoPath: string,
+  baseRef: string,
+  headRef: string
+): Promise<string> {
+  const repoManager = RepositoryManager.getInstance();
+  let worktreePath: string | null = null;
+
+  try {
+    // First fetch both refs to ensure we have them
+    serverLogger.info(
+      `[CrownEvaluator] Fetching refs ${baseRef} and ${headRef} in ${repoPath}`
+    );
+
+    // Fetch the branches from origin
+    try {
+      await repoManager.executeGitCommand(
+        `git fetch origin ${baseRef}:refs/remotes/origin/${baseRef} ${headRef}:refs/remotes/origin/${headRef}`,
+        { cwd: repoPath }
+      );
+    } catch (e) {
+      serverLogger.warn(
+        `[CrownEvaluator] Failed to fetch refs, continuing: ${e}`
+      );
+    }
+
+    const sanitizedHeadRef = headRef.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const worktreePrefix = path.join(
+      tmpdir(),
+      `cmux-crown-${sanitizedHeadRef || "head"}-`
+    );
+
+    worktreePath = await fs.mkdtemp(worktreePrefix);
+
+    // Use a detached worktree for the agent branch
+    await repoManager.executeGitCommand(
+      `git worktree add --force --detach "${worktreePath}" origin/${headRef}`,
+      { cwd: repoPath }
+    );
+
+    const resolvedBaseRef = baseRef.startsWith("origin/")
+      ? baseRef
+      : `origin/${baseRef}`;
+
+    const diff = await collectRelevantDiff({
+      repoPath: worktreePath,
+      baseRef: resolvedBaseRef,
+    });
+
+    return diff.trim();
+  } catch (error) {
+    serverLogger.error(`[CrownEvaluator] Error getting filtered diff:`, error);
+    return "";
+  } finally {
+    if (worktreePath) {
+      try {
+        await repoManager.executeGitCommand(
+          `git worktree remove --force "${worktreePath}"`,
+          { cwd: repoPath }
+        );
+      } catch (cleanupError) {
+        serverLogger.warn(
+          `[CrownEvaluator] Failed to remove worktree at ${worktreePath}:`,
+          cleanupError
+        );
+      }
+
+      try {
+        await fs.rm(worktreePath, { recursive: true, force: true });
+      } catch (cleanupError) {
+        serverLogger.warn(
+          `[CrownEvaluator] Failed to delete temp diff directory ${worktreePath}:`,
+          cleanupError
+        );
+      }
+    }
+  }
 }
 
 // Auto PR behavior is controlled via workspace settings in Convex
@@ -301,15 +381,11 @@ Completed: ${new Date().toISOString()}`;
 type EvaluateCrownOptions = {
   taskId: Id<"tasks">;
   teamSlugOrId: string;
-  crownRunId: Id<"taskRuns">;
-  precollectedDiff: string;
 };
 
 export async function evaluateCrown({
   taskId,
   teamSlugOrId,
-  crownRunId,
-  precollectedDiff,
 }: EvaluateCrownOptions): Promise<void> {
   serverLogger.info(
     `[CrownEvaluator] =================================================`
@@ -347,7 +423,8 @@ export async function evaluateCrown({
     // Helper: generate and persist a system task comment summarizing the winner
     const generateSystemTaskComment = async (
       winnerRunId: Id<"taskRuns">,
-      fallbackGitDiff: string
+      originPath: string,
+      baseRef: string
     ) => {
       try {
         // Skip if a system comment already exists for this task
@@ -362,32 +439,23 @@ export async function evaluateCrown({
           return;
         }
 
-        // Try to collect worker diff for the winner; fall back to provided diff
-        let effectiveDiff = fallbackGitDiff || "";
-        const instances = VSCodeInstance.getInstances();
-        let instance: VSCodeInstance | undefined;
-        for (const [, inst] of instances) {
-          if (inst.getTaskRunId() === winnerRunId) {
-            instance = inst;
-            break;
-          }
-        }
-        if (instance && instance.isWorkerConnected()) {
+        // Try to get the winner's branch name
+        const winnerRun = await getConvex().query(api.taskRuns.get, {
+          teamSlugOrId,
+          id: winnerRunId,
+        });
+        // Collect the diff for the winner
+        let effectiveDiff = "";
+        if (winnerRun?.newBranch && originPath) {
           try {
-            const workerSocket = instance.getWorkerSocket();
-            const { stdout } = await workerExec({
-              workerSocket,
-              command: "/bin/bash",
-              args: ["-c", "/usr/local/bin/cmux-collect-relevant-diff.sh"],
-              cwd: "/root/workspace",
-              env: {},
-              timeout: 30000,
-            });
-            const diff = (stdout || "").trim();
-            if (diff.length > 0) effectiveDiff = diff;
+            effectiveDiff = await getFilteredGitDiff(
+              originPath,
+              baseRef,
+              winnerRun.newBranch
+            );
           } catch (e) {
             serverLogger.error(
-              `[CrownEvaluator] Failed to collect diff for task comment:`,
+              `[CrownEvaluator] Failed to get diff for winner:`,
               e
             );
           }
@@ -409,25 +477,22 @@ export async function evaluateCrown({
 
         let commentText = "";
         try {
-          // Call the crown summarize endpoint
-          const res = await postApiCrownSummarize({
-            client: getWwwClient(),
-            body: {
+          // Call the Convex action for summarization - API key is handled securely in Convex
+          const result = await getConvex().action(
+            api.crown.actions.summarize,
+            // (api as any)["crown/actions"].summarize,
+            {
               prompt: summarizationPrompt,
               teamSlugOrId,
-            },
-          });
-
-          if (!res.data) {
-            serverLogger.error(`[CrownEvaluator] Crown summarize failed`);
-            return;
-          }
-          commentText = res.data.summary;
+            }
+          );
+          commentText = result.summary;
         } catch (e) {
           serverLogger.error(
             `[CrownEvaluator] Failed to generate PR summary:`,
             e
           );
+          return;
         }
 
         if (commentText.length > 8000) {
@@ -495,70 +560,88 @@ export async function evaluateCrown({
       return;
     }
 
-    // Helper to extract a relevant git diff using worker script when possible
-    const collectDiffViaWorker = async (
-      runId: Id<"taskRuns">
-    ): Promise<string | null> => {
+    // Get repository information for fetching diffs from pushed branches
+    const taskInfo = await getConvex().query(api.tasks.getById, {
+      teamSlugOrId,
+      id: taskId,
+    });
+
+    let originPath = "";
+    if (taskInfo?.projectFullName) {
+      const repo = await getConvex().query(api.github.getRepoByFullName, {
+        teamSlugOrId,
+        fullName: taskInfo.projectFullName,
+      });
+      if (repo?.gitRemote) {
+        const { originPath: repoPath } = await getProjectPaths(
+          repo.gitRemote,
+          teamSlugOrId
+        );
+        originPath = repoPath;
+      }
+    }
+
+    // Determine base branch for diffs
+    let baseRef = "main";
+    if (originPath) {
+      const repoManager = RepositoryManager.getInstance();
       try {
-        // Find a live VSCode instance for this run
-        const instances = VSCodeInstance.getInstances();
-        let instance: VSCodeInstance | undefined;
-        for (const [, inst] of instances) {
-          if (inst.getTaskRunId() === runId) {
-            instance = inst;
-            break;
+        const { stdout } = await repoManager.executeGitCommand(
+          "git symbolic-ref refs/remotes/origin/HEAD",
+          { cwd: originPath, suppressErrorLogging: true }
+        );
+        if (stdout && stdout.includes("refs/remotes/origin/")) {
+          baseRef = stdout.trim().replace("refs/remotes/origin/", "");
+        }
+      } catch {
+        // Try common defaults
+        try {
+          await repoManager.executeGitCommand(
+            "git rev-parse --verify origin/main",
+            { cwd: originPath, suppressErrorLogging: true }
+          );
+          baseRef = "main";
+        } catch {
+          try {
+            await repoManager.executeGitCommand(
+              "git rev-parse --verify origin/master",
+              { cwd: originPath, suppressErrorLogging: true }
+            );
+            baseRef = "master";
+          } catch {
+            // Keep default
           }
         }
-        if (!instance || !instance.isWorkerConnected()) {
-          serverLogger.info(
-            `[CrownEvaluator] No live worker for run ${runId}; unable to collect diff`
-          );
-          return null;
-        }
-        const workerSocket = instance.getWorkerSocket();
-        const { stdout } = await workerExec({
-          workerSocket,
-          command: "/bin/bash",
-          args: ["-c", "/usr/local/bin/cmux-collect-relevant-diff.sh"],
-          cwd: "/root/workspace",
-          env: {},
-          timeout: 30000,
-        });
-        const diff = stdout?.trim() || "";
-        if (diff.length === 0) {
-          serverLogger.info(
-            `[CrownEvaluator] Worker diff empty for run ${runId}`
-          );
-          return null;
-        }
-        serverLogger.info(
-          `[CrownEvaluator] Collected worker diff for ${runId} (${diff.length} chars)`
-        );
-        return diff;
-      } catch (err) {
-        serverLogger.error(
-          `[CrownEvaluator] Failed collecting worker diff for run ${runId}:`,
-          err
-        );
-        return null;
       }
-    };
+    }
 
     const candidateData = await Promise.all(
       completedRuns.map(async (run, idx) => {
         const agentName = getAgentNameOrUnknown(run.agentName);
-        // Try to collect diff via worker
-        const precollected =
-          crownRunId && run._id === crownRunId
-            ? (precollectedDiff?.trim() ?? "")
-            : "";
-        const workerDiff: string | null = precollected
-          ? precollected
-          : await collectDiffViaWorker(run._id);
-        let gitDiff: string =
-          workerDiff && workerDiff.length > 0
-            ? workerDiff
-            : "No changes detected";
+        let gitDiff = "";
+
+        // Get diff from git branch if available
+        if (run.newBranch && originPath) {
+          try {
+            serverLogger.info(
+              `[CrownEvaluator] Fetching diff from branch ${run.newBranch} for ${agentName}`
+            );
+            gitDiff = await getFilteredGitDiff(
+              originPath,
+              baseRef,
+              run.newBranch
+            );
+          } catch (e) {
+            serverLogger.error(
+              `[CrownEvaluator] Failed to fetch diff from branch ${run.newBranch}:`,
+              e
+            );
+          }
+        }
+
+        if (!gitDiff || gitDiff.length === 0) {
+          gitDiff = "No changes detected";
+        }
 
         // Limit to 5000 chars for the prompt
         if (gitDiff.length > 5000) {
@@ -568,8 +651,6 @@ export async function evaluateCrown({
         serverLogger.info(
           `[CrownEvaluator] Implementation ${idx} (${agentName}): ${gitDiff.length} chars of diff`
         );
-
-        // Do not rely on logs; skip logging log tails.
 
         return {
           index: idx,
@@ -639,85 +720,21 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
     } catch {
       /* empty */
     }
-    const res = await postApiCrownEvaluate({
-      client: getWwwClient(),
-      body: {
-        prompt: evaluationPrompt,
-        teamSlugOrId,
-      },
+
+    // Use Convex action for evaluation - API key is handled securely in Convex
+    const jsonResponse = await getConvex().action(api.crown.actions.evaluate, {
+      prompt: evaluationPrompt,
+      teamSlugOrId,
     });
 
-    if (!res.data) {
-      serverLogger.error(`[CrownEvaluator] Crown evaluate failed`);
-    }
-    const jsonResponse = res.data;
-
-    if (!jsonResponse) {
-      // Fallback: Pick the first completed run as winner
-      const fallbackWinner = candidateData[0];
-      await getConvex().mutation(api.crown.setCrownWinner, {
-        teamSlugOrId,
-        taskRunId: fallbackWinner.runId,
-        reason: "Selected as fallback winner (evaluation failed)",
-      });
-
-      await getConvex().mutation(api.tasks.updateCrownError, {
-        teamSlugOrId,
-        id: taskId,
-        crownEvaluationError: undefined,
-      });
-
-      serverLogger.info(
-        `[CrownEvaluator] Fallback winner selected: ${fallbackWinner.agentName}`
+    if (
+      typeof jsonResponse.winner !== "number" ||
+      jsonResponse.winner < 0 ||
+      jsonResponse.winner >= candidateData.length
+    ) {
+      throw new Error(
+        `Crown evaluate returned invalid winner index ${jsonResponse.winner}`
       );
-      await generateSystemTaskComment(
-        fallbackWinner.runId,
-        fallbackWinner.gitDiff
-      );
-      await createPullRequestForWinner(
-        fallbackWinner.runId,
-        taskId,
-        githubToken || undefined,
-        teamSlugOrId
-      );
-      return;
-    }
-
-    // Validate winner index
-    if (jsonResponse.winner >= candidateData.length) {
-      serverLogger.error(
-        `[CrownEvaluator] Invalid winner index ${jsonResponse.winner}, must be less than ${candidateData.length}`
-      );
-
-      // Fallback: Pick the first completed run as winner
-      const fallbackWinner = candidateData[0];
-      await getConvex().mutation(api.crown.setCrownWinner, {
-        teamSlugOrId,
-        taskRunId: fallbackWinner.runId,
-        reason:
-          "Selected as fallback winner (invalid winner index from evaluator)",
-      });
-
-      await getConvex().mutation(api.tasks.updateCrownError, {
-        teamSlugOrId,
-        id: taskId,
-        crownEvaluationError: undefined,
-      });
-
-      serverLogger.info(
-        `[CrownEvaluator] Fallback winner selected: ${fallbackWinner.agentName}`
-      );
-      await generateSystemTaskComment(
-        fallbackWinner.runId,
-        fallbackWinner.gitDiff
-      );
-      await createPullRequestForWinner(
-        fallbackWinner.runId,
-        taskId,
-        githubToken || undefined,
-        teamSlugOrId
-      );
-      return;
     }
 
     const winner = candidateData[jsonResponse.winner];
@@ -752,7 +769,7 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
       teamSlugOrId
     );
     // After choosing a winner, generate and persist a task comment (by cmux)
-    await generateSystemTaskComment(winner.runId, winner.gitDiff);
+    await generateSystemTaskComment(winner.runId, originPath, baseRef);
   } catch (error) {
     serverLogger.error(`[CrownEvaluator] Error during evaluation:`, error);
 
