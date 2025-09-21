@@ -97,9 +97,12 @@ export const ghApi = {
     type BranchResp = { name: string; commit: { sha: string; url: string } };
     const branches = await this.fetchAllPages<BranchResp>(`/repos/${repo}/branches`);
 
+    // Initialize results array with all branches to ensure none are lost
+    const results: { name: string; lastCommitSha?: string; lastActivityAt?: number }[] = 
+      branches.map(br => ({ name: br.name, lastCommitSha: br.commit.sha }));
+
     // Limit concurrent commit detail fetches to avoid rate spikes
     const concurrency = 6;
-    const results: { name: string; lastCommitSha?: string; lastActivityAt?: number }[] = [];
     let index = 0;
 
     const runNext = async (): Promise<void> => {
@@ -118,18 +121,20 @@ export const ghApi = {
         };
         const dateStr = data.commit?.committer?.date ?? data.commit?.author?.date;
         const ts = dateStr ? Date.parse(dateStr) : undefined;
+        // Update the existing entry with activity timestamp
         results[i] = {
           name: br.name,
           lastCommitSha: br.commit.sha,
           lastActivityAt: ts,
         };
       } catch {
-        results[i] = { name: br.name, lastCommitSha: br.commit.sha };
+        // Keep the basic branch info even if fetching details fails
+        // (already initialized in results array)
       }
       await runNext();
     };
 
     await Promise.all(new Array(Math.min(concurrency, branches.length)).fill(0).map(() => runNext()));
-    return results.filter(Boolean);
+    return results;
   },
 };

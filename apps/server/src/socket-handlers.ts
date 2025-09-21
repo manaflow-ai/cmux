@@ -136,14 +136,12 @@ export function setupSocketHandlers(
     const safeTeam = initialTeam || "default";
     if (!hasRefreshedGithub && initialToken) {
       hasRefreshedGithub = true;
-      runWithAuth(initialToken, initialAuthJson, () => {
-        if (!initialTeam) {
-          serverLogger.warn(
-            "No team provided on socket handshake; skipping initial GitHub refresh"
-          );
-          return;
-        }
-        refreshGitHubData({ teamSlugOrId: initialTeam }).catch((error) => {
+      runWithAuth(initialToken, initialAuthJson, async () => {
+        const teamToUse = initialTeam || "default";
+        serverLogger.info(
+          `Starting initial GitHub refresh for team: ${teamToUse}`
+        );
+        await refreshGitHubData({ teamSlugOrId: teamToUse }).catch((error) => {
           serverLogger.error("Background refresh failed:", error);
         });
       });
@@ -1337,17 +1335,18 @@ export function setupSocketHandlers(
           callback({ success: true, repos: reposByOrg });
 
           // Refresh in the background to add any new repos
-          runWithAuthToken(initialToken, () =>
-            refreshGitHubData({ teamSlugOrId }).catch((error) => {
+          runWithAuthToken(initialToken, async () => {
+            await refreshGitHubData({ teamSlugOrId }).catch((error) => {
               serverLogger.error("Background refresh failed:", error);
-            })
-          );
+            });
+          });
           return;
         }
 
         // If no repos exist, do a full fetch
-        await runWithAuthToken(initialToken, () =>
-          refreshGitHubData({ teamSlugOrId })
+        await runWithAuthToken(
+          initialToken,
+          async () => await refreshGitHubData({ teamSlugOrId })
         );
         const reposByOrg = await getConvex().query(api.github.getReposByOrg, {
           teamSlugOrId,
@@ -1483,13 +1482,38 @@ Please address the issue mentioned in the comment above.`;
     socket.on("github-fetch-branches", async (data, callback) => {
       try {
         const { repo } = GitHubFetchBranchesSchema.parse(data);
-
-        const { listRemoteBranches } = await import("./native/git.js");
-        const branches = await listRemoteBranches({ repoFullName: repo });
-        callback({ success: true, branches: branches.map((b) => b.name) });
+        
+        serverLogger.info(`[github-fetch-branches] Starting branch fetch for repo: ${repo}, team: ${safeTeam}`);
+        
+        // Import the refresh function
+        const { refreshBranchesForRepo } = await import("./utils/refreshGitHubData.js");
+        
+        // Fetch branches and store them in the database
+        const branchNames = await refreshBranchesForRepo(repo, safeTeam);
+        
+        serverLogger.info(`[github-fetch-branches] Successfully fetched and stored ${branchNames.length} branches for ${repo}`);
+        
+        // Also fetch from database to verify they were saved
+        const savedBranches = await getConvex().query(api.github.getBranches, {
+          teamSlugOrId: safeTeam,
+          repo,
+        });
+        
+        serverLogger.info(`[github-fetch-branches] Database verification: ${savedBranches.length} branches in DB for ${repo}`);
+        
+        if (savedBranches.length !== branchNames.length) {
+          serverLogger.warn(`[github-fetch-branches] Branch count mismatch! Fetched: ${branchNames.length}, Saved: ${savedBranches.length}`);
+        }
+        
+        callback({ success: true, branches: savedBranches });
         return;
       } catch (error) {
         serverLogger.error("Error fetching branches:", error);
+        callback({ 
+          success: false, 
+          branches: [],
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
       }
     });
 
