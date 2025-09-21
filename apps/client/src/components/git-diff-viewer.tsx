@@ -56,6 +56,8 @@ type FileGroup = {
   isBinary: boolean;
 };
 
+type Disposable = { dispose: () => void };
+
 function getStatusColor(status: ReplaceDiffEntry["status"]) {
   switch (status) {
     case "added":
@@ -226,8 +228,12 @@ export function GitDiffViewer({
             theme={theme}
             calculateEditorHeight={calculateEditorHeight}
             setEditorRef={(ed) => {
-              if (ed)
-                editorRefs.current[`refs:${file.filePath}`] = ed;
+              const key = `refs:${file.filePath}`;
+              if (ed) {
+                editorRefs.current[key] = ed;
+              } else {
+                delete editorRefs.current[key];
+              }
             }}
             classNames={classNames?.fileDiffRow}
           />
@@ -254,7 +260,7 @@ interface FileDiffRowProps {
   onToggle: () => void;
   theme: string | undefined;
   calculateEditorHeight: (oldContent: string, newContent: string) => number;
-  setEditorRef: (ed: editor.IStandaloneDiffEditor) => void;
+  setEditorRef: (ed: editor.IStandaloneDiffEditor | null) => void;
   runId?: string;
   classNames?: {
     button?: string;
@@ -276,6 +282,7 @@ function FileDiffRow({
   const rafIdRef = useRef<number | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const revealedRef = useRef<boolean>(false);
+  const editorCleanupRef = useRef<(() => void) | null>(null);
 
   // Set an initial height before paint to reduce flicker
   useLayoutEffect(() => {
@@ -290,6 +297,20 @@ function FileDiffRow({
   useEffect(() => {
     // noop
   }, [isExpanded, file.filePath]);
+
+  useEffect(() => {
+    if (!isExpanded && editorCleanupRef.current) {
+      editorCleanupRef.current();
+    }
+  }, [isExpanded]);
+
+  useEffect(() => {
+    return () => {
+      if (editorCleanupRef.current) {
+        editorCleanupRef.current();
+      }
+    };
+  }, []);
 
   return (
     <div className={cn("bg-white dark:bg-neutral-900", classNames?.container)}>
@@ -359,12 +380,99 @@ function FileDiffRow({
                 modified={file.newContent}
                 language={getLanguageFromPath(file.filePath)}
                 theme={theme === "dark" ? "vs-dark" : "vs"}
-                onMount={(editor, monaco) => {
-                  setEditorRef(editor);
-                  // Start hidden to avoid intermediate flashes
-                  if (containerRef.current) {
-                    containerRef.current.style.visibility = "hidden";
+                onMount={(diffEditor, monaco) => {
+                  if (editorCleanupRef.current) {
+                    editorCleanupRef.current();
                   }
+                  revealedRef.current = false;
+                  setEditorRef(diffEditor);
+                  const container = containerRef.current;
+                  if (container) {
+                    container.style.visibility = "hidden";
+                  }
+
+                  let disposed = false;
+                  const disposables: Disposable[] = [];
+                  const pushDisposable = (d: Disposable | undefined | null) => {
+                    if (d) {
+                      disposables.push(d);
+                    }
+                  };
+
+                  const scheduleMeasureAndLayout = () => {
+                    if (disposed) {
+                      return;
+                    }
+                    if (rafIdRef.current != null) {
+                      cancelAnimationFrame(rafIdRef.current);
+                    }
+                    rafIdRef.current = requestAnimationFrame(() => {
+                      if (disposed) {
+                        return;
+                      }
+                      const modifiedEditor = diffEditor.getModifiedEditor();
+                      const originalEditor = diffEditor.getOriginalEditor();
+                      const modifiedContentHeight =
+                        modifiedEditor.getContentHeight();
+                      const originalContentHeight =
+                        originalEditor.getContentHeight();
+                      const newHeight = Math.max(
+                        120,
+                        Math.max(modifiedContentHeight, originalContentHeight) +
+                          20
+                      );
+                      const currentContainer = containerRef.current;
+                      if (currentContainer) {
+                        const current = parseInt(
+                          currentContainer.style.height || "0",
+                          10
+                        );
+                        if (current !== newHeight) {
+                          currentContainer.style.height = `${newHeight}px`;
+                        }
+                        const width = currentContainer.clientWidth || undefined;
+                        if (typeof width === "number") {
+                          diffEditor.layout({ width, height: newHeight });
+                          requestAnimationFrame(() => {
+                            if (disposed) {
+                              return;
+                            }
+                            diffEditor.layout({ width, height: newHeight });
+                            if (!revealedRef.current) {
+                              currentContainer.style.visibility = "visible";
+                              revealedRef.current = true;
+                            }
+                          });
+                        } else {
+                          diffEditor.layout();
+                          requestAnimationFrame(() => {
+                            if (disposed) {
+                              return;
+                            }
+                            diffEditor.layout();
+                            const containerEl = containerRef.current;
+                            if (containerEl && !revealedRef.current) {
+                              containerEl.style.visibility = "visible";
+                              revealedRef.current = true;
+                            }
+                          });
+                        }
+                      } else {
+                        diffEditor.layout();
+                        requestAnimationFrame(() => {
+                          if (disposed) {
+                            return;
+                          }
+                          diffEditor.layout();
+                          const containerEl = containerRef.current;
+                          if (containerEl && !revealedRef.current) {
+                            containerEl.style.visibility = "visible";
+                            revealedRef.current = true;
+                          }
+                        });
+                      }
+                    });
+                  };
 
                   // Create fresh models per run+file to avoid reuse across runs
                   try {
@@ -389,105 +497,63 @@ function FileDiffRow({
                       language,
                       modifiedUri
                     );
-                    editor.setModel({
+                    diffEditor.setModel({
                       original: originalModel,
                       modified: modifiedModel,
                     });
                   } catch {
                     // ignore if monaco not available
                   }
-                  const scheduleMeasureAndLayout = () => {
-                    if (rafIdRef.current != null) {
-                      cancelAnimationFrame(rafIdRef.current);
-                    }
-                    rafIdRef.current = requestAnimationFrame(() => {
-                      const modifiedEditor = editor.getModifiedEditor();
-                      const originalEditor = editor.getOriginalEditor();
-                      const modifiedContentHeight =
-                        modifiedEditor.getContentHeight();
-                      const originalContentHeight =
-                        originalEditor.getContentHeight();
-                      const newHeight = Math.max(
-                        120,
-                        Math.max(modifiedContentHeight, originalContentHeight) +
-                          20
-                      );
-                      if (containerRef.current) {
-                        const current = parseInt(
-                          containerRef.current.style.height || "0",
-                          10
-                        );
-                        if (current !== newHeight) {
-                          containerRef.current.style.height = `${newHeight}px`;
-                        }
-                        const width =
-                          containerRef.current.clientWidth || undefined;
-                        if (typeof width === "number") {
-                          editor.layout({ width, height: newHeight });
-                          // Double-rAF to ensure Monaco settles after DOM style changes
-                          requestAnimationFrame(() => {
-                            editor.layout({ width, height: newHeight });
-                            if (containerRef.current && !revealedRef.current) {
-                              containerRef.current.style.visibility = "visible";
-                              revealedRef.current = true;
-                            }
-                          });
-                        } else {
-                          editor.layout();
-                          requestAnimationFrame(() => {
-                            editor.layout();
-                            if (containerRef.current && !revealedRef.current) {
-                              containerRef.current.style.visibility = "visible";
-                              revealedRef.current = true;
-                            }
-                          });
-                        }
-                      } else {
-                        editor.layout();
-                        requestAnimationFrame(() => {
-                          editor.layout();
-                          if (containerRef.current && !revealedRef.current) {
-                            containerRef.current.style.visibility = "visible";
-                            revealedRef.current = true;
-                          }
-                        });
-                      }
-                    });
-                  };
-                  const mod = editor.getModifiedEditor();
-                  const orig = editor.getOriginalEditor();
-                  const d1 = mod.onDidContentSizeChange(
-                    scheduleMeasureAndLayout
-                  );
-                  const d2 = orig.onDidContentSizeChange(
-                    scheduleMeasureAndLayout
-                  );
-                  const d3 = mod.onDidChangeHiddenAreas(
-                    scheduleMeasureAndLayout
-                  );
-                  const d4 = orig.onDidChangeHiddenAreas(
-                    scheduleMeasureAndLayout
-                  );
-                  const d5 = editor.onDidUpdateDiff?.(scheduleMeasureAndLayout);
 
-                  // Observe container size changes to trigger layout
-                  if (containerRef.current && !resizeObserverRef.current) {
+                  const mod = diffEditor.getModifiedEditor();
+                  const orig = diffEditor.getOriginalEditor();
+                  pushDisposable(
+                    mod.onDidContentSizeChange(scheduleMeasureAndLayout)
+                  );
+                  pushDisposable(
+                    orig.onDidContentSizeChange(scheduleMeasureAndLayout)
+                  );
+                  pushDisposable(
+                    mod.onDidChangeHiddenAreas(scheduleMeasureAndLayout)
+                  );
+                  pushDisposable(
+                    orig.onDidChangeHiddenAreas(scheduleMeasureAndLayout)
+                  );
+                  pushDisposable(
+                    diffEditor.onDidUpdateDiff?.(scheduleMeasureAndLayout)
+                  );
+
+                  if (containerRef.current) {
+                    if (resizeObserverRef.current) {
+                      resizeObserverRef.current.disconnect();
+                    }
                     resizeObserverRef.current = new ResizeObserver(() => {
-                      scheduleMeasureAndLayout();
+                      if (!disposed) {
+                        scheduleMeasureAndLayout();
+                      }
                     });
                     resizeObserverRef.current.observe(containerRef.current);
                   }
 
-                  // Kick initial layout after mount using rAF
                   requestAnimationFrame(() => {
-                    scheduleMeasureAndLayout();
+                    if (!disposed) {
+                      scheduleMeasureAndLayout();
+                    }
                   });
-                  return () => {
-                    d1.dispose();
-                    d2.dispose();
-                    d3.dispose();
-                    d4.dispose();
-                    d5?.dispose?.();
+
+                  const cleanup = () => {
+                    if (disposed) {
+                      return;
+                    }
+                    disposed = true;
+                    setEditorRef(null);
+                    for (const disposable of disposables) {
+                      try {
+                        disposable.dispose();
+                      } catch {
+                        // ignore
+                      }
+                    }
                     if (rafIdRef.current != null) {
                       cancelAnimationFrame(rafIdRef.current);
                       rafIdRef.current = null;
@@ -498,17 +564,21 @@ function FileDiffRow({
                     }
                     // Dispose models we created to avoid leaks and reuse
                     try {
-                      const model = editor.getModel();
-                      if (model?.original) {
-                        model.original.dispose?.();
-                      }
-                      if (model?.modified) {
-                        model.modified.dispose?.();
-                      }
-                    } catch (_e) {
+                      const model = diffEditor.getModel();
+                      model?.original?.dispose?.();
+                      model?.modified?.dispose?.();
+                    } catch {
                       // ignore if monaco not available
                     }
+                    const containerEl = containerRef.current;
+                    if (containerEl) {
+                      containerEl.style.visibility = "";
+                    }
+                    revealedRef.current = false;
+                    editorCleanupRef.current = null;
                   };
+
+                  editorCleanupRef.current = cleanup;
                 }}
                 options={{
                   readOnly: true,
