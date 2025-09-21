@@ -2,6 +2,7 @@ use super::*;
 use std::{fs, process::Command};
 use tempfile::tempdir;
 use std::path::{Path, PathBuf};
+use crate::types::ListRepoFilesOptions;
 
 fn run(cwd: &std::path::Path, cmd: &str) {
   let status = if cfg!(target_os = "windows") {
@@ -170,6 +171,135 @@ fn refs_merge_base_after_merge_is_branch_tip() {
   }).unwrap();
 
   assert_eq!(out.len(), 0, "Expected no differences after merge, got: {:?}", out);
+}
+
+#[test]
+fn list_repository_files_handles_branch_and_directories() {
+  let tmp = tempdir().unwrap();
+  let repo = tmp.path().join("repo");
+  fs::create_dir_all(&repo).unwrap();
+
+  run(&repo, "git init");
+  run(
+    &repo,
+    "git -c user.email=test@example.com -c user.name=Test checkout -b main",
+  );
+
+  fs::create_dir_all(repo.join("src")).unwrap();
+  fs::write(repo.join("src/lib.rs"), b"fn main() {}\n").unwrap();
+  fs::write(repo.join("README.md"), b"# Main branch\n").unwrap();
+  fs::create_dir_all(repo.join("node_modules/pkg")).unwrap();
+  fs::write(
+    repo.join("node_modules/pkg/index.js"),
+    b"module.exports = {}\n",
+  )
+  .unwrap();
+
+  run(&repo, "git add .");
+  run(&repo, "git -c user.email=test@example.com -c user.name=Test commit -m init");
+
+  run(&repo, "git checkout -b feature");
+  fs::create_dir_all(repo.join("docs")).unwrap();
+  fs::write(repo.join("docs/guide.md"), b"feature docs\n").unwrap();
+  run(&repo, "git add .");
+  run(
+    &repo,
+    "git -c user.email=test@example.com -c user.name=Test commit -m docs",
+  );
+  run(&repo, "git checkout main");
+
+  let origin_path = repo.to_string_lossy().to_string();
+
+  let main_files = crate::files::list_repository_files(ListRepoFilesOptions {
+    originPath: Some(origin_path.clone()),
+    branch: Some("main".into()),
+    ..Default::default()
+  })
+  .expect("list main");
+
+  assert!(
+    main_files
+      .iter()
+      .any(|f| f.isDirectory && f.relativePath == "src"),
+    "expected src directory in listing"
+  );
+  assert!(
+    main_files
+      .iter()
+      .any(|f| !f.isDirectory && f.relativePath == "src/lib.rs"),
+    "expected lib.rs on main"
+  );
+  assert!(
+    !main_files
+      .iter()
+      .any(|f| f.relativePath.contains("node_modules")),
+    "node_modules should be ignored"
+  );
+  assert!(
+    !main_files
+      .iter()
+      .any(|f| f.relativePath == "docs/guide.md"),
+    "feature file should not appear on main"
+  );
+
+  let feature_files = crate::files::list_repository_files(ListRepoFilesOptions {
+    originPath: Some(origin_path.clone()),
+    branch: Some("feature".into()),
+    ..Default::default()
+  })
+  .expect("list feature");
+
+  assert!(
+    feature_files
+      .iter()
+      .any(|f| f.relativePath == "docs/guide.md"),
+    "feature branch should include docs/guide.md"
+  );
+  assert!(
+    feature_files
+      .iter()
+      .any(|f| f.relativePath == "src/lib.rs"),
+    "feature branch should include shared files"
+  );
+}
+
+#[test]
+fn list_repository_files_supports_fuzzy_matching() {
+  let tmp = tempdir().unwrap();
+  let repo = tmp.path().join("repo");
+  fs::create_dir_all(&repo).unwrap();
+
+  run(&repo, "git init");
+  run(
+    &repo,
+    "git -c user.email=test@example.com -c user.name=Test checkout -b main",
+  );
+
+  fs::create_dir_all(repo.join("docs")).unwrap();
+  fs::create_dir_all(repo.join("src")).unwrap();
+  fs::write(repo.join("docs/guide.md"), b"docs\n").unwrap();
+  fs::write(repo.join("src/app.ts"), b"console.log('app');\n").unwrap();
+  fs::write(repo.join("src/another.ts"), b"console.log('another');\n").unwrap();
+
+  run(&repo, "git add .");
+  run(
+    &repo,
+    "git -c user.email=test@example.com -c user.name=Test commit -m initial",
+  );
+
+  let origin_path = repo.to_string_lossy().to_string();
+
+  let fuzzy = crate::files::list_repository_files(ListRepoFilesOptions {
+    originPath: Some(origin_path.clone()),
+    branch: Some("main".into()),
+    pattern: Some("guide".into()),
+    limit: Some(5),
+    ..Default::default()
+  })
+  .expect("list fuzzy");
+
+  assert_eq!(fuzzy.len(), 1, "expected only docs/guide.md to match");
+  assert_eq!(fuzzy[0].relativePath, "docs/guide.md");
 }
 
 #[test]
