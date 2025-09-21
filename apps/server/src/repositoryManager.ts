@@ -601,6 +601,14 @@ export class RepositoryManager {
       );
       serverLogger.info(`Successfully cloned ${repoUrl}`);
 
+      // Restore the standard fetch refspec so future operations can track
+      // non-default branches after a shallow clone (which otherwise configures
+      // remote.origin.fetch to only include the default branch).
+      await this.executeGitCommand(
+        'git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"',
+        { cwd: originPath }
+      );
+
       // Set the remote HEAD reference explicitly
       try {
         await this.executeGitCommand(`git remote set-head origin -a`, {
