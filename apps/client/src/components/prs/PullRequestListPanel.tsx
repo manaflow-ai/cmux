@@ -3,6 +3,9 @@ import { Link } from "@tanstack/react-router";
 import clsx from "clsx";
 import { useQuery as useConvexQuery } from "convex/react";
 import { useMemo } from "react";
+import { ContextMenu } from "@base-ui-components/react/context-menu";
+import { toast } from "sonner";
+import { client as wwwOpenAPIClient } from "@cmux/www-openapi-client/client.gen";
 
 type Connection = {
   installationId: number;
@@ -106,9 +109,36 @@ export function PullRequestListPanel({
               const [owner, repo] = pr.repoFullName.split("/", 2);
               const isSelected =
                 selectedKey === `${pr.repoFullName}#${pr.number}`;
+              const handleClosePr = async () => {
+                const [o = "", r = ""] = pr.repoFullName.split("/", 2);
+                if (!o || !r) return;
+                const toastId = toast.loading("Closing PR…");
+                try {
+                  const res = await wwwOpenAPIClient.post({
+                    url: "/api/integrations/github/prs/close",
+                    body: {
+                      team: teamSlugOrId,
+                      owner: o,
+                      repo: r,
+                      number: pr.number,
+                    },
+                    headers: { "Content-Type": "application/json" },
+                  });
+                  if (res.ok) {
+                    toast.success("PR closed", { id: toastId });
+                  } else {
+                    toast.error("Failed to close PR", { id: toastId });
+                  }
+                } catch (_e) {
+                  toast.error("Failed to close PR", { id: toastId });
+                }
+              };
+
               return (
                 <li key={`${pr.repoFullName}#${pr.number}`} className="">
-                  <Link
+                  <ContextMenu.Root>
+                    <ContextMenu.Trigger>
+                      <Link
                     to="/$teamSlugOrId/prs/$owner/$repo/$number"
                     params={{
                       teamSlugOrId,
@@ -132,7 +162,26 @@ export function PullRequestListPanel({
                         {formatTimeAgo(pr.updatedAt)}
                       </div>
                     </div>
-                  </Link>
+                      </Link>
+                    </ContextMenu.Trigger>
+                    <ContextMenu.Portal>
+                      <ContextMenu.Positioner className="outline-none z-[var(--z-context-menu)]">
+                        <ContextMenu.Popup className="origin-[var(--transform-origin)] rounded-md bg-white dark:bg-neutral-800 py-1 text-neutral-900 dark:text-neutral-100 shadow-lg shadow-gray-200 outline-1 outline-neutral-200 transition-[opacity] data-[ending-style]:opacity-0 dark:shadow-none dark:-outline-offset-1 dark:outline-neutral-700">
+                          {pr.state === "open" ? (
+                            <ContextMenu.Item
+                              className="px-3 py-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-default"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleClosePr();
+                              }}
+                            >
+                              Close PR
+                            </ContextMenu.Item>
+                          ) : null}
+                        </ContextMenu.Popup>
+                      </ContextMenu.Positioner>
+                    </ContextMenu.Portal>
+                  </ContextMenu.Root>
                 </li>
               );
             })}

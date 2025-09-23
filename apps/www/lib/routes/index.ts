@@ -12,6 +12,7 @@ export { githubPrsBackfillRouter } from "./github.prs.backfill.route";
 export { githubPrsBackfillRepoRouter } from "./github.prs.backfill-repo.route";
 export { githubPrsCodeRouter } from "./github.prs.code.route";
 export { githubPrsPatchRouter } from "./github.prs.patch.route";
+export { githubPrsCloseRouter } from "./github.prs.close.route";
 export { githubPrsFilesRouter } from "./github.prs.files.route";
 export { githubPrsFileContentsRouter } from "./github.prs.file-contents.route";
 export { githubPrsFileContentsBatchRouter } from "./github.prs.file-contents-batch.route";

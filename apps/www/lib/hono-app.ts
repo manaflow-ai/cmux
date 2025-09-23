@@ -4,6 +4,7 @@ import { githubPrsBackfillRouter } from "@/lib/routes/github.prs.backfill.route"
 import { githubPrsBackfillRepoRouter } from "@/lib/routes/github.prs.backfill-repo.route";
 import { githubPrsCodeRouter } from "@/lib/routes/github.prs.code.route";
 import { githubPrsPatchRouter } from "@/lib/routes/github.prs.patch.route";
+import { githubPrsCloseRouter } from "@/lib/routes/github.prs.close.route";
 import { githubPrsFilesRouter } from "@/lib/routes/github.prs.files.route";
 import { githubPrsFileContentsRouter } from "@/lib/routes/github.prs.file-contents.route";
 import { githubPrsFileContentsBatchRouter } from "@/lib/routes/github.prs.file-contents-batch.route";
@@ -98,6 +99,7 @@ app.route("/", githubPrsBackfillRouter);
 app.route("/", githubPrsBackfillRepoRouter);
 app.route("/", githubPrsCodeRouter);
 app.route("/", githubPrsPatchRouter);
+app.route("/", githubPrsCloseRouter);
 app.route("/", githubPrsFilesRouter);
 app.route("/", githubPrsFileContentsRouter);
 app.route("/", githubPrsFileContentsBatchRouter);
