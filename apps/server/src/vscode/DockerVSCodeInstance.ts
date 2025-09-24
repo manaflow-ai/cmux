@@ -28,6 +28,16 @@ export interface ContainerMapping {
   };
   status: "starting" | "running" | "stopped";
   workspacePath?: string;
+  volumes?: {
+    workspace: string;
+    vscode: string;
+  };
+  lastActivityAt?: number;
+  idleTimeoutMs?: number;
+  warmExpiresAt?: number;
+  sessionStatus?: "active" | "warm" | "terminated";
+  warmRetentionMs?: number;
+  containerId?: string;
 }
 
 export const containerMappings = new Map<string, ContainerMapping>();
@@ -40,6 +50,12 @@ interface DockerEvent {
   };
 }
 
+interface StopOptions {
+  sessionStatus?: "warm" | "terminated";
+  warmExpiresAt?: number;
+  lastActivityAt?: number;
+}
+
 export class DockerVSCodeInstance extends VSCodeInstance {
   private containerName: string;
   private imageName: string;
@@ -49,9 +65,17 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     ports: { [key: string]: string } | null;
     timestamp: number;
   } | null = null;
+  private sessionVolumes: { workspace: string; vscode: string };
+  private resume: boolean;
+  private lastActivityAt?: number;
+  private idleTimeoutMs: number;
+  private warmRetentionMs: number;
+  private containerId?: string;
   private static readonly PORT_CACHE_DURATION = 2000; // 2 seconds
   private static eventsStream: NodeJS.ReadableStream | null = null;
   private static dockerInstance: Docker | null = null;
+  private static lifecycleInterval: NodeJS.Timeout | null = null;
+  private static lifecycleSweepInProgress = false;
 
   // Get or create the Docker singleton
   static getDocker(): Docker {
@@ -69,6 +93,14 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     this.imageName = process.env.WORKER_IMAGE_NAME || "cmux-worker:0.0.1";
     dockerLogger.info(`WORKER_IMAGE_NAME: ${process.env.WORKER_IMAGE_NAME}`);
     dockerLogger.info(`this.imageName: ${this.imageName}`);
+    this.sessionVolumes =
+      config.sessionVolumes ?? this.generateDefaultSessionVolumes();
+    this.resume = Boolean(config.resume);
+    this.lastActivityAt = config.lastActivityAt;
+    const idleMinutes = config.idleTimeoutMinutes ?? 30;
+    const warmMinutes = config.warmRetentionMinutes ?? 24 * 60;
+    this.idleTimeoutMs = Math.max(idleMinutes, 1) * 60 * 1000;
+    this.warmRetentionMs = Math.max(warmMinutes, 1) * 60 * 1000;
     // Register this instance
     VSCodeInstance.getInstances().set(this.instanceId, this);
   }
@@ -116,6 +148,84 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           `Failed to pull Docker image ${this.imageName}: ${pullError}`
         );
       }
+    }
+  }
+
+  private generateDefaultSessionVolumes(): {
+    workspace: string;
+    vscode: string;
+  } {
+    const idFragment = `${this.taskRunId}`.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    return {
+      workspace: `cmux_session_${idFragment}_workspace`,
+      vscode: `cmux_session_${idFragment}_vscode`,
+    };
+  }
+
+  private async ensureSessionVolumes(): Promise<void> {
+    const docker = DockerVSCodeInstance.getDocker();
+    const labels: Record<string, string> = {
+      "cmux.sessionId": `${this.taskRunId}`,
+      "cmux.team": this.teamSlugOrId,
+    };
+
+    if (this.config.workspacePath) {
+      await this.ensureVolume(docker, {
+        Name: this.sessionVolumes.workspace,
+        Driver: "local",
+        DriverOpts: {
+          type: "none",
+          o: "bind,rw",
+          device: this.config.workspacePath,
+        },
+        Labels: labels,
+      });
+    }
+
+    createOptions.HostConfig = {
+      ...createOptions.HostConfig,
+      Mounts: [...(createOptions.HostConfig?.Mounts ?? []), ...mounts],
+    };
+
+    dockerLogger.info(
+      `  Session volumes: workspace=${this.sessionVolumes.workspace}, vscode=${this.sessionVolumes.vscode}`
+    );
+
+    dockerLogger.info(
+      `Container create options: ${JSON.stringify(createOptions)}`
+    );
+
+    await this.ensureVolume(docker, {
+      Name: this.sessionVolumes.vscode,
+      Driver: "local",
+      Labels: labels,
+    });
+  }
+
+  private async ensureVolume(
+    docker: Docker,
+    options: Docker.VolumeCreateOptions
+  ): Promise<void> {
+    try {
+      await docker.getVolume(options.Name).inspect();
+      return;
+    } catch {
+      // Volume does not exist yet
+    }
+
+    try {
+      await docker.createVolume(options);
+      dockerLogger.info(`Created docker volume ${options.Name}`);
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 409) {
+        dockerLogger.info(`Docker volume ${options.Name} already exists`);
+        return;
+      }
+      dockerLogger.error(
+        `Failed to create docker volume ${options.Name}:`,
+        error
+      );
+      throw error;
     }
   }
 
@@ -205,6 +315,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
     // Check if image exists and pull if missing
     await this.ensureImageExists(docker);
+    await this.ensureSessionVolumes();
 
     // Capture current auth token for this instance and mapping
     this.authToken = getAuthToken();
@@ -218,6 +329,13 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       ports: { vscode: "", worker: "" },
       status: "starting",
       workspacePath: this.config.workspacePath,
+      volumes: this.sessionVolumes,
+      lastActivityAt: this.lastActivityAt ?? Date.now(),
+      idleTimeoutMs: this.idleTimeoutMs,
+      warmExpiresAt:
+        (this.lastActivityAt ?? Date.now()) + this.warmRetentionMs,
+      sessionStatus: this.resume ? "warm" : "active",
+      warmRetentionMs: this.warmRetentionMs,
     });
 
     // Stop and remove any existing container with same name
@@ -260,9 +378,23 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         "39376/tcp": {},
       },
     };
-    dockerLogger.info(
-      `Container create options: ${JSON.stringify(createOptions)}`
-    );
+    const mounts: Docker.MountConfig[] = [
+      {
+        Type: "volume",
+        Source: this.sessionVolumes.vscode,
+        Target: "/root/.openvscode-server",
+        ReadOnly: false,
+      },
+    ];
+
+    if (this.config.workspacePath) {
+      mounts.push({
+        Type: "volume",
+        Source: this.sessionVolumes.workspace,
+        Target: "/root/workspace",
+        ReadOnly: false,
+      });
+    }
 
     // Add volume mount if workspace path is provided
     if (this.config.workspacePath) {
@@ -284,9 +416,8 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         const gitConfigPath = path.join(homeDir, ".gitconfig");
 
         const binds = [
-          `${this.config.workspacePath}:/root/workspace`,
           // Mount the origin directory at the same absolute path to preserve git references
-          `${originPath}:${originPath}:rw`, // Read-write mount for git operations
+          `${originPath}:${originPath}:rw`,
         ];
 
         // Mount SSH directory for git authentication
@@ -338,7 +469,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         const homeDir = os.homedir();
         const gitConfigPath = path.join(homeDir, ".gitconfig");
 
-        const binds = [`${this.config.workspacePath}:/root/workspace`];
+        const binds: string[] = [];
 
         // Mount SSH directory for git authentication
         const sshDir = path.join(homeDir, ".ssh");
@@ -399,6 +530,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
     // Create and start the container
     this.container = await docker.createContainer(createOptions);
+    this.containerId = this.container.id;
     dockerLogger.info(`Container created: ${this.container.id}`);
 
     await this.container.start();
@@ -608,13 +740,23 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(options: StopOptions = {}): Promise<void> {
     dockerLogger.info(`Stopping Docker VSCode instance: ${this.containerName}`);
 
     // Update mapping status
     const mapping = containerMappings.get(this.containerName);
     if (mapping) {
       mapping.status = "stopped";
+      if (options.sessionStatus) {
+        mapping.sessionStatus = options.sessionStatus;
+      }
+      if (options.lastActivityAt) {
+        mapping.lastActivityAt = options.lastActivityAt;
+      }
+      if (options.warmExpiresAt) {
+        mapping.warmExpiresAt = options.warmExpiresAt;
+      }
+      mapping.containerId = undefined;
     }
 
     // Update VSCode status in Convex
@@ -625,6 +767,9 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           id: this.taskRunId,
           status: "stopped",
           stoppedAt: Date.now(),
+          sessionStatus: options.sessionStatus,
+          warmExpiresAt: options.warmExpiresAt,
+          lastActivityAt: options.lastActivityAt,
         })
       );
     } catch (error) {
@@ -646,6 +791,8 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       }
     }
 
+    this.containerId = undefined;
+
     // Clean up temporary git config file
     try {
       const tempGitConfigPath = path.join(
@@ -664,6 +811,32 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
     // Call base stop to disconnect from worker and remove from registry
     await this.baseStop();
+  }
+
+  recordActivity(timestamp: number): void {
+    this.lastActivityAt = timestamp;
+    const mapping = containerMappings.get(this.containerName);
+    if (mapping) {
+      mapping.lastActivityAt = timestamp;
+      const warmRetention = mapping.warmRetentionMs ?? this.warmRetentionMs;
+      mapping.warmExpiresAt = timestamp + warmRetention;
+    }
+  }
+
+  getSessionVolumes(): { workspace: string; vscode: string } {
+    return this.sessionVolumes;
+  }
+
+  getIdleTimeoutMs(): number {
+    return this.idleTimeoutMs;
+  }
+
+  getWarmRetentionMs(): number {
+    return this.warmRetentionMs;
+  }
+
+  getContainerId(): string | undefined {
+    return this.containerId;
   }
 
   async getStatus(): Promise<{ running: boolean; info?: VSCodeInstanceInfo }> {
@@ -1077,6 +1250,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
   static startContainerStateSync(): void {
     DockerVSCodeInstance.stopContainerStateSync();
     DockerVSCodeInstance.syncDockerContainerStates();
+    DockerVSCodeInstance.startLifecycleMonitor();
   }
 
   // Static method to stop the container state sync
@@ -1103,11 +1277,212 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       }
       DockerVSCodeInstance.eventsStream = null;
     }
+    if (DockerVSCodeInstance.lifecycleInterval) {
+      clearInterval(DockerVSCodeInstance.lifecycleInterval);
+      DockerVSCodeInstance.lifecycleInterval = null;
+    }
+    DockerVSCodeInstance.lifecycleSweepInProgress = false;
   }
 
   private static syncDockerContainerStates(): void {
     dockerLogger.info("Starting docker event stream for container state sync");
     DockerVSCodeInstance.startDockerodeEventStream();
+  }
+
+  private static startLifecycleMonitor(): void {
+    DockerVSCodeInstance.lifecycleInterval = setInterval(() => {
+      void DockerVSCodeInstance.runLifecycleSweep();
+    }, 60_000);
+    void DockerVSCodeInstance.runLifecycleSweep();
+  }
+
+  private static async runLifecycleSweep(): Promise<void> {
+    if (DockerVSCodeInstance.lifecycleSweepInProgress) {
+      return;
+    }
+    DockerVSCodeInstance.lifecycleSweepInProgress = true;
+    const now = Date.now();
+
+    try {
+      for (const mapping of containerMappings.values()) {
+        const { lastActivityAt, idleTimeoutMs, status, containerName } = mapping;
+
+        if (
+          status === "running" &&
+          lastActivityAt !== undefined &&
+          idleTimeoutMs !== undefined &&
+          now - lastActivityAt > idleTimeoutMs
+        ) {
+          dockerLogger.info(
+            `[lifecycle] Idle timeout reached for ${containerName}, stopping container`
+          );
+          const warmRetention = mapping.warmRetentionMs ?? 24 * 60 * 60 * 1000;
+          const warmExpiresAt = lastActivityAt + warmRetention;
+          mapping.sessionStatus = "warm";
+          mapping.warmExpiresAt = warmExpiresAt;
+
+          const instance = VSCodeInstance.getInstance(mapping.instanceId);
+          if (instance && instance instanceof DockerVSCodeInstance) {
+            await instance.stop({
+              sessionStatus: "warm",
+              warmExpiresAt,
+              lastActivityAt,
+            });
+          } else {
+            await DockerVSCodeInstance.forceStopContainer(mapping, {
+              sessionStatus: "warm",
+              warmExpiresAt,
+              lastActivityAt,
+            });
+          }
+          continue;
+        }
+
+        if (
+          mapping.sessionStatus === "warm" &&
+          mapping.warmExpiresAt !== undefined &&
+          now >= mapping.warmExpiresAt
+        ) {
+          dockerLogger.info(
+            `[lifecycle] Warm session expired for ${containerName}, cleaning up volumes`
+          );
+          await DockerVSCodeInstance.cleanupWarmSession(mapping);
+        }
+      }
+    } catch (error) {
+      dockerLogger.error("[lifecycle] sweep failed:", error);
+    } finally {
+      DockerVSCodeInstance.lifecycleSweepInProgress = false;
+    }
+  }
+
+  private static async forceStopContainer(
+    mapping: ContainerMapping,
+    options: StopOptions
+  ): Promise<void> {
+    const docker = DockerVSCodeInstance.getDocker();
+    try {
+      const container = docker.getContainer(mapping.containerName);
+      await container.stop({ t: 10 }).catch(() => {});
+    } catch (error) {
+      dockerLogger.warn(
+        `[lifecycle] forceStopContainer unable to stop ${mapping.containerName}:`,
+        error
+      );
+    }
+
+    if (mapping.authToken) {
+      try {
+        await runWithAuthToken(mapping.authToken, async () =>
+          getConvex().mutation(api.taskRuns.updateVSCodeStatus, {
+            teamSlugOrId: mapping.teamSlugOrId,
+            id: mapping.instanceId,
+            status: "stopped",
+            stoppedAt: Date.now(),
+            sessionStatus: options.sessionStatus,
+            warmExpiresAt: options.warmExpiresAt,
+            lastActivityAt: options.lastActivityAt,
+          })
+        );
+      } catch (error) {
+        dockerLogger.error(
+          `[lifecycle] Failed to update Convex for ${mapping.containerName}:`,
+          error
+        );
+      }
+    }
+
+    mapping.status = "stopped";
+    if (options.sessionStatus) {
+      mapping.sessionStatus = options.sessionStatus;
+    }
+    if (options.warmExpiresAt) {
+      mapping.warmExpiresAt = options.warmExpiresAt;
+    }
+    if (options.lastActivityAt) {
+      mapping.lastActivityAt = options.lastActivityAt;
+    }
+    mapping.containerId = undefined;
+  }
+
+  private static async cleanupWarmSession(
+    mapping: ContainerMapping
+  ): Promise<void> {
+    const docker = DockerVSCodeInstance.getDocker();
+    try {
+      const container = docker.getContainer(mapping.containerName);
+      await container.remove({ force: true }).catch(() => {});
+    } catch (error) {
+      dockerLogger.debug(
+        `[lifecycle] container removal skipped for ${mapping.containerName}:`,
+        error
+      );
+    }
+
+    if (mapping.volumes) {
+      for (const volumeName of Object.values(mapping.volumes)) {
+        try {
+          if (!volumeName) continue;
+          const volume = docker.getVolume(volumeName);
+          await volume.remove({ force: true });
+          dockerLogger.info(
+            `[lifecycle] Removed docker volume ${volumeName} for ${mapping.containerName}`
+          );
+        } catch (error) {
+          dockerLogger.warn(
+            `[lifecycle] Failed to remove volume ${volumeName}:`,
+            error
+          );
+        }
+      }
+    }
+
+    if (mapping.authToken) {
+      try {
+        await runWithAuthToken(mapping.authToken, async () => {
+          const run = await getConvex().query(api.taskRuns.getById, {
+            id: mapping.instanceId,
+          });
+          if (run?.vscode) {
+            const nextState = {
+              ...run.vscode,
+              status: "stopped" as const,
+              sessionStatus: "terminated" as const,
+              warmExpiresAt: Date.now(),
+            };
+            await getConvex().mutation(api.taskRuns.updateVSCodeInstance, {
+              teamSlugOrId: mapping.teamSlugOrId,
+              id: mapping.instanceId,
+              vscode: nextState,
+            });
+          } else {
+            await getConvex().mutation(api.taskRuns.updateVSCodeStatus, {
+              teamSlugOrId: mapping.teamSlugOrId,
+              id: mapping.instanceId,
+              status: "stopped",
+              stoppedAt: Date.now(),
+              sessionStatus: "terminated",
+              warmExpiresAt: Date.now(),
+            });
+          }
+        });
+      } catch (error) {
+        dockerLogger.error(
+          `[lifecycle] Failed updating Convex during cleanup for ${mapping.containerName}:`,
+          error
+        );
+      }
+    }
+
+    containerMappings.delete(mapping.containerName);
+  }
+
+  static async terminateSessionFromMapping(
+    mapping: ContainerMapping
+  ): Promise<void> {
+    mapping.sessionStatus = "terminated";
+    mapping.status = "stopped";
+    await DockerVSCodeInstance.cleanupWarmSession(mapping);
   }
 
   // Try to stream events using the Docker socket (no CLI dependency)
@@ -1195,6 +1570,12 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           };
         }
         mapping.status = "running";
+        mapping.sessionStatus = "active";
+        const activityTimestamp = Date.now();
+        mapping.lastActivityAt = activityTimestamp;
+        const warmRetention = mapping.warmRetentionMs ?? 24 * 60 * 60 * 1000;
+        mapping.warmExpiresAt = activityTimestamp + warmRetention;
+        mapping.containerId = event.id;
         try {
           if (!mapping.authToken) {
             dockerLogger.warn(
@@ -1218,6 +1599,10 @@ export class DockerVSCodeInstance extends VSCodeInstance {
               teamSlugOrId: mapping.teamSlugOrId,
               id: taskRunId,
               status: "running",
+              sessionStatus: "active",
+              containerId: event.id,
+              lastActivityAt: activityTimestamp,
+              warmExpiresAt: mapping.warmExpiresAt,
             });
           });
         } catch (error) {
@@ -1234,6 +1619,14 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       }
     } else if (status === "stop" || status === "die" || status === "destroy") {
       mapping.status = "stopped";
+      const existingSession = mapping.sessionStatus;
+      if (!existingSession || existingSession === "active") {
+        mapping.sessionStatus = "warm";
+      }
+      if (!mapping.warmExpiresAt) {
+        const warmRetention = mapping.warmRetentionMs ?? 24 * 60 * 60 * 1000;
+        mapping.warmExpiresAt = Date.now() + warmRetention;
+      }
       try {
         if (!mapping.authToken) {
           dockerLogger.warn(
@@ -1246,6 +1639,8 @@ export class DockerVSCodeInstance extends VSCodeInstance {
               id: taskRunId,
               status: "stopped",
               stoppedAt: Date.now(),
+              sessionStatus: mapping.sessionStatus,
+              warmExpiresAt: mapping.warmExpiresAt,
             })
           );
         }

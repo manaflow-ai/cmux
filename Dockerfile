@@ -215,6 +215,7 @@ ENV PATH="/usr/local/bin:$PATH"
 # Copy only the built artifacts and runtime dependencies from builder
 COPY --from=builder /app/openvscode-server /app/openvscode-server
 COPY --from=builder /root/.openvscode-server /root/.openvscode-server
+COPY --from=builder /root/.openvscode-server /opt/cmux/openvscode-defaults
 COPY --from=builder /builtins /builtins
 COPY --from=builder /usr/local/bin/wait-for-docker.sh /usr/local/bin/wait-for-docker.sh
 COPY --from=builder /cmux/apps/worker/scripts/collect-relevant-diff.sh /usr/local/bin/cmux-collect-relevant-diff.sh

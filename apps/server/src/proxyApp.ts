@@ -1,4 +1,5 @@
 import { api } from "@cmux/convex/api";
+import type { Id } from "@cmux/convex/dataModel";
 import express from "express";
 import type { IncomingMessage, Server } from "http";
 import httpProxy from "http-proxy";
@@ -6,8 +7,10 @@ import { Buffer } from "node:buffer";
 import path from "node:path";
 import { getConvex } from "./utils/convexClient.js";
 import { serverLogger } from "./utils/fileLogger.js";
+import { resumeDockerRun, terminateDockerRun } from "./agentSpawner.js";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance.js";
 import { VSCodeInstance } from "./vscode/VSCodeInstance.js";
+import { runWithAuth } from "./utils/requestContext.js";
 
 // Port cache to avoid hammering Docker
 interface PortCacheEntry {
@@ -181,6 +184,78 @@ export function createProxyApp({
   publicPath: string;
 }): express.Application {
   const app = express();
+  app.use(express.json());
+
+  app.post("/api/runs/:id/resume", async (req, res) => {
+    const authHeader = req.get("authorization") || "";
+    const authJson = req.get("x-cmux-auth-json") || undefined;
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : undefined;
+
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const teamSlugOrId =
+      (req.body?.teamSlugOrId as string | undefined) ||
+      (req.query?.team as string | undefined) ||
+      "default";
+
+    const taskRunIdParam = req.params.id;
+
+    try {
+      const info = await runWithAuth(token, authJson, async () => {
+        const { info } = await resumeDockerRun(
+          taskRunIdParam as unknown as Id<"taskRuns">,
+          teamSlugOrId
+        );
+        return info;
+      });
+
+      return res.json({
+        ok: true,
+        vscodeUrl: info.workspaceUrl,
+        baseUrl: info.url,
+        provider: info.provider,
+      });
+    } catch (error) {
+      serverLogger.error("Failed to resume run:", error);
+      return res.status(500).json({ error: "Failed to resume run" });
+    }
+  });
+
+  app.post("/api/runs/:id/terminate", async (req, res) => {
+    const authHeader = req.get("authorization") || "";
+    const authJson = req.get("x-cmux-auth-json") || undefined;
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : undefined;
+
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const teamSlugOrId =
+      (req.body?.teamSlugOrId as string | undefined) ||
+      (req.query?.team as string | undefined) ||
+      "default";
+
+    const taskRunIdParam = req.params.id;
+
+    try {
+      await runWithAuth(token, authJson, async () =>
+        terminateDockerRun(
+          taskRunIdParam as unknown as Id<"taskRuns">,
+          teamSlugOrId
+        )
+      );
+      return res.json({ ok: true });
+    } catch (error) {
+      serverLogger.error("Failed to terminate run:", error);
+      return res.status(500).json({ error: "Failed to terminate run" });
+    }
+  });
 
   // app.use(express.static(publicPath));
   const staticHandler = express.static(publicPath, {});
@@ -300,6 +375,9 @@ export function createProxyApp({
             taskId: taskRun.taskId,
             workspacePath: taskRun.worktreePath,
             teamSlugOrId: teamParam || "default",
+            sessionVolumes: taskRun.vscode.volumes,
+            resume: true,
+            lastActivityAt: taskRun.vscode.lastActivityAt,
           });
 
           // Start the container

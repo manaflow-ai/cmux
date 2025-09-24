@@ -202,6 +202,22 @@ const convexSchema = defineSchema({
         lastAccessedAt: v.optional(v.number()), // Track when user last accessed the container
         keepAlive: v.optional(v.boolean()), // User requested to keep container running
         scheduledStopAt: v.optional(v.number()), // When container is scheduled to stop
+        containerId: v.optional(v.string()),
+        sessionStatus: v.optional(
+          v.union(
+            v.literal("active"),
+            v.literal("warm"),
+            v.literal("terminated")
+          )
+        ),
+        volumes: v.optional(
+          v.object({
+            workspace: v.string(),
+            vscode: v.string(),
+          })
+        ),
+        lastActivityAt: v.optional(v.number()),
+        warmExpiresAt: v.optional(v.number()),
       })
     ),
     networking: v.optional(

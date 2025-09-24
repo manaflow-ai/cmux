@@ -18,6 +18,14 @@ export interface VSCodeInstanceConfig {
   newBranch?: string;
   // Optional: when starting from an environment
   environmentId?: Id<"environments"> | string;
+  sessionVolumes?: {
+    workspace: string;
+    vscode: string;
+  };
+  resume?: boolean;
+  lastActivityAt?: number;
+  idleTimeoutMinutes?: number;
+  warmRetentionMinutes?: number;
 }
 
 export interface VSCodeInstanceInfo {
@@ -248,5 +256,11 @@ export abstract class VSCodeInstance extends EventEmitter {
     this.stopFileWatch();
     await this.disconnectFromWorker();
     VSCodeInstance.instances.delete(this.instanceId);
+  }
+
+  // Optional activity hook overridden by subclasses
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  recordActivity(_timestamp: number): void {
+    // no-op by default
   }
 }

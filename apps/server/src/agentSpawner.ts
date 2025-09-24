@@ -28,10 +28,14 @@ import {
   getAuthToken,
   runWithAuth,
 } from "./utils/requestContext.js";
+import { ensureRunWorktreeAndBranch } from "./utils/ensureRunWorktree.js";
 import { getWwwClient } from "./utils/wwwClient.js";
 import { CmuxVSCodeInstance } from "./vscode/CmuxVSCodeInstance.js";
-import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance.js";
-import { VSCodeInstance } from "./vscode/VSCodeInstance.js";
+import {
+  DockerVSCodeInstance,
+  containerMappings,
+} from "./vscode/DockerVSCodeInstance.js";
+import { VSCodeInstance, type VSCodeInstanceInfo } from "./vscode/VSCodeInstance.js";
 import { getWorktreePath, setupProjectWorkspace } from "./workspace.js";
 
 export interface AgentSpawnResult {
@@ -42,6 +46,22 @@ export interface AgentSpawnResult {
   vscodeUrl?: string;
   success: boolean;
   error?: string;
+}
+
+function attachActivityListeners(
+  instance: VSCodeInstance,
+  activityTracker: { touch: (source: string, timestamp?: number) => Promise<void> }
+): void {
+  const wrap = (source: string) => () => {
+    void activityTracker.touch(source);
+  };
+
+  instance.on("terminal-output", wrap("terminal-output"));
+  instance.on("file-changes", wrap("file-changes"));
+  instance.on("task-complete", wrap("task-complete"));
+  instance.on("terminal-idle", wrap("terminal-idle"));
+  instance.on("terminal-exit", wrap("terminal-exit"));
+  instance.on("terminal-failed", wrap("terminal-failed"));
 }
 
 export async function spawnAgent(
@@ -387,6 +407,39 @@ export async function spawnAgent(
       });
     }
 
+    const activityTracker = (() => {
+      let lastSent = 0;
+      const debounceMs = 15_000;
+      return {
+        async touch(_source: string, timestamp = Date.now()): Promise<void> {
+          if (vscodeInstance instanceof DockerVSCodeInstance) {
+            vscodeInstance.recordActivity(timestamp);
+          }
+
+          if (timestamp - lastSent < debounceMs) {
+            return;
+          }
+
+          lastSent = timestamp;
+
+          await runWithAuth(
+            capturedAuthToken,
+            capturedAuthHeaderJson,
+            async () =>
+              retryOnOptimisticConcurrency(() =>
+                getConvex().mutation(api.taskRuns.updateVSCodeActivity, {
+                  teamSlugOrId,
+                  id: taskRunId,
+                  lastActivityAt: timestamp,
+                })
+              )
+          );
+        },
+      };
+    })();
+
+    attachActivityListeners(vscodeInstance, activityTracker);
+
     // Update the task run with the worktree path (retry on OCC)
     await retryOnOptimisticConcurrency(() =>
       getConvex().mutation(api.taskRuns.updateWorktreePath, {
@@ -613,6 +666,20 @@ export async function spawnAgent(
     }
 
     // Update VSCode instance information in Convex (retry on OCC)
+    const startedAt = Date.now();
+    const sessionVolumes =
+      vscodeInstance instanceof DockerVSCodeInstance
+        ? vscodeInstance.getSessionVolumes()
+        : undefined;
+    const containerId =
+      vscodeInstance instanceof DockerVSCodeInstance
+        ? vscodeInstance.getContainerId()
+        : undefined;
+    const warmExpiresAt =
+      vscodeInstance instanceof DockerVSCodeInstance
+        ? startedAt + vscodeInstance.getWarmRetentionMs()
+        : undefined;
+
     await retryOnOptimisticConcurrency(() =>
       getConvex().mutation(api.taskRuns.updateVSCodeInstance, {
         teamSlugOrId,
@@ -623,11 +690,22 @@ export async function spawnAgent(
           status: "running",
           url: vscodeInfo.url,
           workspaceUrl: vscodeInfo.workspaceUrl,
-          startedAt: Date.now(),
+          startedAt,
+          sessionStatus: "active",
+          lastActivityAt: startedAt,
           ...(ports ? { ports } : {}),
+          ...(sessionVolumes ? { volumes: sessionVolumes } : {}),
+          ...(containerId ? { containerId } : {}),
+          ...(warmExpiresAt ? { warmExpiresAt } : {}),
         },
       })
     );
+
+    // Track initial activity timestamp for lifecycle management
+    if (vscodeInstance instanceof DockerVSCodeInstance) {
+      vscodeInstance.recordActivity(startedAt);
+    }
+    void activityTracker.touch("initial", startedAt);
 
     // Use taskRunId as terminal ID for compatibility
     const terminalId = taskRunId;
@@ -985,4 +1063,194 @@ export async function spawnAllAgents(
   );
 
   return results;
+}
+
+export async function resumeDockerRun(
+  taskRunId: Id<"taskRuns">,
+  teamSlugOrId: string
+): Promise<{
+  info: VSCodeInstanceInfo;
+  instance: DockerVSCodeInstance;
+}> {
+  const capturedAuthToken = getAuthToken();
+  const capturedAuthHeaderJson = getAuthHeaderJson();
+
+  const { run, worktreePath } = await ensureRunWorktreeAndBranch(
+    taskRunId,
+    teamSlugOrId
+  );
+
+  if (!run.vscode) {
+    throw new Error("Run does not have VSCode metadata to resume");
+  }
+
+  if (!run.vscode.volumes) {
+    throw new Error("Run does not have persisted volumes to resume");
+  }
+
+  // If we already have an active instance cached, return it directly
+  const existingInstance = VSCodeInstance.getInstance(taskRunId);
+  if (existingInstance) {
+    const status = await existingInstance.getStatus();
+    if (status.running && status.info) {
+      return {
+        info: status.info,
+        instance: existingInstance as DockerVSCodeInstance,
+      };
+    }
+  }
+
+  const dockerInstance = new DockerVSCodeInstance({
+    workspacePath: worktreePath,
+    agentName: run.agentName ?? "cmux-resume",
+    taskRunId,
+    taskId: run.taskId,
+    teamSlugOrId,
+    sessionVolumes: run.vscode.volumes,
+    resume: true,
+    lastActivityAt: run.vscode.lastActivityAt,
+  });
+
+  const activityTracker = (() => {
+    let lastSent = 0;
+    const debounceMs = 15_000;
+    return {
+      async touch(_source: string, timestamp = Date.now()): Promise<void> {
+        dockerInstance.recordActivity(timestamp);
+        if (timestamp - lastSent < debounceMs) {
+          return;
+        }
+        lastSent = timestamp;
+        await runWithAuth(
+          capturedAuthToken,
+          capturedAuthHeaderJson,
+          async () =>
+            retryOnOptimisticConcurrency(() =>
+              getConvex().mutation(api.taskRuns.updateVSCodeActivity, {
+                teamSlugOrId,
+                id: taskRunId,
+                lastActivityAt: timestamp,
+              })
+            )
+        );
+      },
+    };
+  })();
+
+  attachActivityListeners(dockerInstance, activityTracker);
+
+  const info = await dockerInstance.start();
+  dockerInstance.startFileWatch(worktreePath);
+
+  const startedAt = Date.now();
+  const sessionVolumes = dockerInstance.getSessionVolumes();
+  const containerId = dockerInstance.getContainerId();
+  const warmExpiresAt = startedAt + dockerInstance.getWarmRetentionMs();
+  const ports = dockerInstance.getPorts();
+  const portPayload =
+    ports && ports.vscode && ports.worker
+      ? {
+          vscode: ports.vscode,
+          worker: ports.worker,
+          ...(ports.extension ? { extension: ports.extension } : {}),
+        }
+      : run.vscode.ports;
+
+  await retryOnOptimisticConcurrency(() =>
+    getConvex().mutation(api.taskRuns.updateVSCodeInstance, {
+      teamSlugOrId,
+      id: taskRunId,
+      vscode: {
+        provider: "docker",
+        containerName: dockerInstance.getName(),
+        status: "running",
+        url: info.url,
+        workspaceUrl: info.workspaceUrl,
+        startedAt,
+        sessionStatus: "active",
+        lastActivityAt: startedAt,
+        ...(portPayload ? { ports: portPayload } : {}),
+        volumes: sessionVolumes,
+        ...(containerId ? { containerId } : {}),
+        warmExpiresAt,
+      },
+    })
+  );
+
+  dockerInstance.recordActivity(startedAt);
+  void activityTracker.touch("initial", startedAt);
+
+  return { info, instance: dockerInstance };
+}
+
+export async function terminateDockerRun(
+  taskRunId: Id<"taskRuns">,
+  teamSlugOrId: string
+): Promise<void> {
+  const capturedAuthToken = getAuthToken();
+  const capturedAuthHeaderJson = getAuthHeaderJson();
+
+  const run = await getConvex().query(api.taskRuns.get, {
+    teamSlugOrId,
+    id: taskRunId,
+  });
+
+  if (!run || !run.vscode) {
+    throw new Error("Task run not found or no VS Code session metadata");
+  }
+
+  const containerName =
+    run.vscode.containerName ?? `cmux-${String(taskRunId)}`;
+
+  const existingMapping = containerMappings.get(containerName);
+  const mapping: ContainerMapping = existingMapping ?? {
+    containerName,
+    instanceId: taskRunId,
+    teamSlugOrId,
+    authToken: capturedAuthToken,
+    ports: run.vscode.ports ?? { vscode: "", worker: "" },
+    status: run.vscode.status ?? "stopped",
+    workspacePath: run.worktreePath,
+    volumes: run.vscode.volumes,
+    lastActivityAt: run.vscode.lastActivityAt,
+    idleTimeoutMs: undefined,
+    warmExpiresAt: Date.now(),
+    sessionStatus: "terminated",
+    warmRetentionMs: undefined,
+    containerId: run.vscode.containerId,
+  };
+
+  mapping.authToken = capturedAuthToken;
+  mapping.sessionStatus = "terminated";
+  mapping.warmExpiresAt = Date.now();
+
+  const docker = DockerVSCodeInstance.getDocker();
+  try {
+    const container = docker.getContainer(containerName);
+    await container.stop({ t: 10 }).catch(() => {});
+  } catch (error) {
+    serverLogger.debug(
+      `[terminateDockerRun] Container stop skipped for ${containerName}:`,
+      error
+    );
+  }
+
+  await DockerVSCodeInstance.terminateSessionFromMapping(mapping);
+
+  await runWithAuth(
+    capturedAuthToken,
+    capturedAuthHeaderJson,
+    async () =>
+      retryOnOptimisticConcurrency(() =>
+        getConvex().mutation(api.taskRuns.updateVSCodeStatus, {
+          teamSlugOrId,
+          id: taskRunId,
+          status: "stopped",
+          stoppedAt: Date.now(),
+          sessionStatus: "terminated",
+          warmExpiresAt: mapping.warmExpiresAt,
+          lastActivityAt: mapping.lastActivityAt,
+        })
+      )
+  );
 }

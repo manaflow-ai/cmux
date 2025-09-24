@@ -6,6 +6,20 @@ export PATH="/usr/local/bin:$PATH"
 
 # Create log dir early
 mkdir -p /var/log/cmux || true
+mkdir -p /root/.openvscode-server || true
+
+BOOTSTRAP_SENTINEL="/root/.openvscode-server/.cmux_bootstrapped"
+FIRST_RUN=false
+FIRST_RUN_LOG=""
+if [ ! -f "$BOOTSTRAP_SENTINEL" ]; then
+    FIRST_RUN=true
+    FIRST_RUN_LOG="[Startup] Detected first run; priming OpenVSCode data volume"
+    if [ -d "/opt/cmux/openvscode-defaults" ]; then
+        cp -a /opt/cmux/openvscode-defaults/. /root/.openvscode-server/
+    fi
+else
+    FIRST_RUN_LOG="[Startup] Resuming existing OpenVSCode session"
+fi
 
 # Start supervisor to manage dockerd (in background, but with -n for proper signal handling)
 /usr/bin/supervisord -n >> /dev/null 2>&1 &
@@ -120,40 +134,34 @@ mkdir -p /var/log/cmux /root/lifecycle
 # Log environment variables for debugging
 echo "[Startup] Environment variables:" > /var/log/cmux/startup.log
 env >> /var/log/cmux/startup.log
+if [ -n "$FIRST_RUN_LOG" ]; then
+    echo "$FIRST_RUN_LOG" >> /var/log/cmux/startup.log
+fi
 
-# Configure VS Code theme based on environment variable
-if [ -n "$VSCODE_THEME" ]; then
-    echo "[Startup] Configuring VS Code theme: $VSCODE_THEME" >> /var/log/cmux/startup.log
-    
-    # Determine the color theme based on the setting
-    COLOR_THEME="Default Light Modern"
-    if [ "$VSCODE_THEME" = "dark" ]; then
-        COLOR_THEME="Default Dark Modern"
-    elif [ "$VSCODE_THEME" = "system" ]; then
-        # Default to dark for system (could be enhanced to detect system preference)
-        COLOR_THEME="Default Dark Modern"
+if [ "$FIRST_RUN" = "true" ]; then
+    # Configure VS Code theme based on environment variable
+    if [ -n "$VSCODE_THEME" ]; then
+        echo "[Startup] Configuring VS Code theme: $VSCODE_THEME" >> /var/log/cmux/startup.log
+        
+        # Determine the color theme based on the setting
+        COLOR_THEME="Default Light Modern"
+        if [ "$VSCODE_THEME" = "dark" ]; then
+            COLOR_THEME="Default Dark Modern"
+        elif [ "$VSCODE_THEME" = "system" ]; then
+            COLOR_THEME="Default Dark Modern"
+        fi
+        
+        SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.shellIntegration.enabled": false, "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"], "workbench.colorTheme": "'$COLOR_THEME'", "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
+    else
+        echo "[Startup] Configuring default VS Code git settings" >> /var/log/cmux/startup.log
+        SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.shellIntegration.enabled": false, "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"], "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
     fi
-    
-    # Update VS Code settings files with theme and git configuration
-    SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.shellIntegration.enabled": false, "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"], "workbench.colorTheme": "'$COLOR_THEME'", "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
-    
-    # Update all VS Code settings locations
+
     echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/settings.json
     echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/profiles/default-profile/settings.json
     echo "$SETTINGS_JSON" > /root/.openvscode-server/data/Machine/settings.json
-    
-    echo "[Startup] VS Code theme configured to: $COLOR_THEME" >> /var/log/cmux/startup.log
 else
-    # Even if no theme is specified, configure git settings
-    echo "[Startup] Configuring VS Code git settings" >> /var/log/cmux/startup.log
-    SETTINGS_JSON='{"workbench.startupEditor": "none", "terminal.integrated.shellIntegration.enabled": false, "terminal.integrated.macOptionClickForcesSelection": true, "terminal.integrated.shell.linux": "bash", "terminal.integrated.shellArgs.linux": ["-l"], "git.openDiffOnClick": true, "scm.defaultViewMode": "tree", "git.showPushSuccessNotification": true, "git.autorefresh": true, "git.branchCompareWith": "main"}'
-    
-    # Update all VS Code settings locations
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/settings.json
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/User/profiles/default-profile/settings.json
-    echo "$SETTINGS_JSON" > /root/.openvscode-server/data/Machine/settings.json
-    
-    echo "[Startup] VS Code git settings configured" >> /var/log/cmux/startup.log
+    echo "[Startup] Skipping VS Code settings bootstrap (resume)" >> /var/log/cmux/startup.log
 fi
 
 # Start OpenVSCode server on port 39378 without authentication
@@ -206,5 +214,9 @@ export IS_SANDBOX=true
 # (cd /root/workspace && tmux new-session -d -s cmux)
 
 rm -f /startup.sh
+
+if [ "$FIRST_RUN" = "true" ]; then
+    touch "$BOOTSTRAP_SENTINEL"
+fi
 
 exec node /builtins/build/index.js
