@@ -7,6 +7,15 @@ import { z } from "zod";
 import { getConvex } from "../utils/convexClient.js";
 import { serverLogger } from "./fileLogger.js";
 
+const DEFAULT_BRANCH_TYPE = "chore";
+const DEFAULT_BRANCH_SCOPE = "general";
+
+function buildDefaultBranchPath(source: string): string {
+  const slug = toKebabCase(source);
+  const safeSlug = slug.length > 0 ? slug : "update";
+  return `${DEFAULT_BRANCH_TYPE}/${DEFAULT_BRANCH_SCOPE}/${safeSlug}`;
+}
+
 /**
  * Convert a string to kebab case and filter out suspicious characters
  * @param input The input string to convert
@@ -55,18 +64,16 @@ export function generateRandomId(): string {
  * @returns A branch name in the format cmux/feature-name-xxxx
  */
 export function generateBranchName(prTitle: string): string {
-  const kebabTitle = toKebabCase(prTitle);
+  const basePath = buildDefaultBranchPath(prTitle);
   const randomId = generateRandomId();
-  // Ensure no double hyphen when kebabTitle ends with hyphen
-  const separator = kebabTitle.endsWith("-") ? "" : "-";
-  return `cmux/${kebabTitle}${separator}${randomId}`;
+  return `cmux/${basePath}-${randomId}`;
 }
 
 const prGenerationSchema = z.object({
   branchName: z
     .string()
     .describe(
-      "A SHORT lowercase hyphenated branch name (2-4 words max, e.g., 'fix-auth', 'add-profile', 'update-deps')"
+      "Branch path without the 'cmux/' prefix that follows <type>/<scope>/<short-imperative-slug>[-<issue>] with lowercase, hyphenated words. Keep scope to 1-2 tokens, use 2-6 imperative words for the slug, and never append random IDs."
     ),
   prTitle: z
     .string()
@@ -128,8 +135,45 @@ export async function generatePRInfo(
   taskDescription: string,
   apiKeys: Record<string, string>
 ): Promise<PRGeneration | null> {
-  const systemPrompt =
-    "You are a helpful assistant that generates git branch names and PR titles. Generate a VERY SHORT branch name (2-4 words maximum, lowercase, hyphenated) and a concise PR title (5-10 words) that summarize the task. The branch name should be extremely concise and focus on the core action (e.g., 'fix-auth', 'add-logging', 'update-deps', 'refactor-api').";
+  const systemPrompt = `You are a helpful assistant that generates git branch names and PR titles. Follow these rules exactly:
+
+Branch names (without the 'cmux/' prefix):
+- Format: <type>/<scope>/<short-imperative-slug>[-<issue>]
+- Lowercase; use hyphens between words. Scopes and segments are separated by slashes.
+- Keep total length reasonable (aim for 60 characters or fewer).
+- <type> must be one of: feat, fix, chore, refactor, docs, test, perf, build, ci, revert, spike.
+- <scope> is a stable area name (service, package, feature), 1–2 tokens (e.g., payments, auth, app-shell).
+- <short-imperative-slug> uses 2–6 imperative words (avoid stopwords when possible).
+- Optional [-<issue>] can include a tracker ID like -1234 or -PAY-123; use one format consistently.
+- Do NOT include names, dates, environment names, or random IDs—the system will append a 'cmux/' prefix and a 5-character suffix later.
+
+Special branches:
+- Long-lived: main (default) or release/<x.y.z> (if relevant).
+- Hotfixes: hotfix/<x.y.z>-<slug> (only for urgent fixes to a released version).
+- Temporary spikes: spike/<scope>/<slug>. Avoid wip/; use draft PR state instead.
+
+Branch titles (PR titles):
+- Format: <type>(<scope>): <imperative summary> [<issue>]
+- Use imperative, present tense verbs (e.g., "add", "update", "remove").
+- Keep titles ≤ 72 characters, with no trailing period or emojis.
+- Scope should match the branch scope when possible.
+- Put issue identifiers at the end in parentheses when needed (e.g., (PAY-123) or (#8810)).
+
+Examples:
+- Task: Implement webhook signing for the payments integration (PAY-123)
+  Branch: feat/payments/add-webhook-signing-PAY-123
+  Title: feat(payments): add webhook signing (PAY-123)
+- Task: Fix refresh token expiry issues in auth (#8810)
+  Branch: fix/auth/renew-expired-refresh-tokens-8810
+  Title: fix(auth): renew expired refresh tokens (#8810)
+- Task: Simplify the layout grid in the app shell
+  Branch: refactor/app-shell/simplify-layout-grid
+  Title: refactor(app-shell): simplify layout grid
+- Task: Document AWS key rotation runbook
+  Branch: docs/infra/rotate-aws-keys
+  Title: docs(infra): document AWS key rotation
+
+Always output both the branch name and PR title following these rules.`;
   const userPrompt = `Task: ${taskDescription}`;
 
   const modelConfig = getModelAndProvider(apiKeys);
@@ -139,9 +183,10 @@ export async function generatePRInfo(
       "[BranchNameGenerator] No API keys available, using fallback"
     );
     const words = taskDescription.split(/\s+/).slice(0, 5).join(" ");
+    const summary = words || "feature update";
     return {
-      branchName: toKebabCase(words || "feature-update"),
-      prTitle: words || "feature update",
+      branchName: buildDefaultBranchPath(summary),
+      prTitle: summary,
     };
   }
 
@@ -168,9 +213,10 @@ export async function generatePRInfo(
     );
 
     const words = taskDescription.split(/\s+/).slice(0, 5).join(" ");
+    const summary = words || "feature update";
     return {
-      branchName: toKebabCase(words || "feature-update"),
-      prTitle: words || "feature update",
+      branchName: buildDefaultBranchPath(summary),
+      prTitle: summary,
     };
   }
 }
@@ -206,7 +252,7 @@ export async function generateBranchBaseName(
   const result = await generatePRInfo(taskDescription, apiKeys);
   const branchName =
     result?.branchName ||
-    toKebabCase(
+    buildDefaultBranchPath(
       taskDescription.split(/\s+/).slice(0, 5).join(" ") || "feature"
     );
   return `cmux/${branchName}`;
@@ -238,12 +284,11 @@ export function generateUniqueBranchNamesFromTitle(
   prTitle: string,
   count: number
 ): string[] {
-  const kebabTitle = toKebabCase(prTitle);
-  const baseName = `cmux/${kebabTitle}`;
-  const separator = kebabTitle.endsWith("-") ? "" : "-";
+  const basePath = buildDefaultBranchPath(prTitle);
+  const baseName = `cmux/${basePath}`;
   const ids = new Set<string>();
   while (ids.size < count) ids.add(generateRandomId());
-  return Array.from(ids).map((id) => `${baseName}${separator}${id}`);
+  return Array.from(ids).map((id) => `${baseName}-${id}`);
 }
 
 /**
