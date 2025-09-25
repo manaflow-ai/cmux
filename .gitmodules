@@ -1,0 +1,4 @@
+[submodule "openvscode-server"]
+	path = openvscode-server
+	url = https://github.com/manaflow-ai/openvscode-server
+	branch = cmux-vscode
