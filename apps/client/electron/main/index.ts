@@ -37,6 +37,10 @@ import {
   appendLogWithRotation,
   type LogRotationOptions,
 } from "./log-management/log-rotation";
+import {
+  persistStackTokens,
+  restoreStackTokens,
+} from "./stack-auth-store";
 const { autoUpdater } = electronUpdater;
 
 import util from "node:util";
@@ -639,6 +643,39 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(fsPath).toString());
   });
 
+  const fallbackCookieUrl = (() => {
+    if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+      try {
+        const devUrl = new URL(process.env["ELECTRON_RENDERER_URL"]!);
+        devUrl.hash = "";
+        return devUrl.toString() + "/";
+      } catch (error) {
+        mainWarn(
+          "Failed to derive fallback cookie URL from ELECTRON_RENDERER_URL",
+          error
+        );
+      }
+    }
+    const prodUrl = new URL(`https://${APP_HOST}/index.html`);
+    prodUrl.hash = "";
+    return prodUrl.toString() + "/";
+  })();
+
+  try {
+    const result = await restoreStackTokens({
+      session: ses,
+      projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
+      fallbackCookieUrl,
+      log: mainLog,
+      warn: mainWarn,
+    });
+    if (!result.restored && result.reason && result.reason !== "missing") {
+      mainLog("Stack tokens not restored on launch", result);
+    }
+  } catch (error) {
+    mainWarn("Unexpected error while restoring Stack tokens", error);
+  }
+
   // Create the initial window.
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 
@@ -798,8 +835,16 @@ async function handleProtocolUrl(url: string): Promise<void> {
       verifyJwtAndGetPayload(stackAccess),
     ]);
 
-    if (refreshPayload?.exp === null || accessPayload?.exp === null) {
-      mainWarn("Aborting cookie set due to invalid tokens");
+    const refreshExp =
+      typeof refreshPayload?.exp === "number" ? refreshPayload.exp : null;
+    const accessExp =
+      typeof accessPayload?.exp === "number" ? accessPayload.exp : null;
+
+    if (!refreshExp || !accessExp) {
+      mainWarn("Aborting cookie set due to invalid tokens", {
+        refreshExp,
+        accessExp,
+      });
       return;
     }
 
@@ -809,32 +854,49 @@ async function handleProtocolUrl(url: string): Promise<void> {
     currentUrl.hash = "";
     const realUrl = currentUrl.toString() + "/";
 
+    const cookieSession = mainWindow.webContents.session.cookies;
+
     await Promise.all([
-      mainWindow.webContents.session.cookies.remove(
+      cookieSession.remove(
         realUrl,
         `stack-refresh-${env.NEXT_PUBLIC_STACK_PROJECT_ID}`
       ),
-      mainWindow.webContents.session.cookies.remove(realUrl, `stack-access`),
+      cookieSession.remove(realUrl, `stack-access`),
     ]);
 
     await Promise.all([
-      mainWindow.webContents.session.cookies.set({
+      cookieSession.set({
         url: realUrl,
         name: `stack-refresh-${env.NEXT_PUBLIC_STACK_PROJECT_ID}`,
         value: stackRefresh,
-        expirationDate: refreshPayload?.exp,
+        expirationDate: refreshExp,
         sameSite: "no_restriction",
         secure: true,
       }),
-      mainWindow.webContents.session.cookies.set({
+      cookieSession.set({
         url: realUrl,
         name: "stack-access",
         value: stackAccess,
-        expirationDate: accessPayload?.exp,
+        expirationDate: accessExp,
         sameSite: "no_restriction",
         secure: true,
       }),
     ]);
+
+    try {
+      await cookieSession.flushStore();
+    } catch (error) {
+      mainWarn("Failed to flush Stack cookies to disk", error);
+    }
+
+    await persistStackTokens({
+      projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
+      cookieUrl: realUrl,
+      refresh: { value: stackRefresh, expiresAt: refreshExp },
+      access: { value: stackAccess, expiresAt: accessExp },
+      log: mainLog,
+      warn: mainWarn,
+    });
 
     mainWindow.webContents.reload();
     return;
