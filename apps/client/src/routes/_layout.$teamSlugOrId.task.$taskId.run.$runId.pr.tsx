@@ -1,13 +1,16 @@
 import { FloatingPane } from "@/components/floating-pane";
 import { PersistentWebView } from "@/components/persistent-webview";
+import { MergeButton, type MergeMethod } from "@/components/ui/merge-button";
+import { useSocketSuspense } from "@/contexts/socket/use-socket";
 import { getTaskRunPullRequestPersistKey } from "@/lib/persistent-webview-keys";
 import { api } from "@cmux/convex/api";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import z from "zod";
+import { toast } from "sonner";
 
 const paramsSchema = z.object({
   taskId: typedZid("tasks"),
@@ -47,6 +50,7 @@ export const Route = createFileRoute(
 
 function RunPullRequestPage() {
   const { taskId, teamSlugOrId, runId } = Route.useParams();
+  const { socket } = useSocketSuspense();
 
   const task = useQuery(api.tasks.getById, {
     teamSlugOrId,
@@ -70,6 +74,43 @@ function RunPullRequestPage() {
     return getTaskRunPullRequestPersistKey(runId);
   }, [runId]);
   const paneBorderRadius = 6;
+  const prState = selectedRun?.pullRequestState;
+  const prIsOpen = prState === "open";
+  const [isMerging, setIsMerging] = useState(false);
+  const showMergeButton = Boolean(hasUrl && prIsOpen);
+  const showHeaderActions = Boolean(prState || hasUrl);
+
+  const handleMerge = useCallback(
+    async (method: MergeMethod) => {
+      if (!socket) {
+        return;
+      }
+      setIsMerging(true);
+      const toastId = toast.loading(`Merging PR (${method})...`);
+      await new Promise<void>((resolve) => {
+        socket.emit(
+          "github-merge-pr",
+          { taskRunId: runId, method },
+          (resp: { success: boolean; url?: string; error?: string }) => {
+            setIsMerging(false);
+            if (resp.success) {
+              toast.success("PR merged", {
+                id: toastId,
+                description: resp.url,
+              });
+            } else {
+              toast.error("Failed to merge PR", {
+                id: toastId,
+                description: resp.error,
+              });
+            }
+            resolve();
+          }
+        );
+      });
+    },
+    [runId, socket]
+  );
 
   return (
     <FloatingPane>
@@ -81,34 +122,45 @@ function RunPullRequestPage() {
               <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                 Pull Request
               </h2>
-              {selectedRun?.pullRequestState && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-                  {selectedRun.pullRequestState}
-                </span>
-              )}
             </div>
-            {hasUrl && (
-              <a
-                href={pullRequestUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-              >
-                Open in GitHub
-                <svg
-                  className="w-3 h-3"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+            {showHeaderActions && (
+              <div className="flex items-center gap-2">
+                {prState && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                    {prState}
+                  </span>
+                )}
+                {showMergeButton && (
+                  <MergeButton
+                    onMerge={handleMerge}
+                    isOpen={prIsOpen}
+                    disabled={isMerging}
                   />
-                </svg>
-              </a>
+                )}
+                {hasUrl && (
+                  <a
+                    href={pullRequestUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                  >
+                    Open in GitHub
+                    <svg
+                      className="w-3 h-3"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                      />
+                    </svg>
+                  </a>
+                )}
+              </div>
             )}
           </div>
 
