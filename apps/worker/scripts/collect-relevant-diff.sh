@@ -72,117 +72,138 @@ determine_base_ref() {
     return 0
   fi
 
-  # Fallbacks
-  if git rev-parse --verify --quiet origin/main >/dev/null; then
-    echo "origin/main"
-    return 0
-  fi
-  if git rev-parse --verify --quiet origin/master >/dev/null; then
-    echo "origin/master"
-    return 0
-  fi
-
   # No remote default found
   echo ""
 }
 
 base_ref=$(determine_base_ref)
+head_ref=${CMUX_DIFF_HEAD_REF:-HEAD}
 
 if [[ -n "$base_ref" ]]; then
-  # Compute merge-base and diff against it
-  merge_base=$(git merge-base "$base_ref" HEAD 2>/dev/null || echo "")
-  
+  if [[ "$base_ref" == origin/* ]]; then
+    git fetch --quiet origin "${base_ref#origin/}" >/dev/null 2>&1 || true
+  fi
+  if [[ "$head_ref" == origin/* ]]; then
+    git fetch --quiet origin "${head_ref#origin/}" >/dev/null 2>&1 || true
+  fi
+
+  merge_base=$(git merge-base "$base_ref" "$head_ref" 2>/dev/null || echo "")
   if [[ -z "$merge_base" ]]; then
     echo "Could not determine merge-base" >&2
     exit 1
   fi
 
-  # Check if we have uncommitted changes (staged, unstaged, or untracked)
-  has_uncommitted=false
-  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    has_uncommitted=true
-  fi
+  if [[ "$head_ref" == HEAD ]]; then
+    has_uncommitted=false
+    if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+      has_uncommitted=true
+    fi
 
-  if [ "$has_uncommitted" = true ]; then
-    # Original logic for uncommitted changes
-    changed_tracked=$(git --no-pager diff --name-only "$merge_base" || true)
-    untracked=$(git ls-files --others --exclude-standard || true)
-    filtered_files=()
-    OIFS="$IFS"; IFS=$'\n'
-    for f in $changed_tracked; do
-      [[ -n "$f" ]] || continue
-      if is_ignored_path "$f"; then continue; fi
-      size=0
-      if [[ -f "$f" ]]; then
-        size=$(wc -c <"$f" 2>/dev/null || echo 0)
-      elif [[ -n "$merge_base" ]]; then
-        size=$(git cat-file -s "$merge_base:$f" 2>/dev/null || echo 0)
-      fi
-      case "$size" in
-        ''|*[!0-9]*) size=0 ;;
-      esac
-      if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
-      filtered_files+=("$f")
-    done
-    for f in $untracked; do
-      [[ -n "$f" ]] || continue
-      if is_ignored_path "$f"; then continue; fi
-      if [[ -f "$f" ]]; then
-        size=$(wc -c <"$f" 2>/dev/null || echo 0)
+    if [[ "$has_uncommitted" == true ]]; then
+      changed_tracked=$(git --no-pager diff --name-only "$merge_base" || true)
+      untracked=$(git ls-files --others --exclude-standard || true)
+      filtered_files=()
+      OIFS="$IFS"; IFS=$'\n'
+      for f in $changed_tracked; do
+        [[ -n "$f" ]] || continue
+        if is_ignored_path "$f"; then continue; fi
+        size=0
+        if [[ -f "$f" ]]; then
+          size=$(wc -c <"$f" 2>/dev/null || echo 0)
+        elif [[ -n "$merge_base" ]]; then
+          size=$(git cat-file -s "$merge_base:$f" 2>/dev/null || echo 0)
+        fi
         case "$size" in
           ''|*[!0-9]*) size=0 ;;
         esac
-        if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
-      fi
-      filtered_files+=("$f")
-    done
-    IFS="$OIFS"
+        if [[ "$size" -gt "$MAX_SIZE" ]]; then continue; fi
+        filtered_files+=("$f")
+      done
+      for f in $untracked; do
+        [[ -n "$f" ]] || continue
+        if is_ignored_path "$f"; then continue; fi
+        if [[ -f "$f" ]]; then
+          size=$(wc -c <"$f" 2>/dev/null || echo 0)
+          case "$size" in
+            ''|*[!0-9]*) size=0 ;;
+          esac
+          if [[ "$size" -gt "$MAX_SIZE" ]]; then continue; fi
+        fi
+        filtered_files+=("$f")
+      done
+      IFS="$OIFS"
 
-    if [ ${#filtered_files[@]} -eq 0 ]; then
-      exit 0
+      if [[ ${#filtered_files[@]} -eq 0 ]]; then
+        exit 0
+      fi
+
+      tmp_index=$(mktemp)
+      rm -f "$tmp_index" || true
+      trap 'rm -f "$tmp_index"' EXIT
+      export GIT_INDEX_FILE="$tmp_index"
+      git read-tree HEAD
+      for f in "${filtered_files[@]}"; do
+        if [[ -f "$f" ]]; then
+          git add -- "$f" 2>/dev/null || true
+        fi
+      done
+      git --no-pager diff --staged -M --no-color "$merge_base" || true
+      unset GIT_INDEX_FILE
+    else
+      changed_files=$(git --no-pager diff --name-only "$merge_base" HEAD || true)
+      filtered_files=()
+      OIFS="$IFS"; IFS=$'\n'
+      for f in $changed_files; do
+        [[ -n "$f" ]] || continue
+        if is_ignored_path "$f"; then continue; fi
+        size=0
+        if git cat-file -e "HEAD:$f" 2>/dev/null; then
+          size=$(git cat-file -s "HEAD:$f" 2>/dev/null || echo 0)
+        elif git cat-file -e "$merge_base:$f" 2>/dev/null; then
+          size=$(git cat-file -s "$merge_base:$f" 2>/dev/null || echo 0)
+        fi
+        case "$size" in
+          ''|*[!0-9]*) size=0 ;;
+        esac
+        if [[ "$size" -gt "$MAX_SIZE" ]]; then continue; fi
+        filtered_files+=("$f")
+      done
+      IFS="$OIFS"
+
+      if [[ ${#filtered_files[@]} -eq 0 ]]; then
+        exit 0
+      fi
+
+      git --no-pager diff -M --no-color "$merge_base" HEAD -- "${filtered_files[@]}" || true
     fi
-
-    # Create temporary index for uncommitted changes
-    tmp_index=$(mktemp)
-    rm -f "$tmp_index" || true
-    trap 'rm -f "$tmp_index"' EXIT
-    export GIT_INDEX_FILE="$tmp_index"
-    git read-tree HEAD
-    for f in "${filtered_files[@]}"; do
-      if [[ -f "$f" ]]; then
-        git add -- "$f" 2>/dev/null || true
-      fi
-    done
-    git --no-pager diff --staged -M --no-color "$merge_base" || true
-    unset GIT_INDEX_FILE
   else
-    # Everything is committed - compare HEAD against merge-base
-    changed_files=$(git --no-pager diff --name-only "$merge_base" HEAD || true)
+    changed_files=$(git --no-pager diff --name-only "$merge_base" "$head_ref" || true)
     filtered_files=()
     OIFS="$IFS"; IFS=$'\n'
     for f in $changed_files; do
       [[ -n "$f" ]] || continue
       if is_ignored_path "$f"; then continue; fi
       size=0
-      if git cat-file -e "HEAD:$f" 2>/dev/null; then
-        size=$(git cat-file -s "HEAD:$f" 2>/dev/null || echo 0)
+      if git cat-file -e "$head_ref:$f" 2>/dev/null; then
+        size=$(git cat-file -s "$head_ref:$f" 2>/dev/null || echo 0)
       elif git cat-file -e "$merge_base:$f" 2>/dev/null; then
         size=$(git cat-file -s "$merge_base:$f" 2>/dev/null || echo 0)
       fi
       case "$size" in
         ''|*[!0-9]*) size=0 ;;
       esac
-      if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
+      if [[ "$size" -gt "$MAX_SIZE" ]]; then continue; fi
       filtered_files+=("$f")
     done
     IFS="$OIFS"
 
-    if [ ${#filtered_files[@]} -eq 0 ]; then
+    if [[ ${#filtered_files[@]} -eq 0 ]]; then
       exit 0
     fi
 
-    git --no-pager diff -M --no-color "$merge_base" HEAD -- "${filtered_files[@]}" || true
+    git --no-pager diff -M --no-color "$merge_base" "$head_ref" -- "${filtered_files[@]}" || true
   fi
+
   exit 0
 fi
 
@@ -210,7 +231,7 @@ export GIT_INDEX_FILE="$tmp_index"
     case "$size" in
       ''|*[!0-9]*) size=0 ;;
     esac
-    if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
+    if [[ "$size" -gt "$MAX_SIZE" ]]; then continue; fi
   fi
   git add -- "$f" 2>/dev/null || true
 done

@@ -269,7 +269,7 @@ morphRouter.openapi(
             if (!existingRepos.has(repoName)) {
               console.log(`Cloning repository: ${repo}`);
 
-              const maxRetries = 3;
+            const maxRetries = 3;
               let lastError: string | undefined;
               let isAuthError = false;
 

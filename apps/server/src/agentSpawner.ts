@@ -7,13 +7,10 @@ import {
 } from "@cmux/shared/agentConfig";
 import type {
   WorkerCreateTerminal,
-  WorkerTerminalExit,
   WorkerTerminalFailed,
-  WorkerTerminalIdle,
 } from "@cmux/shared/worker-schemas";
 import { getApiEnvironmentsByIdVars } from "@cmux/www-openapi-client";
 import { parse as parseDotenv } from "dotenv";
-import { handleTaskCompletion } from "./handle-task-completion";
 import { sanitizeTmuxSessionName } from "./sanitizeTmuxSessionName";
 import {
   generateNewBranchName,
@@ -28,6 +25,7 @@ import {
   getAuthToken,
   runWithAuth,
 } from "./utils/requestContext";
+import { env } from "./utils/server-env";
 import { getWwwClient } from "./utils/wwwClient";
 import { CmuxVSCodeInstance } from "./vscode/CmuxVSCodeInstance";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
@@ -64,7 +62,7 @@ export async function spawnAgent(
   teamSlugOrId: string
 ): Promise<AgentSpawnResult> {
   try {
-    // Capture the current auth token and header JSON from AsyncLocalStorage so we can
+    // Capture the current auth token and header JSON from AsyncLocalStorages so we can
     // re-enter the auth context inside async event handlers later.
     const capturedAuthToken = getAuthToken();
     const capturedAuthHeaderJson = getAuthHeaderJson();
@@ -217,6 +215,7 @@ export async function spawnAgent(
       CMUX_TASK_RUN_ID: taskRunId,
       CMUX_TASK_RUN_JWT: taskRunJwt,
       PROMPT: processedTaskDescription,
+      NEXT_PUBLIC_CONVEX_URL: env.NEXT_PUBLIC_CONVEX_URL,
     };
 
     if (options.environmentId) {
@@ -340,6 +339,7 @@ export async function spawnAgent(
         branch: options.branch,
         newBranch,
         environmentId: options.environmentId,
+        taskRunJwt,
       });
 
       worktreePath = "/root/workspace";
@@ -427,131 +427,12 @@ export async function spawnAgent(
     );
     vscodeInstance.startFileWatch(worktreePath);
 
-    // Track if this terminal already failed (to avoid completing later)
-    let hasFailed = false;
-
-    // Set up terminal-exit event handler
-    vscodeInstance.on("terminal-exit", async (data: WorkerTerminalExit) => {
-      serverLogger.info(
-        `[AgentSpawner] Terminal exited for ${agent.name}:`,
-        data
-      );
-
-      if (data.terminalId === terminalId) {
-        if (hasFailed) {
-          serverLogger.warn(
-            `[AgentSpawner] Not completing ${agent.name} (already marked failed)`
-          );
-          return;
-        }
-        await runWithAuth(capturedAuthToken, capturedAuthHeaderJson, async () =>
-          handleTaskCompletion({
-            taskRunId,
-            agent,
-            exitCode: data.exitCode ?? 0,
-            worktreePath,
-            vscodeInstance,
-            teamSlugOrId,
-          })
-        );
-      }
-    });
-
     // Set up file change event handler for real-time diff updates
     vscodeInstance.on("file-changes", async (data) => {
       serverLogger.info(
         `[AgentSpawner] File changes detected for ${agent.name}:`,
         { changeCount: data.changes.length, taskRunId: data.taskRunId }
       );
-
-      // On-demand diffs: no longer persisting incremental diffs to Convex
-    });
-
-    // Set up task-complete event handler (from project file detection)
-    vscodeInstance.on("task-complete", async (data) => {
-      serverLogger.info(
-        `[AgentSpawner] Task complete detected for ${agent.name}:`,
-        data
-      );
-      if (hasFailed) {
-        serverLogger.warn(
-          `[AgentSpawner] Ignoring task completion for ${agent.name} (already marked failed)`
-        );
-        return;
-      }
-
-      // Debug logging to understand what's being compared
-      serverLogger.info(`[AgentSpawner] Task completion comparison:`);
-      serverLogger.info(`[AgentSpawner]   data.taskRunId: "${data.taskRunId}"`);
-      serverLogger.info(`[AgentSpawner]   taskRunId: "${taskRunId}"`);
-      serverLogger.info(
-        `[AgentSpawner]   Match: ${data.taskRunId === taskRunId}`
-      );
-
-      // Update the task run as completed
-      if (data.taskRunId === taskRunId) {
-        serverLogger.info(
-          `[AgentSpawner] Task ID matched! Marking task as complete for ${agent.name}`
-        );
-        await runWithAuth(capturedAuthToken, capturedAuthHeaderJson, async () =>
-          handleTaskCompletion({
-            taskRunId,
-            agent,
-            exitCode: 0,
-            worktreePath,
-            vscodeInstance,
-            teamSlugOrId,
-          })
-        );
-      } else {
-        serverLogger.warn(
-          `[AgentSpawner] Task ID did not match, ignoring task complete event`
-        );
-      }
-    });
-
-    // Set up terminal-idle event handler (legacy; ignore for deterministic agents like OpenCode)
-    vscodeInstance.on("terminal-idle", async (data: WorkerTerminalIdle) => {
-      serverLogger.info(
-        `[AgentSpawner] Terminal idle detected for ${agent.name}:`,
-        data
-      );
-      if (hasFailed) {
-        serverLogger.warn(
-          `[AgentSpawner] Ignoring idle for ${agent.name} (already marked failed)`
-        );
-        return;
-      }
-
-      // Debug logging to understand what's being compared
-      serverLogger.info(`[AgentSpawner] Terminal idle comparison:`);
-      serverLogger.info(`[AgentSpawner]   data.taskRunId: "${data.taskRunId}"`);
-      serverLogger.info(`[AgentSpawner]   taskRunId: "${taskRunId}"`);
-      serverLogger.info(
-        `[AgentSpawner]   Match: ${data.taskRunId === taskRunId}`
-      );
-
-      // Update the task run as completed
-      if (data.taskRunId === taskRunId) {
-        serverLogger.info(
-          `[AgentSpawner] Task ID matched! Marking task as complete for ${agent.name}`
-        );
-        vscodeInstance.stopFileWatch();
-        await runWithAuth(capturedAuthToken, capturedAuthHeaderJson, async () =>
-          handleTaskCompletion({
-            taskRunId,
-            agent,
-            exitCode: 0,
-            worktreePath,
-            vscodeInstance,
-            teamSlugOrId,
-          })
-        );
-      } else {
-        serverLogger.warn(
-          `[AgentSpawner] Task ID did not match, ignoring idle event`
-        );
-      }
     });
 
     // Set up terminal-failed event handler
@@ -567,9 +448,6 @@ export async function spawnAgent(
           );
           return;
         }
-        hasFailed = true;
-
-        // Do not write failure info to Convex logs; rely on status and errorMessage fields.
 
         // Mark the run as failed with error message
         await runWithAuth(capturedAuthToken, capturedAuthHeaderJson, async () =>

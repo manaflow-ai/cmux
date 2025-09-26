@@ -21,6 +21,7 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
   private branch?: string;
   private newBranch?: string;
   private environmentId?: string;
+  private taskRunJwt?: string;
 
   constructor(config: VSCodeInstanceConfig) {
     super(config);
@@ -29,11 +30,13 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
       branch?: string;
       newBranch?: string;
       environmentId?: string;
+      taskRunJwt?: string;
     };
     this.repoUrl = cfg.repoUrl;
     this.branch = cfg.branch;
     this.newBranch = cfg.newBranch;
     this.environmentId = cfg.environmentId;
+    this.taskRunJwt = cfg.taskRunJwt;
   }
 
   async start(): Promise<VSCodeInstanceInfo> {
@@ -49,6 +52,7 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
           instance: `cmux-${this.taskRunId}`,
           taskRunId: String(this.taskRunId),
           agentName: this.config.agentName || "",
+          taskRunJwt: this.taskRunJwt || "",
         },
         ...(this.environmentId ? { environmentId: this.environmentId } : {}),
         ...(this.repoUrl

@@ -627,6 +627,72 @@ export const fail = authMutation({
   },
 });
 
+export const listByTaskInternal = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const runs = await ctx.db
+      .query("taskRuns")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect();
+    return runs;
+  },
+});
+
+export const workerComplete = internalMutation({
+  args: {
+    taskRunId: v.id("taskRuns"),
+    exitCode: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.taskRunId);
+    if (!run) {
+      throw new Error("Task run not found");
+    }
+
+    const now = Date.now();
+
+    await ctx.db.patch(args.taskRunId, {
+      status: "completed",
+      exitCode: args.exitCode ?? 0,
+      completedAt: now,
+      updatedAt: now,
+    });
+
+    return run;
+  },
+});
+
+export const updateScheduledStopInternal = internalMutation({
+  args: {
+    taskRunId: v.id("taskRuns"),
+    scheduledStopAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.taskRunId);
+    if (!run) {
+      throw new Error("Task run not found");
+    }
+
+    const vscodeInfo = run.vscode ?? null;
+    if (!vscodeInfo) {
+      await ctx.db.patch(args.taskRunId, {
+        updatedAt: Date.now(),
+      });
+      return run;
+    }
+
+    await ctx.db.patch(args.taskRunId, {
+      vscode: {
+        ...vscodeInfo,
+        scheduledStopAt: args.scheduledStopAt ?? vscodeInfo.scheduledStopAt,
+      },
+      updatedAt: Date.now(),
+    });
+
+    return run;
+  },
+});
+
 // Get all active VSCode instances
 export const getActiveVSCodeInstances = authQuery({
   args: { teamSlugOrId: v.string() },

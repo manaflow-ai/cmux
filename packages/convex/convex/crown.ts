@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { getTeamId } from "../_shared/team";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
 
 export const evaluateAndCrownWinner = authMutation({
@@ -213,5 +214,129 @@ export const getCrownEvaluation = authQuery({
       .first();
 
     return evaluation;
+  },
+});
+
+export const getEvaluationByTaskInternal = internalQuery({
+  args: {
+    taskId: v.id("tasks"),
+    teamId: v.string(),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const evaluations = await ctx.db
+      .query("crownEvaluations")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", args.teamId).eq("userId", args.userId)
+      )
+      .collect();
+
+    return (
+      evaluations.find((evaluation) => evaluation.taskId === args.taskId) ?? null
+    );
+  },
+});
+
+export const workerFinalize = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    teamId: v.string(),
+    userId: v.string(),
+    winnerRunId: v.id("taskRuns"),
+    reason: v.string(),
+    summary: v.optional(v.string()),
+    evaluationPrompt: v.string(),
+    evaluationResponse: v.string(),
+    candidateRunIds: v.array(v.id("taskRuns")),
+    pullRequest: v.optional(
+      v.object({
+        url: v.string(),
+        isDraft: v.optional(v.boolean()),
+        state: v.optional(
+          v.union(
+            v.literal("none"),
+            v.literal("draft"),
+            v.literal("open"),
+            v.literal("merged"),
+            v.literal("closed"),
+            v.literal("unknown")
+          )
+        ),
+        number: v.optional(v.number()),
+      })
+    ),
+    pullRequestTitle: v.optional(v.string()),
+    pullRequestDescription: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.teamId !== args.teamId || task.userId !== args.userId) {
+      throw new Error("Task not found or unauthorized");
+    }
+
+    const runs = await ctx.db
+      .query("taskRuns")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect();
+
+    const runsForTeam = runs.filter(
+      (run) => run.teamId === args.teamId && run.userId === args.userId
+    );
+
+    const winnerRun = runsForTeam.find((run) => run._id === args.winnerRunId);
+    if (!winnerRun) {
+      throw new Error("Winner run not found");
+    }
+
+    const now = Date.now();
+
+    await ctx.db.patch(args.winnerRunId, {
+      isCrowned: true,
+      crownReason: args.reason,
+      ...(args.summary ? { summary: args.summary } : {}),
+      ...(args.pullRequest?.url ? { pullRequestUrl: args.pullRequest.url } : {}),
+      ...(args.pullRequest?.isDraft !== undefined
+        ? { pullRequestIsDraft: args.pullRequest.isDraft }
+        : {}),
+      ...(args.pullRequest?.state
+        ? { pullRequestState: args.pullRequest.state }
+        : {}),
+      ...(args.pullRequest?.number !== undefined
+        ? { pullRequestNumber: args.pullRequest.number }
+        : {}),
+      updatedAt: now,
+    });
+
+    for (const run of runsForTeam) {
+      if (run._id === args.winnerRunId) continue;
+      await ctx.db.patch(run._id, {
+        isCrowned: false,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.db.patch(args.taskId, {
+      crownEvaluationError: undefined,
+      isCompleted: true,
+      updatedAt: now,
+      ...(args.pullRequestTitle ? { pullRequestTitle: args.pullRequestTitle } : {}),
+      ...(args.pullRequestDescription
+        ? { pullRequestDescription: args.pullRequestDescription }
+        : {}),
+    });
+
+    await ctx.db.insert("crownEvaluations", {
+      taskId: args.taskId,
+      evaluatedAt: now,
+      winnerRunId: args.winnerRunId,
+      candidateRunIds: args.candidateRunIds,
+      evaluationPrompt: args.evaluationPrompt,
+      evaluationResponse: args.evaluationResponse,
+      createdAt: now,
+      userId: args.userId,
+      teamId: args.teamId,
+    });
+
+    return args.winnerRunId;
   },
 });

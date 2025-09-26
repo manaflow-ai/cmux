@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { resolveTeamIdLoose } from "../_shared/team";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { internalQuery } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
 
 export const get = authQuery({
@@ -606,5 +607,12 @@ export const checkAndEvaluateCrown = authMutation({
     console.log(`[CheckCrown] Marked task ${args.taskId} as completed`);
 
     return winnerId;
+  },
+});
+
+export const getByIdInternal = internalQuery({
+  args: { id: v.id("tasks") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
   },
 });

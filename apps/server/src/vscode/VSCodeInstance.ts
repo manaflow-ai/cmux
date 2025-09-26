@@ -17,6 +17,8 @@ export interface VSCodeInstanceConfig {
   newBranch?: string;
   // Optional: when starting from an environment
   environmentId?: Id<"environments"> | string;
+  // Optional: JWT token for crown workflow authentication
+  taskRunJwt?: string;
 }
 
 export interface VSCodeInstanceInfo {

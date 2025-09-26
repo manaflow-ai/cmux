@@ -183,19 +183,37 @@ sandboxesRouter.openapi(
         return c.text("VSCode or worker service not found", 500);
       }
 
+      // Extract task-related metadata
+      const taskRunId = body.metadata?.taskRunId;
+      const taskRunJwt = body.metadata?.taskRunJwt;
+      
+      // Get environment variables from the environment if configured
       const environmentEnvVarsContent = await environmentEnvVarsPromise;
-      if (
-        environmentEnvVarsContent &&
-        environmentEnvVarsContent.trim().length > 0
-      ) {
+      
+      // Prepare environment variables including task JWT if present
+      let envVarsToApply = environmentEnvVarsContent || "";
+      
+      // Add CMUX task-related env vars if present
+      if (taskRunId) {
+        envVarsToApply += `\nCMUX_TASK_RUN_ID="${taskRunId}"`;
+      }
+      if (taskRunJwt) {
+        envVarsToApply += `\nCMUX_TASK_RUN_JWT="${taskRunJwt}"`;
+      }
+      
+      // Apply all environment variables if any
+      if (envVarsToApply.trim().length > 0) {
         try {
-          const encodedEnv = encodeEnvContentForEnvctl(
-            environmentEnvVarsContent
-          );
+          const encodedEnv = encodeEnvContentForEnvctl(envVarsToApply);
           const loadRes = await instance.exec(envctlLoadCommand(encodedEnv));
           if (loadRes.exit_code === 0) {
             console.log(
-              `[sandboxes.start] Applied environment env vars via envctl`
+              `[sandboxes.start] Applied environment variables via envctl`,
+              {
+                hasEnvironmentVars: Boolean(environmentEnvVarsContent),
+                hasTaskRunId: Boolean(taskRunId),
+                hasTaskRunJwt: Boolean(taskRunJwt),
+              }
             );
           } else {
             console.error(
@@ -204,7 +222,7 @@ sandboxesRouter.openapi(
           }
         } catch (error) {
           console.error(
-            "[sandboxes.start] Failed to apply environment env vars",
+            "[sandboxes.start] Failed to apply environment variables",
             error
           );
         }

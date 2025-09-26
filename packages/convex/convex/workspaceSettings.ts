@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { resolveTeamIdLoose } from "../_shared/team";
+import { internalQuery } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
 
 export const get = authQuery({
@@ -52,5 +53,18 @@ export const update = authMutation({
         teamId,
       });
     }
+  },
+});
+
+export const getInternal = internalQuery({
+  args: { teamId: v.string(), userId: v.string() },
+  handler: async (ctx, args) => {
+    const settings = await ctx.db
+      .query("workspaceSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", args.teamId).eq("userId", args.userId)
+      )
+      .first();
+    return settings ?? null;
   },
 });

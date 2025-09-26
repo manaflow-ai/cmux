@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { resolveTeamIdLoose } from "../_shared/team";
+import { internalQuery } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
 
 // Default settings
@@ -91,6 +92,32 @@ export const getEffective = authQuery({
         q.eq("teamId", teamId).eq("userId", userId)
       )
       .first();
+    return {
+      maxRunningContainers:
+        settings?.maxRunningContainers ?? DEFAULT_SETTINGS.maxRunningContainers,
+      reviewPeriodMinutes:
+        settings?.reviewPeriodMinutes ?? DEFAULT_SETTINGS.reviewPeriodMinutes,
+      autoCleanupEnabled:
+        settings?.autoCleanupEnabled ?? DEFAULT_SETTINGS.autoCleanupEnabled,
+      stopImmediatelyOnCompletion:
+        settings?.stopImmediatelyOnCompletion ??
+        DEFAULT_SETTINGS.stopImmediatelyOnCompletion,
+      minContainersToKeep:
+        settings?.minContainersToKeep ?? DEFAULT_SETTINGS.minContainersToKeep,
+    };
+  },
+});
+
+export const getEffectiveInternal = internalQuery({
+  args: { teamId: v.string(), userId: v.string() },
+  handler: async (ctx, args) => {
+    const settings = await ctx.db
+      .query("containerSettings")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", args.teamId).eq("userId", args.userId)
+      )
+      .first();
+
     return {
       maxRunningContainers:
         settings?.maxRunningContainers ?? DEFAULT_SETTINGS.maxRunningContainers,
