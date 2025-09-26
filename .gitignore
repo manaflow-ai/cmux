@@ -38,3 +38,6 @@ cmux-cli
 apps/server/native/**/target/
 apps/server/native/**/*.node
 apps/server/native/**/Cargo.lock
+
+# VSCode Web build output
+apps/client/public/vscode/

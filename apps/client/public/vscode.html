@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+  <title>VSCode Web</title>
+
+  <!-- Workbench Configuration -->
+  <meta id="vscode-workbench-web-configuration" data-settings='{"folderUri": null, "workspaceUri": null, "developerSettings": {"logLevel": 2}, "productConfiguration": {"nameShort": "VSCode Web", "nameLong": "Visual Studio Code Web", "applicationName": "vscode-web", "dataFolderName": ".vscode-web", "version": "1.104.0", "extensionsGallery": {}}, "configurationDefaults": {"window.commandCenter": false, "workbench.secondarySideBar.defaultVisibility": "hidden", "workbench.layoutControl.enabled": false, "workbench.startupEditor": "none", "workbench.tips.enabled": false, "workbench.welcomePage.walkthroughs.openOnInstall": false}}'>
+</head>
+<body aria-label="">
+</body>
+
+<!-- Startup -->
+<script>
+    const baseUrl = new URL('/vscode', window.location.origin).toString();
+    globalThis._VSCODE_FILE_ROOT = baseUrl + '/';
+</script>
+<script type="module" src="./vscode/vs/code/browser/workbench/workbench.js"></script>
+</html>
