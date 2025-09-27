@@ -421,8 +421,20 @@ function SocketActions({
   ref2: string;
 }) {
   const { socket } = useSocketSuspense();
+
+  // For environments, get repos from selectedRun.environment.selectedRepos
+  const environmentRepos = useMemo(() => {
+    const repos = selectedRun?.environment?.selectedRepos ?? [];
+    const trimmed = repos
+      .map((repo) => repo?.trim())
+      .filter((repo): repo is string => Boolean(repo));
+    return Array.from(new Set(trimmed));
+  }, [selectedRun?.environment?.selectedRepos]);
+
+  const primaryRepo = repoFullName || environmentRepos[0] || "";
+
   const diffsQuery = useRQ(
-    diffSmartQueryOptions({ repoFullName, baseRef: ref1, headRef: ref2 })
+    primaryRepo ? diffSmartQueryOptions({ repoFullName: primaryRepo, baseRef: ref1, headRef: ref2 }) : { queryKey: ["diff-smart-disabled"], queryFn: async () => [] }
   );
   const hasChanges = (diffsQuery.data || []).length > 0;
 
