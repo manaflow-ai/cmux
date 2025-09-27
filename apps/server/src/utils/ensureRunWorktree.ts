@@ -70,11 +70,19 @@ export async function ensureRunWorktreeAndBranch(
     }
 
     if (needsSetup) {
-      // Derive repo URL from task.projectFullName
-      if (!task.projectFullName) {
-        throw new Error("Missing projectFullName to set up worktree");
+      // Derive repo URL from task.projectFullName or environment
+      let repoFullName = task.projectFullName;
+      if (!repoFullName && task.environmentId) {
+        const environment = await getConvex().query(api.environments.get, {
+          teamSlugOrId,
+          id: task.environmentId,
+        });
+        repoFullName = environment?.selectedRepos?.[0] || null;
       }
-      const repoUrl = `https://github.com/${task.projectFullName}.git`;
+      if (!repoFullName) {
+        throw new Error("Missing projectFullName or environment repos to set up worktree");
+      }
+      const repoUrl = `https://github.com/${repoFullName}.git`;
       const worktreeInfo = await getWorktreePath(
         {
           repoUrl,

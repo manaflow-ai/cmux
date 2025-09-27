@@ -1514,6 +1514,20 @@ Please address the issue mentioned in the comment above.`;
         const { run, task, worktreePath, branchName, baseBranch } =
           await ensureRunWorktreeAndBranch(taskRunId, safeTeam);
 
+        // Get repo for PR creation
+        let repoFullName = task.projectFullName;
+        if (!repoFullName && task.environmentId) {
+          const environment = await getConvex().query(api.environments.get, {
+            teamSlugOrId: safeTeam,
+            id: task.environmentId,
+          });
+          repoFullName = environment?.selectedRepos?.[0] || null;
+        }
+        if (!repoFullName) {
+          callback({ success: false, error: "No repository found for PR creation" });
+          return;
+        }
+
         // Get GitHub token from keychain/Convex
         const githubToken = await getGitHubTokenFromKeychain();
         if (!githubToken) {
@@ -1742,6 +1756,20 @@ Please address the issue mentioned in the comment above.`;
         const { run, task, worktreePath, branchName, baseBranch } =
           await ensureRunWorktreeAndBranch(taskRunId, safeTeam);
 
+        // Get repo for PR creation
+        let repoFullName = task.projectFullName;
+        if (!repoFullName && task.environmentId) {
+          const environment = await getConvex().query(api.environments.get, {
+            teamSlugOrId: safeTeam,
+            id: task.environmentId,
+          });
+          repoFullName = environment?.selectedRepos?.[0] || null;
+        }
+        if (!repoFullName) {
+          callback({ success: false, error: "No repository found for PR creation" });
+          return;
+        }
+
         const githubToken = await getGitHubTokenFromKeychain();
         if (!githubToken) {
           callback({ success: false, error: "GitHub token is not configured" });
@@ -1755,7 +1783,7 @@ Please address the issue mentioned in the comment above.`;
         const body = task.text || `## Summary\n\n${title}`;
 
         const cwd = worktreePath;
-        const repoFullNameOpen = task.projectFullName || ""; // e.g. owner/name
+        const repoFullNameOpen = repoFullName; // e.g. owner/name
         const [owner, repo] = repoFullNameOpen.split("/");
 
         // Stage/commit/push branch, similar to draft flow, but tolerant to no-op
