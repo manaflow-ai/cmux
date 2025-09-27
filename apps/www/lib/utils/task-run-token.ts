@@ -1,27 +1,11 @@
 import { env } from "@/lib/utils/www-env";
-import { jwtVerify } from "jose";
-import { z } from "zod";
+import {
+  verifyTaskRunToken as verifyTaskRunTokenShared,
+  type TaskRunTokenPayload,
+} from "@cmux/shared/task-run-token";
 
-const taskRunJwtSecret = new TextEncoder().encode(
-  env.CMUX_TASK_RUN_JWT_SECRET
-);
+export type { TaskRunTokenPayload };
 
-const TaskRunTokenPayloadSchema = z.object({
-  taskRunId: z.string().min(1),
-  teamId: z.string().min(1),
-  userId: z.string().min(1),
-});
-
-export type TaskRunTokenPayload = z.infer<typeof TaskRunTokenPayloadSchema>;
-
-export async function verifyTaskRunToken(
-  token: string
-): Promise<TaskRunTokenPayload> {
-  const verification = await jwtVerify(token, taskRunJwtSecret);
-  const parsed = TaskRunTokenPayloadSchema.safeParse(verification.payload);
-  if (!parsed.success) {
-    throw new Error("Invalid CMUX token payload");
-  }
-
-  return parsed.data;
+export function verifyTaskRunToken(token: string): Promise<TaskRunTokenPayload> {
+  return verifyTaskRunTokenShared(token, env.CMUX_TASK_RUN_JWT_SECRET);
 }

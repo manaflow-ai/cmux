@@ -1,5 +1,13 @@
 import { httpRouter } from "convex/server";
-import { crownEvaluate, crownSummarize } from "./crown_http";
+import {
+  crownEvaluate,
+  crownSummarize,
+  crownWorkerCheck,
+  crownWorkerTaskRunInfo,
+  crownWorkerRunsComplete,
+  crownWorkerFinalize,
+  crownWorkerComplete,
+} from "./crown_http";
 import { githubSetup } from "./github_setup";
 import { githubWebhook } from "./github_webhook";
 import { stackWebhook } from "./stack_webhook";
@@ -28,6 +36,36 @@ http.route({
   path: "/api/crown/summarize",
   method: "POST",
   handler: crownSummarize,
+});
+
+http.route({
+  path: "/api/crown/check",
+  method: "POST",
+  handler: crownWorkerCheck,
+});
+
+http.route({
+  path: "/api/crown/task-run",
+  method: "POST",
+  handler: crownWorkerTaskRunInfo,
+});
+
+http.route({
+  path: "/api/crown/task-completion",
+  method: "POST",
+  handler: crownWorkerRunsComplete,
+});
+
+http.route({
+  path: "/api/crown/finalize",
+  method: "POST",
+  handler: crownWorkerFinalize,
+});
+
+http.route({
+  path: "/api/crown/complete",
+  method: "POST",
+  handler: crownWorkerComplete,
 });
 
 http.route({

@@ -25,11 +25,16 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.18",
+    "@ai-sdk/gateway": "^1.0.28",
+    "@ai-sdk/provider-utils": "^3.0.9",
     "@convex-dev/migrations": "^0.2.9",
     "@stackframe/js": "^2.8.36",
     "@t3-oss/env-core": "^0.13.8",
+    "ai": "^5.0.51",
     "convex": "1.27.1",
     "convex-helpers": "^0.1.104",
+    "jose": "^6.0.7",
     "socket.io-client": "^4.8.1",
     "svix": "^1.75.0",
     "zod": "^4.1.5"

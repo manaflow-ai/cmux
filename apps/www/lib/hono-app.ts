@@ -9,7 +9,6 @@ import { githubPrsRouter } from "@/lib/routes/github.prs.route";
 import { githubReposRouter } from "@/lib/routes/github.repos.route";
 import {
   booksRouter,
-  crownRouter,
   devServerRouter,
   environmentsRouter,
   healthRouter,
@@ -103,7 +102,6 @@ app.route("/", githubPrsFileContentsBatchRouter);
 app.route("/", morphRouter);
 app.route("/", environmentsRouter);
 app.route("/", sandboxesRouter);
-app.route("/", crownRouter);
 app.route("/", teamsRouter);
 
 // OpenAPI documentation

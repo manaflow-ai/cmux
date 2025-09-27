@@ -18,6 +18,10 @@ import type { Id } from "@cmux/convex/dataModel";
 
 import { getWorkerServerSocketOptions } from "@cmux/shared/node/socket";
 import { startAmpProxy } from "@cmux/shared/src/providers/amp/start-amp-proxy.ts";
+import {
+  handleWorkerTaskCompletion,
+  type WorkerRunContext,
+} from "./crown/workflow";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import * as xtermHeadless from "@xterm/headless";
 import express from "express";
@@ -501,7 +505,10 @@ managementIO.on("connection", (socket) => {
                 if (!configSections.has(currentSection)) {
                   configSections.set(currentSection, new Map());
                 }
-                configSections.get(currentSection)!.set(key, value);
+                const section = configSections.get(currentSection);
+                if (section) {
+                  section.set(key, value);
+                }
               }
             }
           }
@@ -514,7 +521,10 @@ managementIO.on("connection", (socket) => {
       if (!configSections.has("credential")) {
         configSections.set("credential", new Map());
       }
-      configSections.get("credential")!.set("helper", "store");
+      const credentialSection = configSections.get("credential");
+      if (credentialSection) {
+        credentialSection.set("helper", "store");
+      }
 
       // Create .git-credentials file if GitHub token is provided
       if (validated.githubToken) {
@@ -535,7 +545,10 @@ managementIO.on("connection", (socket) => {
             if (!configSections.has(section)) {
               configSections.set(section, new Map());
             }
-            configSections.get(section)!.set(configKey, value);
+            const sectionMap = configSections.get(section);
+            if (sectionMap) {
+              sectionMap.set(configKey, value);
+            }
           }
         }
       }
@@ -852,6 +865,18 @@ async function createTerminal(
     startupCommands = [],
   } = options;
 
+  const taskRunToken = env?.CMUX_TASK_RUN_JWT;
+  const convexUrl = env?.NEXT_PUBLIC_CONVEX_URL;
+  const crownContext: WorkerRunContext | null =
+    options.taskRunId && taskRunToken
+      ? {
+          token: taskRunToken,
+          prompt: env?.CMUX_PROMPT ?? env?.PROMPT ?? "",
+          agentModel: options.agentModel,
+          convexUrl,
+        }
+      : null;
+
   const shell = command || (platform() === "win32" ? "powershell.exe" : "bash");
 
   log("INFO", `[createTerminal] Creating terminal ${terminalId}:`, {
@@ -1021,21 +1046,80 @@ async function createTerminal(
 
   // if missing need to return early
   if (!agentConfig) {
-    log("ERROR", `Agent config not found for ${options.agentModel}`);
+    log("ERROR", `Agent config not found for ${options.agentModel}`, {
+      agentModel: options.agentModel,
+      availableConfigs: AGENT_CONFIGS.map((c) => c.name),
+    });
     return;
   }
 
   if (options.taskRunId && agentConfig?.completionDetector) {
     try {
-      void agentConfig
+      log(
+        "INFO",
+        `Setting up completion detector for task ${options.taskRunId}`,
+        {
+          taskRunId: options.taskRunId,
+          agentModel: options.agentModel,
+          hasDetector: !!agentConfig.completionDetector,
+        }
+      );
+
+      agentConfig
         .completionDetector(options.taskRunId)
-        .then(() => {
+        .then(async () => {
+          log(
+            "INFO",
+            `Completion detector resolved for task ${options.taskRunId}`
+          );
+
           emitToMainServer("worker:task-complete", {
             workerId: WORKER_ID,
             taskRunId: options.taskRunId!,
             agentModel: options.agentModel,
             elapsedMs: Date.now() - processStartTime,
           });
+
+          log(
+            "INFO",
+            `Starting crown evaluation for task ${options.taskRunId}`,
+            {
+              taskRunId: options.taskRunId,
+              agentModel: options.agentModel,
+              elapsedMs: Date.now() - processStartTime,
+            }
+          );
+
+          // Await the crown workflow directly
+          try {
+            if (!options.taskRunId) {
+              throw new Error("Task run ID is required");
+            }
+            if (!crownContext) {
+              throw new Error("Crown context is required");
+            }
+
+            await handleWorkerTaskCompletion(options.taskRunId, crownContext, {
+              agentModel: options.agentModel,
+              elapsedMs: Date.now() - processStartTime,
+            });
+
+            log("INFO", `Crown workflow completed for ${options.taskRunId}`, {
+              taskRunId: options.taskRunId,
+              agentModel: options.agentModel,
+            });
+          } catch (error) {
+            log(
+              "ERROR",
+              `Failed to handle crown workflow for ${options.taskRunId}`,
+              {
+                taskRunId: options.taskRunId,
+                agentModel: options.agentModel,
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+              }
+            );
+          }
         })
         .catch((e) => {
           log(
@@ -1072,6 +1156,7 @@ async function createTerminal(
   // Handle process exit
   childProcess.on("exit", (code, signal) => {
     const runtime = Date.now() - processStartTime;
+
     log("INFO", `Process exited for terminal ${terminalId}`, {
       code,
       signal,
