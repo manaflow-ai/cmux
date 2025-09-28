@@ -3,6 +3,7 @@ import {
   postApiSandboxesByIdPublishDevcontainer,
   postApiSandboxesByIdStop,
   postApiSandboxesStart,
+  type StartSandboxBody,
 } from "@cmux/www-openapi-client";
 import { dockerLogger } from "../utils/fileLogger";
 import { getWwwClient } from "../utils/wwwClient";
@@ -21,6 +22,7 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
   private branch?: string;
   private newBranch?: string;
   private environmentId?: string;
+  private taskRunJwt?: string;
 
   constructor(config: VSCodeInstanceConfig) {
     super(config);
@@ -29,37 +31,55 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
       branch?: string;
       newBranch?: string;
       environmentId?: string;
+      taskRunJwt?: string;
     };
     this.repoUrl = cfg.repoUrl;
     this.branch = cfg.branch;
     this.newBranch = cfg.newBranch;
     this.environmentId = cfg.environmentId;
+    this.taskRunJwt = cfg.taskRunJwt;
   }
 
   async start(): Promise<VSCodeInstanceInfo> {
     dockerLogger.info(
-      `[CmuxVSCodeInstance ${this.instanceId}] Requesting sandbox start via www API`
+      `[CmuxVSCodeInstance ${this.instanceId}] Requesting sandbox start via www API`,
+      {
+        hasJwt: !!this.taskRunJwt,
+        jwtLength: this.taskRunJwt?.length || 0,
+        taskRunId: this.taskRunId,
+        environmentId: this.environmentId,
+      }
     );
+
+    if (!this.taskRunJwt) {
+      dockerLogger.warn(
+        `[CmuxVSCodeInstance ${this.instanceId}] NO JWT TOKEN being sent to sandbox!`
+      );
+    }
+
+    const requestBody: StartSandboxBody = {
+      teamSlugOrId: this.teamSlugOrId,
+      ttlSeconds: 20 * 60,
+      taskRunId: String(this.taskRunId),
+      metadata: {
+        instance: `cmux-${this.taskRunId}`,
+        agentName: this.config.agentName || "",
+      },
+      ...(this.taskRunJwt ? { taskRunJwt: this.taskRunJwt } : {}),
+      ...(this.environmentId ? { environmentId: this.environmentId } : {}),
+      ...(this.repoUrl && this.branch && this.newBranch
+        ? {
+            repoUrl: this.repoUrl,
+            branch: this.branch,
+            newBranch: this.newBranch,
+            depth: 1,
+          }
+        : {}),
+    };
+
     const startRes = await postApiSandboxesStart({
       client: getWwwClient(),
-      body: {
-        teamSlugOrId: this.teamSlugOrId,
-        ttlSeconds: 20 * 60,
-        metadata: {
-          instance: `cmux-${this.taskRunId}`,
-          taskRunId: String(this.taskRunId),
-          agentName: this.config.agentName || "",
-        },
-        ...(this.environmentId ? { environmentId: this.environmentId } : {}),
-        ...(this.repoUrl
-          ? {
-              repoUrl: this.repoUrl,
-              branch: this.branch,
-              newBranch: this.newBranch,
-              depth: 1,
-            }
-          : {}),
-      },
+      body: requestBody,
     });
     const data = startRes.data;
     if (!data) {

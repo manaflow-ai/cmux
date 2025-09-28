@@ -446,15 +446,18 @@ do_safe export PATH=/usr/local/bin:$PATH
 # COPY --from=builder /usr/local/bin/wait-for-docker.sh /usr/local/bin/wait-for-docker.sh
 # Skipping stage copy on host (requires image layer)
 # COPY --from=builder /cmux/apps/worker/scripts/collect-relevant-diff.sh /usr/local/bin/cmux-collect-relevant-diff.sh
+# COPY --from=builder /cmux/apps/worker/scripts/collect-crown-diff.sh /usr/local/bin/cmux-collect-crown-diff.sh
 # Skipping stage copy on host (requires image layer)
 if [ "$EXECUTE" = "1" ] && [ "$ALLOW_DANGEROUS" = "1" ]; then
   bash -euo pipefail <<'__CMUX_RUN__'
 cd "${DESTDIR}${CURRENT_WORKDIR}"
 chmod +x /usr/local/bin/cmux-collect-relevant-diff.sh
+chmod +x /usr/local/bin/cmux-collect-crown-diff.sh
 __CMUX_RUN__
 else
   cat <<'__CMUX_SHOW__'
 chmod +x /usr/local/bin/cmux-collect-relevant-diff.sh
+chmod +x /usr/local/bin/cmux-collect-crown-diff.sh
 __CMUX_SHOW__
 fi
 

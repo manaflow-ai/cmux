@@ -46,6 +46,10 @@
       "import": "./src/diff-types.ts",
       "types": "./src/diff-types.ts"
     },
+    "./task-run-token": {
+      "import": "./src/task-run-token.ts",
+      "types": "./src/task-run-token.ts"
+    },
     "./convex-ready": {
       "import": "./src/convex-ready.ts",
       "types": "./src/convex-ready.ts"
@@ -61,6 +65,14 @@
     "./utils/validate-exposed-ports": {
       "import": "./src/utils/validate-exposed-ports.ts",
       "types": "./src/utils/validate-exposed-ports.ts"
+    },
+    "./crown/types": {
+      "import": "./src/crown/types.ts",
+      "types": "./src/crown/types.ts"
+    },
+    "./crown/schemas": {
+      "import": "./src/crown/schemas.ts",
+      "types": "./src/crown/schemas.ts"
     },
     "./node/convex-cache": {
       "import": "./src/node/convex-cache.ts",

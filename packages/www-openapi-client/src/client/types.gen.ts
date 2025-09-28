@@ -388,6 +388,8 @@ export type StartSandboxBody = {
     environmentId?: string;
     snapshotId?: string;
     ttlSeconds?: number;
+    taskRunId?: string;
+    taskRunJwt?: string;
     metadata?: {
         [key: string]: string;
     };
@@ -1669,75 +1671,6 @@ export type PostApiSandboxesByIdPublishDevcontainerResponses = {
 };
 
 export type PostApiSandboxesByIdPublishDevcontainerResponse = PostApiSandboxesByIdPublishDevcontainerResponses[keyof PostApiSandboxesByIdPublishDevcontainerResponses];
-
-export type PostApiCrownSummarizeData = {
-    body: {
-        prompt: string;
-        teamSlugOrId?: string;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/crown/summarize';
-};
-
-export type PostApiCrownSummarizeErrors = {
-    /**
-     * Unauthorized
-     */
-    401: unknown;
-    /**
-     * Summarization failed
-     */
-    500: unknown;
-};
-
-export type PostApiCrownSummarizeResponses = {
-    /**
-     * Summary generated
-     */
-    200: {
-        summary: string;
-    };
-};
-
-export type PostApiCrownSummarizeResponse = PostApiCrownSummarizeResponses[keyof PostApiCrownSummarizeResponses];
-
-export type PostApiCrownEvaluateData = {
-    body: {
-        prompt: string;
-        teamSlugOrId: string;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/crown/evaluate';
-};
-
-export type PostApiCrownEvaluateErrors = {
-    /**
-     * Invalid input
-     */
-    400: unknown;
-    /**
-     * Unauthorized
-     */
-    401: unknown;
-    /**
-     * Evaluation failed
-     */
-    500: unknown;
-};
-
-export type PostApiCrownEvaluateResponses = {
-    /**
-     * Crown evaluation result
-     */
-    200: {
-        winner: number;
-        reason: string;
-    };
-};
-
-export type PostApiCrownEvaluateResponse = PostApiCrownEvaluateResponses[keyof PostApiCrownEvaluateResponses];
 
 export type PostApiTeamsData = {
     body: CreateTeamRequest;

@@ -316,6 +316,8 @@ const convexSchema = defineSchema({
     candidateRunIds: v.array(v.id("taskRuns")),
     evaluationPrompt: v.string(),
     evaluationResponse: v.string(),
+    summarizationPrompt: v.optional(v.string()),
+    summarizationResponse: v.optional(v.string()),
     createdAt: v.number(),
     userId: v.string(),
     teamId: v.string(),

@@ -107,10 +107,6 @@ export async function startServer({
     // Wait for Convex
     await waitForConvex();
 
-    // Crown evaluation is now triggered immediately after all tasks complete
-    // in agentSpawner.ts handleTaskCompletion() function
-    // No need for periodic checking
-
     // Store default repo info if provided
     if (defaultRepo?.remoteName) {
       try {

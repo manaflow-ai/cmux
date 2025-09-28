@@ -217,8 +217,10 @@ COPY --from=builder /app/openvscode-server /app/openvscode-server
 COPY --from=builder /root/.openvscode-server /root/.openvscode-server
 COPY --from=builder /builtins /builtins
 COPY --from=builder /usr/local/bin/wait-for-docker.sh /usr/local/bin/wait-for-docker.sh
-COPY --from=builder /cmux/apps/worker/scripts/collect-relevant-diff.sh /usr/local/bin/cmux-collect-relevant-diff.sh
-RUN chmod +x /usr/local/bin/cmux-collect-relevant-diff.sh
+COPY apps/worker/scripts/collect-relevant-diff.sh /usr/local/bin/cmux-collect-relevant-diff.sh
+COPY apps/worker/scripts/collect-crown-diff.sh /usr/local/bin/cmux-collect-crown-diff.sh
+RUN chmod +x /usr/local/bin/cmux-collect-relevant-diff.sh \
+    && chmod +x /usr/local/bin/cmux-collect-crown-diff.sh
 
 # Install envctl/envd into runtime
 # Using direct download URL to avoid GitHub API rate limits

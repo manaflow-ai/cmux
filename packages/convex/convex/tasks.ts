@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { resolveTeamIdLoose } from "../_shared/team";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
 
 export const get = authQuery({
@@ -319,6 +320,58 @@ export const tryBeginCrownEvaluation = authMutation({
   },
 });
 
+// Acquire the crown evaluation lock by marking the evaluation as in progress.
+// Returns false when the task doesn't exist, belongs to someone else, or is already locked.
+export const acquireCrownEvaluationLockInternal = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    teamId: v.string(),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) {
+      return false;
+    }
+    if (task.teamId !== args.teamId || task.userId !== args.userId) {
+      return false;
+    }
+    if (task.crownEvaluationError === "in_progress") {
+      return false;
+    }
+    await ctx.db.patch(args.taskId, {
+      crownEvaluationError: "in_progress",
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+// Release the crown evaluation lock and optionally persist a follow-up error state.
+// Returns false when the task doesn't exist or the caller lacks ownership.
+export const releaseCrownEvaluationLockInternal = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    teamId: v.string(),
+    userId: v.string(),
+    crownEvaluationError: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) {
+      return false;
+    }
+    if (task.teamId !== args.teamId || task.userId !== args.userId) {
+      return false;
+    }
+    await ctx.db.patch(args.taskId, {
+      crownEvaluationError: args.crownEvaluationError,
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
 // Set or update the generated pull request description for a task
 export const setPullRequestDescription = authMutation({
   args: {
@@ -606,5 +659,12 @@ export const checkAndEvaluateCrown = authMutation({
     console.log(`[CheckCrown] Marked task ${args.taskId} as completed`);
 
     return winnerId;
+  },
+});
+
+export const getByIdInternal = internalQuery({
+  args: { id: v.id("tasks") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
   },
 });
