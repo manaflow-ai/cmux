@@ -12,6 +12,15 @@ import type {
 
 const api = {};
 
+const storageAPI = {
+  getItem: (key: string) =>
+    ipcRenderer.sendSync("cmux:storage:get", key) as string | null,
+  setItem: (key: string, value: string) =>
+    ipcRenderer.sendSync("cmux:storage:set", key, value) as boolean,
+  removeItem: (key: string) =>
+    ipcRenderer.sendSync("cmux:storage:remove", key) as boolean,
+};
+
 type RectanglePayload = {
   x: number;
   y: number;
@@ -146,6 +155,7 @@ const cmuxAPI = {
         reason?: string;
       }>,
   },
+  storage: storageAPI,
   webContentsView: {
     create: (options: {
       url: string;

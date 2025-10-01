@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { storage } from "@/lib/storage";
 import React, {
   useCallback,
   useEffect,
@@ -35,14 +36,14 @@ export function ResizableColumns({
   const rafIdRef = useRef<number | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [leftWidth, setLeftWidth] = useState<number>(() => {
-    const stored = storageKey ? localStorage.getItem(storageKey) : null;
+    const stored = storageKey ? storage.getItem(storageKey) : null;
     const parsed = stored ? Number.parseInt(stored, 10) : defaultLeftWidth;
     if (Number.isNaN(parsed)) return defaultLeftWidth;
     return Math.min(Math.max(parsed, minLeft), maxLeft);
   });
 
   useEffect(() => {
-    if (storageKey) localStorage.setItem(storageKey, String(leftWidth));
+    if (storageKey) storage.setItem(storageKey, String(leftWidth));
   }, [leftWidth, storageKey]);
 
   const onMouseMove = useCallback(

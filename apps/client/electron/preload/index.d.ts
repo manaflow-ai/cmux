@@ -25,10 +25,15 @@ declare global {
         disconnect: (socketId: string) => Promise<unknown>;
         emit: (socketId: string, eventName: string, ...args: unknown[]) => Promise<unknown>;
         on: (socketId: string, eventName: string) => Promise<unknown>;
-        onEvent: (
-          socketId: string,
-          callback: (eventName: string, ...args: unknown[]) => void
-        ) => void;
+      onEvent: (
+        socketId: string,
+        callback: (eventName: string, ...args: unknown[]) => void
+      ) => void;
+      };
+      storage: {
+        getItem: (key: string) => string | null;
+        setItem: (key: string, value: string) => boolean;
+        removeItem: (key: string) => boolean;
       };
       autoUpdate: {
         check: () =>

@@ -5,6 +5,7 @@ import {
   type SelectOption,
 } from "@/components/ui/searchable-select";
 import { useSocket } from "@/contexts/socket/use-socket";
+import { storage } from "@/lib/storage";
 import { branchesQueryOptions } from "@/queries/branches";
 import { gitDiffQueryOptions } from "@/queries/git-diff";
 import { api } from "@cmux/convex/api";
@@ -32,7 +33,7 @@ function DashboardDiffPage() {
 
   const [selectedProject, setSelectedProject] = useState<string | null>(() => {
     try {
-      const stored = localStorage.getItem("selectedProject");
+      const stored = storage.getItem("selectedProject");
       const parsed = stored ? (JSON.parse(stored) as string[]) : [];
       return parsed[0] || null;
     } catch {
@@ -46,7 +47,7 @@ function DashboardDiffPage() {
       const data = payload as { repoFullName: string; branch?: string };
       if (!data || typeof data.repoFullName !== "string") return;
       setSelectedProject(data.repoFullName);
-      localStorage.setItem(
+      storage.setItem(
         "selectedProject",
         JSON.stringify([data.repoFullName])
       );
@@ -187,7 +188,7 @@ function DashboardDiffPage() {
           onChange={(vals) => {
             const v = vals[0];
             setSelectedProject(v ?? null);
-            localStorage.setItem(
+            storage.setItem(
               "selectedProject",
               JSON.stringify(v ? [v] : [])
             );

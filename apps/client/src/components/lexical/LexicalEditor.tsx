@@ -4,6 +4,7 @@ if (typeof globalThis.Prism === "undefined") {
 }
 
 import { editorStorage } from "@/lib/editorStorage";
+import { storage } from "@/lib/storage";
 import { CodeNode } from "@lexical/code";
 import { AutoLinkNode, LinkNode } from "@lexical/link";
 import { ListItemNode, ListNode } from "@lexical/list";
@@ -186,7 +187,7 @@ function ClearEditorPlugin({ value }: { value?: string }) {
   return null;
 }
 
-// Plugin to persist editor state to localStorage + IndexedDB
+// Plugin to persist editor state to configurable storage + IndexedDB
 function LocalStoragePersistencePlugin({
   persistenceKey,
   clearOnSubmit,
@@ -327,14 +328,14 @@ function LocalStoragePersistencePlugin({
     []
   );
 
-  // Load initial state from localStorage + IndexedDB
+  // Load initial state from storage + IndexedDB
   useEffect(() => {
     if (!persistenceKey || !isFirstRender.current) return;
 
     isFirstRender.current = false;
 
     const loadState = async () => {
-      const savedState = localStorage.getItem(persistenceKey);
+      const savedState = storage.getItem(persistenceKey);
 
       if (savedState) {
         try {
@@ -346,7 +347,7 @@ function LocalStoragePersistencePlugin({
         } catch (error) {
           console.error("Failed to restore editor state:", error);
           // Clear corrupted state
-          localStorage.removeItem(persistenceKey);
+          storage.removeItem(persistenceKey);
         }
       }
     };
@@ -354,7 +355,7 @@ function LocalStoragePersistencePlugin({
     loadState();
   }, [editor, persistenceKey, restoreImages]);
 
-  // Save state to localStorage + IndexedDB on changes
+  // Save state to storage + IndexedDB on changes
   useEffect(() => {
     if (!persistenceKey) return;
 
@@ -386,16 +387,16 @@ function LocalStoragePersistencePlugin({
             // Clean up orphaned images that are no longer in the editor
             await editorStorage.cleanupOrphanedImages(activeImageIds);
 
-            // Save clean state to localStorage
+            // Save clean state to storage
             const serialized = JSON.stringify(cleanState);
-            localStorage.setItem(persistenceKey, serialized);
+            storage.setItem(persistenceKey, serialized);
           } catch (error) {
             console.error("Failed to save editor state:", error);
             if (
               error instanceof DOMException &&
               error.name === "QuotaExceededError"
             ) {
-              localStorage.removeItem(persistenceKey);
+              storage.removeItem(persistenceKey);
             }
           }
         }
@@ -424,8 +425,8 @@ function LocalStoragePersistencePlugin({
           // Clean up orphaned images
           await editorStorage.cleanupOrphanedImages(activeImageIds);
 
-          // Save clean state to localStorage
-          localStorage.setItem(persistenceKey, JSON.stringify(cleanState));
+          // Save clean state to storage
+          storage.setItem(persistenceKey, JSON.stringify(cleanState));
         } catch (error) {
           console.error("Failed to save editor state on unload:", error);
         }
@@ -443,7 +444,7 @@ function LocalStoragePersistencePlugin({
     };
   }, [editor, persistenceKey, extractImages]);
 
-  // Clear localStorage and IndexedDB when content is cleared (e.g., after submit)
+  // Clear storage and IndexedDB when content is cleared (e.g., after submit)
   useEffect(() => {
     if (!persistenceKey || !clearOnSubmit) return;
 
@@ -456,7 +457,7 @@ function LocalStoragePersistencePlugin({
           (children.length === 1 && children[0].getTextContent().trim() === "");
 
         if (isEmpty) {
-          localStorage.removeItem(persistenceKey);
+          storage.removeItem(persistenceKey);
           // Also clear all images from IndexedDB when editor is cleared
           editorStorage.clear().catch(console.error);
         }
@@ -479,7 +480,7 @@ interface LexicalEditorProps {
   value?: string;
   repoUrl?: string;
   branch?: string;
-  persistenceKey?: string; // Key for localStorage persistence
+  persistenceKey?: string; // Key for storage persistence
   maxHeight?: string;
   onEditorReady?: (editor: {
     getContent: () => {

@@ -2,6 +2,7 @@ import { TaskTree } from "@/components/TaskTree";
 import { TaskTreeSkeleton } from "@/components/TaskTreeSkeleton";
 import { useExpandTasks } from "@/contexts/expand-tasks/ExpandTasksContext";
 import { isElectron } from "@/lib/electron";
+import { storage } from "@/lib/storage";
 import { type Doc } from "@cmux/convex/dataModel";
 import type { LinkProps } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
@@ -68,7 +69,7 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
   const containerLeftRef = useRef<number>(0);
   const rafIdRef = useRef<number | null>(null);
   const [width, setWidth] = useState<number>(() => {
-    const stored = localStorage.getItem("sidebarWidth");
+    const stored = storage.getItem("sidebarWidth");
     const parsed = stored ? Number.parseInt(stored, 10) : DEFAULT_WIDTH;
     if (Number.isNaN(parsed)) return DEFAULT_WIDTH;
     return Math.min(Math.max(parsed, MIN_WIDTH), MAX_WIDTH);
@@ -78,7 +79,7 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
   const { expandTaskIds } = useExpandTasks();
 
   useEffect(() => {
-    localStorage.setItem("sidebarWidth", String(width));
+    storage.setItem("sidebarWidth", String(width));
   }, [width]);
 
   const onMouseMove = useCallback((e: MouseEvent) => {

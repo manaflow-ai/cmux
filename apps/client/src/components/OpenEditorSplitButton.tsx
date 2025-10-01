@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { Check, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { storage } from "@/lib/storage";
 import { MenuArrow } from "./ui/menu";
 
 type EditorType =
@@ -97,10 +98,7 @@ export function OpenEditorSplitButton({
 
   const [selectedEditor, setSelectedEditor] = useState<EditorType | null>(
     () => {
-      const raw =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem("cmux:lastEditor")
-          : null;
+      const raw = storage.getItem("cmux:lastEditor");
       const stored =
         raw === "vscode-remote"
           ? worktreePath
@@ -125,7 +123,7 @@ export function OpenEditorSplitButton({
 
   useEffect(() => {
     if (selectedEditor) {
-      window.localStorage.setItem("cmux:lastEditor", selectedEditor);
+      storage.setItem("cmux:lastEditor", selectedEditor);
     }
   }, [selectedEditor]);
 

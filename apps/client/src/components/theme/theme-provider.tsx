@@ -5,6 +5,7 @@ import {
   type ResolvedTheme,
   ThemeProviderContext,
 } from "./theme-context";
+import { storage } from "@/lib/storage";
 
 type DocumentWithStartViewTransition = Document & {
   startViewTransition?: (
@@ -34,7 +35,7 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+    () => (storage.getItem(storageKey) as Theme) || defaultTheme
   );
   const resolvedThemeRef = useRef<ResolvedTheme>(getInitialResolvedTheme());
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(
@@ -111,7 +112,7 @@ export function ThemeProvider({
     theme,
     resolvedTheme,
     setTheme: (nextTheme: Theme) => {
-      localStorage.setItem(storageKey, nextTheme);
+      storage.setItem(storageKey, nextTheme);
       if (nextTheme === theme) {
         return;
       }

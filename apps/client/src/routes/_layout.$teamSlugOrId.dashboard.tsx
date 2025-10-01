@@ -19,6 +19,7 @@ import {
 import { useExpandTasks } from "@/contexts/expand-tasks/ExpandTasksContext";
 import { useSocket } from "@/contexts/socket/use-socket";
 import { createFakeConvexId } from "@/lib/fakeConvexId";
+import { storage } from "@/lib/storage";
 import { branchesQueryOptions } from "@/queries/branches";
 import { api } from "@cmux/convex/api";
 import type { Doc, Id } from "@cmux/convex/dataModel";
@@ -35,7 +36,7 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/dashboard")({
   component: DashboardComponent,
 });
 
-// Default agents (not persisted to localStorage)
+// Default agents (not persisted to storage backend)
 const DEFAULT_AGENTS = ["claude/sonnet-4.5", "claude/opus-4.1", "codex/gpt-5-codex-high"];
 
 function DashboardComponent() {
@@ -46,13 +47,13 @@ function DashboardComponent() {
   const { addTaskToExpand } = useExpandTasks();
 
   const [selectedProject, setSelectedProject] = useState<string[]>(() => {
-    const stored = localStorage.getItem("selectedProject");
+    const stored = storage.getItem("selectedProject");
     return stored ? JSON.parse(stored) : [];
   });
   const [selectedBranch, setSelectedBranch] = useState<string[]>([]);
 
   const [selectedAgents, setSelectedAgents] = useState<string[]>(() => {
-    const stored = localStorage.getItem("selectedAgents");
+    const stored = storage.getItem("selectedAgents");
     // Only use stored value if it exists and has selections, otherwise use defaults
     return stored && JSON.parse(stored).length > 0
       ? JSON.parse(stored)
@@ -60,7 +61,7 @@ function DashboardComponent() {
   });
   const [taskDescription, setTaskDescription] = useState<string>("");
   const [isCloudMode, setIsCloudMode] = useState<boolean>(() => {
-    const stored = localStorage.getItem("isCloudMode");
+    const stored = storage.getItem("isCloudMode");
     return stored ? JSON.parse(stored) : false;
   });
 
@@ -76,9 +77,9 @@ function DashboardComponent() {
     if (searchParams?.environmentId) {
       const val = `env:${searchParams.environmentId}`;
       setSelectedProject([val]);
-      localStorage.setItem("selectedProject", JSON.stringify([val]));
+      storage.setItem("selectedProject", JSON.stringify([val]));
       setIsCloudMode(true);
-      localStorage.setItem("isCloudMode", JSON.stringify(true));
+      storage.setItem("isCloudMode", JSON.stringify(true));
     }
   }, [searchParams?.environmentId]);
 
@@ -108,14 +109,14 @@ function DashboardComponent() {
   const handleProjectChange = useCallback(
     (newProjects: string[]) => {
       setSelectedProject(newProjects);
-      localStorage.setItem("selectedProject", JSON.stringify(newProjects));
+      storage.setItem("selectedProject", JSON.stringify(newProjects));
       if (newProjects[0] !== selectedProject[0]) {
         setSelectedBranch([]);
       }
       // If selecting an environment, enforce cloud mode
       if ((newProjects[0] || "").startsWith("env:")) {
         setIsCloudMode(true);
-        localStorage.setItem("isCloudMode", JSON.stringify(true));
+        storage.setItem("isCloudMode", JSON.stringify(true));
       }
     },
     [selectedProject]
@@ -129,16 +130,16 @@ function DashboardComponent() {
   // Callback for agent selection changes
   const handleAgentChange = useCallback((newAgents: string[]) => {
     setSelectedAgents(newAgents);
-    // Only persist to localStorage if the user made a selection (not using defaults)
-    // If newAgents is empty or equals defaults, remove from localStorage
+    // Only persist if the user made a selection (not using defaults)
+    // If newAgents is empty or equals defaults, remove from storage
     const isDefault =
       newAgents.length === DEFAULT_AGENTS.length &&
       newAgents.every((agent, index) => agent === DEFAULT_AGENTS[index]);
 
     if (isDefault || newAgents.length === 0) {
-      localStorage.removeItem("selectedAgents");
+      storage.removeItem("selectedAgents");
     } else {
-      localStorage.setItem("selectedAgents", JSON.stringify(newAgents));
+      storage.setItem("selectedAgents", JSON.stringify(newAgents));
     }
   }, []);
 
@@ -499,7 +500,7 @@ function DashboardComponent() {
     if (isEnvSelected) return; // environment forces cloud mode
     const newMode = !isCloudMode;
     setIsCloudMode(newMode);
-    localStorage.setItem("isCloudMode", JSON.stringify(newMode));
+    storage.setItem("isCloudMode", JSON.stringify(newMode));
   }, [isCloudMode, isEnvSelected]);
 
   // Listen for VSCode spawned events
@@ -536,7 +537,7 @@ function DashboardComponent() {
       // Always set the selected project when a default repo is provided
       // This ensures CLI-provided repos take precedence
       setSelectedProject([data.repoFullName]);
-      localStorage.setItem(
+      storage.setItem(
         "selectedProject",
         JSON.stringify([data.repoFullName])
       );
