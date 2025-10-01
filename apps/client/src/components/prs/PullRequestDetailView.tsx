@@ -1,12 +1,19 @@
 import { RunDiffSection } from "@/components/RunDiffSection";
+import { Button } from "@/components/ui/button";
 import { Dropdown } from "@/components/ui/dropdown";
 import { normalizeGitRef } from "@/lib/refWithOrigin";
 import { gitDiffQueryOptions } from "@/queries/git-diff";
 import { api } from "@cmux/convex/api";
+import {
+  patchApiIntegrationsGithubPrsClose,
+  putApiIntegrationsGithubPrsMerge,
+} from "@cmux/www-openapi-client";
+import { useMutation } from "@tanstack/react-query";
 import { useQuery as useRQ } from "@tanstack/react-query";
 import { useQuery as useConvexQuery } from "convex/react";
-import { ExternalLink } from "lucide-react";
-import { Suspense, useMemo, useState } from "react";
+import { ExternalLink, GitMerge, XCircle } from "lucide-react";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 type PullRequestDetailViewProps = {
   teamSlugOrId: string;
@@ -94,6 +101,64 @@ export function PullRequestDetailView({
 
   const [diffControls, setDiffControls] = useState<DiffControls | null>(null);
 
+  const mergePRMutation = useMutation({
+    mutationFn: async (merge_method: "merge" | "squash" | "rebase") => {
+      const result = await putApiIntegrationsGithubPrsMerge({
+        body: {
+          team: teamSlugOrId,
+          owner,
+          repo,
+          number: Number(number),
+          merge_method,
+        },
+      });
+      if (!result.data?.success) {
+        throw new Error(result.data?.error || "Failed to merge PR");
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      toast.success("Pull request merged successfully");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to merge PR");
+    },
+  });
+
+  const closePRMutation = useMutation({
+    mutationFn: async () => {
+      const result = await patchApiIntegrationsGithubPrsClose({
+        body: {
+          team: teamSlugOrId,
+          owner,
+          repo,
+          number: Number(number),
+        },
+      });
+      if (!result.data?.success) {
+        throw new Error(result.data?.error || "Failed to close PR");
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      toast.success("Pull request closed successfully");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to close PR");
+    },
+  });
+
+  const handleMergePR = useCallback(
+    (merge_method: "merge" | "squash" | "rebase" = "merge") => {
+      mergePRMutation.mutate(merge_method);
+    },
+    [mergePRMutation]
+  );
+
+  const handleClosePR = useCallback(() => {
+    closePRMutation.mutate();
+  }, [closePRMutation]);
+
   if (!currentPR) {
     return (
       <div className="h-full w-full flex items-center justify-center text-neutral-500 dark:text-neutral-400">
@@ -151,6 +216,30 @@ export function PullRequestDetailView({
                     Open
                   </span>
                 )}
+                {currentPR.state === "open" && !currentPR.merged ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => handleMergePR("merge")}
+                      disabled={mergePRMutation.isPending}
+                      className="!h-7 flex items-center gap-1.5"
+                    >
+                      <GitMerge className="w-3.5 h-3.5" />
+                      {mergePRMutation.isPending ? "Merging..." : "Merge"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleClosePR}
+                      disabled={closePRMutation.isPending}
+                      className="!h-7 flex items-center gap-1.5"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      {closePRMutation.isPending ? "Closing..." : "Close"}
+                    </Button>
+                  </>
+                ) : null}
                 {currentPR.htmlUrl ? (
                   <a
                     className="flex items-center gap-1.5 px-3 py-1 bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-300 dark:border-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-700 font-medium text-xs select-none whitespace-nowrap"
@@ -183,6 +272,22 @@ export function PullRequestDetailView({
                         >
                           Collapse all
                         </Dropdown.Item>
+                        {currentPR.state === "open" && !currentPR.merged ? (
+                          <>
+                            <Dropdown.Item
+                              onClick={() => handleMergePR("squash")}
+                              disabled={mergePRMutation.isPending}
+                            >
+                              Squash and merge
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                              onClick={() => handleMergePR("rebase")}
+                              disabled={mergePRMutation.isPending}
+                            >
+                              Rebase and merge
+                            </Dropdown.Item>
+                          </>
+                        ) : null}
                       </Dropdown.Popup>
                     </Dropdown.Positioner>
                   </Dropdown.Portal>

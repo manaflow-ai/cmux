@@ -1,3 +1,4 @@
+import { githubPrsActionsRouter } from "@/lib/routes/github.prs.actions.route";
 import { githubPrsBackfillRepoRouter } from "@/lib/routes/github.prs.backfill-repo.route";
 import { githubPrsBackfillRouter } from "@/lib/routes/github.prs.backfill.route";
 import { githubPrsCodeRouter } from "@/lib/routes/github.prs.code.route";
@@ -98,6 +99,7 @@ app.route("/", booksRouter);
 app.route("/", devServerRouter);
 app.route("/", githubReposRouter);
 app.route("/", githubPrsRouter);
+app.route("/", githubPrsActionsRouter);
 app.route("/", githubPrsBackfillRouter);
 app.route("/", githubPrsBackfillRepoRouter);
 app.route("/", githubPrsCodeRouter);

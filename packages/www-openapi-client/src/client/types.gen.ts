@@ -124,6 +124,66 @@ export type GithubPullRequestsResponse = {
     pullRequests: Array<GithubPullRequestItem>;
 };
 
+export type PrActionSuccessResponse = {
+    success: boolean;
+    message: string;
+};
+
+export type PrActionErrorResponse = {
+    success: boolean;
+    error: string;
+};
+
+export type MergePrBody = {
+    /**
+     * Team slug or UUID
+     */
+    team: string;
+    /**
+     * GitHub owner/org
+     */
+    owner: string;
+    /**
+     * GitHub repo name
+     */
+    repo: string;
+    /**
+     * PR number
+     */
+    number: number;
+    /**
+     * Merge method (default merge)
+     */
+    merge_method?: 'merge' | 'squash' | 'rebase';
+    /**
+     * Custom commit title
+     */
+    commit_title?: string;
+    /**
+     * Custom commit message
+     */
+    commit_message?: string;
+};
+
+export type ClosePrBody = {
+    /**
+     * Team slug or UUID
+     */
+    team: string;
+    /**
+     * GitHub owner/org
+     */
+    owner: string;
+    /**
+     * GitHub repo name
+     */
+    repo: string;
+    /**
+     * PR number
+     */
+    number: number;
+};
+
 export type GithubPrsBackfillBody = {
     /**
      * Team slug or UUID
@@ -941,6 +1001,111 @@ export type GetApiIntegrationsGithubPrsResponses = {
 
 export type GetApiIntegrationsGithubPrsResponse = GetApiIntegrationsGithubPrsResponses[keyof GetApiIntegrationsGithubPrsResponses];
 
+export type PostApiIntegrationsGithubPrsMergeData = {
+    body: GithubMergePrRequest;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/merge';
+};
+
+export type PostApiIntegrationsGithubPrsMergeErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Task run not found
+     */
+    404: unknown;
+    /**
+     * Failed to merge PRs
+     */
+    500: unknown;
+};
+
+export type PostApiIntegrationsGithubPrsMergeResponses = {
+    /**
+     * PRs merged
+     */
+    200: GithubOpenPrResponse;
+};
+
+export type PostApiIntegrationsGithubPrsMergeResponse = PostApiIntegrationsGithubPrsMergeResponses[keyof PostApiIntegrationsGithubPrsMergeResponses];
+
+export type PutApiIntegrationsGithubPrsMergeData = {
+    body: MergePrBody;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/merge';
+};
+
+export type PutApiIntegrationsGithubPrsMergeErrors = {
+    /**
+     * Bad request or PR cannot be merged
+     */
+    400: PrActionErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * PR or installation not found
+     */
+    404: unknown;
+};
+
+export type PutApiIntegrationsGithubPrsMergeError = PutApiIntegrationsGithubPrsMergeErrors[keyof PutApiIntegrationsGithubPrsMergeErrors];
+
+export type PutApiIntegrationsGithubPrsMergeResponses = {
+    /**
+     * PR merged successfully
+     */
+    200: PrActionSuccessResponse;
+};
+
+export type PutApiIntegrationsGithubPrsMergeResponse = PutApiIntegrationsGithubPrsMergeResponses[keyof PutApiIntegrationsGithubPrsMergeResponses];
+
+export type PatchApiIntegrationsGithubPrsCloseData = {
+    body: ClosePrBody;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/close';
+};
+
+export type PatchApiIntegrationsGithubPrsCloseErrors = {
+    /**
+     * Bad request
+     */
+    400: PrActionErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * PR or installation not found
+     */
+    404: unknown;
+};
+
+export type PatchApiIntegrationsGithubPrsCloseError = PatchApiIntegrationsGithubPrsCloseErrors[keyof PatchApiIntegrationsGithubPrsCloseErrors];
+
+export type PatchApiIntegrationsGithubPrsCloseResponses = {
+    /**
+     * PR closed successfully
+     */
+    200: PrActionSuccessResponse;
+};
+
+export type PatchApiIntegrationsGithubPrsCloseResponse = PatchApiIntegrationsGithubPrsCloseResponses[keyof PatchApiIntegrationsGithubPrsCloseResponses];
+
 export type PostApiIntegrationsGithubPrsBackfillData = {
     body: GithubPrsBackfillBody;
     path?: never;
@@ -1105,45 +1270,6 @@ export type PostApiIntegrationsGithubPrsOpenResponses = {
 };
 
 export type PostApiIntegrationsGithubPrsOpenResponse = PostApiIntegrationsGithubPrsOpenResponses[keyof PostApiIntegrationsGithubPrsOpenResponses];
-
-export type PostApiIntegrationsGithubPrsMergeData = {
-    body: GithubMergePrRequest;
-    path?: never;
-    query?: never;
-    url: '/api/integrations/github/prs/merge';
-};
-
-export type PostApiIntegrationsGithubPrsMergeErrors = {
-    /**
-     * Invalid request
-     */
-    400: unknown;
-    /**
-     * Unauthorized
-     */
-    401: unknown;
-    /**
-     * Forbidden
-     */
-    403: unknown;
-    /**
-     * Task run not found
-     */
-    404: unknown;
-    /**
-     * Failed to merge PRs
-     */
-    500: unknown;
-};
-
-export type PostApiIntegrationsGithubPrsMergeResponses = {
-    /**
-     * PRs merged
-     */
-    200: GithubOpenPrResponse;
-};
-
-export type PostApiIntegrationsGithubPrsMergeResponse = PostApiIntegrationsGithubPrsMergeResponses[keyof PostApiIntegrationsGithubPrsMergeResponses];
 
 export type GetApiIntegrationsGithubPrsRawData = {
     body?: never;
