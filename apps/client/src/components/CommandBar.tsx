@@ -22,6 +22,7 @@ import {
   Settings,
   Sun,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -68,6 +69,134 @@ type TeamCommandItem = {
   keywords: string[];
 };
 
+type CommandAccessoryConfig = {
+  text: string;
+  className?: string;
+};
+
+type CommandItemConfig = {
+  key: string;
+  value: string;
+  executeValue?: string;
+  dataValue?: string;
+  label: string;
+  labelClassName?: string;
+  icon?: LucideIcon;
+  iconClassName?: string;
+  keywords?: string[];
+  disabled?: boolean;
+  interactive?: boolean;
+  className?: string;
+  leadingAccessory?: CommandAccessoryConfig;
+  trailingAccessory?: CommandAccessoryConfig;
+};
+
+type CommandGroupConfig = {
+  id: string;
+  label: string;
+  items: CommandItemConfig[];
+};
+
+const COMMAND_PAGE_IDS = {
+  root: "root",
+  teams: "teams",
+} as const;
+
+type CommandPageId = (typeof COMMAND_PAGE_IDS)[keyof typeof COMMAND_PAGE_IDS];
+
+type CommandPageConfig = {
+  id: CommandPageId;
+  emptyMessage: string;
+  groups: CommandGroupConfig[];
+};
+
+const DEFAULT_COMMAND_PAGE_ID: CommandPageId = COMMAND_PAGE_IDS.root;
+
+const combineClasses = (...classes: Array<string | undefined>) =>
+  classes.filter(Boolean).join(" ");
+
+const commandGroupHeadingClass =
+  "px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400";
+
+const interactiveItemBaseClass =
+  "flex items-center px-3 py-2.5 mx-1 rounded-md cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800 data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100";
+
+const nonInteractiveItemBaseClass =
+  "flex items-center px-3 py-2.5 mx-1 rounded-md cursor-default";
+
+const leadingAccessoryBaseClass =
+  "flex items-center justify-center rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600";
+
+const trailingAccessoryBaseClass = "text-xs px-2 py-0.5 rounded-full";
+
+const completedTaskStatusClass =
+  "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400";
+const inProgressTaskStatusClass =
+  "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400";
+const currentTeamBadgeClass =
+  "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400";
+
+const defaultItemSpacingClass = "gap-2";
+const teamItemSpacingClass = "gap-3";
+const taskItemSpacingClass = "gap-3 group";
+const passiveItemSpacingClass = "gap-3";
+
+const defaultIconClass = "h-4 w-4 text-neutral-500";
+const defaultLabelClass = "text-sm";
+const truncatedLabelClass = "flex-1 truncate text-sm";
+
+function renderCommandItem(
+  item: CommandItemConfig,
+  onSelect: (value: string) => void,
+) {
+  const Icon = item.icon;
+  const baseClassName =
+    item.interactive === false ? nonInteractiveItemBaseClass : interactiveItemBaseClass;
+  const className = combineClasses(baseClassName, item.className);
+  const labelClassName = item.labelClassName ?? defaultLabelClass;
+  const onSelectHandler =
+    item.interactive === false
+      ? undefined
+      : () => onSelect(item.executeValue ?? item.value);
+
+  return (
+    <Command.Item
+      key={item.key}
+      value={item.value}
+      data-value={item.dataValue}
+      keywords={item.keywords}
+      disabled={item.disabled}
+      onSelect={onSelectHandler}
+      className={className}
+    >
+      {item.leadingAccessory ? (
+        <span
+          className={combineClasses(
+            leadingAccessoryBaseClass,
+            item.leadingAccessory.className,
+          )}
+        >
+          {item.leadingAccessory.text}
+        </span>
+      ) : null}
+      {Icon ? (
+        <Icon className={item.iconClassName ?? defaultIconClass} />
+      ) : null}
+      <span className={labelClassName}>{item.label}</span>
+      {item.trailingAccessory ? (
+        <span
+          className={combineClasses(
+            trailingAccessoryBaseClass,
+            item.trailingAccessory.className,
+          )}
+        >
+          {item.trailingAccessory.text}
+        </span>
+      ) : null}
+    </Command.Item>
+  );
+}
+
 function CommandHighlightListener({
   onHighlight,
 }: {
@@ -97,7 +226,9 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [openedWithShift, setOpenedWithShift] = useState(false);
-  const [activePage, setActivePage] = useState<"root" | "teams">("root");
+  const [activePage, setActivePage] = useState<CommandPageId>(
+    DEFAULT_COMMAND_PAGE_ID,
+  );
   const openRef = useRef<boolean>(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Used only in non-Electron fallback
@@ -121,7 +252,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
     setOpen(false);
     setSearch("");
     setOpenedWithShift(false);
-    setActivePage("root");
+    setActivePage(COMMAND_PAGE_IDS.root);
   }, [setOpen, setSearch, setOpenedWithShift, setActivePage]);
 
   const stackUser = useUser({ or: "return-null" });
@@ -201,7 +332,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
       const off = window.cmux.on("shortcut:cmd-k", () => {
         // Only handle Cmd+K (no shift/ctrl variations)
         setOpenedWithShift(false);
-        setActivePage("root");
+        setActivePage(COMMAND_PAGE_IDS.root);
         if (openRef.current) {
           // About to CLOSE via toggle: normalize state like Esc path
           setSearch("");
@@ -226,12 +357,11 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
         !e.ctrlKey
       ) {
         e.preventDefault();
-        setActivePage("root");
+        setActivePage(COMMAND_PAGE_IDS.root);
+        setOpenedWithShift(false);
         if (openRef.current) {
-          setOpenedWithShift(false);
           setSearch("");
         } else {
-          setOpenedWithShift(false);
           // Capture the currently focused element before opening (web only)
           prevFocusedElRef.current =
             document.activeElement as HTMLElement | null;
@@ -380,7 +510,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
   const handleSelect = useCallback(
     async (value: string) => {
       if (value === "teams:switch") {
-        setActivePage("teams");
+        setActivePage(COMMAND_PAGE_IDS.teams);
         setSearch("");
         return;
       } else if (value === "new-task") {
@@ -562,6 +692,291 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
     ],
   );
 
+  const rootCommandGroups = useMemo<CommandGroupConfig[]>(() => {
+    const groups: CommandGroupConfig[] = [
+      {
+        id: "actions",
+        label: "Actions",
+        items: [
+          {
+            key: "new-task",
+            value: "new-task",
+            label: "New Task",
+            icon: Plus,
+            className: defaultItemSpacingClass,
+          },
+          {
+            key: "pull-requests",
+            value: "pull-requests",
+            label: "Pull Requests",
+            icon: GitPullRequest,
+            className: defaultItemSpacingClass,
+          },
+        ],
+      },
+      {
+        id: "navigation",
+        label: "Navigation",
+        items: [
+          {
+            key: "home",
+            value: "home",
+            label: "Home",
+            icon: Home,
+            className: defaultItemSpacingClass,
+          },
+          {
+            key: "environments",
+            value: "environments",
+            label: "Environments",
+            icon: Server,
+            className: defaultItemSpacingClass,
+          },
+          {
+            key: "settings",
+            value: "settings",
+            label: "Settings",
+            icon: Settings,
+            className: defaultItemSpacingClass,
+          },
+        ],
+      },
+      {
+        id: "teams",
+        label: "Teams",
+        items: [
+          {
+            key: "teams-switch",
+            value: "teams:switch",
+            label: "Switch team",
+            icon: Users,
+            className: teamItemSpacingClass,
+            labelClassName: truncatedLabelClass,
+            keywords: ["team", "teams", "switch"],
+          },
+        ],
+      },
+      {
+        id: "theme",
+        label: "Theme",
+        items: [
+          {
+            key: "theme-light",
+            value: "theme-light",
+            label: "Light Mode",
+            icon: Sun,
+            iconClassName: "h-4 w-4 text-amber-500",
+            className: defaultItemSpacingClass,
+          },
+          {
+            key: "theme-dark",
+            value: "theme-dark",
+            label: "Dark Mode",
+            icon: Moon,
+            iconClassName: "h-4 w-4 text-blue-500",
+            className: defaultItemSpacingClass,
+          },
+          {
+            key: "theme-system",
+            value: "theme-system",
+            label: "System Theme",
+            icon: Monitor,
+            className: defaultItemSpacingClass,
+          },
+        ],
+      },
+    ];
+
+    if (stackUser) {
+      groups.push({
+        id: "account",
+        label: "Account",
+        items: [
+          {
+            key: "sign-out",
+            value: "sign-out",
+            label: "Sign out",
+            icon: LogOut,
+            className: defaultItemSpacingClass,
+          },
+        ],
+      });
+    }
+
+    const tasks = (allTasks ?? []).slice(0, 9);
+    if (tasks.length > 0) {
+      const taskItems = tasks.flatMap((task, index): CommandItemConfig[] => {
+        const position = index + 1;
+        const label = task.pullRequestTitle || task.text;
+        const statusText = task.isCompleted ? "completed" : "in progress";
+        const statusClass = task.isCompleted
+          ? completedTaskStatusClass
+          : inProgressTaskStatusClass;
+        const baseKeywords = [`${position}`, `${task._id}`];
+
+        const itemsForTask: CommandItemConfig[] = [
+          {
+            key: `task-${task._id}`,
+            value: `task:${task._id}`,
+            label,
+            className: taskItemSpacingClass,
+            labelClassName: truncatedLabelClass,
+            keywords: baseKeywords,
+            leadingAccessory: {
+              text: `${position}`,
+              className: "h-5 w-5",
+            },
+            trailingAccessory: {
+              text: statusText,
+              className: statusClass,
+            },
+          },
+        ];
+
+        const run = task.selectedTaskRun;
+        if (run?._id) {
+          const extendedKeywords = [...baseKeywords, "vs", "vscode"];
+          itemsForTask.push({
+            key: `task-${task._id}-vs`,
+            value: `task:${task._id}:vs`,
+            label,
+            className: taskItemSpacingClass,
+            labelClassName: truncatedLabelClass,
+            keywords: extendedKeywords,
+            leadingAccessory: {
+              text: `${position} VS`,
+              className: "h-5 w-8",
+            },
+            trailingAccessory: {
+              text: statusText,
+              className: statusClass,
+            },
+          });
+
+          itemsForTask.push({
+            key: `task-${task._id}-gitdiff`,
+            value: `task:${task._id}:gitdiff`,
+            label,
+            className: taskItemSpacingClass,
+            labelClassName: truncatedLabelClass,
+            keywords: [...baseKeywords, "git", "diff"],
+            leadingAccessory: {
+              text: `${position} git diff`,
+              className: "h-5 px-2",
+            },
+            trailingAccessory: {
+              text: statusText,
+              className: statusClass,
+            },
+          });
+        }
+
+        return itemsForTask;
+      });
+
+      groups.push({
+        id: "tasks",
+        label: "Tasks",
+        items: taskItems,
+      });
+    }
+
+    if (isElectron) {
+      groups.push({
+        id: "desktop",
+        label: "Desktop",
+        items: [
+          {
+            key: "updates:check",
+            value: "updates:check",
+            label: "Check for Updates",
+            icon: RefreshCw,
+            className: defaultItemSpacingClass,
+          },
+        ],
+      });
+    }
+
+    return groups;
+  }, [stackUser, allTasks]);
+
+  const teamsCommandGroup = useMemo<CommandGroupConfig>(() => {
+    if (isTeamsLoading) {
+      return {
+        id: "teams-loading",
+        label: "Teams",
+        items: [
+          {
+            key: "teams-loading",
+            value: "teams:loading",
+            label: "Loading teams…",
+            className: combineClasses(
+              passiveItemSpacingClass,
+              "text-sm text-neutral-500 dark:text-neutral-400",
+            ),
+            interactive: false,
+            disabled: true,
+          },
+        ],
+      };
+    }
+
+    if (teamCommandItems.length > 0) {
+      return {
+        id: "teams-list",
+        label: "Teams",
+        items: teamCommandItems.map((item): CommandItemConfig => ({
+          key: `team-${item.id}`,
+          value: `team:${item.id}:${item.teamSlugOrId}`,
+          label: item.label,
+          icon: Users,
+          className: teamItemSpacingClass,
+          labelClassName: truncatedLabelClass,
+          keywords: item.keywords,
+          trailingAccessory: item.isCurrent
+            ? { text: "current", className: currentTeamBadgeClass }
+            : undefined,
+        })),
+      };
+    }
+
+    return {
+      id: "teams-empty",
+      label: "Teams",
+      items: [
+        {
+          key: "teams-empty",
+          value: "teams:none",
+          label: teamPageEmptyMessage,
+          className: combineClasses(
+            passiveItemSpacingClass,
+            "text-sm text-neutral-500 dark:text-neutral-400",
+          ),
+          interactive: false,
+          disabled: true,
+        },
+      ],
+    };
+  }, [isTeamsLoading, teamCommandItems, teamPageEmptyMessage]);
+
+  const commandPages = useMemo<Record<CommandPageId, CommandPageConfig>>(
+    () => ({
+      [COMMAND_PAGE_IDS.root]: {
+        id: COMMAND_PAGE_IDS.root,
+        emptyMessage: "No results found.",
+        groups: rootCommandGroups,
+      },
+      [COMMAND_PAGE_IDS.teams]: {
+        id: COMMAND_PAGE_IDS.teams,
+        emptyMessage: teamPageEmptyMessage,
+        groups: [teamsCommandGroup],
+      },
+    }),
+    [rootCommandGroups, teamPageEmptyMessage, teamsCommandGroup],
+  );
+
+  const activePageConfig = commandPages[activePage];
+
   if (!open) return null;
 
   return (
@@ -576,7 +991,7 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
           if (!nextOpen) {
             closeCommand();
           } else {
-            setActivePage("root");
+            setActivePage(COMMAND_PAGE_IDS.root);
             setOpen(true);
           }
         }}
@@ -590,13 +1005,13 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
             closeCommand();
           } else if (
             e.key === "Backspace" &&
-            activePage === "teams" &&
+            activePage === COMMAND_PAGE_IDS.teams &&
             search.length === 0 &&
             inputRef.current &&
             e.target === inputRef.current
           ) {
             e.preventDefault();
-            setActivePage("root");
+            setActivePage(COMMAND_PAGE_IDS.root);
           }
         }}
         defaultValue={openedWithShift ? "new-task" : undefined}
@@ -614,344 +1029,20 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
           <CommandHighlightListener onHighlight={handleHighlight} />
           <Command.List className="max-h-[400px] overflow-y-auto px-1 pb-2 flex flex-col gap-2">
             <Command.Empty className="py-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
-              {activePage === "teams"
-                ? "No matching teams."
-                : "No results found."}
+              {activePageConfig?.emptyMessage ?? "No results found."}
             </Command.Empty>
 
-            {activePage === "root" ? (
-              <>
-                <Command.Group>
-                  <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Actions
-                  </div>
-                  <Command.Item
-                    value="new-task"
-                    onSelect={() => handleSelect("new-task")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Plus className="h-4 w-4 text-neutral-500" />
-                    <span className="text-sm">New Task</span>
-                  </Command.Item>
-                  <Command.Item
-                    value="pull-requests"
-                    onSelect={() => handleSelect("pull-requests")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <GitPullRequest className="h-4 w-4 text-neutral-500" />
-                    <span className="text-sm">Pull Requests</span>
-                  </Command.Item>
-                </Command.Group>
-
-                <Command.Group>
-                  <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Navigation
-                  </div>
-                  <Command.Item
-                    value="home"
-                    onSelect={() => handleSelect("home")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Home className="h-4 w-4 text-neutral-500" />
-                    <span className="text-sm">Home</span>
-                  </Command.Item>
-                  <Command.Item
-                    value="environments"
-                    onSelect={() => handleSelect("environments")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Server className="h-4 w-4 text-neutral-500" />
-                    <span className="text-sm">Environments</span>
-                  </Command.Item>
-                  <Command.Item
-                    value="settings"
-                    onSelect={() => handleSelect("settings")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Settings className="h-4 w-4 text-neutral-500" />
-                    <span className="text-sm">Settings</span>
-                  </Command.Item>
-                </Command.Group>
-
-                <Command.Group>
-                  <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Teams
-                  </div>
-                  <Command.Item
-                    value="teams:switch"
-                    onSelect={() => handleSelect("teams:switch")}
-                    keywords={["team", "teams", "switch"]}
-                    className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Users className="h-4 w-4 text-neutral-500" />
-                    <span className="flex-1 truncate text-sm">Switch team</span>
-                  </Command.Item>
-                </Command.Group>
-
-                <Command.Group>
-                  <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Theme
-                  </div>
-                  <Command.Item
-                    value="theme-light"
-                    onSelect={() => handleSelect("theme-light")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer                 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Sun className="h-4 w-4 text-amber-500" />
-                    <span className="text-sm">Light Mode</span>
-                  </Command.Item>
-                  <Command.Item
-                    value="theme-dark"
-                    onSelect={() => handleSelect("theme-dark")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer                 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Moon className="h-4 w-4 text-blue-500" />
-                    <span className="text-sm">Dark Mode</span>
-                  </Command.Item>
-                  <Command.Item
-                    value="theme-system"
-                    onSelect={() => handleSelect("theme-system")}
-                    className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer                 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                  >
-                    <Monitor className="h-4 w-4 text-neutral-500" />
-                    <span className="text-sm">System Theme</span>
-                  </Command.Item>
-                </Command.Group>
-
-                {stackUser ? (
-                  <Command.Group>
-                    <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                      Account
-                    </div>
-                    <Command.Item
-                      value="sign-out"
-                      onSelect={() => handleSelect("sign-out")}
-                      className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                    >
-                      <LogOut className="h-4 w-4 text-neutral-500" />
-                      <span className="text-sm">Sign out</span>
-                    </Command.Item>
-                  </Command.Group>
-                ) : null}
-
-                {allTasks && allTasks.length > 0 && (
-                  <Command.Group>
-                    <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                      Tasks
-                    </div>
-                    {allTasks.slice(0, 9).flatMap((task, index) => {
-                      const run = task.selectedTaskRun;
-                      const items = [
-                        <Command.Item
-                          key={task._id}
-                          value={`${index + 1}:task:${task._id}`}
-                          onSelect={() => handleSelect(`task:${task._id}`)}
-                          data-value={`task:${task._id}`}
-                          className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800
-                    data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                    data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100
-                    group"
-                        >
-                          <span
-                            className="flex h-5 w-5 items-center justify-center rounded text-xs font-semibold
-                    bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300
-                    group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600"
-                          >
-                            {index + 1}
-                          </span>
-                          <span className="flex-1 truncate text-sm">
-                            {task.pullRequestTitle || task.text}
-                          </span>
-                          {task.isCompleted ? (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                              completed
-                            </span>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                              in progress
-                            </span>
-                          )}
-                        </Command.Item>,
-                      ];
-
-                      if (run) {
-                        items.push(
-                          <Command.Item
-                            key={`${task._id}-vs-${run._id}`}
-                            value={`${index + 1} vs:task:${task._id}`}
-                            onSelect={() => handleSelect(`task:${task._id}:vs`)}
-                            data-value={`task:${task._id}:vs`}
-                            className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800
-                    data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                    data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100
-                    group"
-                          >
-                            <span
-                              className="flex h-5 w-8 items-center justify-center rounded text-xs font-semibold
-                    bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300
-                    group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600"
-                            >
-                              {index + 1} VS
-                            </span>
-                            <span className="flex-1 truncate text-sm">
-                              {task.pullRequestTitle || task.text}
-                            </span>
-                            {task.isCompleted ? (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                                completed
-                              </span>
-                            ) : (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                                in progress
-                              </span>
-                            )}
-                          </Command.Item>,
-                        );
-
-                        items.push(
-                          <Command.Item
-                            key={`${task._id}-gitdiff-${run._id}`}
-                            value={`${index + 1} git diff:task:${task._id}`}
-                            onSelect={() =>
-                              handleSelect(`task:${task._id}:gitdiff`)
-                            }
-                            data-value={`task:${task._id}:gitdiff`}
-                            className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer                     hover:bg-neutral-100 dark:hover:bg-neutral-800
-                    data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                    data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100
-                    group"
-                          >
-                            <span
-                              className="flex h-5 px-2 items-center justify-center rounded text-xs font-semibold
-                    bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300
-                    group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600"
-                            >
-                              {index + 1} git diff
-                            </span>
-                            <span className="flex-1 truncate text-sm">
-                              {task.pullRequestTitle || task.text}
-                            </span>
-                            {task.isCompleted ? (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                                completed
-                              </span>
-                            ) : (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                                in progress
-                              </span>
-                            )}
-                          </Command.Item>,
-                        );
-                      }
-
-                      return items;
-                    })}
-                  </Command.Group>
+            {activePageConfig?.groups.map((group) => (
+              <Command.Group key={group.id}>
+                <div className={commandGroupHeadingClass}>{group.label}</div>
+                {group.items.map((item) =>
+                  renderCommandItem(item, handleSelect),
                 )}
+              </Command.Group>
+            ))}
 
-                {isElectron ? (
-                  <>
-                    <Command.Group>
-                      <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                        Desktop
-                      </div>
-                      <Command.Item
-                        value="updates:check"
-                        onSelect={() => handleSelect("updates:check")}
-                        className="flex items-center gap-2 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                      >
-                        <RefreshCw className="h-4 w-4 text-neutral-500" />
-                        <span className="text-sm">Check for Updates</span>
-                      </Command.Item>
-                    </Command.Group>
-
-                    <ElectronLogsCommandItems onSelect={handleSelect} />
-                  </>
-                ) : null}
-              </>
-            ) : null}
-
-            {activePage === "teams" ? (
-              <>
-                <Command.Group>
-                  <div className="px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Teams
-                  </div>
-                  {isTeamsLoading ? (
-                    <Command.Item
-                      value="teams:loading"
-                      disabled
-                      className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-default text-sm text-neutral-500 dark:text-neutral-400"
-                    >
-                      Loading teams…
-                    </Command.Item>
-                  ) : teamCommandItems.length > 0 ? (
-                    teamCommandItems.map((item) => (
-                      <Command.Item
-                        key={item.id}
-                        value={`team:${item.id}:${item.teamSlugOrId}`}
-                        data-value={`team:${item.id}:${item.teamSlugOrId}`}
-                        keywords={item.keywords}
-                        onSelect={() =>
-                          handleSelect(`team:${item.id}:${item.teamSlugOrId}`)
-                        }
-                        className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-pointer
-                hover:bg-neutral-100 dark:hover:bg-neutral-800
-                data-[selected=true]:bg-neutral-100 dark:data-[selected=true]:bg-neutral-800
-                data-[selected=true]:text-neutral-900 dark:data-[selected=true]:text-neutral-100"
-                      >
-                        <Users className="h-4 w-4 text-neutral-500" />
-                        <span className="flex-1 truncate text-sm">
-                          {item.label}
-                        </span>
-                        {item.isCurrent ? (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                            current
-                          </span>
-                        ) : null}
-                      </Command.Item>
-                    ))
-                  ) : (
-                    <Command.Item
-                      value="teams:none"
-                      disabled
-                      className="flex items-center gap-3 px-3 py-2.5 mx-1 rounded-md cursor-default text-sm text-neutral-500 dark:text-neutral-400"
-                    >
-                      {teamPageEmptyMessage}
-                    </Command.Item>
-                  )}
-                </Command.Group>
-              </>
+            {activePage === COMMAND_PAGE_IDS.root && isElectron ? (
+              <ElectronLogsCommandItems onSelect={handleSelect} />
             ) : null}
           </Command.List>
         </div>
