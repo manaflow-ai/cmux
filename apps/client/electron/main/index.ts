@@ -509,6 +509,18 @@ function createWindow(): void {
 
   mainWindow = new BrowserWindow(windowOptions);
 
+  if (process.platform === "darwin") {
+    const ensureTrafficLightsVisible = () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setWindowButtonVisibility(true);
+      }
+    };
+
+    ensureTrafficLightsVisible();
+    mainWindow.on("focus", ensureTrafficLightsVisible);
+    mainWindow.on("blur", ensureTrafficLightsVisible);
+  }
+
   // Capture renderer console output into renderer.log
   mainWindow.webContents.on(
     "console-message",
