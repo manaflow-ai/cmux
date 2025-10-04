@@ -4,6 +4,7 @@ import Docker from "dockerode";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getDockerSocketCandidates } from "@cmux/shared/providers/common/check-docker";
 import { getConvex } from "../utils/convexClient";
 import { cleanupGitCredentials } from "../utils/dockerGitSetup";
 import { dockerLogger } from "../utils/fileLogger";
@@ -52,13 +53,16 @@ export class DockerVSCodeInstance extends VSCodeInstance {
   private static readonly PORT_CACHE_DURATION = 2000; // 2 seconds
   private static eventsStream: NodeJS.ReadableStream | null = null;
   private static dockerInstance: Docker | null = null;
+  private static eventStreamRetryTimer: NodeJS.Timeout | null = null;
+  private static eventStreamBackoffMs = 1000;
 
   // Get or create the Docker singleton
   static getDocker(): Docker {
     if (!DockerVSCodeInstance.dockerInstance) {
-      DockerVSCodeInstance.dockerInstance = new Docker({
-        socketPath: "/var/run/docker.sock",
-      });
+      const socketPath = DockerVSCodeInstance.getDockerSocketPath();
+      DockerVSCodeInstance.dockerInstance = socketPath
+        ? new Docker({ socketPath })
+        : new Docker();
     }
     return DockerVSCodeInstance.dockerInstance;
   }
@@ -1081,51 +1085,53 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
   // Static method to stop the container state sync
   static stopContainerStateSync(): void {
-    if (DockerVSCodeInstance.eventsStream) {
-      try {
-        if (DockerVSCodeInstance.eventsStream) {
-          if (
-            "removeAllListeners" in DockerVSCodeInstance.eventsStream &&
-            typeof DockerVSCodeInstance.eventsStream.removeAllListeners ===
-              "function"
-          ) {
-            DockerVSCodeInstance.eventsStream.removeAllListeners();
-          }
-          if (
-            "destroy" in DockerVSCodeInstance.eventsStream &&
-            typeof DockerVSCodeInstance.eventsStream.destroy === "function"
-          ) {
-            DockerVSCodeInstance.eventsStream.destroy();
-          }
-        }
-      } catch {
-        // ignore
-      }
-      DockerVSCodeInstance.eventsStream = null;
-    }
+    DockerVSCodeInstance.clearEventStreamRetryTimer();
+    DockerVSCodeInstance.closeEventStream();
   }
 
   private static syncDockerContainerStates(): void {
     dockerLogger.info("Starting docker event stream for container state sync");
-    DockerVSCodeInstance.startDockerodeEventStream();
+    void DockerVSCodeInstance.startDockerodeEventStream();
   }
 
   // Try to stream events using the Docker socket (no CLI dependency)
-  private static startDockerodeEventStream() {
+  private static async startDockerodeEventStream(
+    retryDelayMs = 1000
+  ): Promise<void> {
+    if (DockerVSCodeInstance.eventsStream) {
+      return;
+    }
+
+    DockerVSCodeInstance.clearEventStreamRetryTimer();
+    DockerVSCodeInstance.eventStreamBackoffMs = retryDelayMs;
+
+    const socketPath = DockerVSCodeInstance.getDockerSocketPath();
+    if (socketPath && !fs.existsSync(socketPath)) {
+      DockerVSCodeInstance.scheduleEventStreamRestart(
+        `Docker socket not found at ${socketPath}`
+      );
+      return;
+    }
+
     try {
       const docker = DockerVSCodeInstance.getDocker();
       docker.getEvents({}, (err, stream) => {
         if (err) {
-          dockerLogger.error("[docker events] Socket stream error:", err);
-          return;
-        }
-        if (!stream) {
-          dockerLogger.error(
-            "[docker events] No stream returned by docker.getEvents"
+          DockerVSCodeInstance.scheduleEventStreamRestart(
+            "Failed to attach to docker events stream",
+            err
           );
           return;
         }
+        if (!stream) {
+          DockerVSCodeInstance.scheduleEventStreamRestart(
+            "No stream returned by docker.getEvents"
+          );
+          return;
+        }
+
         DockerVSCodeInstance.eventsStream = stream;
+        DockerVSCodeInstance.eventStreamBackoffMs = 1000;
 
         let buffer = "";
         stream.on("data", (chunk: Buffer | string) => {
@@ -1149,19 +1155,122 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         });
 
         stream.on("error", (e) => {
-          dockerLogger.error("[docker events] Socket stream error:", e);
+          DockerVSCodeInstance.logEventStreamError(
+            "Socket stream error",
+            e
+          );
+          DockerVSCodeInstance.closeEventStream();
+          DockerVSCodeInstance.scheduleEventStreamRestart(
+            "Socket stream error",
+            e
+          );
         });
 
         stream.on("close", () => {
           dockerLogger.info("docker socket events stream closed");
+          DockerVSCodeInstance.closeEventStream();
+          DockerVSCodeInstance.scheduleEventStreamRestart(
+            "Docker socket events stream closed"
+          );
         });
       });
     } catch (e) {
-      dockerLogger.error(
-        "[docker events] Unable to start Dockerode event stream:",
+      DockerVSCodeInstance.scheduleEventStreamRestart(
+        "Unable to start Dockerode event stream",
         e
       );
     }
+  }
+
+  private static logEventStreamError(message: string, error: unknown): void {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    const isConnectionReset =
+      code === "ECONNRESET" ||
+      (error instanceof Error && error.message.includes("aborted"));
+
+    if (isConnectionReset) {
+      dockerLogger.warn(`[docker events] ${message}:`, error);
+      return;
+    }
+
+    dockerLogger.error(`[docker events] ${message}:`, error);
+  }
+
+  private static clearEventStreamRetryTimer(): void {
+    if (DockerVSCodeInstance.eventStreamRetryTimer) {
+      clearTimeout(DockerVSCodeInstance.eventStreamRetryTimer);
+      DockerVSCodeInstance.eventStreamRetryTimer = null;
+    }
+  }
+
+  private static scheduleEventStreamRestart(
+    reason: string,
+    error?: unknown
+  ): void {
+    const delay = Math.min(
+      Math.max(DockerVSCodeInstance.eventStreamBackoffMs, 500),
+      30_000
+    );
+    DockerVSCodeInstance.eventStreamBackoffMs = Math.min(delay * 2, 30_000);
+
+    if (error) {
+      DockerVSCodeInstance.logEventStreamError(
+        `${reason}. Retrying in ${delay}ms`,
+        error
+      );
+    } else {
+      dockerLogger.warn(`[docker events] ${reason}. Retrying in ${delay}ms`);
+    }
+
+    DockerVSCodeInstance.clearEventStreamRetryTimer();
+    DockerVSCodeInstance.eventStreamRetryTimer = setTimeout(() => {
+      DockerVSCodeInstance.eventStreamRetryTimer = null;
+      void DockerVSCodeInstance.startDockerodeEventStream(
+        DockerVSCodeInstance.eventStreamBackoffMs
+      );
+    }, delay);
+  }
+
+  private static closeEventStream(): void {
+    if (!DockerVSCodeInstance.eventsStream) {
+      return;
+    }
+
+    try {
+      const stream = DockerVSCodeInstance.eventsStream;
+      if (
+        stream &&
+        "removeAllListeners" in stream &&
+        typeof stream.removeAllListeners === "function"
+      ) {
+        stream.removeAllListeners();
+      }
+      if (stream && "destroy" in stream && typeof stream.destroy === "function") {
+        stream.destroy();
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+
+    DockerVSCodeInstance.eventsStream = null;
+  }
+
+  private static getDockerSocketPath(): string | null {
+    const { remoteHost, candidates } = getDockerSocketCandidates();
+    if (remoteHost) {
+      return null;
+    }
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return candidates[0] ?? null;
   }
 
   private static async handleDockerEvent(event: DockerEvent): Promise<void> {

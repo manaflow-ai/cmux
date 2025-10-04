@@ -73,6 +73,10 @@
     "./pull-request-state": {
       "import": "./src/pull-request-state.ts",
       "types": "./src/pull-request-state.ts"
+    },
+    "./providers/common/check-docker": {
+      "import": "./src/providers/common/check-docker.ts",
+      "types": "./src/providers/common/check-docker.ts"
     }
   },
   "dependencies": {

@@ -310,7 +310,9 @@ export function setupSocketHandlers(
         // For local mode, ensure Docker is running before attempting to spawn
         if (!taskData.isCloudMode) {
           try {
-            const { checkDockerStatus } = await import("@cmux/shared");
+            const { checkDockerStatus } = await import(
+              "@cmux/shared/providers/common/check-docker"
+            );
             const docker = await checkDockerStatus();
             if (!docker.isRunning) {
               callback({

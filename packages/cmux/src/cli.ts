@@ -89,7 +89,7 @@ program
   )
   .action(async (repoPath, options) => {
     // Ensure Docker is installed and the daemon is running before proceeding
-    const dockerStatus = checkDockerStatus();
+    const dockerStatus = await checkDockerStatus();
     if (dockerStatus !== "ok") {
       const isMac = process.platform === "darwin";
       if (dockerStatus === "not_installed") {

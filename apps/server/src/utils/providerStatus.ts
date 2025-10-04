@@ -1,11 +1,11 @@
 import { api } from "@cmux/convex/api";
 import {
   AGENT_CONFIGS,
-  checkDockerStatus,
   type DockerStatus,
   type ProviderRequirementsContext,
   type ProviderStatus as SharedProviderStatus,
 } from "@cmux/shared";
+import { checkDockerStatus } from "@cmux/shared/providers/common/check-docker";
 import { getConvex } from "./convexClient.js";
 
 type CheckAllProvidersStatusOptions = {
