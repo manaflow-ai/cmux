@@ -4,6 +4,7 @@ import type {
   PullRequestEvent,
   PushEvent,
   WebhookEvent,
+  WorkflowRunEvent,
 } from "@octokit/webhooks-types";
 import { env } from "../_shared/convex-env";
 import { hmacSha256, safeEqualHex, sha256Hex } from "../_shared/crypto";
@@ -19,7 +20,7 @@ const DEBUG_FLAGS = {
 async function verifySignature(
   secret: string,
   payload: string,
-  signatureHeader: string | null
+  signatureHeader: string | null,
 ): Promise<boolean> {
   if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
   const expectedHex = signatureHeader.slice("sha256=".length).toLowerCase();
@@ -31,7 +32,7 @@ async function verifySignature(
 const MILLIS_THRESHOLD = 1_000_000_000_000;
 
 function normalizeTimestamp(
-  value: number | string | null | undefined
+  value: number | string | null | undefined,
 ): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "number") {
@@ -110,7 +111,7 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
                 accountId: Number(account.id ?? 0),
                 accountType:
                   account.type === "Organization" ? "Organization" : "User",
-              }
+              },
             );
           }
         } else if (action === "deleted") {
@@ -119,7 +120,7 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
               internal.github_app.deactivateProviderConnection,
               {
                 installationId,
-              }
+              },
             );
           }
         }
@@ -205,11 +206,45 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
       case "pull_request_review":
       case "pull_request_review_comment":
       case "issue_comment":
+      case "workflow_run": {
+        try {
+          const workflowRunPayload = body as WorkflowRunEvent;
+          const repoFullName = String(
+            workflowRunPayload.repository?.full_name ?? "",
+          );
+          const installation = Number(workflowRunPayload.installation?.id ?? 0);
+          if (!repoFullName || !installation) break;
+          const conn = await _ctx.runQuery(
+            internal.github_app.getProviderConnectionByInstallationId,
+            { installationId: installation },
+          );
+          const teamId = conn?.teamId;
+          if (!teamId) break;
+          await _ctx.runMutation(
+            internal.github_workflows.upsertWorkflowRunFromWebhook,
+            {
+              installationId: installation,
+              repoFullName,
+              teamId,
+              payload: workflowRunPayload,
+            },
+          );
+        } catch (err) {
+          console.error("github_webhook workflow_run handler failed", {
+            err,
+            delivery,
+          });
+        }
+        break;
+      }
+      case "workflow_job": {
+        // For now, just acknowledge workflow_job events without processing
+        // In the future, we could track individual job details if needed
+        break;
+      }
       case "check_suite":
       case "check_run":
-      case "status":
-      case "workflow_run":
-      case "workflow_job": {
+      case "status": {
         // Acknowledge unsupported events without retries for now.
         break;
       }
@@ -221,7 +256,7 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
           if (!repoFullName || !installation) break;
           const conn = await _ctx.runQuery(
             internal.github_app.getProviderConnectionByInstallationId,
-            { installationId: installation }
+            { installationId: installation },
           );
           const teamId = conn?.teamId;
           if (!teamId) break;
@@ -247,15 +282,15 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
           if (!repoFullName || !installation) break;
           const conn = await _ctx.runQuery(
             internal.github_app.getProviderConnectionByInstallationId,
-            { installationId: installation }
+            { installationId: installation },
           );
           const teamId = conn?.teamId;
           if (!teamId) break;
           const repoPushedAt = normalizeTimestamp(
-            pushPayload.repository?.pushed_at
+            pushPayload.repository?.pushed_at,
           );
           const headCommitAt = normalizeTimestamp(
-            pushPayload.head_commit?.timestamp
+            pushPayload.head_commit?.timestamp,
           );
           const pushedAtMillis = repoPushedAt ?? headCommitAt ?? Date.now();
           const providerRepoId =
@@ -271,12 +306,15 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
               providerRepoId,
             });
           }
-          await _ctx.runMutation(internal.github.updateRepoActivityFromWebhook, {
-            teamId,
-            repoFullName,
-            pushedAt: pushedAtMillis,
-            providerRepoId,
-          });
+          await _ctx.runMutation(
+            internal.github.updateRepoActivityFromWebhook,
+            {
+              teamId,
+              repoFullName,
+              pushedAt: pushedAtMillis,
+              providerRepoId,
+            },
+          );
         } catch (err) {
           console.error("github_webhook push handler failed", {
             err,

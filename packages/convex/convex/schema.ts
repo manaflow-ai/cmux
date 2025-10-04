@@ -79,8 +79,8 @@ const convexSchema = defineSchema({
           id: v.string(),
           accountId: v.string(),
           email: v.optional(v.string()),
-        })
-      )
+        }),
+      ),
     ),
     // Anonymous flag
     isAnonymous: v.optional(v.boolean()),
@@ -116,8 +116,8 @@ const convexSchema = defineSchema({
         v.literal("pr_approved"), // PR has been approved
         v.literal("pr_changes_requested"), // PR has changes requested
         v.literal("pr_merged"), // PR has been merged
-        v.literal("pr_closed") // PR closed without merging
-      )
+        v.literal("pr_closed"), // PR closed without merging
+      ),
     ),
     images: v.optional(
       v.array(
@@ -125,8 +125,8 @@ const convexSchema = defineSchema({
           storageId: v.id("_storage"), // Convex storage ID
           fileName: v.optional(v.string()),
           altText: v.string(),
-        })
-      )
+        }),
+      ),
     ),
   })
     .index("by_created", ["createdAt"])
@@ -143,7 +143,7 @@ const convexSchema = defineSchema({
       v.literal("pending"),
       v.literal("running"),
       v.literal("completed"),
-      v.literal("failed")
+      v.literal("failed"),
     ),
     // Optional log retained for backward compatibility; no longer written to.
     log: v.optional(v.string()), // CLI output log (deprecated)
@@ -172,8 +172,8 @@ const convexSchema = defineSchema({
         v.literal("open"), // PR exists and is open/ready for review
         v.literal("merged"), // PR merged
         v.literal("closed"), // PR closed without merge
-        v.literal("unknown") // fallback/unsure
-      )
+        v.literal("unknown"), // fallback/unsure
+      ),
     ),
     pullRequestNumber: v.optional(v.number()), // Numeric PR number on provider
     pullRequests: v.optional(
@@ -188,11 +188,11 @@ const convexSchema = defineSchema({
             v.literal("open"),
             v.literal("merged"),
             v.literal("closed"),
-            v.literal("unknown")
+            v.literal("unknown"),
           ),
           isDraft: v.optional(v.boolean()),
-        })
-      )
+        }),
+      ),
     ),
     diffsLastUpdated: v.optional(v.number()), // Timestamp when diffs were last fetched/updated
     // VSCode instance information
@@ -202,20 +202,20 @@ const convexSchema = defineSchema({
           v.literal("docker"),
           v.literal("morph"),
           v.literal("daytona"),
-          v.literal("other")
+          v.literal("other"),
         ), // Extensible for future providers
         containerName: v.optional(v.string()), // For Docker provider
         status: v.union(
           v.literal("starting"),
           v.literal("running"),
-          v.literal("stopped")
+          v.literal("stopped"),
         ),
         ports: v.optional(
           v.object({
             vscode: v.string(),
             worker: v.string(),
             extension: v.optional(v.string()),
-          })
+          }),
         ),
         url: v.optional(v.string()), // The VSCode URL
         workspaceUrl: v.optional(v.string()), // The workspace URL
@@ -224,7 +224,7 @@ const convexSchema = defineSchema({
         lastAccessedAt: v.optional(v.number()), // Track when user last accessed the container
         keepAlive: v.optional(v.boolean()), // User requested to keep container running
         scheduledStopAt: v.optional(v.number()), // When container is scheduled to stop
-      })
+      }),
     ),
     networking: v.optional(
       v.array(
@@ -232,12 +232,12 @@ const convexSchema = defineSchema({
           status: v.union(
             v.literal("starting"),
             v.literal("running"),
-            v.literal("stopped")
+            v.literal("stopped"),
           ),
           port: v.number(),
           url: v.string(),
-        })
-      )
+        }),
+      ),
     ),
   })
     .index("by_task", ["taskId", "createdAt"])
@@ -259,7 +259,7 @@ const convexSchema = defineSchema({
       v.object({
         path: v.string(),
         changes: v.string(),
-      })
+      }),
     ),
   })
     .index("by_task", ["taskId", "version"])
@@ -276,7 +276,7 @@ const convexSchema = defineSchema({
     providerRepoId: v.optional(v.number()),
     ownerLogin: v.optional(v.string()),
     ownerType: v.optional(
-      v.union(v.literal("User"), v.literal("Organization"))
+      v.union(v.literal("User"), v.literal("Organization")),
     ),
     visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
     defaultBranch: v.optional(v.string()),
@@ -419,7 +419,7 @@ const convexSchema = defineSchema({
     accountLogin: v.optional(v.string()), // org or user login
     accountId: v.optional(v.number()),
     accountType: v.optional(
-      v.union(v.literal("User"), v.literal("Organization"))
+      v.union(v.literal("User"), v.literal("Organization")),
     ),
     isActive: v.optional(v.boolean()),
     createdAt: v.number(),
@@ -483,7 +483,7 @@ const convexSchema = defineSchema({
     status: v.union(
       v.literal("pending"),
       v.literal("used"),
-      v.literal("expired")
+      v.literal("expired"),
     ),
     createdAt: v.number(),
   }).index("by_nonce", ["nonce"]),
@@ -536,6 +536,79 @@ const convexSchema = defineSchema({
     .index("by_team_repo_number", ["teamId", "repoFullName", "number"]) // upsert key
     .index("by_installation", ["installationId", "updatedAt"]) // debug/ops
     .index("by_repo", ["repoFullName", "updatedAt"]),
+
+  // GitHub Actions workflow runs
+  githubWorkflowRuns: defineTable({
+    // Identity within provider and repo context
+    provider: v.literal("github"),
+    installationId: v.number(),
+    repositoryId: v.number(),
+    repoFullName: v.string(), // owner/repo
+
+    // Workflow run identity
+    runId: v.number(), // GitHub's run ID
+    runNumber: v.number(), // Run number within repo
+
+    // Team scoping
+    teamId: v.string(),
+
+    // Workflow info
+    workflowId: v.number(),
+    workflowName: v.string(),
+
+    // Run details
+    name: v.optional(v.string()), // Run name (can be custom)
+    event: v.string(), // Event that triggered the run (push, pull_request, etc.)
+    status: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("in_progress"),
+        v.literal("completed"),
+        v.literal("pending"),
+        v.literal("waiting"),
+      ),
+    ),
+    conclusion: v.optional(
+      v.union(
+        v.literal("success"),
+        v.literal("failure"),
+        v.literal("neutral"),
+        v.literal("cancelled"),
+        v.literal("skipped"),
+        v.literal("timed_out"),
+        v.literal("action_required"),
+      ),
+    ),
+
+    // Branch and commit info
+    headBranch: v.optional(v.string()),
+    headSha: v.optional(v.string()),
+
+    // URLs
+    htmlUrl: v.optional(v.string()),
+
+    // Timestamps
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    runStartedAt: v.optional(v.number()),
+    runCompletedAt: v.optional(v.number()),
+
+    // Run times (in seconds)
+    runDuration: v.optional(v.number()),
+
+    // Actor info
+    actorLogin: v.optional(v.string()),
+    actorId: v.optional(v.number()),
+
+    // Triggering PR (if applicable)
+    triggeringPrNumber: v.optional(v.number()),
+  })
+    .index("by_team", ["teamId", "updatedAt"]) // list by team, recent first
+    .index("by_team_repo", ["teamId", "repoFullName", "updatedAt"]) // filter by repo
+    .index("by_team_workflow", ["teamId", "workflowId", "updatedAt"]) // filter by workflow
+    .index("by_installation", ["installationId", "updatedAt"]) // debug/ops
+    .index("by_runId", ["runId"]) // unique lookup
+    .index("by_repo_runNumber", ["repoFullName", "runNumber"]), // unique per repo
 });
 
 export default convexSchema;

@@ -33,6 +33,13 @@ export function SidebarPullRequestList({
 
   const list = useMemo(() => prs ?? [], [prs]);
 
+  console.log("[SidebarPullRequestList]", {
+    teamSlugOrId,
+    prsUndefined: prs === undefined,
+    prsLength: prs?.length,
+    prs,
+  });
+
   if (prs === undefined) {
     return (
       <ul className="flex flex-col gap-px" aria-label="Loading pull requests">

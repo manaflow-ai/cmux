@@ -22,6 +22,7 @@ import type * as github_app from "../github_app.js";
 import type * as github_prs from "../github_prs.js";
 import type * as github_setup from "../github_setup.js";
 import type * as github_webhook from "../github_webhook.js";
+import type * as github_workflows from "../github_workflows.js";
 import type * as http from "../http.js";
 import type * as migrations from "../migrations.js";
 import type * as stack from "../stack.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   github_prs: typeof github_prs;
   github_setup: typeof github_setup;
   github_webhook: typeof github_webhook;
+  github_workflows: typeof github_workflows;
   http: typeof http;
   migrations: typeof migrations;
   stack: typeof stack;

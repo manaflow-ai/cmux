@@ -7,6 +7,7 @@ import { githubPrsFilesRouter } from "@/lib/routes/github.prs.files.route";
 import { githubPrsOpenRouter } from "@/lib/routes/github.prs.open.route";
 import { githubPrsPatchRouter } from "@/lib/routes/github.prs.patch.route";
 import { githubPrsRouter } from "@/lib/routes/github.prs.route";
+import { githubWorkflowsRouter } from "@/lib/routes/github.workflows.route";
 import { githubReposRouter } from "@/lib/routes/github.repos.route";
 import {
   booksRouter,
@@ -41,7 +42,7 @@ const app = new OpenAPIHono({
           message: "Validation Error",
           errors,
         },
-        422
+        422,
       );
     }
   },
@@ -68,7 +69,7 @@ app.use(
     ],
     credentials: true,
     allowHeaders: ["x-stack-auth", "content-type"],
-  })
+  }),
 );
 
 app.get("/", (c) => {
@@ -107,6 +108,7 @@ app.route("/", githubPrsPatchRouter);
 app.route("/", githubPrsFilesRouter);
 app.route("/", githubPrsFileContentsRouter);
 app.route("/", githubPrsFileContentsBatchRouter);
+app.route("/", githubWorkflowsRouter);
 app.route("/", morphRouter);
 app.route("/", environmentsRouter);
 app.route("/", sandboxesRouter);
@@ -132,7 +134,7 @@ app.notFound((c) => {
       code: 404,
       message: `Route ${c.req.path} not found`,
     },
-    404
+    404,
   );
 });
 
@@ -144,7 +146,7 @@ app.onError((err, c) => {
       code: 500,
       message: "Internal Server Error",
     },
-    500
+    500,
   );
 });
 

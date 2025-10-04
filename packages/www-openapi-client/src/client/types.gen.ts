@@ -225,6 +225,21 @@ export type GithubMergePrRequest = {
     method: 'squash' | 'rebase' | 'merge';
 };
 
+export type GithubClosePrRequest = {
+    teamSlugOrId: string;
+    owner: string;
+    repo: string;
+    number: number;
+};
+
+export type GithubMergePrSimpleRequest = {
+    teamSlugOrId: string;
+    owner: string;
+    repo: string;
+    number: number;
+    method: 'squash' | 'rebase' | 'merge';
+};
+
 export type GithubPrsFilesResponse = {
     repoFullName: string;
     number: number;
@@ -1167,6 +1182,82 @@ export type PostApiIntegrationsGithubPrsMergeResponses = {
 
 export type PostApiIntegrationsGithubPrsMergeResponse = PostApiIntegrationsGithubPrsMergeResponses[keyof PostApiIntegrationsGithubPrsMergeResponses];
 
+export type PostApiIntegrationsGithubPrsCloseData = {
+    body: GithubClosePrRequest;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/close';
+};
+
+export type PostApiIntegrationsGithubPrsCloseErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Failed to close PR
+     */
+    500: unknown;
+};
+
+export type PostApiIntegrationsGithubPrsCloseResponses = {
+    /**
+     * PR closed successfully
+     */
+    200: {
+        success: boolean;
+        message: string;
+    };
+};
+
+export type PostApiIntegrationsGithubPrsCloseResponse = PostApiIntegrationsGithubPrsCloseResponses[keyof PostApiIntegrationsGithubPrsCloseResponses];
+
+export type PostApiIntegrationsGithubPrsMergeSimpleData = {
+    body: GithubMergePrSimpleRequest;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/merge-simple';
+};
+
+export type PostApiIntegrationsGithubPrsMergeSimpleErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Failed to merge PR
+     */
+    500: unknown;
+};
+
+export type PostApiIntegrationsGithubPrsMergeSimpleResponses = {
+    /**
+     * PR merged successfully
+     */
+    200: {
+        success: boolean;
+        message: string;
+    };
+};
+
+export type PostApiIntegrationsGithubPrsMergeSimpleResponse = PostApiIntegrationsGithubPrsMergeSimpleResponses[keyof PostApiIntegrationsGithubPrsMergeSimpleResponses];
+
 export type GetApiIntegrationsGithubPrsRawData = {
     body?: never;
     path?: never;
@@ -1310,6 +1401,158 @@ export type PostApiIntegrationsGithubPrsFileContentsBatchResponses = {
 };
 
 export type PostApiIntegrationsGithubPrsFileContentsBatchResponse = PostApiIntegrationsGithubPrsFileContentsBatchResponses[keyof PostApiIntegrationsGithubPrsFileContentsBatchResponses];
+
+export type GetApiApiIntegrationsGithubWorkflowRunsData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Team slug or UUID
+         */
+        team: string;
+        /**
+         * GitHub App installation ID to query
+         */
+        installationId?: number | null;
+        /**
+         * Filter by repository (owner/repo format)
+         */
+        repoFullName?: string;
+        /**
+         * Filter by workflow ID
+         */
+        workflowId?: number | null;
+        /**
+         * Maximum number of results to return (default 50, max 100)
+         */
+        limit?: number | null;
+    };
+    url: '/api/api/integrations/github/workflow-runs';
+};
+
+export type GetApiApiIntegrationsGithubWorkflowRunsErrors = {
+    /**
+     * Bad request - missing or invalid parameters
+     */
+    400: unknown;
+    /**
+     * Unauthorized - invalid or missing authentication
+     */
+    401: unknown;
+};
+
+export type GetApiApiIntegrationsGithubWorkflowRunsResponses = {
+    /**
+     * Workflow runs retrieved successfully
+     */
+    200: {
+        runs: Array<{
+            _id: string;
+            _creationTime: number;
+            provider: 'github';
+            installationId: number;
+            repositoryId?: number;
+            repoFullName: string;
+            runId: number;
+            runNumber: number;
+            teamId: string;
+            workflowId: number;
+            workflowName: string;
+            name?: string;
+            event: string;
+            status?: 'queued' | 'in_progress' | 'completed' | 'pending' | 'waiting';
+            conclusion?: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required';
+            headBranch?: string;
+            headSha?: string;
+            htmlUrl?: string;
+            createdAt?: number;
+            updatedAt?: number;
+            runStartedAt?: number;
+            runCompletedAt?: number;
+            runDuration?: number;
+            actorLogin?: string;
+            actorId?: number;
+            triggeringPrNumber?: number;
+        }>;
+        total: number;
+    };
+};
+
+export type GetApiApiIntegrationsGithubWorkflowRunsResponse = GetApiApiIntegrationsGithubWorkflowRunsResponses[keyof GetApiApiIntegrationsGithubWorkflowRunsResponses];
+
+export type GetApiApiIntegrationsGithubWorkflowRunsPrData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Team slug or UUID
+         */
+        team: string;
+        /**
+         * Repository (owner/repo format)
+         */
+        repoFullName: string;
+        /**
+         * Pull request number
+         */
+        prNumber?: number | null;
+        /**
+         * Maximum number of results to return (default 20, max 50)
+         */
+        limit?: number | null;
+    };
+    url: '/api/api/integrations/github/workflow-runs/pr';
+};
+
+export type GetApiApiIntegrationsGithubWorkflowRunsPrErrors = {
+    /**
+     * Bad request - missing or invalid parameters
+     */
+    400: unknown;
+    /**
+     * Unauthorized - invalid or missing authentication
+     */
+    401: unknown;
+};
+
+export type GetApiApiIntegrationsGithubWorkflowRunsPrResponses = {
+    /**
+     * Workflow runs for PR retrieved successfully
+     */
+    200: {
+        runs: Array<{
+            _id: string;
+            _creationTime: number;
+            provider: 'github';
+            installationId: number;
+            repositoryId?: number;
+            repoFullName: string;
+            runId: number;
+            runNumber: number;
+            teamId: string;
+            workflowId: number;
+            workflowName: string;
+            name?: string;
+            event: string;
+            status?: 'queued' | 'in_progress' | 'completed' | 'pending' | 'waiting';
+            conclusion?: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required';
+            headBranch?: string;
+            headSha?: string;
+            htmlUrl?: string;
+            createdAt?: number;
+            updatedAt?: number;
+            runStartedAt?: number;
+            runCompletedAt?: number;
+            runDuration?: number;
+            actorLogin?: string;
+            actorId?: number;
+            triggeringPrNumber?: number;
+        }>;
+        total: number;
+    };
+};
+
+export type GetApiApiIntegrationsGithubWorkflowRunsPrResponse = GetApiApiIntegrationsGithubWorkflowRunsPrResponses[keyof GetApiApiIntegrationsGithubWorkflowRunsPrResponses];
 
 export type PostApiMorphSetupInstanceData = {
     body: SetupInstanceBody;

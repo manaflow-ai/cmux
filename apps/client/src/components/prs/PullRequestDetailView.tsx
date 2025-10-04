@@ -5,8 +5,10 @@ import { gitDiffQueryOptions } from "@/queries/git-diff";
 import { api } from "@cmux/convex/api";
 import { useQuery as useRQ } from "@tanstack/react-query";
 import { useQuery as useConvexQuery } from "convex/react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, X, Check, Circle, Clock, AlertCircle } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { MergeButton, type MergeMethod } from "@/components/ui/merge-button";
 
 type PullRequestDetailViewProps = {
   teamSlugOrId: string;
@@ -27,6 +29,80 @@ type AdditionsAndDeletionsProps = {
   ref1: string;
   ref2: string;
 };
+
+type WorkflowRunsProps = {
+  teamSlugOrId: string;
+  repoFullName: string;
+  prNumber: number;
+};
+
+function WorkflowRuns({ teamSlugOrId, repoFullName, prNumber }: WorkflowRunsProps) {
+  const runs = useConvexQuery(api.github_workflows.getWorkflowRunsForPr, {
+    teamId: teamSlugOrId,
+    repoFullName,
+    prNumber,
+    limit: 10,
+  });
+
+  if (!runs || runs.length === 0) {
+    return null;
+  }
+
+  const getStatusIcon = (status?: string, conclusion?: string) => {
+    if (conclusion === "success") {
+      return <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />;
+    }
+    if (conclusion === "failure") {
+      return <X className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />;
+    }
+    if (conclusion === "cancelled") {
+      return <Circle className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />;
+    }
+    if (status === "in_progress" || status === "queued") {
+      return <Clock className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400 animate-pulse" />;
+    }
+    return <AlertCircle className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />;
+  };
+
+  const getStatusColor = (status?: string, conclusion?: string) => {
+    if (conclusion === "success") {
+      return "text-green-600 dark:text-green-400";
+    }
+    if (conclusion === "failure") {
+      return "text-red-600 dark:text-red-400";
+    }
+    if (conclusion === "cancelled") {
+      return "text-neutral-500 dark:text-neutral-400";
+    }
+    if (status === "in_progress" || status === "queued") {
+      return "text-yellow-600 dark:text-yellow-400";
+    }
+    return "text-neutral-500 dark:text-neutral-400";
+  };
+
+  return (
+    <div className="flex items-center gap-2 ml-2 shrink-0">
+      {runs.slice(0, 3).map((run) => (
+        <a
+          key={run._id}
+          href={run.htmlUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={`flex items-center gap-1 text-[11px] hover:underline ${getStatusColor(run.status, run.conclusion)}`}
+          title={`${run.workflowName}: ${run.conclusion || run.status || 'unknown'}`}
+        >
+          {getStatusIcon(run.status, run.conclusion)}
+          <span className="font-medium">{run.workflowName}</span>
+        </a>
+      ))}
+      {runs.length > 3 && (
+        <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+          +{runs.length - 3} more
+        </span>
+      )}
+    </div>
+  );
+}
 
 function AdditionsAndDeletions({
   repoFullName,
@@ -93,6 +169,75 @@ export function PullRequestDetailView({
   }, [prs, owner, repo, number]);
 
   const [diffControls, setDiffControls] = useState<DiffControls | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClosePR = async () => {
+    if (!currentPR || isClosing) return;
+
+    setIsClosing(true);
+    try {
+      const response = await fetch("/api/integrations/github/prs/close", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamSlugOrId,
+          owner,
+          repo,
+          number: currentPR.number,
+        }),
+        credentials: "include",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to close PR");
+      }
+
+      toast.success(data.message || `PR #${currentPR.number} closed successfully`);
+    } catch (error) {
+      toast.error(`Failed to close PR: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsClosing(false);
+    }
+  };
+
+  const handleMergePR = async (method: MergeMethod) => {
+    if (!currentPR || isMerging) return;
+
+    setIsMerging(true);
+    try {
+      const response = await fetch("/api/integrations/github/prs/merge-simple", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamSlugOrId,
+          owner,
+          repo,
+          number: currentPR.number,
+          method,
+        }),
+        credentials: "include",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to merge PR");
+      }
+
+      toast.success(data.message || `PR #${currentPR.number} merged successfully`);
+    } catch (error) {
+      toast.error(`Failed to merge PR: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsMerging(false);
+    }
+  };
 
   if (!currentPR) {
     return (
@@ -130,6 +275,13 @@ export function PullRequestDetailView({
                     ref2={currentPR.headRef || ""}
                   />
                 </Suspense>
+                <Suspense fallback={null}>
+                  <WorkflowRuns
+                    teamSlugOrId={teamSlugOrId}
+                    repoFullName={currentPR.repoFullName}
+                    prNumber={currentPR.number}
+                  />
+                </Suspense>
               </div>
 
               <div className="col-start-3 row-start-1 row-span-2 self-center flex items-center gap-2 shrink-0">
@@ -150,6 +302,23 @@ export function PullRequestDetailView({
                   <span className="text-xs px-2 py-1 rounded-md bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-200 select-none">
                     Open
                   </span>
+                )}
+                {currentPR.state === "open" && !currentPR.merged && (
+                  <>
+                    <MergeButton
+                      onMerge={handleMergePR}
+                      isOpen={true}
+                      disabled={isMerging}
+                    />
+                    <button
+                      onClick={handleClosePR}
+                      disabled={isClosing}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-red-600 dark:bg-red-700 text-white border border-red-700 dark:border-red-600 rounded hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-xs select-none whitespace-nowrap"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Close PR
+                    </button>
+                  </>
                 )}
                 {currentPR.htmlUrl ? (
                   <a

@@ -267,6 +267,13 @@ export const listPullRequests = authQuery({
       .order("desc");
 
     const rows = await cursor.collect();
+    console.log("[listPullRequests]", {
+      teamSlugOrId,
+      teamId,
+      useState,
+      rowsCount: rows.length,
+      rows: rows.map((r) => ({ number: r.number, title: r.title, state: r.state, repo: r.repoFullName })),
+    });
     const q = (search ?? "").trim().toLowerCase();
     const filtered = !q
       ? rows
@@ -278,6 +285,7 @@ export const listPullRequests = authQuery({
           );
         });
     const limited = typeof limit === "number" ? filtered.slice(0, Math.max(1, limit)) : filtered;
+    console.log("[listPullRequests] returning", limited.length, "PRs");
     return limited;
   },
 });

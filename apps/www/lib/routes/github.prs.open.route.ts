@@ -84,6 +84,25 @@ const MergePullRequestBody = z
   })
   .openapi("GithubMergePrRequest");
 
+const ClosePullRequestBody = z
+  .object({
+    teamSlugOrId: z.string(),
+    owner: z.string(),
+    repo: z.string(),
+    number: z.number(),
+  })
+  .openapi("GithubClosePrRequest");
+
+const MergePullRequestSimpleBody = z
+  .object({
+    teamSlugOrId: z.string(),
+    owner: z.string(),
+    repo: z.string(),
+    number: z.number(),
+    method: z.enum(["squash", "rebase", "merge"]),
+  })
+  .openapi("GithubMergePrSimpleRequest");
+
 const OpenPullRequestResponse = z
   .object({
     success: z.boolean(),
@@ -649,6 +668,213 @@ githubPrsOpenRouter.openapi(
   },
 );
 
+githubPrsOpenRouter.openapi(
+  createRoute({
+    method: "post" as const,
+    path: "/integrations/github/prs/close",
+    tags: ["Integrations"],
+    summary: "Close a GitHub pull request using the user's GitHub OAuth token",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: ClosePullRequestBody,
+          },
+        },
+        required: true,
+      },
+    },
+    responses: {
+      200: {
+        description: "PR closed successfully",
+        content: {
+          "application/json": {
+            schema: z.object({
+              success: z.boolean(),
+              message: z.string(),
+            }),
+          },
+        },
+      },
+      400: { description: "Invalid request" },
+      401: { description: "Unauthorized" },
+      403: { description: "Forbidden" },
+      500: { description: "Failed to close PR" },
+    },
+  }),
+  async (c) => {
+    const user = await stackServerAppJs.getUser({ tokenStore: c.req.raw });
+    if (!user) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const [{ accessToken }, githubAccount] = await Promise.all([
+      user.getAuthJson(),
+      user.getConnectedAccount("github"),
+    ]);
+
+    if (!accessToken) {
+      return c.text("Unauthorized", 401);
+    }
+
+    if (!githubAccount) {
+      return c.json(
+        {
+          success: false,
+          message: "GitHub account is not connected",
+        },
+        401,
+      );
+    }
+
+    const { accessToken: githubAccessToken } = await githubAccount.getAccessToken();
+    if (!githubAccessToken) {
+      return c.json(
+        {
+          success: false,
+          message: "GitHub access token unavailable",
+        },
+        401,
+      );
+    }
+
+    const body = c.req.valid("json");
+    const { teamSlugOrId, owner, repo, number } = body;
+
+    await verifyTeamAccess({ req: c.req.raw, teamSlugOrId });
+
+    const octokit = createOctokit(githubAccessToken);
+
+    try {
+      await closePullRequest({
+        octokit,
+        owner,
+        repo,
+        number,
+      });
+
+      return c.json({
+        success: true,
+        message: `PR #${number} closed successfully`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json(
+        {
+          success: false,
+          message: `Failed to close PR: ${message}`,
+        },
+        500,
+      );
+    }
+  },
+);
+
+githubPrsOpenRouter.openapi(
+  createRoute({
+    method: "post" as const,
+    path: "/integrations/github/prs/merge-simple",
+    tags: ["Integrations"],
+    summary: "Merge a GitHub pull request using the user's GitHub OAuth token",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: MergePullRequestSimpleBody,
+          },
+        },
+        required: true,
+      },
+    },
+    responses: {
+      200: {
+        description: "PR merged successfully",
+        content: {
+          "application/json": {
+            schema: z.object({
+              success: z.boolean(),
+              message: z.string(),
+            }),
+          },
+        },
+      },
+      400: { description: "Invalid request" },
+      401: { description: "Unauthorized" },
+      403: { description: "Forbidden" },
+      500: { description: "Failed to merge PR" },
+    },
+  }),
+  async (c) => {
+    const user = await stackServerAppJs.getUser({ tokenStore: c.req.raw });
+    if (!user) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const [{ accessToken }, githubAccount] = await Promise.all([
+      user.getAuthJson(),
+      user.getConnectedAccount("github"),
+    ]);
+
+    if (!accessToken) {
+      return c.text("Unauthorized", 401);
+    }
+
+    if (!githubAccount) {
+      return c.json(
+        {
+          success: false,
+          message: "GitHub account is not connected",
+        },
+        401,
+      );
+    }
+
+    const { accessToken: githubAccessToken } = await githubAccount.getAccessToken();
+    if (!githubAccessToken) {
+      return c.json(
+        {
+          success: false,
+          message: "GitHub access token unavailable",
+        },
+        401,
+      );
+    }
+
+    const body = c.req.valid("json");
+    const { teamSlugOrId, owner, repo, number, method } = body;
+
+    await verifyTeamAccess({ req: c.req.raw, teamSlugOrId });
+
+    const octokit = createOctokit(githubAccessToken);
+
+    try {
+      await mergePullRequest({
+        octokit,
+        owner,
+        repo,
+        number,
+        method,
+        commitTitle: `Merge pull request #${number}`,
+        commitMessage: `Merged via cmux`,
+      });
+
+      return c.json({
+        success: true,
+        message: `PR #${number} merged successfully`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json(
+        {
+          success: false,
+          message: `Failed to merge PR: ${message}`,
+        },
+        500,
+      );
+    }
+  },
+);
+
 function createOctokit(token: string): Octokit {
   return new Octokit({
     auth: token,
@@ -924,6 +1150,25 @@ async function mergePullRequest({
     merge_method: method,
     commit_title: commitTitle,
     commit_message: commitMessage,
+  });
+}
+
+async function closePullRequest({
+  octokit,
+  owner,
+  repo,
+  number,
+}: {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<void> {
+  await octokit.rest.pulls.update({
+    owner,
+    repo,
+    pull_number: number,
+    state: "closed",
   });
 }
 
