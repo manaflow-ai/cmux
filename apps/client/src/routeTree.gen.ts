@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VscodeRouteImport } from './routes/vscode'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as MonacoSingleBufferRouteImport } from './routes/monaco-single-buffer'
 import { Route as ElectronWebContentsRouteImport } from './routes/electron-web-contents'
@@ -44,6 +45,11 @@ import { Route as LayoutTeamSlugOrIdTaskTaskIdRunRunIdPrRouteImport } from './ro
 import { Route as LayoutTeamSlugOrIdTaskTaskIdRunRunIdDiffRouteImport } from './routes/_layout.$teamSlugOrId.task.$taskId.run.$runId.diff'
 import { Route as LayoutTeamSlugOrIdTaskTaskIdRunRunIdPreviewPortRouteImport } from './routes/_layout.$teamSlugOrId.task.$taskId.run.$runId.preview.$port'
 
+const VscodeRoute = VscodeRouteImport.update({
+  id: '/vscode',
+  path: '/vscode',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
@@ -240,6 +246,7 @@ export interface FileRoutesByFullPath {
   '/electron-web-contents': typeof ElectronWebContentsRoute
   '/monaco-single-buffer': typeof MonacoSingleBufferRoute
   '/sign-in': typeof SignInRoute
+  '/vscode': typeof VscodeRoute
   '/$teamSlugOrId': typeof LayoutTeamSlugOrIdRouteWithChildren
   '/debug': typeof LayoutDebugRoute
   '/profile': typeof LayoutProfileRoute
@@ -275,6 +282,7 @@ export interface FileRoutesByTo {
   '/electron-web-contents': typeof ElectronWebContentsRoute
   '/monaco-single-buffer': typeof MonacoSingleBufferRoute
   '/sign-in': typeof SignInRoute
+  '/vscode': typeof VscodeRoute
   '/$teamSlugOrId': typeof LayoutTeamSlugOrIdRouteWithChildren
   '/debug': typeof LayoutDebugRoute
   '/profile': typeof LayoutProfileRoute
@@ -310,6 +318,7 @@ export interface FileRoutesById {
   '/electron-web-contents': typeof ElectronWebContentsRoute
   '/monaco-single-buffer': typeof MonacoSingleBufferRoute
   '/sign-in': typeof SignInRoute
+  '/vscode': typeof VscodeRoute
   '/_layout/$teamSlugOrId': typeof LayoutTeamSlugOrIdRouteWithChildren
   '/_layout/debug': typeof LayoutDebugRoute
   '/_layout/profile': typeof LayoutProfileRoute
@@ -347,6 +356,7 @@ export interface FileRouteTypes {
     | '/electron-web-contents'
     | '/monaco-single-buffer'
     | '/sign-in'
+    | '/vscode'
     | '/$teamSlugOrId'
     | '/debug'
     | '/profile'
@@ -382,6 +392,7 @@ export interface FileRouteTypes {
     | '/electron-web-contents'
     | '/monaco-single-buffer'
     | '/sign-in'
+    | '/vscode'
     | '/$teamSlugOrId'
     | '/debug'
     | '/profile'
@@ -416,6 +427,7 @@ export interface FileRouteTypes {
     | '/electron-web-contents'
     | '/monaco-single-buffer'
     | '/sign-in'
+    | '/vscode'
     | '/_layout/$teamSlugOrId'
     | '/_layout/debug'
     | '/_layout/profile'
@@ -453,11 +465,19 @@ export interface RootRouteChildren {
   ElectronWebContentsRoute: typeof ElectronWebContentsRoute
   MonacoSingleBufferRoute: typeof MonacoSingleBufferRoute
   SignInRoute: typeof SignInRoute
+  VscodeRoute: typeof VscodeRoute
   HandlerSplatRoute: typeof HandlerSplatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/vscode': {
+      id: '/vscode'
+      path: '/vscode'
+      fullPath: '/vscode'
+      preLoaderRoute: typeof VscodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sign-in': {
       id: '/sign-in'
       path: '/sign-in'
@@ -826,6 +846,7 @@ const rootRouteChildren: RootRouteChildren = {
   ElectronWebContentsRoute: ElectronWebContentsRoute,
   MonacoSingleBufferRoute: MonacoSingleBufferRoute,
   SignInRoute: SignInRoute,
+  VscodeRoute: VscodeRoute,
   HandlerSplatRoute: HandlerSplatRoute,
 }
 export const routeTree = rootRouteImport

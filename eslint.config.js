@@ -32,6 +32,7 @@ export default tseslint.config(
     '**/build',
     'node_modules',
     '**/node_modules',
+    'apps/client/public/vscode',
   ]),
   withTypescriptFiles(js.configs.recommended),
   ...tseslint.configs.recommended.map(withTypescriptFiles),
