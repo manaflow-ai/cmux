@@ -118,13 +118,32 @@ async function resolveMergeBase(
 // Track the current multi-diff editor URI
 let _currentMultiDiffUri: string | null = null;
 
+type OpenMultiDiffOptions = {
+  preserveFocus?: boolean;
+  suppressNotifications?: boolean;
+};
+
 async function openMultiDiffEditor(
   baseRef?: string,
-  useMergeBase: boolean = true
+  useMergeBase: boolean = true,
+  options: OpenMultiDiffOptions = {}
 ) {
   log("=== openMultiDiffEditor called ===");
   log("baseRef:", baseRef);
   log("useMergeBase:", useMergeBase);
+  log("options:", options);
+
+  const { preserveFocus = false, suppressNotifications = false } = options;
+
+  const previousActiveTextEditor = preserveFocus
+    ? vscode.window.activeTextEditor ?? null
+    : null;
+  const previousActiveTerminal = preserveFocus
+    ? vscode.window.activeTerminal ?? null
+    : null;
+  const previousActiveTab = preserveFocus
+    ? vscode.window.tabGroups.activeTabGroup?.activeTab ?? null
+    : null;
 
   // Get the Git extension
   const gitExtension = vscode.extensions.getExtension("vscode.git");
@@ -216,7 +235,7 @@ async function openMultiDiffEditor(
       (tab) => tab.label && tab.label.includes("All Changes vs")
     );
 
-    if (existingTab) {
+    if (existingTab && !preserveFocus) {
       // Try to activate the existing tab first to preserve position
       // This helps maintain scroll position and user context
       const tabGroup = vscode.window.tabGroups.all.find((g) =>
@@ -241,8 +260,60 @@ async function openMultiDiffEditor(
       resources,
     });
 
+    if (preserveFocus) {
+      try {
+        // Restore terminal focus if it changed
+        if (
+          previousActiveTerminal &&
+          vscode.window.terminals.includes(previousActiveTerminal) &&
+          vscode.window.activeTerminal !== previousActiveTerminal
+        ) {
+          previousActiveTerminal.show();
+        } else if (
+          previousActiveTextEditor &&
+          !previousActiveTextEditor.document.isClosed
+        ) {
+          const activeEditor = vscode.window.activeTextEditor;
+          const sameDocument =
+            activeEditor &&
+            activeEditor.document.uri.toString() ===
+              previousActiveTextEditor.document.uri.toString();
+
+          if (!sameDocument) {
+            await vscode.window.showTextDocument(
+              previousActiveTextEditor.document,
+              {
+                viewColumn: previousActiveTextEditor.viewColumn,
+                preserveFocus: false,
+              }
+            );
+          }
+        } else if (
+          previousActiveTab &&
+          vscode.window.tabGroups.activeTabGroup?.activeTab !==
+            previousActiveTab
+        ) {
+          const tabGroupsWithOpen =
+            vscode.window.tabGroups as unknown as {
+              openTab?: (
+                tab: vscode.Tab,
+                options?: { preserveFocus?: boolean }
+              ) => Thenable<void>;
+            };
+
+          if (typeof tabGroupsWithOpen.openTab === "function") {
+            await tabGroupsWithOpen.openTab(previousActiveTab, {
+              preserveFocus: false,
+            });
+          }
+        }
+      } catch (error) {
+        log("Failed to restore focus after multi diff refresh", error);
+      }
+    }
+
     log("Multi-diff editor opened successfully");
-    if (files.length > 0) {
+    if (files.length > 0 && !suppressNotifications) {
       vscode.window.showInformationMessage(
         `Showing ${files.length} file(s) changed vs ${baseBranchName}`
       );
@@ -535,7 +606,10 @@ export function activate(context: vscode.ExtensionContext) {
               // Set new timer to refresh after 500ms of no changes
               refreshDebounceTimer = setTimeout(async () => {
                 log("Auto-refreshing diff view due to file changes");
-                await openMultiDiffEditor(undefined, true);
+                await openMultiDiffEditor(undefined, true, {
+                  preserveFocus: true,
+                  suppressNotifications: true,
+                });
               }, 500);
             };
 
