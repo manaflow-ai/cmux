@@ -5,7 +5,7 @@ import { isElectron } from "@/lib/electron";
 import { type Doc } from "@cmux/convex/dataModel";
 import type { LinkProps } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
-import { Home, Plus, Server, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, Home, Plus, Server, Settings } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -74,12 +74,29 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
     return Math.min(Math.max(parsed, MIN_WIDTH), MAX_WIDTH);
   });
   const [isResizing, setIsResizing] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    const stored = localStorage.getItem("sidebarCollapsed");
+    return stored === "true";
+  });
+  const lastExpandedWidthRef = useRef(width);
 
   const { expandTaskIds } = useExpandTasks();
 
   useEffect(() => {
-    localStorage.setItem("sidebarWidth", String(width));
-  }, [width]);
+    if (!isCollapsed) {
+      localStorage.setItem("sidebarWidth", String(width));
+    }
+  }, [width, isCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("sidebarCollapsed", String(isCollapsed));
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    if (!isCollapsed) {
+      lastExpandedWidthRef.current = width;
+    }
+  }, [width, isCollapsed]);
 
   const onMouseMove = useCallback((e: MouseEvent) => {
     // Batch width updates to once per animation frame to reduce layout thrash
@@ -163,130 +180,182 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
 
   const resetWidth = useCallback(() => setWidth(DEFAULT_WIDTH), []);
 
+  const collapseSidebar = useCallback(() => {
+    lastExpandedWidthRef.current = width;
+    if (isResizing) {
+      stopResizing();
+    }
+    setIsCollapsed(true);
+  }, [width, isResizing, stopResizing]);
+
+  const expandSidebar = useCallback(() => {
+    const targetWidth = Math.min(
+      Math.max(lastExpandedWidthRef.current ?? DEFAULT_WIDTH, MIN_WIDTH),
+      MAX_WIDTH
+    );
+    setWidth(targetWidth);
+    setIsCollapsed(false);
+  }, []);
+
+  const displayedWidth = isCollapsed ? 0 : width;
+
   return (
     <div
       ref={containerRef}
-      className="relative bg-neutral-50 dark:bg-black flex flex-col shrink-0 h-dvh grow"
+      className={`relative flex flex-col shrink-0 h-dvh grow transition-[width] duration-200 ease-in-out ${
+        isCollapsed ? "bg-transparent" : "bg-neutral-50 dark:bg-black"
+      }`}
       style={{
-        width: `${width}px`,
-        minWidth: `${width}px`,
-        maxWidth: `${width}px`,
+        width: `${displayedWidth}px`,
+        minWidth: `${displayedWidth}px`,
+        maxWidth: `${displayedWidth}px`,
         userSelect: isResizing ? ("none" as const) : undefined,
       }}
     >
       <div
-        className={`h-[38px] flex items-center pr-1.5 shrink-0 ${isElectron ? "" : "pl-3"}`}
-        style={{ WebkitAppRegion: "drag" } as CSSProperties}
+        className={`flex flex-col h-full transition-opacity duration-150 ease-in-out ${
+          isCollapsed ? "opacity-0 pointer-events-none" : "opacity-100"
+        }`}
+        aria-hidden={isCollapsed}
       >
-        {isElectron && <div className="w-[80px]"></div>}
-        <Link
-          to="/$teamSlugOrId/dashboard"
-          params={{ teamSlugOrId }}
-          activeOptions={{ exact: true }}
-          className="flex items-center gap-2 select-none cursor-pointer"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+        <div
+          className={`h-[38px] flex items-center pr-1.5 shrink-0 ${
+            isElectron ? "" : "pl-3"
+          }`}
+          style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
-          {/* <Terminals */}
-          <CmuxLogo height={32} />
-        </Link>
-        <div className="grow"></div>
-        <Link
-          to="/$teamSlugOrId/dashboard"
-          params={{ teamSlugOrId }}
-          activeOptions={{ exact: true }}
-          className="w-[25px] h-[25px] border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-lg flex items-center justify-center transition-colors cursor-default"
-          title="New task"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-        >
-          <Plus
-            className="w-4 h-4 text-neutral-700 dark:text-neutral-300"
-            aria-hidden="true"
-          />
-        </Link>
-      </div>
-      <nav className="grow flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto pb-8">
-          <ul className="flex flex-col gap-px">
-            {navItems.map((item) => (
-              <li key={item.label}>
-                <SidebarNavLink
-                  to={item.to}
-                  params={{ teamSlugOrId }}
-                  search={item.search}
-                  icon={item.icon}
-                  exact={item.exact}
-                  label={item.label}
-                />
-              </li>
-            ))}
-          </ul>
-
-          <div className="mt-4 flex flex-col">
-            <SidebarSectionLink
-              to="/$teamSlugOrId/prs"
-              params={{ teamSlugOrId }}
-              exact
-            >
-              Pull requests
-            </SidebarSectionLink>
-            <div className="ml-2 pt-px">
-              <SidebarPullRequestList teamSlugOrId={teamSlugOrId} />
-            </div>
-          </div>
-
-          <div className="mt-2 flex flex-col gap-0.5">
-            <SidebarSectionLink
-              to="/$teamSlugOrId/workspaces"
-              params={{ teamSlugOrId }}
-              exact
-            >
-              Workspaces
-            </SidebarSectionLink>
-          </div>
-
-          <div className="ml-2 pt-px">
-            <div className="space-y-px">
-              {tasks === undefined ? (
-                <TaskTreeSkeleton count={5} />
-              ) : tasks && tasks.length > 0 ? (
-                tasks.map((task) => (
-                  <TaskTree
-                    key={task._id}
-                    task={task}
-                    defaultExpanded={expandTaskIds?.includes(task._id) ?? false}
-                    teamSlugOrId={teamSlugOrId}
-                  />
-                ))
-              ) : (
-                <p className="px-2 py-1.5 text-xs text-center text-neutral-500 dark:text-neutral-400 select-none">
-                  No recent tasks
-                </p>
-              )}
-            </div>
-          </div>
+          {isElectron && <div className="w-[80px]"></div>}
+          <Link
+            to="/$teamSlugOrId/dashboard"
+            params={{ teamSlugOrId }}
+            activeOptions={{ exact: true }}
+            className="flex items-center gap-2 select-none cursor-pointer"
+            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+          >
+            {/* <Terminals */}
+            <CmuxLogo height={32} />
+          </Link>
+          <div className="grow"></div>
+          <Link
+            to="/$teamSlugOrId/dashboard"
+            params={{ teamSlugOrId }}
+            activeOptions={{ exact: true }}
+            className="w-[25px] h-[25px] border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-lg flex items-center justify-center transition-colors cursor-default"
+            title="New task"
+            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+          >
+            <Plus
+              className="w-4 h-4 text-neutral-700 dark:text-neutral-300"
+              aria-hidden="true"
+            />
+          </Link>
         </div>
-      </nav>
+        <nav className="grow flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto pb-8">
+            <ul className="flex flex-col gap-px">
+              {navItems.map((item) => (
+                <li key={item.label}>
+                  <SidebarNavLink
+                    to={item.to}
+                    params={{ teamSlugOrId }}
+                    search={item.search}
+                    icon={item.icon}
+                    exact={item.exact}
+                    label={item.label}
+                  />
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-4 flex flex-col">
+              <SidebarSectionLink
+                to="/$teamSlugOrId/prs"
+                params={{ teamSlugOrId }}
+                exact
+              >
+                Pull requests
+              </SidebarSectionLink>
+              <div className="ml-2 pt-px">
+                <SidebarPullRequestList teamSlugOrId={teamSlugOrId} />
+              </div>
+            </div>
+
+            <div className="mt-2 flex flex-col gap-0.5">
+              <SidebarSectionLink
+                to="/$teamSlugOrId/workspaces"
+                params={{ teamSlugOrId }}
+                exact
+              >
+                Workspaces
+              </SidebarSectionLink>
+            </div>
+
+            <div className="ml-2 pt-px">
+              <div className="space-y-px">
+                {tasks === undefined ? (
+                  <TaskTreeSkeleton count={5} />
+                ) : tasks && tasks.length > 0 ? (
+                  tasks.map((task) => (
+                    <TaskTree
+                      key={task._id}
+                      task={task}
+                      defaultExpanded={expandTaskIds?.includes(task._id) ?? false}
+                      teamSlugOrId={teamSlugOrId}
+                    />
+                  ))
+                ) : (
+                  <p className="px-2 py-1.5 text-xs text-center text-neutral-500 dark:text-neutral-400 select-none">
+                    No recent tasks
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </nav>
+      </div>
 
       {/* Resize handle */}
+      {!isCollapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title="Drag to resize"
+          onMouseDown={startResizing}
+          onDoubleClick={resetWidth}
+          className="absolute top-0 right-0 h-full cursor-col-resize"
+          style={
+            {
+              // Invisible, but with a comfortable hit area
+              width: "14px",
+              transform: "translateX(13px)",
+              background: "transparent",
+              zIndex: "var(--z-sidebar-resize-handle)",
+            } as CSSProperties
+          }
+        />
+      )}
+
       <div
-        role="separator"
-        aria-orientation="vertical"
-        title="Drag to resize"
-        onMouseDown={startResizing}
-        onDoubleClick={resetWidth}
-        className="absolute top-0 right-0 h-full cursor-col-resize"
-        style={
-          {
-            // Invisible, but with a comfortable hit area
-            width: "14px",
-            transform: "translateX(13px)",
-            // marginRight: "-5px",
-            background: "transparent",
-            // background: "red",
-            zIndex: "var(--z-sidebar-resize-handle)",
-          } as CSSProperties
-        }
-      />
+        className="absolute top-1/2 right-[-12px] -translate-y-1/2 group"
+        style={{ zIndex: "var(--z-sidebar-resize-handle)" } as CSSProperties}
+      >
+        <button
+          type="button"
+          onClick={isCollapsed ? expandSidebar : collapseSidebar}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={`flex h-10 w-6 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-all hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 ${
+            isCollapsed
+              ? "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              : ""
+          }`}
+        >
+          {isCollapsed ? (
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }
