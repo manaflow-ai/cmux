@@ -387,6 +387,8 @@ function SettingsComponent() {
     }
   };
 
+  const hasPendingChanges = hasChanges();
+
   return (
     <FloatingPane header={<TitleBar title="Settings" />}>
       <div
@@ -1059,19 +1061,98 @@ function SettingsComponent() {
       {/* Footer Save bar */}
       <div
         ref={saveButtonRef}
-        className="border-t border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 supports-[backdrop-filter]:dark:bg-neutral-900/60"
+        className={`border-t backdrop-blur transition-colors supports-[backdrop-filter]:bg-white/60 supports-[backdrop-filter]:dark:bg-neutral-900/60 ${
+          hasPendingChanges
+            ? "border-blue-200 dark:border-blue-800/70 bg-blue-50/80 dark:bg-blue-950/60 supports-[backdrop-filter]:bg-blue-100/60 supports-[backdrop-filter]:dark:bg-blue-950/40 shadow-[0_-6px_24px_-12px_rgba(37,99,235,0.6)]"
+            : "border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80"
+        }`}
       >
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-end gap-3">
+        <div className="max-w-3xl mx-auto px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {hasPendingChanges ? (
+            <div className="flex items-center gap-2 text-sm text-blue-900 dark:text-blue-100">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/70 dark:text-blue-200">
+                <svg
+                  className="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                  <path d="M12 3a9 9 0 100 18 9 9 0 000-18z" />
+                </svg>
+              </span>
+              <span className="font-medium">
+                You have unsaved changes. Review and save to apply updates.
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+                <svg
+                  className="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+              <span>All changes saved.</span>
+            </div>
+          )}
           <button
             onClick={saveApiKeys}
-            disabled={!hasChanges() || isSaving}
-            className={`px-4 py-2 text-sm font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-900 transition-all ${
-              !hasChanges() || isSaving
-                ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 cursor-not-allowed opacity-50"
-                : "bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-600"
+            disabled={!hasPendingChanges || isSaving}
+            className={`group inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-900 transition-all ${
+              !hasPendingChanges || isSaving
+                ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 cursor-not-allowed opacity-60"
+                : "bg-blue-600 dark:bg-blue-500 text-white shadow-[0_12px_30px_-12px_rgba(37,99,235,0.75)] hover:bg-blue-700 dark:hover:bg-blue-400"
             }`}
           >
-            {isSaving ? "Saving..." : "Save Changes"}
+            {isSaving ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+                <span>Saving...</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="h-4 w-4 transition-transform group-hover:-translate-y-0.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 3v12" />
+                  <path d="M8 11l4 4 4-4" />
+                  <path d="M5 19h14" />
+                </svg>
+                <span>Save Changes</span>
+              </span>
+            )}
           </button>
         </div>
       </div>
