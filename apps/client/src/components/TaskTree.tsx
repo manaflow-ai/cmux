@@ -202,13 +202,32 @@ function TaskTreeInner({
     unarchive(task._id);
   }, [unarchive, task._id]);
 
+  const taskTitle = (() => {
+    const fromPr = task.pullRequestTitle?.trim();
+    if (fromPr) {
+      return fromPr;
+    }
+    return task.text;
+  })();
+
   const inferredBranch = getTaskBranch(task);
+  const repoFullName = (() => {
+    const candidate = task.projectFullName?.trim();
+    if (!candidate) {
+      return null;
+    }
+    if (candidate.startsWith("env:")) {
+      return null;
+    }
+    return candidate;
+  })();
+
   const taskSecondaryParts: string[] = [];
   if (inferredBranch) {
     taskSecondaryParts.push(inferredBranch);
   }
-  if (task.projectFullName) {
-    taskSecondaryParts.push(task.projectFullName);
+  if (repoFullName) {
+    taskSecondaryParts.push(repoFullName);
   }
   const taskSecondary = taskSecondaryParts.join(" • ");
 
@@ -316,7 +335,7 @@ function TaskTreeInner({
                   onToggle: handleToggle,
                   visible: canExpand,
                 }}
-                title={task.pullRequestTitle || task.text}
+                title={taskTitle}
                 titleClassName="text-[13px] text-neutral-900 dark:text-neutral-100"
                 secondary={taskSecondary || undefined}
                 meta={taskLeadingIcon || undefined}
