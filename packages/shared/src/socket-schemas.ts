@@ -30,9 +30,9 @@ export const CloseTerminalSchema = z.object({
 
 export const StartTaskSchema = z.object({
   repoUrl: z.string().optional(),
-  branch: z.string().optional(),
+  branch: z.string().trim().optional(),
   taskDescription: z.string(),
-  projectFullName: z.string(),
+  projectFullName: z.string().trim(),
   taskId: typedZid("tasks"),
   selectedAgents: z.array(z.string()).optional(),
   isCloudMode: z.boolean().optional().default(false),
@@ -233,7 +233,7 @@ export const GitHubFetchReposSchema = z.object({
 
 export const GitHubFetchBranchesSchema = z.object({
   teamSlugOrId: z.string(),
-  repo: z.string(),
+  repo: z.string().trim().min(1),
 });
 
 export const GitHubBranchSchema = z.object({

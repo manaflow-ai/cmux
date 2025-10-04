@@ -47,7 +47,21 @@ function DashboardComponent() {
 
   const [selectedProject, setSelectedProject] = useState<string[]>(() => {
     const stored = localStorage.getItem("selectedProject");
-    return stored ? JSON.parse(stored) : [];
+    if (!stored) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter((value): value is string => value.length > 0);
+    } catch (error) {
+      console.error("Failed to parse stored selected project", error);
+      return [];
+    }
   });
   const [selectedBranch, setSelectedBranch] = useState<string[]>([]);
 
@@ -89,16 +103,16 @@ function DashboardComponent() {
 
   // Fetch branches for selected repo from Convex
   const isEnvSelected = useMemo(
-    () => (selectedProject[0] || "").startsWith("env:"),
+    () => (selectedProject[0]?.trim() ?? "").startsWith("env:"),
     [selectedProject]
   );
 
   const branchesQuery = useQuery({
     ...branchesQueryOptions({
       teamSlugOrId,
-      repoFullName: selectedProject[0] || "",
+      repoFullName: selectedProject[0]?.trim() ?? "",
     }),
-    enabled: !!selectedProject[0] && !isEnvSelected,
+    enabled: Boolean(selectedProject[0]?.trim()) && !isEnvSelected,
   });
   const branchSummary = useMemo(() => {
     const data = branchesQuery.data;
@@ -124,13 +138,18 @@ function DashboardComponent() {
   // Callback for project selection changes
   const handleProjectChange = useCallback(
     (newProjects: string[]) => {
-      setSelectedProject(newProjects);
-      localStorage.setItem("selectedProject", JSON.stringify(newProjects));
-      if (newProjects[0] !== selectedProject[0]) {
+      const normalized = newProjects
+        .map((project) => project.trim())
+        .filter((project) => project.length > 0);
+      setSelectedProject(normalized);
+      localStorage.setItem("selectedProject", JSON.stringify(normalized));
+      const previousPrimary = selectedProject[0]?.trim() ?? "";
+      const nextPrimary = normalized[0] ?? "";
+      if (nextPrimary !== previousPrimary) {
         setSelectedBranch([]);
       }
       // If selecting an environment, enforce cloud mode
-      if ((newProjects[0] || "").startsWith("env:")) {
+      if ((nextPrimary || "").startsWith("env:")) {
         setIsCloudMode(true);
         localStorage.setItem("isCloudMode", JSON.stringify(true));
       }
@@ -140,7 +159,10 @@ function DashboardComponent() {
 
   // Callback for branch selection changes
   const handleBranchChange = useCallback((newBranches: string[]) => {
-    setSelectedBranch(newBranches);
+    const normalized = newBranches
+      .map((branch) => branch.trim())
+      .filter((branch) => branch.length > 0);
+    setSelectedBranch(normalized);
   }, []);
 
   // Callback for agent selection changes
@@ -279,7 +301,7 @@ function DashboardComponent() {
       }
     }
 
-    if (!selectedProject[0] || !taskDescription.trim()) {
+    if (!selectedProject[0]?.trim() || !taskDescription.trim()) {
       console.error("Please select a project and enter a task description");
       return;
     }
@@ -289,8 +311,9 @@ function DashboardComponent() {
     }
 
     // Use the effective selected branch (respects available branches and sensible defaults)
-    const branch = effectiveSelectedBranch[0];
-    const projectFullName = selectedProject[0];
+    const branch = (effectiveSelectedBranch[0] ?? "").trim();
+    const normalizedBranch = branch.length > 0 ? branch : undefined;
+    const projectFullName = selectedProject[0]?.trim() ?? "";
     const envSelected = projectFullName.startsWith("env:");
     const environmentId = envSelected
       ? (projectFullName.replace(/^env:/, "") as Id<"environments">)
@@ -299,43 +322,51 @@ function DashboardComponent() {
     try {
       // Extract content including images from the editor
       const content = editorApiRef.current?.getContent();
-      const images = content?.images || [];
+      const imageEntries = content?.images ?? [];
+      const inlineImages = imageEntries.filter(
+        (
+          image
+        ): image is { src: string; fileName?: string; altText: string } =>
+          "src" in image
+      );
+      const storedImages = imageEntries.filter(
+        (
+          image
+        ): image is { storageId: Id<"_storage">; fileName?: string; altText: string } =>
+          "storageId" in image
+      );
 
       // Upload images to Convex storage first
       const uploadedImages = await Promise.all(
-        images.map(
-          async (image: {
-            src: string;
-            fileName?: string;
-            altText: string;
-          }) => {
-            // Convert base64 to blob
-            const base64Data = image.src.split(",")[1] || image.src;
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: "image/png" });
-            const uploadUrl = await generateUploadUrl({
-              teamSlugOrId,
-            });
-            const result = await fetch(uploadUrl, {
-              method: "POST",
-              headers: { "Content-Type": blob.type },
-              body: blob,
-            });
-            const { storageId } = await result.json();
-
-            return {
-              storageId,
-              fileName: image.fileName,
-              altText: image.altText,
-            };
+        inlineImages.map(async (image) => {
+          // Convert base64 to blob
+          const base64Data = image.src.split(",")[1] || image.src;
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
           }
-        )
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: "image/png" });
+          const uploadUrl = await generateUploadUrl({
+            teamSlugOrId,
+          });
+          const result = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": blob.type },
+            body: blob,
+          });
+          const { storageId } = await result.json();
+
+          return {
+            storageId,
+            fileName: image.fileName,
+            altText: image.altText,
+          };
+        })
       );
+
+      const imagesForTask = [...storedImages, ...uploadedImages];
 
       // Clear input after successful task creation
       setTaskDescription("");
@@ -350,8 +381,8 @@ function DashboardComponent() {
         teamSlugOrId,
         text: content?.text || taskDescription, // Use content.text which includes image references
         projectFullName: envSelected ? undefined : projectFullName,
-        baseBranch: envSelected ? undefined : branch,
-        images: uploadedImages.length > 0 ? uploadedImages : undefined,
+        baseBranch: envSelected ? undefined : normalizedBranch,
+        images: imagesForTask.length > 0 ? imagesForTask : undefined,
         environmentId,
       });
 
@@ -367,7 +398,7 @@ function DashboardComponent() {
         "start-task",
         {
           ...(repoUrl ? { repoUrl } : {}),
-          ...(envSelected ? {} : { branch }),
+          ...(envSelected ? {} : normalizedBranch ? { branch: normalizedBranch } : {}),
           taskDescription: content?.text || taskDescription, // Use content.text which includes image references
           projectFullName,
           taskId,
@@ -375,7 +406,7 @@ function DashboardComponent() {
             selectedAgents.length > 0 ? selectedAgents : undefined,
           isCloudMode: envSelected ? true : isCloudMode,
           ...(environmentId ? { environmentId } : {}),
-          images: images.length > 0 ? images : undefined,
+          images: inlineImages.length > 0 ? inlineImages : undefined,
           theme,
         },
         (response) => {
