@@ -23,6 +23,7 @@ import { branchesQueryOptions } from "@/queries/branches";
 import { api } from "@cmux/convex/api";
 import type { Doc, Id } from "@cmux/convex/dataModel";
 import type { ProviderStatusResponse } from "@cmux/shared";
+import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
 import { convexQuery } from "@convex-dev/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -36,7 +37,15 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/dashboard")({
 });
 
 // Default agents (not persisted to localStorage)
-const DEFAULT_AGENTS = ["claude/sonnet-4.5", "claude/opus-4.1", "codex/gpt-5-codex-high"];
+const DEFAULT_AGENTS = [
+  "claude/sonnet-4.5",
+  "claude/opus-4.1",
+  "codex/gpt-5-codex-high",
+];
+const KNOWN_AGENT_NAMES = new Set(AGENT_CONFIGS.map((agent) => agent.name));
+const DEFAULT_AGENT_SELECTION = DEFAULT_AGENTS.filter((agent) =>
+  KNOWN_AGENT_NAMES.has(agent),
+);
 
 function DashboardComponent() {
   const { teamSlugOrId } = Route.useParams();
@@ -51,13 +60,39 @@ function DashboardComponent() {
   });
   const [selectedBranch, setSelectedBranch] = useState<string[]>([]);
 
-  const [selectedAgents, setSelectedAgents] = useState<string[]>(() => {
-    const stored = localStorage.getItem("selectedAgents");
-    // Only use stored value if it exists and has selections, otherwise use defaults
-    return stored && JSON.parse(stored).length > 0
-      ? JSON.parse(stored)
-      : DEFAULT_AGENTS;
+  const [selectedAgentsState, setSelectedAgentsState] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("selectedAgents");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter((agent: unknown): agent is string => {
+            return typeof agent === "string" && KNOWN_AGENT_NAMES.has(agent);
+          });
+          if (filtered.length > 0) {
+            return filtered;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to read stored agent selection", error);
+    }
+    return DEFAULT_AGENT_SELECTION.length > 0
+      ? [...DEFAULT_AGENT_SELECTION]
+      : [];
   });
+  const selectedAgentsRef = useRef<string[]>(selectedAgentsState);
+  const setSelectedAgents = useCallback(
+    (value: string[] | ((prev: string[]) => string[])) => {
+      setSelectedAgentsState((prev) => {
+        const next = typeof value === "function" ? value(prev) : value;
+        selectedAgentsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const selectedAgents = selectedAgentsState;
   const [taskDescription, setTaskDescription] = useState<string>("");
   const [isCloudMode, setIsCloudMode] = useState<boolean>(() => {
     const stored = localStorage.getItem("isCloudMode");
@@ -70,6 +105,25 @@ function DashboardComponent() {
 
   // Ref to access editor API
   const editorApiRef = useRef<EditorApi | null>(null);
+
+  const persistAgentSelection = useCallback((agents: string[]) => {
+    try {
+      const isDefaultSelection =
+        DEFAULT_AGENT_SELECTION.length > 0 &&
+        agents.length === DEFAULT_AGENT_SELECTION.length &&
+        agents.every(
+          (agent, index) => agent === DEFAULT_AGENT_SELECTION[index],
+        );
+
+      if (agents.length === 0 || isDefaultSelection) {
+        localStorage.removeItem("selectedAgents");
+      } else {
+        localStorage.setItem("selectedAgents", JSON.stringify(agents));
+      }
+    } catch (error) {
+      console.warn("Failed to persist agent selection", error);
+    }
+  }, []);
 
   // Preselect environment if provided in URL search params
   useEffect(() => {
@@ -144,20 +198,16 @@ function DashboardComponent() {
   }, []);
 
   // Callback for agent selection changes
-  const handleAgentChange = useCallback((newAgents: string[]) => {
-    setSelectedAgents(newAgents);
-    // Only persist to localStorage if the user made a selection (not using defaults)
-    // If newAgents is empty or equals defaults, remove from localStorage
-    const isDefault =
-      newAgents.length === DEFAULT_AGENTS.length &&
-      newAgents.every((agent, index) => agent === DEFAULT_AGENTS[index]);
-
-    if (isDefault || newAgents.length === 0) {
-      localStorage.removeItem("selectedAgents");
-    } else {
-      localStorage.setItem("selectedAgents", JSON.stringify(newAgents));
-    }
-  }, []);
+  const handleAgentChange = useCallback(
+    (newAgents: string[]) => {
+      const normalizedAgents = newAgents.filter((agent) =>
+        KNOWN_AGENT_NAMES.has(agent),
+      );
+      setSelectedAgents(normalizedAgents);
+      persistAgentSelection(normalizedAgents);
+    },
+    [persistAgentSelection, setSelectedAgents],
+  );
 
   // Fetch repos from Convex
   const reposByOrgQuery = useQuery({
@@ -179,14 +229,68 @@ function DashboardComponent() {
     socket.emit("check-provider-status", (response) => {
       if (!response) return;
       setProviderStatus(response);
+
       if (response.success) {
         const isRunning = response.dockerStatus?.isRunning;
         if (typeof isRunning === "boolean") {
           setDockerReady(isRunning);
         }
       }
+
+      const currentAgents = selectedAgentsRef.current;
+      if (currentAgents.length === 0) {
+        return;
+      }
+
+      const providers = response.providers;
+      if (!providers || providers.length === 0) {
+        const normalizedOnly = currentAgents.filter((agent) =>
+          KNOWN_AGENT_NAMES.has(agent),
+        );
+        if (normalizedOnly.length !== currentAgents.length) {
+          setSelectedAgents(normalizedOnly);
+          persistAgentSelection(normalizedOnly);
+        }
+        return;
+      }
+
+      const availableAgents = new Set(
+        providers
+          .filter((provider) => provider.isAvailable)
+          .map((provider) => provider.name),
+      );
+
+      const normalizedAgents = currentAgents.filter((agent) =>
+        KNOWN_AGENT_NAMES.has(agent),
+      );
+      const removedUnknown = normalizedAgents.length !== currentAgents.length;
+
+      const filteredAgents = normalizedAgents.filter((agent) =>
+        availableAgents.has(agent),
+      );
+      const removedUnavailable = normalizedAgents.filter(
+        (agent) => !availableAgents.has(agent),
+      );
+
+      if (!removedUnknown && removedUnavailable.length === 0) {
+        return;
+      }
+
+      setSelectedAgents(filteredAgents);
+      persistAgentSelection(filteredAgents);
+
+      if (removedUnavailable.length > 0) {
+        const uniqueMissing = Array.from(new Set(removedUnavailable));
+        if (uniqueMissing.length > 0) {
+          const label = uniqueMissing.length === 1 ? "model" : "models";
+          const verb = uniqueMissing.length === 1 ? "is" : "are";
+          toast.warning(
+            `${uniqueMissing.join(", ")} ${verb} not configured and was removed from the selection. Update credentials in Settings to use this ${label}.`,
+          );
+        }
+      }
     });
-  }, [socket]);
+  }, [persistAgentSelection, setDockerReady, setSelectedAgents, socket]);
 
   // Mutation to create tasks with optimistic update
   const createTask = useMutation(api.tasks.create).withOptimisticUpdate(
