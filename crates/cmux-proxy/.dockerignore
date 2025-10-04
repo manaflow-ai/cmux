@@ -1,0 +1,10 @@
+target
+**/target
+.git
+**/.git
+**/.DS_Store
+**/*.swp
+**/*.tmp
+**/*.log
+**/__pycache__
+

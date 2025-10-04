@@ -1,0 +1,26 @@
+# Demo/runtime image: includes compiled envd/envctl and interactive shells
+
+FROM rust:1-bookworm AS builder
+WORKDIR /app
+
+# Pre-fetch dependencies for speed
+COPY Cargo.toml ./
+RUN mkdir -p src && echo "fn main(){}" > src/main.rs && cargo fetch && cargo build || true
+
+# Copy full source and build release
+COPY . .
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash zsh fish ca-certificates tini tmux && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/envd /usr/local/bin/envd
+COPY --from=builder /app/target/release/envctl /usr/local/bin/envctl
+COPY scripts/entrypoint-demo.sh /usr/local/bin/envdemo
+RUN chmod +x /usr/local/bin/envdemo
+
+ENV DEMO_SHELL=bash
+ENTRYPOINT ["/usr/bin/tini","--","/usr/local/bin/envdemo"]

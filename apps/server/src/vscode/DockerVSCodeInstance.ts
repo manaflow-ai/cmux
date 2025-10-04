@@ -25,6 +25,7 @@ export interface ContainerMapping {
     vscode: string;
     worker: string;
     extension?: string;
+    proxy?: string;
   };
   status: "starting" | "running" | "stopped";
   workspacePath?: string;
@@ -121,7 +122,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
   /**
    * Get the actual host port for a given container port
-   * @param containerPort The port inside the container (e.g., "39378", "39377", "39376")
+   * @param containerPort The port inside the container (e.g., "39378", "39377", "39376", "39379")
    * @returns The actual host port or null if not found
    */
   async getActualPort(containerPort: string): Promise<string | null> {
@@ -178,6 +179,9 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       if (ports["39376/tcp"]?.[0]?.HostPort) {
         portMapping["39376"] = ports["39376/tcp"][0].HostPort;
       }
+      if (ports["39379/tcp"]?.[0]?.HostPort) {
+        portMapping["39379"] = ports["39379/tcp"][0].HostPort;
+      }
 
       // Update cache
       this.portCache = {
@@ -215,7 +219,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       instanceId: this.instanceId,
       teamSlugOrId: this.teamSlugOrId,
       authToken: this.authToken,
-      ports: { vscode: "", worker: "" },
+      ports: { vscode: "", worker: "", proxy: "" },
       status: "starting",
       workspacePath: this.config.workspacePath,
     });
@@ -252,12 +256,14 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           "39378/tcp": [{ HostPort: "0" }], // VS Code port
           "39377/tcp": [{ HostPort: "0" }], // Worker port
           "39376/tcp": [{ HostPort: "0" }], // Extension socket port
+          "39379/tcp": [{ HostPort: "0" }], // cmux-proxy port
         },
       },
       ExposedPorts: {
         "39378/tcp": {},
         "39377/tcp": {},
         "39376/tcp": {},
+        "39379/tcp": {},
       },
     };
     dockerLogger.info(
@@ -420,6 +426,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     const vscodePort = ports["39378/tcp"]?.[0]?.HostPort;
     const workerPort = ports["39377/tcp"]?.[0]?.HostPort;
     const extensionPort = ports["39376/tcp"]?.[0]?.HostPort;
+    const proxyPort = ports["39379/tcp"]?.[0]?.HostPort;
 
     if (!vscodePort) {
       dockerLogger.error(`Available ports:`, ports);
@@ -431,6 +438,11 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       throw new Error("Failed to get worker port mapping for port 39377");
     }
 
+    if (!proxyPort) {
+      dockerLogger.error(`Available ports:`, ports);
+      throw new Error("Failed to get proxy port mapping for port 39379");
+    }
+
     // Update the container mapping with actual ports
     const mapping = containerMappings.get(this.containerName);
     if (mapping) {
@@ -438,6 +450,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         vscode: vscodePort,
         worker: workerPort,
         extension: extensionPort,
+        proxy: proxyPort,
       };
       mapping.status = "running";
     }
@@ -451,6 +464,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           vscode: vscodePort,
           worker: workerPort,
           extension: extensionPort,
+          proxy: proxyPort,
         },
       });
     } catch (error) {
@@ -908,7 +922,12 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     return `docker-${this.containerName}`;
   }
 
-  getPorts(): { vscode?: string; worker?: string; extension?: string } | null {
+  getPorts(): {
+    vscode?: string;
+    worker?: string;
+    extension?: string;
+    proxy?: string;
+  } | null {
     const mapping = containerMappings.get(this.containerName);
     return mapping?.ports || null;
   }
@@ -1187,11 +1206,13 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         const vscodePort = ports["39378/tcp"]?.[0]?.HostPort;
         const workerPort = ports["39377/tcp"]?.[0]?.HostPort;
         const extensionPort = ports["39376/tcp"]?.[0]?.HostPort;
-        if (vscodePort && workerPort) {
+        const proxyPort = ports["39379/tcp"]?.[0]?.HostPort;
+        if (vscodePort && workerPort && proxyPort) {
           mapping.ports = {
             vscode: vscodePort,
             worker: workerPort,
             extension: extensionPort,
+            proxy: proxyPort,
           };
         }
         mapping.status = "running";
@@ -1203,7 +1224,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
             return;
           }
           await runWithAuthToken(mapping.authToken, async () => {
-            if (vscodePort && workerPort) {
+            if (vscodePort && workerPort && proxyPort) {
               await getConvex().mutation(api.taskRuns.updateVSCodePorts, {
                 teamSlugOrId: mapping.teamSlugOrId,
                 id: taskRunId,
@@ -1211,6 +1232,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
                   vscode: vscodePort,
                   worker: workerPort,
                   extension: extensionPort,
+                  proxy: proxyPort,
                 },
               });
             }

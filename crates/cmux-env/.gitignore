@@ -1,0 +1,13 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Mac
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+
+# Docker artifacts
+*.docker-image-id

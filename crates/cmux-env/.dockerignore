@@ -1,0 +1,16 @@
+.git
+target
+node_modules
+.DS_Store
+*.docker-image-id
+**/*.rs.bk
+.vscode
+.idea
+Dockerfile*
+docker-compose.yml
+scripts/test-in-docker.sh
+
+!Dockerfile
+!Dockerfile.test
+!Dockerfile.demo
+!scripts/

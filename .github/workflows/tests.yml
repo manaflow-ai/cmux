@@ -52,6 +52,8 @@ jobs:
         with:
           workspaces: |
             apps/server/native/core
+            crates/cmux-env
+            crates/cmux-proxy
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

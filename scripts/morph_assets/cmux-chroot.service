@@ -1,0 +1,19 @@
+[Unit]
+Description=Cmux App (chroot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/app/app.env
+{extra_environment_lines}
+Environment=WORKDIR={workdir}
+ExecStart={exec_start}
+ExecStopPost=/usr/local/bin/app-chroot-umount
+WorkingDirectory=/
+Restart=no
+StandardOutput=append:/var/log/cmux/cmux.service.log
+StandardError=append:/var/log/cmux/cmux.service.log
+
+[Install]
+WantedBy=multi-user.target

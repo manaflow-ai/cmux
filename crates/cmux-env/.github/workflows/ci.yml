@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # Global job timeout
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cargo test
+        timeout-minutes: 5
+        run: cargo test --locked
+
+      - name: E2E tests - Core functionality
+        timeout-minutes: 5
+        run: |
+          # Run focused e2e tests for core functionality
+          bash scripts/test-e2e-focused.sh
+
+      - name: E2E tests - Shell hooks
+        timeout-minutes: 5
+        run: |
+          # Test shell hook propagation with proper understanding
+          # DEBUG trap only works in interactive shells, scripts need manual __envctl_apply
+          bash scripts/test-e2e-shell-hooks-working.sh

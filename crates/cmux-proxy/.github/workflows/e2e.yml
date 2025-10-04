@@ -1,0 +1,33 @@
+name: E2E
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prime Docker build cache (builder stage)
+        run: docker build --target builder -t cmux-proxy-builder:ci .
+
+      - name: Run E2E tests
+        env:
+          PORT: 18080
+          STRESS_N: 24
+          STRESS_PORT: 3200
+          STRESS_CONC: 12
+        run: |
+          bash scripts/e2e.sh

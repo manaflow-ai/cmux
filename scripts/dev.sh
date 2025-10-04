@@ -97,15 +97,21 @@ if [ "$IS_DEVCONTAINER" = "false" ]; then
 fi
 
 # Build Docker image (different logic for devcontainer vs host)
+# Allow overriding the build platform for cross-architecture builds
+DOCKER_BUILD_ARGS=(-t cmux-worker:0.0.1)
+if [ -n "${CMUX_DOCKER_PLATFORM:-}" ]; then
+    DOCKER_BUILD_ARGS+=(--platform "${CMUX_DOCKER_PLATFORM}")
+fi
+
 if [ "$IS_DEVCONTAINER" = "true" ]; then
     # In devcontainer, always build since we have access to docker socket
     echo "Building Docker image..."
-    docker build -t cmux-worker:0.0.1 "$APP_DIR" || exit 1
+    docker build "${DOCKER_BUILD_ARGS[@]}" "$APP_DIR" || exit 1
 else
     # On host, build by default unless explicitly skipped
     if [ "$SKIP_DOCKER_BUILD" != "true" ] || [ "$FORCE_DOCKER_BUILD" = "true" ]; then
         echo "Building Docker image..."
-        docker build -t cmux-worker:0.0.1 . || exit 1
+        docker build "${DOCKER_BUILD_ARGS[@]}" . || exit 1
     else
         echo "Skipping Docker build (SKIP_DOCKER_BUILD=true)"
     fi

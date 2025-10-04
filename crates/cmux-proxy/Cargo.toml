@@ -1,0 +1,27 @@
+[package]
+name = "cmux-proxy"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# HTTP server/client
+hyper = { version = "0.14", features = ["full"] }
+http = "0.2"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+futures-util = "0.3"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = true
+strip = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.21"
+tungstenite = "0.21"

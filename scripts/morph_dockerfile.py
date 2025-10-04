@@ -59,7 +59,7 @@ snapshot = (
     )
     .exec("echo '::1     localhost' >> /etc/hosts")
     .upload(".", "/")
-    .as_container(dockerfile=dockerfile, ports=[39376, 39377, 39378])
+    .as_container(dockerfile=dockerfile, ports=[39376, 39377, 39378, 39379])
 )
 
 print(f"Snapshot ID: {snapshot.id}")

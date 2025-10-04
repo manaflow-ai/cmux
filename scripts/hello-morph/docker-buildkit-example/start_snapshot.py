@@ -16,6 +16,7 @@ print(f"Created instance: {instance.id}")
 
 instance.expose_http_service("openvscode", 39378)
 instance.expose_http_service("worker", 39377)
+instance.expose_http_service("proxy", 39379)
 
 for service in instance.networking.http_services:
     if service.name == "openvscode":

@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Build release (${{ matrix.target }})
+        run: |
+          cross build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact
+        id: prep
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          NAME="cmux-env-${VER}-${{ matrix.target }}"
+          mkdir -p "dist/$NAME"
+          cp "target/${{ matrix.target }}/release/envd" "dist/$NAME/"
+          cp "target/${{ matrix.target }}/release/envctl" "dist/$NAME/"
+          # basic strip to reduce size if available
+          if command -v strip >/dev/null 2>&1; then
+            strip "dist/$NAME/envd" || true
+            strip "dist/$NAME/envctl" || true
+          fi
+          tar -C dist -czf "dist/${NAME}.tar.gz" "$NAME"
+          echo "asset=dist/${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Release upload
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.prep.outputs.asset }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensures runtime overlay is mounted (if configured) and executes the given command
+# with environment variables pointing at the merged filesystem. This replaces the
+# previous chroot-based implementation so that host binaries remain accessible.
+
+rootfs="${CMUX_ROOTFS:-/}"
+runtime_root="${CMUX_RUNTIME_ROOT:-${CMUX_ROOTFS:-/}}"
+overlay_upper="${CMUX_OVERLAY_UPPER:-/opt/app/overlay/upper}"
+overlay_work="${CMUX_OVERLAY_WORK:-/opt/app/overlay/work}"
+
+# Use a predictable scratch directory instead of writing directly to /tmp so we
+# can ensure the directory exists even in minimal environments.
+tmp_base="${TMPDIR:-/tmp}"
+tmp_base="${tmp_base%/}"
+if [[ -z "${tmp_base}" ]]; then
+  tmp_base="/tmp"
+fi
+
+cmux_tmp_dir="${CMUX_TMPDIR:-${tmp_base}/cmux-rootfs-exec}"
+mkdir -p "${cmux_tmp_dir}"
+
+debug_log_path="${cmux_tmp_dir}/debug.log"
+
+debug_log() {
+  if [[ -n "${CMUX_DEBUG:-}" ]]; then
+    printf '%s\n' "$*" >> "${debug_log_path}" || true
+  fi
+}
+
+ensure_overlay() {
+  if [[ "${runtime_root}" == "/" || "${rootfs}" == "/" ]]; then
+    runtime_root="/"
+    return
+  fi
+
+  if mountpoint -q "${runtime_root}"; then
+    debug_log "runtime_root already mounted: ${runtime_root}"
+    return
+  fi
+
+  if [[ ! -d "${rootfs}" ]]; then
+    echo "cmux-rootfs-exec: CMUX_ROOTFS ${rootfs} does not exist" >&2
+    exit 1
+  fi
+
+  mkdir -p "${runtime_root}" "${overlay_upper}" "${overlay_work}"
+
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe overlay 2>/dev/null || true
+  fi
+
+  # Attempt to mount overlay; if already mounted by another unit, tolerate the EBUSY case.
+  debug_log "mounting overlay lower=${rootfs} upper=${overlay_upper} work=${overlay_work} target=${runtime_root}"
+  local err
+  if ! err=$(mount -t overlay overlay \
+    -o "lowerdir=${rootfs},upperdir=${overlay_upper},workdir=${overlay_work}" \
+    "${runtime_root}" 2>&1); then
+    if grep -qi "busy" <<<"${err}"; then
+      # Someone else mounted concurrently; verify mountpoint now exists.
+      if ! mountpoint -q "${runtime_root}"; then
+        echo "cmux-rootfs-exec: failed to mount overlay: ${err}" >&2
+        exit 1
+      fi
+    elif grep -qiE "(no such device|special device overlay does not exist|invalid argument)" <<<"${err}"; then
+      debug_log "overlayfs unavailable (${err}); falling back to rootfs without overlay"
+      runtime_root="${rootfs}"
+      return
+    else
+      echo "cmux-rootfs-exec: failed to mount overlay: ${err}" >&2
+      exit 1
+    fi
+  fi
+}
+
+ensure_runtime_mounts() {
+  if [[ "${runtime_root}" == "/" ]]; then
+    return
+  fi
+
+  mount_or_ignore() {
+    local description="$1"
+    shift
+    local err
+    if err=$("${@}" 2>&1); then
+      return
+    fi
+
+    if grep -qiE 'already mounted|busy' <<<"${err}"; then
+      return
+    fi
+
+    echo "cmux-rootfs-exec: failed to mount ${description}: ${err}" >&2
+    exit 1
+  }
+
+  mkdir -p \
+    "${runtime_root}/dev" \
+    "${runtime_root}/dev/pts" \
+    "${runtime_root}/proc" \
+    "${runtime_root}/sys" \
+    "${runtime_root}/run"
+
+  if ! mountpoint -q "${runtime_root}/dev"; then
+    mount_or_ignore "/dev bind" mount --rbind /dev "${runtime_root}/dev"
+    mount --make-rslave "${runtime_root}/dev" 2>/dev/null || true
+  fi
+
+  if ! mountpoint -q "${runtime_root}/dev/pts"; then
+    mkdir -p "${runtime_root}/dev/pts"
+    mount_or_ignore devpts mount -t devpts devpts "${runtime_root}/dev/pts"
+    if [[ ! -e "${runtime_root}/dev/ptmx" ]]; then
+      ln -sf pts/ptmx "${runtime_root}/dev/ptmx"
+    fi
+  fi
+
+  if ! mountpoint -q "${runtime_root}/proc"; then
+    mount_or_ignore proc mount -t proc proc "${runtime_root}/proc"
+  fi
+
+  if ! mountpoint -q "${runtime_root}/sys"; then
+    mount_or_ignore sysfs mount -t sysfs sysfs "${runtime_root}/sys"
+  fi
+
+  if ! mountpoint -q "${runtime_root}/run"; then
+    mount_or_ignore "/run bind" mount --rbind /run "${runtime_root}/run"
+    mount --make-rslave "${runtime_root}/run" 2>/dev/null || true
+  fi
+
+}
+
+install_host_wrapper() {
+  local name="$1"
+  local host_path="$2"
+  if [[ -z "${host_path}" || ! -x "${host_path}" ]]; then
+    return
+  fi
+
+  local dest="${runtime_root}/usr/local/bin/${name}"
+  if [[ -e "${dest}" ]]; then
+    return
+  fi
+
+  mkdir -p "${runtime_root}/usr/local/bin"
+
+  local host_nsenter
+  host_nsenter=$(command -v nsenter 2>/dev/null || true)
+  if [[ -z "${host_nsenter}" ]]; then
+    return
+  fi
+
+  cat > "${dest}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec /proc/1/root${host_nsenter} --target 1 --mount --uts --ipc --net --pid -- chroot /proc/1/root ${host_path} "\$@"
+EOF
+
+  chmod +x "${dest}"
+}
+
+install_host_tools() {
+  if [[ "${runtime_root}" == "/" ]]; then
+    return
+  fi
+
+  install_host_wrapper docker "$(command -v docker 2>/dev/null || true)"
+  install_host_wrapper docker-compose "$(command -v docker-compose 2>/dev/null || true)"
+}
+
+ensure_overlay
+ensure_runtime_mounts
+install_host_tools
+debug_log "rootfs=${rootfs} runtime_root=${runtime_root} overlay_upper=${overlay_upper} overlay_work=${overlay_work}"
+
+export CMUX_ROOTFS="${rootfs}"
+export CMUX_RUNTIME_ROOT="${runtime_root}"
+export CMUX_ROOTFS_ABS="${rootfs}"
+export CMUX_RUNTIME_ROOT_ABS="${runtime_root}"
+
+cmd=("$@")
+
+if [[ "${runtime_root}" == "/" ]]; then
+  debug_log "runtime_root is /; executing command without chroot"
+  exec "${cmd[@]}"
+fi
+
+# Inside the overlay runtime we chroot so that glibc resolves libraries within
+# the extracted rootfs instead of the host. This avoids symbol mismatches that
+# appeared when running without a chroot on older host systems.
+export CMUX_ROOTFS="/"
+export CMUX_RUNTIME_ROOT="/"
+
+if [[ -n "${PATH:-}" ]]; then
+  export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
+else
+  export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+fi
+
+if [[ -z "${HOME:-}" ]]; then
+  export HOME="/root"
+  debug_log "HOME not set; defaulting to /root"
+fi
+
+debug_log "entering chroot at ${runtime_root}"
+exec chroot "${runtime_root}" "${cmd[@]}"

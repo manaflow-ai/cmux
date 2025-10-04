@@ -12,11 +12,13 @@ console.log(`Created instance: ${instance.id}`);
 const exposedServices = instance.networking.httpServices;
 const vscodeService = exposedServices.find((service) => service.port === 39378);
 const workerService = exposedServices.find((service) => service.port === 39377);
-if (!vscodeService || !workerService) {
-  throw new Error("VSCode or worker service not found");
+const proxyService = exposedServices.find((service) => service.port === 39379);
+if (!vscodeService || !workerService || !proxyService) {
+  throw new Error("VSCode, worker, or proxy service not found");
 }
 
 console.log(`VSCode: ${vscodeService.url}/?folder=/root/workspace`);
+console.log(`Proxy: ${proxyService.url}`);
 
 // connect to the worker management namespace with socketio
 const clientSocket = io(workerService.url + "/management", {

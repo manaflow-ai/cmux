@@ -131,7 +131,7 @@ describe("DockerVSCodeInstance", () => {
           containerName: "cmux-test",
           instanceId: "test-instance" as Id<"taskRuns">,
           teamSlugOrId: "default",
-          ports: { vscode: "", worker: "" },
+        ports: { vscode: "", worker: "", proxy: "" },
           status: "starting",
         });
 

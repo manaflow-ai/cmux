@@ -638,6 +638,7 @@ export const updateVSCodePorts = authMutation({
       vscode: v.string(),
       worker: v.string(),
       extension: v.optional(v.string()),
+      proxy: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

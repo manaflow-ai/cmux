@@ -17,11 +17,13 @@ async function main() {
       PortBindings: {
         "39378/tcp": [{ HostPort: "0" }],
         "39377/tcp": [{ HostPort: "0" }],
+        "39379/tcp": [{ HostPort: "0" }],
       },
     },
     ExposedPorts: {
       "39378/tcp": {},
       "39377/tcp": {},
+      "39379/tcp": {},
     },
   });
 

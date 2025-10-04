@@ -1,0 +1,31 @@
+[package]
+name = "cmux-env"
+version = "0.0.8"
+edition = "2021"
+
+# Two binaries: envd (daemon) and envctl (client)
+[[bin]]
+name = "envd"
+path = "src/bin/envd.rs"
+
+[[bin]]
+name = "envctl"
+path = "src/bin/envctl.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+parking_lot = "0.12"
+regex = "1.10"
+base64 = "0.21"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.10"
+wait-timeout = "0.2"
+expectrl = "0.7"
+libc = "0.2"

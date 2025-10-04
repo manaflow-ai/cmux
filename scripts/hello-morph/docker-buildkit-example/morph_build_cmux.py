@@ -706,16 +706,26 @@ def warmup_vscode(instance):
     run_ssh_command(instance, warmup_command, sudo=True)
 
 
-def create_startup_script(instance):
-    """Copy startup script from repository"""
-    print("\n--- Copying startup script ---")
+def enable_cmux_services(instance):
+    """Enable systemd units that ship with the cmux image."""
+    print("\n--- Enabling cmux systemd units ---")
 
-    # The startup.sh file is already uploaded as part of the workspace
-    run_ssh_command(
-        instance,
-        "cp /cmux/startup.sh /startup.sh && chmod +x /startup.sh",
-        sudo=True,
+    command = (
+        "set -e\n"
+        "for unit in cmux.target cmux-openvscode.service cmux-worker.service cmux-dockerd.service; do\n"
+        "  if [ -f /opt/app/rootfs/usr/lib/systemd/system/$unit ]; then\n"
+        "    cp /opt/app/rootfs/usr/lib/systemd/system/$unit /etc/systemd/system/$unit;\n"
+        "  fi\n"
+        "done\n"
+        "mkdir -p /usr/local/lib/cmux\n"
+        "if [ -f /opt/app/rootfs/usr/local/lib/cmux/dockerd.flag ]; then\n"
+        "  cp /opt/app/rootfs/usr/local/lib/cmux/dockerd.flag /usr/local/lib/cmux/dockerd.flag;\n"
+        "fi\n"
+        "systemctl daemon-reload\n"
+        "systemctl enable --now cmux.target\n"
     )
+
+    run_ssh_command(instance, command, sudo=True)
 
 
 def test_ignore_patterns():
@@ -835,7 +845,7 @@ def main():
         setup_vscode_settings(current_instance)
 
         # Create startup script
-        create_startup_script(current_instance)
+        enable_cmux_services(current_instance)
 
         # Create workspace directory for OpenVSCode
         run_ssh_command(current_instance, "mkdir -p /root/workspace", sudo=True)
@@ -843,17 +853,17 @@ def main():
         # Expose HTTP services
         current_instance.expose_http_service("openvscode", 39378)
         current_instance.expose_http_service("worker", 39377)
+        current_instance.expose_http_service("proxy", 39379)
 
-        print("\n--- Starting services ---")
-        # Run the startup script in the background
+        print("\n--- Ensuring services are running ---")
         run_ssh_command(
             current_instance,
-            "nohup /startup.sh > /var/log/startup.log 2>&1 &",
+            "systemctl restart cmux.target",
             sudo=True,
         )
 
         # Wait a bit for services to start
-        print("Waiting for services to start...")
+        print("Waiting for services to settle...")
         time.sleep(10)
 
         # Check if services are running
@@ -873,7 +883,7 @@ def main():
             # Show logs
             run_ssh_command(
                 current_instance,
-                "cat /var/log/cmux/server.log | tail -20",
+                "cat /var/log/cmux/openvscode.log | tail -20",
                 sudo=True,
             )
 
@@ -890,7 +900,9 @@ def main():
             print("❌ Worker is not running")
             # Show startup logs
             run_ssh_command(
-                current_instance, "cat /var/log/cmux/startup.log | tail -20", sudo=True
+                current_instance,
+                "cat /var/log/cmux/worker.log | tail -20",
+                sudo=True,
             )
 
         # Warm up VS Code
@@ -913,13 +925,13 @@ def main():
         print("\nUseful commands:")
         print(f"- SSH to instance: morphcloud instance ssh {current_instance.id}")
         print(
-            f"- View OpenVSCode logs: morphcloud instance ssh {current_instance.id} -- sudo cat /var/log/cmux/server.log"
+            f"- View OpenVSCode logs: morphcloud instance ssh {current_instance.id} -- sudo cat /var/log/cmux/openvscode.log"
         )
         print(
-            f"- View startup logs: morphcloud instance ssh {current_instance.id} -- sudo cat /var/log/startup.log"
+            f"- View worker logs: morphcloud instance ssh {current_instance.id} -- sudo cat /var/log/cmux/worker.log"
         )
         print(
-            f"- Restart services: morphcloud instance ssh {current_instance.id} -- sudo /startup.sh"
+            f"- Restart services: morphcloud instance ssh {current_instance.id} -- sudo systemctl restart cmux.target"
         )
 
         # Clean up workspace before creating final snapshot

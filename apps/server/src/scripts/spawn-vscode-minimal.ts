@@ -7,6 +7,7 @@ interface ContainerInfo {
   containerName: string;
   vscodePort: string;
   workerPort: string;
+  proxyPort: string;
   vscodeUrl: string;
 }
 
@@ -37,12 +38,14 @@ async function spawnVSCodeContainer(docker: Docker): Promise<ContainerInfo> {
         "39378/tcp": [{ HostPort: "0" }],
         "39377/tcp": [{ HostPort: "0" }],
         "39376/tcp": [{ HostPort: "0" }],
+        "39379/tcp": [{ HostPort: "0" }],
       },
     },
     ExposedPorts: {
       "39378/tcp": {},
       "39377/tcp": {},
       "39376/tcp": {},
+      "39379/tcp": {},
     },
   });
 
@@ -56,8 +59,9 @@ async function spawnVSCodeContainer(docker: Docker): Promise<ContainerInfo> {
 
   const vscodePort = ports["39378/tcp"]?.[0]?.HostPort;
   const workerPort = ports["39377/tcp"]?.[0]?.HostPort;
+  const proxyPort = ports["39379/tcp"]?.[0]?.HostPort;
 
-  if (!vscodePort || !workerPort) {
+  if (!vscodePort || !workerPort || !proxyPort) {
     throw new Error("Failed to get port mappings");
   }
 
@@ -93,6 +97,7 @@ async function spawnVSCodeContainer(docker: Docker): Promise<ContainerInfo> {
     containerName,
     vscodePort,
     workerPort,
+    proxyPort,
     vscodeUrl,
   };
 }
@@ -191,6 +196,7 @@ async function main() {
     console.log(`\nVSCode instance started:`);
     console.log(`  URL: ${containerInfo.vscodeUrl}`);
     console.log(`  Container: ${containerInfo.containerName}`);
+    console.log(`  Proxy: http://localhost:${containerInfo.proxyPort}`);
 
     // Create terminal with prompt
     await createTerminalWithPrompt(containerInfo.workerPort, prompt);

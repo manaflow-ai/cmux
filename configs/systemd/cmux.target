@@ -1,0 +1,8 @@
+[Unit]
+Description=Cmux Services Target
+Requires=cmux-openvscode.service cmux-worker.service
+Wants=cmux-dockerd.service
+After=cmux-openvscode.service cmux-dockerd.service
+
+[Install]
+WantedBy=multi-user.target

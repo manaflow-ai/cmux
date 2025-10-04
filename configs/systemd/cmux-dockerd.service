@@ -1,0 +1,20 @@
+[Unit]
+Description=Docker Engine for Cmux
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/usr/local/lib/cmux/dockerd.flag
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/app/app.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LogsDirectory=cmux
+ExecStartPre=/bin/mkdir -p /var/log/cmux
+ExecStart=/usr/local/lib/cmux/cmux-rootfs-exec /bin/bash -lc 'exec /usr/local/bin/dockerd'
+Restart=always
+RestartSec=2
+StandardOutput=append:/var/log/cmux/dockerd.log
+StandardError=append:/var/log/cmux/dockerd.log
+
+[Install]
+WantedBy=cmux.target

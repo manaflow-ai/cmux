@@ -1,0 +1,32 @@
+name: Docker E2E Tests (Optional)
+
+# This workflow tests the e2e suite in a Docker container
+# It's optional and mainly useful for debugging container-specific issues
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile*'
+      - '.dockerignore'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  e2e-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # Global job timeout
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build e2e test Docker image
+        timeout-minutes: 5
+        run: docker build -f Dockerfile.e2e -t cmux-e2e-test .
+
+      - name: Run e2e tests in Docker
+        timeout-minutes: 5
+        run: |
+          # Run with explicit timeout and capture exit code
+          docker run --rm cmux-e2e-test || EXIT_CODE=$?
+          if [ "${EXIT_CODE:-0}" -ne 0 ]; then
+            echo "E2E tests failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+          echo "E2E tests passed successfully"

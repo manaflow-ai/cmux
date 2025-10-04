@@ -537,9 +537,9 @@ runTests().catch((err) => {
   process.exit(1);
 });
 
-// Recursively find Rust crates (Cargo.toml) under apps/ and packages/
+// Recursively find Rust crates (Cargo.toml) under apps/, packages/, and crates/
 function findCargoCrates(): { name: string; dir: string }[] {
-  const roots = ["apps", "packages"];
+  const roots = ["apps", "packages", "crates"];
   const crates: { name: string; dir: string }[] = [];
   const seen = new Set<string>();
 

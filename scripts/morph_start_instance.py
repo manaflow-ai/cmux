@@ -46,7 +46,7 @@ try:
 
     print("instance id:", instance.id)
 
-    expose_ports = [39376, 39377, 39378]
+    expose_ports = [39376, 39377, 39378, 39379]
     for port in expose_ports:
         instance.expose_http_service(port=port, name=f"port-{port}")
 

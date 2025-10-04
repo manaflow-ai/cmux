@@ -1,0 +1,26 @@
+# Dockerfile for running e2e tests with proper timeout handling
+FROM rust:1-bookworm AS e2e-test
+
+# Install timeout utility (part of coreutils, should be available but ensure it)
+RUN apt-get update && apt-get install -y coreutils bash && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Pre-fetch dependencies for better caching
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src && echo "fn main(){}" > src/main.rs && \
+    cargo fetch && \
+    rm -rf src
+
+# Copy full source
+COPY . .
+
+# Build the binaries
+RUN cargo build --locked --bins
+
+# Set environment to skip rebuild since we built above
+ENV IN_DOCKER=1
+
+# Run both test suites with proper timeout
+# First the core functionality, then shell hooks
+CMD ["timeout", "--preserve-status", "300", "bash", "-c", "IN_DOCKER=1 bash scripts/test-e2e-focused.sh && IN_DOCKER=1 bash scripts/test-e2e-shell-hooks-working.sh"]

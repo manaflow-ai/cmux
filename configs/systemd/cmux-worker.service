@@ -1,0 +1,22 @@
+[Unit]
+Description=Cmux Worker Service
+After=cmux-openvscode.service
+Requires=cmux-openvscode.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/app/app.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+Environment=WORKER_PORT=39377
+Environment=IS_SANDBOX=true
+LogsDirectory=cmux
+ExecStartPre=/bin/mkdir -p /var/log/cmux
+ExecStart=/usr/local/lib/cmux/cmux-rootfs-exec /bin/bash -lc 'cd /root/workspace && exec /usr/bin/node /builtins/build/index.js'
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/var/log/cmux/worker.log
+StandardError=append:/var/log/cmux/worker.log
+
+[Install]
+WantedBy=cmux.target

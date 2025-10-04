@@ -96,6 +96,7 @@ const KNOWN_PORT_MAPPINGS: { [key: string]: string } = {
   vscode: "39378",
   worker: "39377",
   extension: "39376",
+  proxy: "39379",
 };
 
 // Check if container exists in Docker
