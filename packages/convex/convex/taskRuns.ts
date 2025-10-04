@@ -71,10 +71,47 @@ type EnvironmentSummary = Pick<
   "_id" | "name" | "selectedRepos"
 >;
 
-type TaskRunWithChildren = Doc<"taskRuns"> & {
-  children: TaskRunWithChildren[];
+type TaskRunWithEnvironment = Doc<"taskRuns"> & {
   environment: EnvironmentSummary | null;
 };
+
+type TaskRunWithChildren = TaskRunWithEnvironment & {
+  children: TaskRunWithChildren[];
+};
+
+async function enrichTaskRun(
+  ctx: QueryCtx,
+  run: Doc<"taskRuns">,
+  teamId: string,
+): Promise<TaskRunWithEnvironment> {
+  const environmentPromise = run.environmentId
+    ? ctx.db.get(run.environmentId)
+    : Promise.resolve(null);
+
+  const [environmentDoc] = await Promise.all([environmentPromise]);
+
+  const environmentSummary =
+    environmentDoc && environmentDoc.teamId === teamId
+      ? {
+          _id: environmentDoc._id,
+          name: environmentDoc.name,
+          selectedRepos: environmentDoc.selectedRepos,
+        }
+      : null;
+
+  const networking = run.networking
+    ? run.networking.map((item) => ({
+        ...item,
+        url: rewriteMorphUrl(item.url),
+      }))
+    : undefined;
+
+  return {
+    ...run,
+    ...(networking ? { networking } : {}),
+    environment: environmentSummary,
+  };
+}
 
 async function fetchTaskRunsForTask(
   ctx: QueryCtx,
@@ -423,17 +460,7 @@ export const get = authQuery({
     if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
       return null;
     }
-    // Rewrite morph URLs in networking field
-    if (doc.networking) {
-      return {
-        ...doc,
-        networking: doc.networking.map((item) => ({
-          ...item,
-          url: rewriteMorphUrl(item.url),
-        })),
-      };
-    }
-    return doc;
+    return await enrichTaskRun(ctx, doc, teamId);
   },
 });
 
@@ -447,17 +474,7 @@ export const subscribe = authQuery({
     if (!doc || doc.teamId !== teamId || doc.userId !== userId) {
       return null;
     }
-    // Rewrite morph URLs in networking field
-    if (doc.networking) {
-      return {
-        ...doc,
-        networking: doc.networking.map((item) => ({
-          ...item,
-          url: rewriteMorphUrl(item.url),
-        })),
-      };
-    }
-    return doc;
+    return await enrichTaskRun(ctx, doc, teamId);
   },
 });
 
