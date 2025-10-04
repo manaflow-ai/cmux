@@ -1,6 +1,6 @@
 import { waitForConnectedSocket } from "@/contexts/socket/socket-boot";
 import { normalizeGitRef } from "@/lib/refWithOrigin";
-import type { ReplaceDiffEntry } from "@cmux/shared";
+import { isLockfileDiffEntry, type ReplaceDiffEntry } from "@cmux/shared";
 import { queryOptions } from "@tanstack/react-query";
 
 export interface GitDiffQuery {
@@ -65,7 +65,10 @@ export function gitDiffQueryOptions({
               | { ok: false; error: string; diffs?: [] }
           ) => {
             if (resp.ok) {
-              resolve(resp.diffs);
+              const filteredDiffs = resp.diffs.filter(
+                (entry) => !isLockfileDiffEntry(entry),
+              );
+              resolve(filteredDiffs);
             } else {
               reject(
                 new Error(resp.error || "Failed to load repository diffs")
