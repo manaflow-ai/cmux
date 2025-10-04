@@ -89,7 +89,17 @@ program
   )
   .action(async (repoPath, options) => {
     // Ensure Docker is installed and the daemon is running before proceeding
-    const dockerStatus = checkDockerStatus();
+    let announcedDockerWait = false;
+    const dockerStatus = await checkDockerStatus({
+      onRetry: (attempt) => {
+        if (!announcedDockerWait && attempt === 1) {
+          console.log(
+            "\x1b[33m…\x1b[0m Waiting for Docker to become available before continuing"
+          );
+          announcedDockerWait = true;
+        }
+      },
+    });
     if (dockerStatus !== "ok") {
       const isMac = process.platform === "darwin";
       if (dockerStatus === "not_installed") {
