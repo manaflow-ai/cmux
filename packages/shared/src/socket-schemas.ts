@@ -84,6 +84,10 @@ export const TaskStartedSchema = z.object({
   terminalId: z.string(),
 });
 
+export const TaskAcknowledgedSchema = z.object({
+  taskId: typedZid("tasks"),
+});
+
 export const TaskErrorSchema = z.object({
   taskId: typedZid("tasks"),
   error: z.string(),
@@ -384,6 +388,7 @@ export type TerminalClosed = z.infer<typeof TerminalClosedSchema>;
 export type TerminalClear = z.infer<typeof TerminalClearSchema>;
 export type TerminalRestore = z.infer<typeof TerminalRestoreSchema>;
 export type TaskStarted = z.infer<typeof TaskStartedSchema>;
+export type TaskAcknowledged = z.infer<typeof TaskAcknowledgedSchema>;
 export type TaskError = z.infer<typeof TaskErrorSchema>;
 export type GitStatusRequest = z.infer<typeof GitStatusRequestSchema>;
 export type GitDiffRequest = z.infer<typeof GitDiffRequestSchema>;
@@ -430,7 +435,7 @@ export interface ClientToServerEvents {
   // Terminal operations
   "start-task": (
     data: StartTask,
-    callback: (response: TaskStarted | TaskError) => void
+    callback: (response: TaskAcknowledged | TaskStarted | TaskError) => void
   ) => void;
   "git-status": (data: GitStatusRequest) => void;
   "git-diff": (
@@ -525,6 +530,8 @@ export interface ServerToClientEvents {
   "vscode-spawned": (data: VSCodeSpawned) => void;
   "default-repo": (data: DefaultRepo) => void;
   "available-editors": (data: AvailableEditors) => void;
+  "task-started": (data: TaskStarted) => void;
+  "task-failed": (data: TaskError) => void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type

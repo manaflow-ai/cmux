@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { gitDiffQueryOptions } from "@/queries/git-diff";
 import { api } from "@cmux/convex/api";
 import type { Doc, Id } from "@cmux/convex/dataModel";
+import type { TaskAcknowledged, TaskStarted, TaskError } from "@cmux/shared";
 import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
@@ -34,6 +35,7 @@ import {
   type FormEvent,
 } from "react";
 import { toast } from "sonner";
+import { attachTaskLifecycleListeners } from "@/lib/socket/taskLifecycleListeners";
 import z from "zod";
 import type { EditorApi } from "@/components/dashboard/DashboardInput";
 import LexicalEditor from "@/components/lexical/LexicalEditor";
@@ -177,6 +179,22 @@ const RestartTaskForm = memo(function RestartTaskForm({
         ? `https://github.com/${projectFullNameForSocket}.git`
         : undefined;
 
+      const handleRestartAck = (response: TaskAcknowledged | TaskStarted | TaskError) => {
+        if ("error" in response) {
+          toast.error(`Task restart error: ${response.error}`);
+          return;
+        }
+
+        attachTaskLifecycleListeners(socket, response.taskId, {
+          onFailed: (payload) => {
+            toast.error(`Follow-up task failed to start: ${payload.error}`);
+          },
+        });
+
+        editorApiRef.current?.clear();
+        setFollowUpText("");
+      };
+
       socket.emit(
         "start-task",
         {
@@ -190,14 +208,7 @@ const RestartTaskForm = memo(function RestartTaskForm({
           ...(task.environmentId ? { environmentId: task.environmentId } : {}),
           theme,
         },
-        (response) => {
-          if ("error" in response) {
-            toast.error(`Task restart error: ${response.error}`);
-            return;
-          }
-          editorApiRef.current?.clear();
-          setFollowUpText("");
-        },
+        handleRestartAck,
       );
 
       toast.success("Started follow-up task");
