@@ -713,6 +713,26 @@ def main() -> None:
             instance.expose_http_service(port=port, name=f"port-{port}")
         instance.wait_until_ready()
         print(instance.networking.http_services)
+        
+        # Log VSCode URL (port 39378)
+        services = getattr(instance.networking, "http_services", [])
+        def _get_attr(obj: object, key: str) -> t.Any:
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
+        
+        vscode_url = None
+        for svc in services or []:
+            port = _get_attr(svc, "port")
+            name = _get_attr(svc, "name")
+            if port == 39378 or name == "port-39378":
+                vscode_url = _get_attr(svc, "url")
+                break
+        
+        if vscode_url:
+            print(f"\n=== VSCode URL (port 39378) ===")
+            print(f"{vscode_url}/?folder=/root/workspace")
+            print("=" * 40)
         # print the instance's public IP
 
         # Quick diagnostics before checking the VS Code port
@@ -746,30 +766,14 @@ def main() -> None:
 
         # check if port 39378 returns a 200
         try:
-            services = getattr(instance.networking, "http_services", [])
-
-            def _get(obj: object, key: str) -> t.Any:
-                if isinstance(obj, dict):
-                    return obj.get(key)
-                return getattr(obj, key, None)
-
-            vscode_service = None
-            for svc in services or []:
-                port = _get(svc, "port")
-                name = _get(svc, "name")
-                if port == 39378 or name == "port-39378":
-                    vscode_service = svc
-                    break
-
-            url = _get(vscode_service, "url") if vscode_service is not None else None
-            if not url:
+            if not vscode_url:
                 print("No exposed HTTP service found for port 39378")
             else:
                 ok = False
                 # retry for up to ~60s
                 for _ in range(30):
                     try:
-                        with urllib_request.urlopen(url, timeout=5) as resp:
+                        with urllib_request.urlopen(vscode_url, timeout=5) as resp:
                             code = getattr(resp, "status", getattr(resp, "code", None))
                             if code == 200:
                                 print(f"Port 39378 check: HTTP {code}")
@@ -787,8 +791,10 @@ def main() -> None:
         except Exception as e:
             print(f"Error checking port 39378: {e}")
 
-        # print the vscode url
-        print(f"VSCode URL: {url}/?folder=/root/workspace")
+        # print the vscode url again for convenience
+        if vscode_url:
+            print(f"\n=== VSCode URL ===")
+            print(f"{vscode_url}/?folder=/root/workspace")
 
         if args.resnapshot:
             # next, wait for any keypress and then snapshot again
