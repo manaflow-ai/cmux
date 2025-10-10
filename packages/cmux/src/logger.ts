@@ -5,6 +5,9 @@ import path from "node:path";
 
 export type LogLevel = "info" | "error" | "warn";
 
+const isErrnoException = (error: unknown): error is NodeJS.ErrnoException =>
+  typeof error === "object" && error !== null && "code" in error;
+
 class Logger {
   private readonly MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
   private readonly logDir: string;
@@ -57,9 +60,9 @@ class Logger {
 
     try {
       await appendFile(this.logFile, logEntry);
-    } catch (error: any) {
+    } catch (error) {
       // If the directory was deleted, recreate it
-      if (error.code === "ENOENT") {
+      if (isErrnoException(error) && error.code === "ENOENT") {
         this.ensureLogDirectory();
         // Try once more
         try {

@@ -4,6 +4,7 @@ import type { IncomingMessage, Server } from "http";
 import httpProxy from "http-proxy";
 import { Buffer } from "node:buffer";
 import path from "node:path";
+import type { Socket } from "node:net";
 import { getConvex } from "./utils/convexClient";
 import { serverLogger } from "./utils/fileLogger";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
@@ -333,7 +334,7 @@ export function createProxyApp({
 export function setupWebSocketProxy(server: Server) {
   server.on(
     "upgrade",
-    async (request: IncomingMessage, socket: any, head: Buffer) => {
+    async (request: IncomingMessage, socket: Socket, head: Buffer) => {
       // Check if this is a Socket.IO request - let Socket.IO handle it
       const url = request.url || "";
       if (url.startsWith("/socket.io/")) {

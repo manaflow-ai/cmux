@@ -32,6 +32,8 @@ export default tseslint.config(
     '**/build',
     'node_modules',
     '**/node_modules',
+    'apps/client/src/routeTree.gen.ts',
+    'packages/www-openapi-client/**',
   ]),
   withTypescriptFiles(js.configs.recommended),
   ...tseslint.configs.recommended.map(withTypescriptFiles),
@@ -47,6 +49,16 @@ export default tseslint.config(
       parserOptions: {
         // Disambiguate monorepo tsconfig roots (e.g. www-openapi-client)
         tsconfigRootDir,
+        projectService: {
+          allowDefaultProject: [
+            'apps/client/electron-vite-plugin-resolve-workspace.ts',
+            'apps/client/electron.vite.config.test.ts',
+            'apps/client/electron.vite.config.ts',
+            'apps/client/electron/preload/index.d.ts',
+            'apps/client/vite.config.ts',
+            'apps/client/vitest.config.ts',
+          ],
+        },
       },
     },
     rules: {
@@ -59,6 +71,8 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: '^_',
         },
       ],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
     },
   },
   {
@@ -69,6 +83,13 @@ export default tseslint.config(
         ...sharedGlobals,
         ...globals.vitest,
       },
+    },
+  },
+  {
+    name: 'cmux/client-temp-overrides',
+    files: ['apps/client/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },
   // Allow Next.js app router files to export metadata and other

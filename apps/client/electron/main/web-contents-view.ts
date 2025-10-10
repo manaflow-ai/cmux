@@ -77,12 +77,13 @@ let suspendedCount = 0;
 let maxSuspendedEntries = 25;
 let rendererBaseUrl = "";
 
-const validDevToolsModes: ReadonlySet<ElectronDevToolsMode> = new Set([
-  "bottom",
-  "right",
-  "undocked",
-  "detach",
-]);
+const isElectronDevToolsMode = (
+  value: unknown
+): value is ElectronDevToolsMode =>
+  value === "bottom" ||
+  value === "right" ||
+  value === "undocked" ||
+  value === "detach";
 
 function eventChannelFor(id: number): string {
   return `cmux:webcontents:event:${id}`;
@@ -321,7 +322,7 @@ function ensureWebRequestListener(targetSession: Session, _logger: Logger) {
   };
   targetSession.webRequest.onCompleted(
     { urls: ["*://*/*"] },
-    listener as OnCompletedListener,
+    listener,
   );
   registeredSessions.add(targetSession);
 }
@@ -1060,11 +1061,9 @@ export function registerWebContentsViewHandlers({
         return { ok: false };
       }
       entry.ownerSender = event.sender;
-      const requestedMode: ElectronDevToolsMode =
-        typeof mode === "string" &&
-        validDevToolsModes.has(mode as ElectronDevToolsMode)
-          ? (mode as ElectronDevToolsMode)
-          : "bottom";
+      const requestedMode: ElectronDevToolsMode = isElectronDevToolsMode(mode)
+        ? mode
+        : "bottom";
       try {
         entry.view.webContents.openDevTools({
           mode: requestedMode,

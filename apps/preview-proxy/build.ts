@@ -35,7 +35,10 @@ Example:
 
 const toCamelCase = (str: string): string => str.replace(/-([a-z])/g, g => g[1].toUpperCase());
 
-const parseValue = (value: string): any => {
+type ParsedConfigValue = string | number | boolean | string[];
+type ParsedConfigRecord = Record<string, ParsedConfigValue | ParsedConfigRecord>;
+
+const parseValue = (value: string): ParsedConfigValue => {
   if (value === "true") return true;
   if (value === "false") return false;
 
@@ -47,8 +50,13 @@ const parseValue = (value: string): any => {
   return value;
 };
 
-function parseArgs(): Partial<Bun.BuildConfig> {
-  const config: Partial<Bun.BuildConfig> = {};
+const isParsedConfigRecord = (
+  value: ParsedConfigValue | ParsedConfigRecord | undefined
+): value is ParsedConfigRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function parseArgs(): Partial<Bun.BuildConfig> & ParsedConfigRecord {
+  const config: Partial<Bun.BuildConfig> & ParsedConfigRecord = {};
   const args = process.argv.slice(2);
 
   for (let i = 0; i < args.length; i++) {
@@ -82,8 +90,12 @@ function parseArgs(): Partial<Bun.BuildConfig> {
 
     if (key.includes(".")) {
       const [parentKey, childKey] = key.split(".");
-      config[parentKey] = config[parentKey] || {};
-      config[parentKey][childKey] = parseValue(value);
+      const currentValue = config[parentKey];
+      const parentConfig = isParsedConfigRecord(currentValue)
+        ? currentValue
+        : {};
+      parentConfig[childKey] = parseValue(value);
+      config[parentKey] = parentConfig;
     } else {
       config[key] = parseValue(value);
     }

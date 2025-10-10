@@ -202,17 +202,21 @@ function addPermissiveCORS(headers: Headers): Headers {
 // Note: We don't rewrite inline scripts because HTMLRewriter can cause encoding issues
 // with special characters. Instead, we rely on our injected scripts to handle location
 // interception at runtime.
+type HTMLRewriterElement = {
+  getAttribute(name: string): string | null;
+  remove(): void;
+  prepend(content: string, options?: { html?: boolean }): void;
+};
+
 class ScriptRewriter {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  element(element: any) {
+  element(_element: HTMLRewriterElement) {
     // Currently no-op
   }
 }
 
 // HTMLRewriter to remove CSP meta tags
 class MetaCSPRewriter {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  element(element: any) {
+  element(element: HTMLRewriterElement) {
     const httpEquiv = element.getAttribute("http-equiv");
     if (httpEquiv?.toLowerCase() === "content-security-policy") {
       element.remove();
@@ -227,8 +231,7 @@ class HeadRewriter {
     this.skipServiceWorker = skipServiceWorker;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  element(element: any) {
+  element(element: HTMLRewriterElement) {
     // Config script with localhost interceptors
     element.prepend(
       `<script data-cmux-injected="true">

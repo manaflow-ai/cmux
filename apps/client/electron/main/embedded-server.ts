@@ -36,8 +36,7 @@ function createIPCRealtimeServer(): RealtimeServer {
     id: string;
     webContents: Electron.WebContents;
     handshake: { query: Record<string, string | string[] | undefined> };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    handlers: Map<string, Array<(...args: any[]) => void>>;
+    handlers: Map<string, Array<(...args: unknown[]) => unknown>>;
     middlewares: Array<(packet: unknown[], next: () => void) => void>;
   }
 
@@ -206,7 +205,7 @@ function createIPCRealtimeServer(): RealtimeServer {
         typeof lastArg === "string" && lastArg.includes("_callback_");
 
       if (hasCallback) {
-        const callbackId = lastArg as string;
+        const callbackId = lastArg;
         const dataArgs = args.slice(0, -1);
 
         // Run middlewares
@@ -231,7 +230,9 @@ function createIPCRealtimeServer(): RealtimeServer {
         runMiddlewares(socket.middlewares, [eventName, ...args], () => {
           // Execute handlers without callback
           const handlers = socket.handlers.get(eventName) || [];
-          handlers.forEach((handler) => handler(...args));
+          handlers.forEach((handler) => {
+            handler(...args);
+          });
         });
       }
 
@@ -246,17 +247,17 @@ function createIPCRealtimeServer(): RealtimeServer {
       { event: eventName, args }: { event: string; args: unknown[] },
     ) => {
       // Basic payload validation
-      const toSerializableError = (e: unknown) => {
-        if (e instanceof Error) {
-          return { name: e.name, message: e.message, stack: e.stack };
-        }
-        const msg = typeof e === "string" ? e : JSON.stringify(e);
-        return {
-          name: "Error",
-          message: msg,
-          stack: undefined as string | undefined,
+        const toSerializableError = (e: unknown) => {
+          if (e instanceof Error) {
+            return { name: e.name, message: e.message, stack: e.stack };
+          }
+          const msg = typeof e === "string" ? e : JSON.stringify(e);
+          return {
+            name: "Error",
+            message: msg,
+            stack: undefined,
+          };
         };
-      };
       if (typeof eventName !== "string" || !Array.isArray(args)) {
         return Promise.reject(
           toSerializableError(new Error("Invalid RPC payload")),
@@ -324,9 +325,8 @@ function createIPCRealtimeServer(): RealtimeServer {
               finish(resolve, result);
             };
             try {
-              const fn = handler as (...fnArgs: unknown[]) => unknown;
               const maybePromise: unknown =
-                args.length === 0 ? fn(ack) : fn(...args, ack);
+                args.length === 0 ? handler(ack) : handler(...args, ack);
               // Support handlers that return a Promise instead of using ack
               if (isPromise(maybePromise)) {
                 (maybePromise as Promise<unknown>)

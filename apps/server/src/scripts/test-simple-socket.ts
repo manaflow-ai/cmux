@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import { connectToWorkerManagement } from "@cmux/shared/socket";
+import type { DockerReadinessResponse } from "@cmux/shared";
 
 async function main() {
   const workerUrl = process.argv[2];
@@ -14,17 +15,20 @@ async function main() {
 
   socket.on("connect", () => {
     console.log("Connected! Socket ID:", socket.id);
-    
+
     // Try check-docker
     console.log("\nEmitting worker:check-docker...");
-    socket.emit("worker:check-docker", (result: any) => {
-      console.log("Got response:", result);
-      
-      // Now disconnect
-      console.log("\nDisconnecting...");
-      socket.disconnect();
-      process.exit(0);
-    });
+    socket.emit(
+      "worker:check-docker",
+      (result: DockerReadinessResponse) => {
+        console.log("Got response:", result);
+
+        // Now disconnect
+        console.log("\nDisconnecting...");
+        socket.disconnect();
+        process.exit(0);
+      }
+    );
   });
 
   socket.on("connect_error", (error) => {

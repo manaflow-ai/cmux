@@ -12,6 +12,32 @@ interface SecurityIssue {
   pattern?: string;
 }
 
+interface NpmPackFileInfo {
+  path: string;
+}
+
+interface NpmPackResult {
+  files: NpmPackFileInfo[];
+}
+
+function isNpmPackResult(value: unknown): value is NpmPackResult {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('files' in value) ||
+    !Array.isArray((value as { files?: unknown }).files)
+  ) {
+    return false;
+  }
+
+  return (value as { files: unknown[] }).files.every(
+    (file): file is NpmPackFileInfo =>
+      typeof file === 'object' &&
+      file !== null &&
+      typeof (file as { path?: unknown }).path === 'string'
+  );
+}
+
 function checkPublishSecurity(): void {
   console.log('🔍 Running comprehensive security check before npm publish...\n');
   
@@ -24,9 +50,17 @@ function checkPublishSecurity(): void {
       cwd: projectRoot,
       encoding: 'utf-8' 
     });
-    const packInfo = JSON.parse(output);
-    filesToPublish = packInfo[0].files.map((f: any) => f.path);
-    console.log(`📦 Checking ${filesToPublish.length} files that would be published to npm\n`);
+    const packInfo = JSON.parse(output) as unknown;
+    if (
+      Array.isArray(packInfo) &&
+      packInfo.length > 0 &&
+      isNpmPackResult(packInfo[0])
+    ) {
+      filesToPublish = packInfo[0].files.map((file) => file.path);
+      console.log(`📦 Checking ${filesToPublish.length} files that would be published to npm\n`);
+    } else {
+      throw new Error('Unexpected npm pack output format');
+    }
   } catch (error) {
     console.error('Failed to get npm pack info, checking all files instead');
     filesToPublish = getAllFiles(projectRoot);

@@ -21,8 +21,9 @@ async function testDocker() {
       console.log(`✅ Success! Docker version: ${info.ServerVersion}`);
       console.log(`   Using config:`, config.options);
       return;
-    } catch (error: any) {
-      console.log(`❌ Failed: ${error.message}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`❌ Failed: ${message}`);
     }
   }
 

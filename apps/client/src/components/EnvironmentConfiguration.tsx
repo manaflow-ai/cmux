@@ -71,13 +71,7 @@ export function EnvironmentConfiguration({
     mode === "snapshot"
       ? "/_layout/$teamSlugOrId/environments/new-version"
       : "/_layout/$teamSlugOrId/environments/new";
-  const search = useSearch({ from: searchRoute }) as {
-    step?: "select" | "configure";
-    selectedRepos?: string[];
-    connectionLogin?: string;
-    repoSearch?: string;
-    instanceId?: string;
-  };
+  const search = useSearch({ from: searchRoute });
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [envName, setEnvName] = useState(() => initialEnvName);
   const [envVars, setEnvVars] = useState<EnvVar[]>(() =>
@@ -452,7 +446,7 @@ export function EnvironmentConfiguration({
                               r.name.trim().length > 0 ||
                               r.value.trim().length > 0
                           )
-                          .map((r) => [r.name, r] as const)
+                          .map((r): [string, EnvVar] => [r.name, r])
                       );
                       for (const it of items) {
                         if (!it.name) continue;

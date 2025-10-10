@@ -12,8 +12,7 @@ const errorSearchSchema = z.object({
   statusText: z.string().optional(),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const Route = createFileRoute("/electron-error" as any)({
+export const Route = createFileRoute("/electron-error")({
   validateSearch: errorSearchSchema,
   component: ElectronErrorPage,
 });

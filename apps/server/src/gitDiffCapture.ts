@@ -1,5 +1,11 @@
+import type { WorkerToServerEvents } from "@cmux/shared";
 import { serverLogger } from "./utils/fileLogger";
 import type { VSCodeInstance } from "./vscode/VSCodeInstance";
+
+type WorkerSocket = ReturnType<VSCodeInstance["getWorkerSocket"]>;
+type TerminalOutputEvent = Parameters<
+  WorkerToServerEvents["worker:terminal-output"]
+>[0];
 
 /**
  * Capture git diff by running commands in the VSCode terminal
@@ -35,7 +41,7 @@ export async function captureGitDiffViaTerminal(
     let captureMarker = `===GIT_DIFF_CAPTURE_${Date.now()}===`;
 
     // Set up output listener
-    const outputHandler = (data: any) => {
+    const outputHandler = (data: TerminalOutputEvent) => {
       serverLogger.info(`[GitDiffCapture] Received terminal output event:`, {
         terminalId: data.terminalId,
         expectedId: originalTerminalId,
@@ -150,7 +156,7 @@ export async function captureGitDiffViaTerminal(
  * Send a command to the terminal
  */
 async function sendTerminalCommand(
-  workerSocket: any,
+  workerSocket: WorkerSocket,
   terminalId: string,
   command: string
 ): Promise<void> {
