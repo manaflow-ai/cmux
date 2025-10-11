@@ -41,7 +41,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute(
@@ -204,6 +204,18 @@ function EnvironmentDetailsPage() {
     setIsEditingPorts(true);
   };
 
+  const hasPortChanges = useMemo(() => {
+    const currentPorts = environment.exposedPorts ?? [];
+    if (currentPorts.length !== portsDraft.length) {
+      return true;
+    }
+
+    const sortedCurrent = [...currentPorts].sort((a, b) => a - b);
+    const sortedDraft = [...portsDraft].sort((a, b) => a - b);
+
+    return sortedCurrent.some((value, index) => value !== sortedDraft[index]);
+  }, [environment.exposedPorts, portsDraft]);
+
   const handleCancelPorts = () => {
     setIsEditingPorts(false);
     setPortsDraft(environment.exposedPorts ?? []);
@@ -319,6 +331,15 @@ function EnvironmentDetailsPage() {
 
   const handleRemovePort = (port: number) => {
     setPortsDraft((prev) => prev.filter((value) => value !== port));
+  };
+
+  const handlePortInputKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleAddPort();
+    }
   };
 
   const handleSavePorts = () => {
@@ -852,6 +873,7 @@ function EnvironmentDetailsPage() {
                         type="number"
                         value={portInput}
                         onChange={(event) => setPortInput(event.target.value)}
+                        onKeyDown={handlePortInputKeyDown}
                         placeholder="Add port"
                         className="h-7 w-28 rounded-md border border-neutral-300 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100 dark:focus:ring-neutral-700 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
@@ -868,7 +890,9 @@ function EnvironmentDetailsPage() {
                       <button
                         type="button"
                         onClick={handleSavePorts}
-                        disabled={updatePortsMutation.isPending}
+                        disabled={
+                          updatePortsMutation.isPending || !hasPortChanges
+                        }
                         className="inline-flex h-7 items-center justify-center rounded-md bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
                       >
                         {updatePortsMutation.isPending ? "Saving..." : "Save"}
