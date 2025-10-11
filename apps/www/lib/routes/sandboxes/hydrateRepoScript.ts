@@ -169,7 +169,29 @@ function fetchUpdates(workspacePath: string) {
   }
 }
 
-function checkoutBranch(workspacePath: string, baseBranch: string, newBranch?: string) {
+function checkoutBranch(
+  workspacePath: string,
+  baseBranch: string,
+  newBranch?: string,
+  depth: number = 1,
+) {
+  const normalizedDepth = Number.isFinite(depth) && depth > 0 ? depth : 1;
+  log(`Ensuring remote branch is available: ${baseBranch}`);
+
+  const fetchResult = exec(
+    `git fetch --depth ${normalizedDepth} origin "${baseBranch}"`,
+    { cwd: workspacePath, throwOnError: false },
+  );
+
+  if (fetchResult.exitCode !== 0) {
+    log(
+      `Fetching branch ${baseBranch} failed (may already exist locally): ${fetchResult.stderr}`,
+      "debug",
+    );
+  } else {
+    log(`Fetched branch ${baseBranch}`);
+  }
+
   log(`Checking out base branch: ${baseBranch}`);
 
   // Try to checkout the base branch
@@ -273,7 +295,12 @@ async function main() {
 
       // Checkout branch
       if (config.baseBranch) {
-        checkoutBranch(config.workspacePath, config.baseBranch, config.newBranch);
+        checkoutBranch(
+          config.workspacePath,
+          config.baseBranch,
+          config.newBranch,
+          config.depth,
+        );
       }
 
       // List files for verification
