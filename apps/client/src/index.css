@@ -434,34 +434,55 @@ pre,
 }
 
 .editor-code {
-  @apply bg-neutral-100 dark:bg-neutral-800 block py-2 px-2 overflow-x-auto relative my-2 rounded text-sm;
+  --editor-gutter-width: 3.25rem;
+  --editor-gutter-bg: rgb(229 229 229);
+  --editor-gutter-border: rgb(212 212 212);
+  --editor-gutter-foreground: rgb(82 82 82);
+  @apply relative block overflow-x-auto my-2 rounded text-sm bg-neutral-100 dark:bg-neutral-900;
+  padding: 0.75rem 1rem 0.75rem calc(1rem + var(--editor-gutter-width));
   font-family: "JetBrains Mono", monospace;
   tab-size: 2;
+  line-height: 1.6;
 }
 
-.editor-code:before {
+.dark .editor-code {
+  --editor-gutter-bg: rgb(38 38 38);
+  --editor-gutter-border: rgb(64 64 64);
+  --editor-gutter-foreground: rgb(163 163 163);
+}
+
+.editor-code::before {
   content: attr(data-gutter);
   position: absolute;
-  background-color: #eee;
-  left: 0;
   top: 0;
-  border-right: 1px solid #ccc;
-  padding: 8px;
-  color: #777;
-  white-space: pre-wrap;
+  bottom: 0;
+  left: 0;
+  width: var(--editor-gutter-width);
+  padding: 0.75rem 0.5rem;
+  background-color: var(--editor-gutter-bg);
+  border-right: 1px solid var(--editor-gutter-border);
+  color: var(--editor-gutter-foreground);
+  white-space: pre;
   text-align: right;
-  min-width: 25px;
+  font-variant-numeric: tabular-nums;
+  line-height: inherit;
+  pointer-events: none;
 }
 
-.editor-code:after {
+.editor-code::after {
   content: attr(data-highlight-language);
   position: absolute;
-  top: 0;
-  right: 3px;
-  padding: 3px;
-  font-size: 10px;
+  top: 0.5rem;
+  right: 0.75rem;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.625rem;
   text-transform: uppercase;
-  color: #999;
+  letter-spacing: 0.05em;
+  background-color: var(--editor-gutter-bg);
+  background-color: color-mix(in srgb, var(--editor-gutter-bg) 60%, transparent);
+  color: var(--editor-gutter-foreground);
+  border-radius: 9999px;
+  pointer-events: none;
 }
 
 .editor-tokenComment {
