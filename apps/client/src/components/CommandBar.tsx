@@ -201,8 +201,8 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
   useEffect(() => {
     // In Electron, prefer global shortcut from main via cmux event.
     if (isElectron) {
-      const off = window.cmux.on("shortcut:cmd-k", () => {
-        // Only handle Cmd+K (no shift/ctrl variations)
+      const off = window.cmux.on("shortcut:cmd-semicolon", () => {
+        // Only handle Cmd+; / Ctrl+; (no shift/ctrl variations)
         setOpenedWithShift(false);
         setActivePage("root");
         if (openRef.current) {
@@ -218,15 +218,14 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
       };
     }
 
-    // Web/non-Electron fallback: local keydown listener for Cmd+K
+    // Web/non-Electron fallback: local keydown listener for Cmd+;
     const down = (e: KeyboardEvent) => {
-      // Only trigger on EXACT Cmd+K (no Shift/Alt/Ctrl)
+      // Only trigger on EXACT Cmd+; / Ctrl+; (no Shift/Alt)
       if (
-        e.key.toLowerCase() === "k" &&
-        e.metaKey &&
+        (e.code === "Semicolon" || e.key === ";") &&
         !e.shiftKey &&
         !e.altKey &&
-        !e.ctrlKey
+        ((e.metaKey && !e.ctrlKey) || (!e.metaKey && e.ctrlKey))
       ) {
         e.preventDefault();
         setActivePage("root");

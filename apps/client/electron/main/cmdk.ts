@@ -52,7 +52,7 @@ export function keyDebug(event: string, data?: unknown): void {
   }
 }
 
-// Track whether the Command Palette (Cmd+K) is currently open in any renderer
+// Track whether the Command Palette (Cmd+;) is currently open in any renderer
 let cmdkOpen = false;
 
 // Track the last captured focus location per BrowserWindow (by renderer webContents id)
@@ -239,9 +239,11 @@ export function initCmdK(opts: {
         });
         if (input.type !== "keyDown") return;
         const isMac = process.platform === "darwin";
-        // Only trigger on EXACT Cmd+K (mac) or Ctrl+K (others)
-        const isCmdK = (() => {
-          if (input.key.toLowerCase() !== "k") return false;
+        // Only trigger on EXACT Cmd+; (mac) or Ctrl+; (others)
+        const isCommandPaletteShortcut = (() => {
+          const isSemicolon =
+            input.code === "Semicolon" || input.key.toLowerCase() === ";";
+          if (!isSemicolon) return false;
           if (input.alt || input.shift) return false;
           if (isMac) {
             // Require meta only; disallow ctrl on mac
@@ -250,7 +252,7 @@ export function initCmdK(opts: {
           // Non-mac: require ctrl only; disallow meta
           return Boolean(input.control) && !input.meta;
         })();
-        if (!isCmdK) return;
+        if (!isCommandPaletteShortcut) return;
         // Prevent default to avoid in-app conflicts and ensure single toggle
         e.preventDefault();
         keyDebug("cmdk-detected", {
@@ -273,13 +275,13 @@ export function initCmdK(opts: {
           const targetWin = getTargetWindow();
           if (targetWin && !targetWin.isDestroyed()) {
             try {
-              targetWin.webContents.send("cmux:event:shortcut:cmd-k");
+              targetWin.webContents.send("cmux:event:shortcut:cmd-semicolon");
               keyDebug("emit-cmdk", {
                 to: targetWin.webContents.id,
                 from: contents.id,
               });
             } catch (err) {
-              opts.logger.warn("Failed to emit Cmd+K (already open)", err);
+              opts.logger.warn("Failed to emit Cmd+; (already open)", err);
               keyDebug("emit-cmdk-error", { err: String(err) });
             }
           }
@@ -328,7 +330,7 @@ export function initCmdK(opts: {
                   // ignore
                 }
                 try {
-                  targetWin.webContents.send("cmux:event:shortcut:cmd-k", {
+                  targetWin.webContents.send("cmux:event:shortcut:cmd-semicolon", {
                     sourceContentsId: contents.id,
                     sourceFrameRoutingId: frame.routingId,
                     sourceFrameProcessId: frame.processId,
@@ -341,7 +343,7 @@ export function initCmdK(opts: {
                   });
                 } catch (err) {
                   opts.logger.warn(
-                    "Failed to emit Cmd+K from before-input-event",
+                    "Failed to emit Cmd+; from before-input-event",
                     err
                   );
                   keyDebug("emit-cmdk-error", { err: String(err) });

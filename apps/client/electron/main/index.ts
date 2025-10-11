@@ -885,19 +885,21 @@ app.whenReady().then(async () => {
         submenu: [
           {
             label: "Command Palette…",
-            accelerator: "CommandOrControl+K",
+            accelerator: "CommandOrControl+;",
             click: () => {
               try {
                 const target = resolveTargetWindow();
-                keyDebug("menu-accelerator-cmdk", {
+                keyDebug("menu-accelerator-cmd-semicolon", {
                   to: target?.webContents.id,
                 });
                 if (target && !target.isDestroyed()) {
-                  target.webContents.send("cmux:event:shortcut:cmd-k");
+                  target.webContents.send("cmux:event:shortcut:cmd-semicolon");
                 }
               } catch (err) {
-                mainWarn("Failed to emit Cmd+K from menu accelerator", err);
-                keyDebug("menu-accelerator-cmdk-error", { err: String(err) });
+                mainWarn("Failed to emit Cmd+; from menu accelerator", err);
+                keyDebug("menu-accelerator-cmd-semicolon-error", {
+                  err: String(err),
+                });
               }
             },
           },
