@@ -13,11 +13,18 @@ import type { Id } from "@cmux/convex/dataModel";
 export interface EditorApi {
   getContent: () => {
     text: string;
-    images: Array<{
-      src: string;
-      fileName?: string;
-      altText: string;
-    }>;
+    images: Array<
+      | {
+          src: string;
+          fileName?: string;
+          altText: string;
+        }
+      | {
+          storageId: Id<"_storage">;
+          fileName?: string;
+          altText: string;
+        }
+    >;
   };
   clear: () => void;
   focus?: () => void;
