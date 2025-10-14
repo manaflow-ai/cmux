@@ -65,7 +65,12 @@ function VSCodeComponent() {
     ? toProxyWorkspaceUrl(taskRun.data.vscode.workspaceUrl)
     : null;
   const persistKey = getTaskRunPersistKey(taskRunId);
-  const hasWorkspace = workspaceUrl !== null;
+
+  // VS Code is ready when:
+  // 1. We have a workspace URL
+  // 2. The vscode status is "running" (not just "starting")
+  const vscodeStatus = taskRun?.data?.vscode?.status;
+  const isVSCodeReady = workspaceUrl !== null && vscodeStatus === "running";
 
   const onLoad = useCallback(() => {
     console.log(`Workspace view loaded for task run ${taskRunId}`);
@@ -94,7 +99,7 @@ function VSCodeComponent() {
               sandbox={TASK_RUN_IFRAME_SANDBOX}
               allow={TASK_RUN_IFRAME_ALLOW}
               retainOnUnmount
-              suspended={!hasWorkspace}
+              suspended={!isVSCodeReady}
               onLoad={onLoad}
               onError={onError}
             />
@@ -105,8 +110,8 @@ function VSCodeComponent() {
             className={clsx(
               "absolute inset-0 flex items-center justify-center transition pointer-events-none",
               {
-                "opacity-100": !hasWorkspace,
-                "opacity-0": hasWorkspace,
+                "opacity-100": !isVSCodeReady,
+                "opacity-0": isVSCodeReady,
               }
             )}
           >
