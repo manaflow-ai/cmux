@@ -1,9 +1,0 @@
-node_modules
-dist
-*.log
-.env
-.env.*
-!.env.example
-.DS_Store
-
-apps/cmux-proxy/cmux-proxy.tar.gz
