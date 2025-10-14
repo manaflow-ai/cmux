@@ -95,6 +95,10 @@ function useAutoUpdateNotifications() {
 
     if (!cmux?.on) return;
 
+    const reset = () => {
+      toast.dismiss(AUTO_UPDATE_TOAST_ID);
+    };
+
     const handler = (payload: unknown) => {
       const version =
         payload && typeof payload === "object" && "version" in payload
@@ -106,11 +110,17 @@ function useAutoUpdateNotifications() {
       showToast(version);
     };
 
-    const unsubscribe = cmux.on("auto-update:ready", handler);
+    const unsubscribeReady = cmux.on("auto-update:ready", handler);
+    const unsubscribeReset = cmux.on("auto-update:reset", reset);
 
     return () => {
       try {
-        unsubscribe?.();
+        unsubscribeReady?.();
+      } catch {
+        // ignore
+      }
+      try {
+        unsubscribeReset?.();
       } catch {
         // ignore
       }
