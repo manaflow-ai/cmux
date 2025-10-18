@@ -18,6 +18,8 @@
     "build": "vite build -c vite.config.ts",
     "build:electron": "bun run ./scripts/generate-icons.mjs && electron-vite build -c electron.vite.config.ts && electron-builder",
     "build:mac": "node ./scripts/generate-icons.mjs && electron-vite build -c electron.vite.config.ts && electron-builder --mac",
+    "prebuild:linux": "node ./scripts/run-electron-rebuild.mjs",
+    "build:linux": "./build-linux.sh",
     "prebuild:mac:workaround": "node ./scripts/run-electron-rebuild.mjs",
     "build:mac:workaround": "./build-mac-workaround.sh",
     "prepublish:mac:workaround": "node ./scripts/run-electron-rebuild.mjs",
