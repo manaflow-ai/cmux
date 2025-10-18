@@ -261,6 +261,34 @@ export function TaskDetailHeader({
     }));
   }, [repoFullNames, normalizedBaseBranch, normalizedHeadBranch]);
 
+  const locationInfo = useMemo(() => {
+    const environmentName = selectedRun?.environment?.name?.trim();
+    const projectFullName = task?.projectFullName?.trim();
+
+    if (task?.environmentId && environmentName) {
+      return { kind: "environment" as const, value: environmentName };
+    }
+
+    if (projectFullName && !projectFullName.startsWith("env:")) {
+      return { kind: "repo" as const, value: projectFullName };
+    }
+
+    if (environmentName) {
+      return { kind: "environment" as const, value: environmentName };
+    }
+
+    if (projectFullName) {
+      const normalized = projectFullName.replace(/^env:/, "").trim();
+      const displayValue = normalized || projectFullName;
+      const kind = projectFullName.startsWith("env:")
+        ? ("environment" as const)
+        : ("repo" as const);
+      return { kind, value: displayValue };
+    }
+
+    return null;
+  }, [selectedRun?.environment?.name, task?.environmentId, task?.projectFullName]);
+
   const dragStyle = isElectron
     ? ({ WebkitAppRegion: "drag" } as CSSProperties)
     : undefined;
@@ -409,15 +437,24 @@ export function TaskDetailHeader({
             )}
           </button>
 
-          <span className="text-neutral-500 dark:text-neutral-600 select-none">
-            in
-          </span>
-
-          {task?.projectFullName && (
-            <span className="font-mono text-neutral-600 dark:text-neutral-300 truncate min-w-0 max-w-[40%] whitespace-nowrap select-none text-[11px]">
-              {task.projectFullName}
-            </span>
-          )}
+          {locationInfo ? (
+            <>
+              <span className="text-neutral-500 dark:text-neutral-600 select-none">
+                in {locationInfo.kind === "repo" ? "repo" : "environment"}
+              </span>
+              <span
+                className={clsx(
+                  "truncate min-w-0 max-w-[40%] whitespace-nowrap select-none text-[11px]",
+                  locationInfo.kind === "repo"
+                    ? "font-mono text-neutral-600 dark:text-neutral-300"
+                    : "font-medium text-neutral-600 dark:text-neutral-300",
+                )}
+                title={locationInfo.value}
+              >
+                {locationInfo.value}
+              </span>
+            </>
+          ) : null}
 
           {taskRuns && taskRuns.length > 0 && (
             <>
