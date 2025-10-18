@@ -33,6 +33,12 @@ export const TaskItem = memo(function TaskItem({
     isFakeConvexId(task._id) ? "skip" : { teamSlugOrId, taskId: task._id }
   );
 
+  // Query for environment if task has environmentId
+  const environmentQuery = useConvexQuery(
+    api.environments.get,
+    task.environmentId ? { teamSlugOrId, id: task.environmentId } : "skip"
+  );
+
   // Mutation for toggling keep-alive status
   const toggleKeepAlive = useMutation(api.taskRuns.toggleKeepAlive);
 
@@ -169,12 +175,15 @@ export const TaskItem = memo(function TaskItem({
             />
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <span className="text-[14px] truncate min-w-0">{task.text}</span>
-              {(task.projectFullName ||
+              {(environmentQuery ||
+                task.projectFullName ||
                 (task.baseBranch && task.baseBranch !== "main")) && (
                 <span className="text-[11px] text-neutral-400 dark:text-neutral-500 flex-shrink-0 ml-auto mr-0">
-                  {task.projectFullName && (
+                  {environmentQuery ? (
+                    <span>{environmentQuery.name}</span>
+                  ) : task.projectFullName ? (
                     <span>{task.projectFullName.split("/")[1]}</span>
-                  )}
+                  ) : null}
                   {task.projectFullName &&
                     task.baseBranch &&
                     task.baseBranch !== "main" &&
