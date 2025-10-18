@@ -11,6 +11,7 @@ import { githubReposRouter } from "@/lib/routes/github.repos.route";
 import {
   booksRouter,
   branchRouter,
+  codeReviewRouter,
   devServerRouter,
   environmentsRouter,
   healthRouter,
@@ -68,7 +69,7 @@ app.use(
       "https://www.cmux.sh",
     ],
     credentials: true,
-    allowHeaders: ["x-stack-auth", "content-type"],
+    allowHeaders: ["x-stack-auth", "content-type", "authorization"],
   }),
 );
 
@@ -114,6 +115,7 @@ app.route("/", environmentsRouter);
 app.route("/", sandboxesRouter);
 app.route("/", teamsRouter);
 app.route("/", branchRouter);
+app.route("/", codeReviewRouter);
 
 // OpenAPI documentation
 app.doc("/doc", {

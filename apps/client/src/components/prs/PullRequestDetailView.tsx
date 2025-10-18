@@ -6,7 +6,7 @@ import { api } from "@cmux/convex/api";
 import { useQuery as useRQ, useMutation } from "@tanstack/react-query";
 import { useQuery as useConvexQuery } from "convex/react";
 import { ExternalLink, X, Check, Circle, Clock, AlertCircle, Loader2, ChevronRight, ChevronDown, Copy, GitBranch } from "lucide-react";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useClipboard } from "@mantine/hooks";
 import clsx from "clsx";
@@ -456,6 +456,26 @@ export function PullRequestDetailView({
     repoFullName: `${owner}/${repo}`,
     number: Number(number),
   });
+
+  const fileOutputs = useConvexQuery(api.codeReview.listFileOutputsForPr, {
+    teamSlugOrId,
+    repoFullName: `${owner}/${repo}`,
+    prNumber: Number(number),
+    commitRef: currentPR?.headSha ?? undefined,
+  });
+
+  const commitRefForLogging = currentPR?.headSha ?? null;
+
+  useEffect(() => {
+    if (fileOutputs && fileOutputs.length > 0) {
+      console.log("[code-review] File outputs", {
+        repoFullName: `${owner}/${repo}`,
+        prNumber: Number(number),
+        commitRef: commitRefForLogging,
+        outputs: fileOutputs,
+      });
+    }
+  }, [fileOutputs, commitRefForLogging, owner, repo, number]);
 
   const workflowData = useCombinedWorkflowData({
     teamSlugOrId,

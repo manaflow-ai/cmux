@@ -1,11 +1,31 @@
 {
   "name": "cmux",
-  "private": true,
   "version": "0.0.0",
-  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@t3-oss/env-core": "^0.13.8",
+    "@typescript-eslint/eslint-plugin": "^8.43.0",
+    "@typescript-eslint/parser": "^8.43.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.6.2",
+    "typescript": "5.8.3",
+    "typescript-eslint": "^8.43.0"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
+  "overrides": {
+    "node-abi": "^4.14.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "monaco-editor": "^0.53.0",
+    "convex": "1.27.1"
+  },
+  "private": true,
   "scripts": {
     "clean": "bash scripts/clean.sh",
     "clean:node_modules": "bash scripts/clean.sh",
@@ -29,30 +49,14 @@
     "build:mac-arm64-prod": "bash scripts/build-prod-mac-arm64.sh",
     "convex:deploy:prod": "(cd packages/convex && bun run deploy:prod)"
   },
-  "devDependencies": {
-    "@eslint/js": "^9.34.0",
-    "@t3-oss/env-core": "^0.13.8",
-    "@typescript-eslint/eslint-plugin": "^8.43.0",
-    "@typescript-eslint/parser": "^8.43.0",
-    "eslint": "^9.34.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.20",
-    "globals": "^16.3.0",
-    "npm-run-all": "^4.1.5",
-    "prettier": "^3.6.2",
-    "typescript": "5.8.3",
-    "typescript-eslint": "^8.43.0"
-  },
-  "overrides": {
-    "node-abi": "^4.14.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "monaco-editor": "^0.53.0",
-    "convex": "1.27.1"
-  },
+  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*",
     "scripts"
-  ]
+  ],
+  "dependencies": {
+    "morphcloud": "^0.0.20"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

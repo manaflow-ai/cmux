@@ -74,6 +74,10 @@
       "import": "./src/pull-request-state.ts",
       "types": "./src/pull-request-state.ts"
     },
+    "./codeReview/callback-schemas": {
+      "import": "./src/codeReview/callback-schemas.ts",
+      "types": "./src/codeReview/callback-schemas.ts"
+    },
     "./providers/common/check-docker": {
       "import": "./src/providers/common/check-docker.ts",
       "types": "./src/providers/common/check-docker.ts"

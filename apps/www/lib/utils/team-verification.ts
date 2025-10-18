@@ -9,9 +9,11 @@ import { getConvex } from "./get-convex";
  */
 export async function verifyTeamAccess({
   req,
+  accessToken,
   teamSlugOrId,
 }: {
-  req: Request;
+  req?: Request;
+  accessToken?: string | null;
   teamSlugOrId: string;
 }): Promise<{
   uuid: string;
@@ -19,12 +21,20 @@ export async function verifyTeamAccess({
   displayName: string | null;
   name: string | null;
 }> {
-  const accessToken = await getAccessTokenFromRequest(req);
-  if (!accessToken) {
+  let token = accessToken;
+  if (!token) {
+    if (!req) {
+      throw new HTTPException(401, {
+        message: "Unauthorized: No access token",
+      });
+    }
+    token = await getAccessTokenFromRequest(req);
+  }
+  if (!token) {
     throw new HTTPException(401, { message: "Unauthorized: No access token" });
   }
 
-  const convexClient = getConvex({ accessToken });
+  const convexClient = getConvex({ accessToken: token });
 
   try {
     // This query will throw if the user doesn't have access to the team

@@ -268,6 +268,78 @@ const convexSchema = defineSchema({
   })
     .index("by_task", ["taskId", "version"])
     .index("by_team_user", ["teamId", "userId"]),
+
+  automatedCodeReviewJobs: defineTable({
+    teamId: v.optional(v.string()),
+    repoFullName: v.string(),
+    repoUrl: v.string(),
+    prNumber: v.number(),
+    commitRef: v.string(),
+    requestedByUserId: v.string(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    sandboxInstanceId: v.optional(v.string()), // `morphvm_` prefix indicates Morph-managed instance IDs
+    callbackTokenHash: v.optional(v.string()),
+    callbackTokenIssuedAt: v.optional(v.number()),
+    errorCode: v.optional(v.string()),
+    errorDetail: v.optional(v.string()),
+    codeReviewOutput: v.optional(v.record(v.string(), v.any())),
+  })
+    .index("by_team_repo_pr", ["teamId", "repoFullName", "prNumber", "createdAt"])
+    .index("by_team_repo_pr_updated", [
+      "teamId",
+      "repoFullName",
+      "prNumber",
+      "updatedAt",
+    ])
+    .index("by_state_updated", ["state", "updatedAt"])
+    .index("by_team_created", ["teamId", "createdAt"]),
+
+  automatedCodeReviewVersions: defineTable({
+    jobId: v.id("automatedCodeReviewJobs"),
+    teamId: v.optional(v.string()),
+    requestedByUserId: v.string(),
+    repoFullName: v.string(),
+    repoUrl: v.string(),
+    prNumber: v.number(),
+    commitRef: v.string(),
+    sandboxInstanceId: v.optional(v.string()), // `morphvm_` prefix indicates Morph-managed instance IDs
+    codeReviewOutput: v.record(v.string(), v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_team_pr", ["teamId", "repoFullName", "prNumber", "createdAt"]),
+
+  automatedCodeReviewFileOutputs: defineTable({
+    jobId: v.id("automatedCodeReviewJobs"),
+    teamId: v.optional(v.string()),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    commitRef: v.string(),
+    sandboxInstanceId: v.optional(v.string()),
+    filePath: v.string(),
+    codexReviewOutput: v.any(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_job", ["jobId", "createdAt"])
+    .index("by_job_file", ["jobId", "filePath"])
+    .index("by_team_repo_pr_commit", [
+      "teamId",
+      "repoFullName",
+      "prNumber",
+      "commitRef",
+      "createdAt",
+    ]),
+
   repos: defineTable({
     fullName: v.string(),
     org: v.string(),

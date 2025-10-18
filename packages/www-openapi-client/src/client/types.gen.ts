@@ -524,6 +524,38 @@ export type GenerateBranchesBody = {
     uniqueId?: string;
 };
 
+export type CodeReviewStartResponse = {
+    job: {
+        jobId: string;
+        teamId: string | null;
+        repoFullName: string;
+        repoUrl: string;
+        prNumber: number;
+        commitRef: string;
+        requestedByUserId: string;
+        state: 'pending' | 'running' | 'completed' | 'failed';
+        createdAt: number;
+        updatedAt: number;
+        startedAt: number | null;
+        completedAt: number | null;
+        sandboxInstanceId: string | null;
+        errorCode: string | null;
+        errorDetail: string | null;
+        codeReviewOutput: {
+            [key: string]: unknown;
+        } | null;
+    };
+    deduplicated: boolean;
+};
+
+export type CodeReviewStartBody = {
+    teamSlugOrId?: string;
+    githubLink: string;
+    prNumber: number;
+    commitRef?: string;
+    force?: boolean;
+};
+
 export type GetApiHealthData = {
     body?: never;
     path?: never;
@@ -2047,6 +2079,33 @@ export type PostApiBranchesGenerateResponses = {
 };
 
 export type PostApiBranchesGenerateResponse = PostApiBranchesGenerateResponses[keyof PostApiBranchesGenerateResponses];
+
+export type PostApiCodeReviewStartData = {
+    body: CodeReviewStartBody;
+    path?: never;
+    query?: never;
+    url: '/api/code-review/start';
+};
+
+export type PostApiCodeReviewStartErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Failed to start code review
+     */
+    500: unknown;
+};
+
+export type PostApiCodeReviewStartResponses = {
+    /**
+     * Job created or reused
+     */
+    200: CodeReviewStartResponse;
+};
+
+export type PostApiCodeReviewStartResponse = PostApiCodeReviewStartResponses[keyof PostApiCodeReviewStartResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});

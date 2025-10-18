@@ -46,3 +46,4 @@ __pycache__
 
 
 cmux-proxy.tar.gz
+apps/www/scripts/pr-review/pr-review-inject.bundle.js

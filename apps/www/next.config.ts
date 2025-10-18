@@ -13,7 +13,12 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-  transpilePackages: ["@cmux/server", "@cmux/shared", "@cmux/convex"],
+  transpilePackages: [
+    "@cmux/server",
+    "@cmux/shared",
+    "@cmux/convex",
+    "refractor",
+  ],
 };
 
 export default nextConfig;
