@@ -65,6 +65,11 @@ VNC_HTTP_PORT = 39380
 CDP_HTTP_PORT = 39381
 XTERM_HTTP_PORT = 39383
 CDP_PROXY_BINARY_NAME = "cmux-cdp-proxy"
+SING_BOX_PROXY_PORT = 39384
+
+SING_BOX_VERSION = os.environ.get("SING_BOX_VERSION", "1.12.10")
+DEVBOX_HOST_ENV = "DEVBOX_HOST"
+DEFAULT_DEVBOX_HOST = os.environ.get(DEVBOX_HOST_ENV, "127.0.0.1")
 
 
 @dataclass(slots=True)
@@ -198,6 +203,7 @@ class TaskContext:
     cgroup_path: str | None = None
     exec_client: HttpExecClient | None = field(default=None, init=False)
     environment_prelude: str = field(default="", init=False)
+    devbox_host: str = DEFAULT_DEVBOX_HOST
 
     def __post_init__(self) -> None:
         exports = textwrap.dedent(
@@ -1514,6 +1520,44 @@ async def task_install_service_scripts(ctx: TaskContext) -> None:
 
 
 @registry.task(
+    name="install-sing-box",
+    deps=("upload-repo", "install-base-packages"),
+    description="Install sing-box proxy binary and base configuration",
+)
+async def task_install_sing_box(ctx: TaskContext) -> None:
+    repo = shlex.quote(ctx.remote_repo_root)
+    version = SING_BOX_VERSION.lstrip("v")
+    ctx.console.info(f"Installing sing-box proxy {version}")
+    cmd = textwrap.dedent(
+        f"""
+        set -euo pipefail
+        VERSION="{version}"
+        arch="$(uname -m)"
+        case "${{arch}}" in
+          x86_64) asset_arch="linux-amd64" ;;
+          aarch64|arm64) asset_arch="linux-arm64" ;;
+          *) echo "Unsupported architecture for sing-box: ${{arch}}" >&2; exit 1 ;;
+        esac
+        tmp_dir="$(mktemp -d)"
+        cleanup() {{
+          rm -rf "${{tmp_dir}}"
+        }}
+        trap cleanup EXIT
+        cd "${{tmp_dir}}"
+        archive="sing-box-${{VERSION}}-${{asset_arch}}.tar.gz"
+        curl -fsSLO "https://github.com/SagerNet/sing-box/releases/download/v${{VERSION}}/${{archive}}"
+        tar -xzf "${{archive}}"
+        install -Dm0755 "sing-box-${{VERSION}}-${{asset_arch}}/sing-box" /usr/local/bin/sing-box
+        install -d /etc/sing-box
+        install -m 0644 {repo}/configs/sing-box/config.json /etc/sing-box/config.json
+        chmod 0644 /etc/sing-box/config.json
+        sing-box version || /usr/local/bin/sing-box version
+        """
+    )
+    await ctx.run("install-sing-box", cmd)
+
+
+@registry.task(
     name="build-cdp-proxy",
     deps=("install-service-scripts", "install-go-toolchain"),
     description="Build and install Chrome DevTools proxy binary",
@@ -1543,6 +1587,7 @@ async def task_build_cdp_proxy(ctx: TaskContext) -> None:
         "install-openvscode",
         "install-openvscode-extensions",
         "install-service-scripts",
+        "install-sing-box",
         "build-worker",
         "build-cdp-proxy",
         "link-rust-binaries",
@@ -1569,6 +1614,7 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
         install -Dm0644 {repo}/configs/systemd/cmux-cdp-proxy.service /usr/lib/systemd/system/cmux-cdp-proxy.service
         install -Dm0644 {repo}/configs/systemd/cmux-xterm.service /usr/lib/systemd/system/cmux-xterm.service
         install -Dm0644 {repo}/configs/systemd/cmux-memory-setup.service /usr/lib/systemd/system/cmux-memory-setup.service
+        install -Dm0644 {repo}/configs/systemd/cmux-sing-box.service /usr/lib/systemd/system/cmux-sing-box.service
         install -Dm0755 {repo}/configs/systemd/bin/configure-openvscode /usr/local/lib/cmux/configure-openvscode
         touch /usr/local/lib/cmux/dockerd.flag
         mkdir -p /var/log/cmux
@@ -1586,6 +1632,7 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
         ln -sf /usr/lib/systemd/system/cmux-x11vnc.service /etc/systemd/system/cmux.target.wants/cmux-x11vnc.service
         ln -sf /usr/lib/systemd/system/cmux-websockify.service /etc/systemd/system/cmux.target.wants/cmux-websockify.service
         ln -sf /usr/lib/systemd/system/cmux-cdp-proxy.service /etc/systemd/system/cmux.target.wants/cmux-cdp-proxy.service
+        ln -sf /usr/lib/systemd/system/cmux-sing-box.service /etc/systemd/system/cmux.target.wants/cmux-sing-box.service
         ln -sf /usr/lib/systemd/system/cmux-xterm.service /etc/systemd/system/cmux.target.wants/cmux-xterm.service
         ln -sf /usr/lib/systemd/system/cmux-memory-setup.service /etc/systemd/system/multi-user.target.wants/cmux-memory-setup.service
         ln -sf /usr/lib/systemd/system/cmux-memory-setup.service /etc/systemd/system/swap.target.wants/cmux-memory-setup.service
@@ -2327,6 +2374,8 @@ async def provision_and_snapshot(args: argparse.Namespace) -> None:
         raise RuntimeError("Failed to expose exec service port on primary instance")
 
     resource_profile = _build_resource_profile(args)
+    devbox_host = os.environ.get(DEVBOX_HOST_ENV, DEFAULT_DEVBOX_HOST)
+    console.info(f"DEVBOX proxy host: {devbox_host} (via {DEVBOX_HOST_ENV})")
 
     ctx = TaskContext(
         instance=instance,
@@ -2336,7 +2385,8 @@ async def provision_and_snapshot(args: argparse.Namespace) -> None:
         console=console,
         timings=timings,
         resource_profile=resource_profile,
-        exec_service_url=exec_service_url
+        exec_service_url=exec_service_url,
+        devbox_host=devbox_host,
     )
 
     await run_task_graph(registry, ctx)

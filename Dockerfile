@@ -13,6 +13,7 @@ ARG RUST_VERSION
 ARG NVM_VERSION=0.39.7
 ARG NODE_VERSION=24.9.0
 ARG GO_VERSION=1.25.2
+ARG SING_BOX_VERSION
 ARG GITHUB_TOKEN
 
 FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS rust-builder
@@ -95,6 +96,7 @@ ARG PIP_VERSION
 ARG RUST_VERSION
 ARG NODE_VERSION
 ARG NVM_VERSION
+ARG SING_BOX_VERSION
 ARG GO_VERSION
 
 ENV NVM_DIR=/root/.nvm \
@@ -394,6 +396,30 @@ ENV RUSTUP_HOME=/usr/local/rustup \
   CARGO_HOME=/usr/local/cargo \
   NVM_DIR=/root/.nvm \
   PATH="/root/.local/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}"
+
+# Install sing-box universal proxy
+RUN <<'EOF'
+set -eux
+VERSION="${SING_BOX_VERSION:-1.12.10}"
+arch="$(uname -m)"
+case "${arch}" in
+  x86_64) asset_arch="linux-amd64" ;;
+  aarch64|arm64) asset_arch="linux-arm64" ;;
+  *) echo "Unsupported architecture for sing-box: ${arch}" >&2; exit 1 ;;
+esac
+tmp_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf "${tmp_dir}"
+}
+trap cleanup EXIT
+cd "${tmp_dir}"
+archive="sing-box-${VERSION}-${asset_arch}.tar.gz"
+curl -fsSLO "https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/${archive}"
+tar -xzf "${archive}"
+install -Dm0755 "sing-box-${VERSION}-${asset_arch}/sing-box" /usr/local/bin/sing-box
+EOF
+
+RUN install -d /etc/sing-box
 
 # Install Chrome (amd64) or Chromium snapshot (arm64) so that VNC sessions have a browser available
 RUN --mount=type=secret,id=github_token,required=false <<'EOF'
@@ -703,15 +729,18 @@ COPY configs/systemd/cmux-websockify.service /usr/lib/systemd/system/cmux-websoc
 COPY configs/systemd/cmux-cdp-proxy.service /usr/lib/systemd/system/cmux-cdp-proxy.service
 COPY configs/systemd/cmux-xterm.service /usr/lib/systemd/system/cmux-xterm.service
 COPY configs/systemd/cmux-memory-setup.service /usr/lib/systemd/system/cmux-memory-setup.service
+COPY configs/systemd/cmux-sing-box.service /usr/lib/systemd/system/cmux-sing-box.service
 COPY configs/systemd/bin/configure-openvscode /usr/local/lib/cmux/configure-openvscode
 COPY configs/systemd/bin/cmux-start-chrome /usr/local/lib/cmux/cmux-start-chrome
 COPY configs/systemd/bin/cmux-manage-dockerd /usr/local/lib/cmux/cmux-manage-dockerd
 COPY configs/systemd/bin/cmux-stop-dockerd /usr/local/lib/cmux/cmux-stop-dockerd
 COPY configs/systemd/bin/cmux-configure-memory /usr/local/sbin/cmux-configure-memory
 COPY --from=builder /usr/local/lib/cmux/cmux-cdp-proxy /usr/local/lib/cmux/cmux-cdp-proxy
+COPY configs/sing-box/config.json /etc/sing-box/config.json
 RUN chmod +x /usr/local/lib/cmux/configure-openvscode /usr/local/lib/cmux/cmux-start-chrome /usr/local/lib/cmux/cmux-cdp-proxy && \
   chmod +x /usr/local/lib/cmux/cmux-manage-dockerd /usr/local/lib/cmux/cmux-stop-dockerd && \
   chmod +x /usr/local/sbin/cmux-configure-memory && \
+  chmod 0644 /etc/sing-box/config.json && \
   touch /usr/local/lib/cmux/dockerd.flag && \
   mkdir -p /var/log/cmux && \
   mkdir -p /etc/systemd/system/multi-user.target.wants && \
@@ -727,6 +756,7 @@ RUN chmod +x /usr/local/lib/cmux/configure-openvscode /usr/local/lib/cmux/cmux-s
   ln -sf /usr/lib/systemd/system/cmux-x11vnc.service /etc/systemd/system/cmux.target.wants/cmux-x11vnc.service && \
   ln -sf /usr/lib/systemd/system/cmux-websockify.service /etc/systemd/system/cmux.target.wants/cmux-websockify.service && \
   ln -sf /usr/lib/systemd/system/cmux-cdp-proxy.service /etc/systemd/system/cmux.target.wants/cmux-cdp-proxy.service && \
+  ln -sf /usr/lib/systemd/system/cmux-sing-box.service /etc/systemd/system/cmux.target.wants/cmux-sing-box.service && \
   ln -sf /usr/lib/systemd/system/cmux-xterm.service /etc/systemd/system/cmux.target.wants/cmux-xterm.service && \
   ln -sf /usr/lib/systemd/system/cmux-memory-setup.service /etc/systemd/system/multi-user.target.wants/cmux-memory-setup.service && \
   ln -sf /usr/lib/systemd/system/cmux-memory-setup.service /etc/systemd/system/swap.target.wants/cmux-memory-setup.service && \
@@ -751,7 +781,10 @@ RUN mkdir -p /root/.openvscode-server/data/User && \
 # 39381: Chrome DevTools (CDP)
 # 39382: Chrome DevTools target
 # 39383: cmux-xterm server
-EXPOSE 39375 39376 39377 39378 39379 39380 39381 39382 39383
+# 39384: sing-box mixed proxy
+EXPOSE 39375 39376 39377 39378 39379 39380 39381 39382 39383 39384
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD /bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/39384'
 
 ENV container=docker
 STOPSIGNAL SIGRTMIN+3

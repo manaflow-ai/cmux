@@ -1,0 +1,20 @@
+[Unit]
+Description=Cmux sing-box proxy
+After=network-online.target
+Wants=network-online.target
+Before=cmux-openvscode.service cmux-worker.service cmux-proxy.service cmux-devtools.service cmux-xterm.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/app/app.env
+LogsDirectory=cmux
+ExecStartPre=/bin/mkdir -p /var/log/cmux
+ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/var/log/cmux/sing-box.log
+StandardError=append:/var/log/cmux/sing-box.log
+LimitNOFILE=65535
+
+[Install]
+WantedBy=cmux.target
