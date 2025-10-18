@@ -1,6 +1,8 @@
 import { FloatingPane } from "@/components/floating-pane";
 import { PersistentWebView } from "@/components/persistent-webview";
 import { getTaskRunPullRequestPersistKey } from "@/lib/persistent-webview-keys";
+import { WorkflowRuns, WorkflowRunsSection } from "@/components/prs/PullRequestChecks";
+import { useCombinedWorkflowData } from "@/components/prs/useCombinedWorkflowData";
 import { api } from "@cmux/convex/api";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
@@ -9,6 +11,41 @@ import { useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import z from "zod";
+
+function parsePrUrl(url?: string | null): { repoFullName?: string; number?: number } {
+  if (!url) {
+    return {};
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "github.com") {
+      return {};
+    }
+
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length < 4) {
+      return {};
+    }
+
+    const [owner, repo, resource, prSegment] = segments;
+    if (resource !== "pull") {
+      return {};
+    }
+
+    const prNumber = Number.parseInt(prSegment ?? "", 10);
+    if (!owner || !repo || Number.isNaN(prNumber) || prNumber <= 0) {
+      return {};
+    }
+
+    return {
+      repoFullName: `${owner}/${repo}`,
+      number: prNumber,
+    };
+  } catch {
+    return {};
+  }
+}
 
 const paramsSchema = z.object({
   taskId: typedZid("tasks"),
@@ -103,6 +140,63 @@ function RunPullRequestPage() {
   const headerTitle = pullRequests.length > 1 ? "Pull Requests" : "Pull Request";
   const activeUrl = activePullRequest?.url ?? fallbackPullRequestUrl;
 
+  const { repoFullNameForChecks, prNumberForChecks } = useMemo(() => {
+    const activeInfo = parsePrUrl(activePullRequest?.url);
+    const fallbackInfo = parsePrUrl(fallbackPullRequestUrl);
+
+    const repoFullName =
+      activePullRequest?.repoFullName ??
+      activeInfo.repoFullName ??
+      fallbackInfo.repoFullName ??
+      null;
+
+    const number =
+      activePullRequest?.number ??
+      activeInfo.number ??
+      fallbackInfo.number ??
+      selectedRun?.pullRequestNumber ??
+      null;
+
+    return { repoFullNameForChecks: repoFullName, prNumberForChecks: number };
+  }, [activePullRequest, fallbackPullRequestUrl, selectedRun?.pullRequestNumber]);
+
+  const workflowData = useCombinedWorkflowData({
+    teamSlugOrId,
+    repoFullName: repoFullNameForChecks ?? "",
+    prNumber: prNumberForChecks ?? 0,
+  });
+
+  const hasAnyFailure = useMemo(
+    () =>
+      workflowData.allRuns.some(
+        (run) =>
+          run.conclusion === "failure" ||
+          run.conclusion === "timed_out" ||
+          run.conclusion === "action_required",
+      ),
+    [workflowData.allRuns],
+  );
+
+  const [checksExpandedOverride, setChecksExpandedOverride] =
+    useState<boolean | null>(null);
+
+  useEffect(() => {
+    setChecksExpandedOverride(null);
+  }, [repoFullNameForChecks, prNumberForChecks]);
+
+  const checksExpanded =
+    checksExpandedOverride !== null ? checksExpandedOverride : hasAnyFailure;
+
+  const handleToggleChecks = () => {
+    setChecksExpandedOverride(!checksExpanded);
+  };
+
+  const shouldRenderChecksSection = Boolean(
+    repoFullNameForChecks &&
+      prNumberForChecks &&
+      (workflowData.isLoading || workflowData.allRuns.length > 0),
+  );
+
   return (
     <FloatingPane>
       <div className="flex h-full min-h-0 flex-col relative isolate">
@@ -118,6 +212,10 @@ function RunPullRequestPage() {
                   {selectedRun.pullRequestState}
                 </span>
               )}
+              <WorkflowRuns
+                allRuns={workflowData.allRuns}
+                isLoading={workflowData.isLoading}
+              />
             </div>
             {activeUrl && (
               <a
@@ -143,6 +241,17 @@ function RunPullRequestPage() {
               </a>
             )}
           </div>
+
+          {shouldRenderChecksSection && (
+            <div className="bg-white dark:bg-neutral-950">
+              <WorkflowRunsSection
+                allRuns={workflowData.allRuns}
+                isLoading={workflowData.isLoading}
+                isExpanded={checksExpanded}
+                onToggle={handleToggleChecks}
+              />
+            </div>
+          )}
 
           {/* Task description */}
           {task?.text && (
