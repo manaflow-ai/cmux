@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import { Command } from "commander";
 import readline from "node:readline/promises";
 import { spawn } from "node:child_process";

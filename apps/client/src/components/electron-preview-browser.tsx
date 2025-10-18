@@ -4,6 +4,7 @@ import {
   Inspect,
   Loader2,
   RefreshCw,
+  TerminalSquare,
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +28,9 @@ interface ElectronPreviewBrowserProps {
   persistKey: string;
   src: string;
   borderRadius?: number;
+  showTerminal?: boolean;
+  onToggleTerminal?: () => void;
+  onErrorStateChange?: (isError: boolean) => void;
 }
 
 interface NativeViewHandle {
@@ -93,6 +97,9 @@ function useLoadingProgress(isLoading: boolean) {
 export function ElectronPreviewBrowser({
   persistKey,
   src,
+  showTerminal = false,
+  onToggleTerminal,
+  onErrorStateChange,
 }: ElectronPreviewBrowserProps) {
   const [viewHandle, setViewHandle] = useState<NativeViewHandle | null>(null);
   const [addressValue, setAddressValue] = useState(src);
@@ -143,6 +150,7 @@ export function ElectronPreviewBrowser({
       }
 
       setIsShowingErrorPage(showingError);
+      onErrorStateChange?.(showingError);
 
       const hasDisplayUrl = displayUrl.trim().length > 0;
 
@@ -162,7 +170,7 @@ export function ElectronPreviewBrowser({
         isNavigatingRef.current = false;
       }
     },
-    [isEditing],
+    [isEditing, onErrorStateChange],
   );
 
   useEffect(() => {
@@ -731,6 +739,29 @@ export function ElectronPreviewBrowser({
               disabled={!viewHandle}
             />
             <div className="flex items-center gap-1">
+              {onToggleTerminal && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className={clsx(
+                        "size-7 rounded-full p-0 text-neutral-600 hover:text-neutral-800 disabled:opacity-30 disabled:hover:text-neutral-400 dark:text-neutral-500 dark:hover:text-neutral-100 dark:disabled:hover:text-neutral-500",
+                        showTerminal && "text-primary hover:text-primary",
+                      )}
+                      onClick={onToggleTerminal}
+                      disabled={!viewHandle}
+                      aria-label={showTerminal ? "Hide terminal" : "Show terminal"}
+                    >
+                      <TerminalSquare className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="end">
+                    {showTerminal ? "Hide terminal" : "Show terminal"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

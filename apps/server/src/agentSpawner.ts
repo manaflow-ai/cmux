@@ -501,6 +501,7 @@ export async function spawnAgent(
           extension?: string;
           proxy?: string;
           vnc?: string;
+          xterm?: string;
         }
       | undefined;
     if (vscodeInstance instanceof DockerVSCodeInstance) {
@@ -514,6 +515,7 @@ export async function spawnAgent(
             : {}),
           ...(dockerPorts.proxy ? { proxy: dockerPorts.proxy } : {}),
           ...(dockerPorts.vnc ? { vnc: dockerPorts.vnc } : {}),
+          ...(dockerPorts.xterm ? { xterm: dockerPorts.xterm } : {}),
         };
       }
     }

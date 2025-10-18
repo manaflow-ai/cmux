@@ -99,6 +99,7 @@ const KNOWN_PORT_MAPPINGS: { [key: string]: string } = {
   proxy: "39379",
   vnc: "39380",
   cdp: "39381",
+  xterm: "39383",
 };
 
 // Check if container exists in Docker

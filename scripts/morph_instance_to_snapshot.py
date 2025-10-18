@@ -24,7 +24,18 @@ instance = client.instances.get(
 )
 
 print("Exposing ports")
-ports_to_expose = [5173, 9777, 9778, 6791, 39378, 39377, 39379, 39380, 39381]
+ports_to_expose = [
+    5173,
+    9777,
+    9778,
+    6791,
+    39378,
+    39377,
+    39379,
+    39380,
+    39381,
+    39383,
+]
 for port in ports_to_expose:
     print(f"Exposing port {port}")
     instance.expose_http_service(f"port-{port}", port)
