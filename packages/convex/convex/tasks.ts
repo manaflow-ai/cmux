@@ -14,6 +14,7 @@ export const get = authQuery({
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const normalizedProjectFullName = args.projectFullName?.trim();
     let q = ctx.db
       .query("tasks")
       .withIndex("by_team_user", (idx) =>
@@ -26,9 +27,9 @@ export const get = authQuery({
       q = q.filter((qq) => qq.neq(qq.field("isArchived"), true));
     }
 
-    if (args.projectFullName) {
+    if (normalizedProjectFullName) {
       q = q.filter((qq) =>
-        qq.eq(qq.field("projectFullName"), args.projectFullName),
+        qq.eq(qq.field("projectFullName"), normalizedProjectFullName),
       );
     }
 
@@ -47,6 +48,7 @@ export const getTasksWithTaskRuns = authQuery({
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const normalizedProjectFullName = args.projectFullName?.trim();
     let q = ctx.db
       .query("tasks")
       .withIndex("by_team_user", (idx) =>
@@ -59,9 +61,9 @@ export const getTasksWithTaskRuns = authQuery({
       q = q.filter((qq) => qq.neq(qq.field("isArchived"), true));
     }
 
-    if (args.projectFullName) {
+    if (normalizedProjectFullName) {
       q = q.filter((qq) =>
-        qq.eq(qq.field("projectFullName"), args.projectFullName),
+        qq.eq(qq.field("projectFullName"), normalizedProjectFullName),
       );
     }
 
@@ -122,6 +124,16 @@ export const create = authMutation({
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
     const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const trimmedProjectFullName = args.projectFullName?.trim();
+    const projectFullName =
+      trimmedProjectFullName && trimmedProjectFullName.length > 0
+        ? trimmedProjectFullName
+        : undefined;
+    const trimmedBaseBranch = args.baseBranch?.trim();
+    const baseBranch =
+      trimmedBaseBranch && trimmedBaseBranch.length > 0
+        ? trimmedBaseBranch
+        : undefined;
     if (args.environmentId) {
       const environment = await ctx.db.get(args.environmentId);
       if (!environment || environment.teamId !== teamId) {
@@ -132,8 +144,8 @@ export const create = authMutation({
     const taskId = await ctx.db.insert("tasks", {
       text: args.text,
       description: args.description,
-      projectFullName: args.projectFullName,
-      baseBranch: args.baseBranch,
+      projectFullName,
+      baseBranch,
       worktreePath: args.worktreePath,
       isCompleted: false,
       createdAt: now,

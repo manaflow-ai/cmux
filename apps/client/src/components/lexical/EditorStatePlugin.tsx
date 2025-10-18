@@ -11,24 +11,28 @@ import {
 } from "lexical";
 import { useEffect } from "react";
 import { $isImageNode } from "./ImageNode";
+import type { Id } from "@cmux/convex/dataModel";
 
 interface ExtractedContent {
   text: string;
-  images: Array<{
-    src: string;
-    fileName?: string;
-    altText: string;
-  }>;
+  images: Array<
+    | {
+        src: string;
+        fileName?: string;
+        altText: string;
+      }
+    | {
+        storageId: Id<"_storage">;
+        fileName?: string;
+        altText: string;
+      }
+  >;
 }
 
 interface EditorApi {
   getContent: () => {
     text: string;
-    images: Array<{
-      src: string;
-      fileName?: string;
-      altText: string;
-    }>;
+    images: ExtractedContent["images"];
   };
   clear: () => void;
   focus: () => void;
