@@ -43,8 +43,13 @@ function PreviewPage() {
   }, [runId, taskRuns]);
 
   // Find the service URL for the requested port
+  // Only show previews with "running" status after the dev script has finished
   const previewUrl = useMemo(() => {
     if (!selectedRun?.networking) return null;
+
+    // If dev script hasn't finished yet, don't show any previews
+    if (!selectedRun.devScriptFinished) return null;
+
     const portNum = parseInt(port, 10);
     const service = selectedRun.networking.find(
       (s) => s.port === portNum && s.status === "running",
@@ -71,11 +76,13 @@ function PreviewPage() {
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
               <p className="mb-2 text-sm text-neutral-500 dark:text-neutral-400">
-                {selectedRun
-                  ? `Port ${port} is not available for this run`
-                  : "Loading..."}
+                {!selectedRun
+                  ? "Loading..."
+                  : !selectedRun.devScriptFinished
+                    ? "Waiting for dev script to finish..."
+                    : `Port ${port} is not available for this run`}
               </p>
-              {selectedRun?.networking && selectedRun.networking.length > 0 && (
+              {selectedRun?.networking && selectedRun.networking.length > 0 && selectedRun.devScriptFinished && (
                 <div className="mt-4">
                   <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
                     Available ports:

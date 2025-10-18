@@ -243,6 +243,7 @@ const convexSchema = defineSchema({
         })
       )
     ),
+    devScriptFinished: v.optional(v.boolean()), // Whether the dev script has finished (even if it failed)
   })
     .index("by_task", ["taskId", "createdAt"])
     .index("by_parent", ["parentRunId"])
