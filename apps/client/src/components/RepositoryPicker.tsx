@@ -36,8 +36,13 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import {
+  updatePendingEnvironment,
+  type PendingEnvironmentId,
+} from "@/lib/pendingEnvironmentsStore";
 import { RepositoryAdvancedOptions } from "./RepositoryAdvancedOptions";
 
 function ConnectionIcon({ type }: { type?: string }) {
@@ -97,6 +102,7 @@ export interface RepositoryPickerProps {
   instanceId?: string;
   initialSelectedRepos?: string[];
   initialSnapshotId?: MorphSnapshotId;
+  initialConnectionLogin?: string | null;
   showHeader?: boolean;
   showContinueButton?: boolean;
   showManualConfigOption?: boolean;
@@ -105,6 +111,8 @@ export interface RepositoryPickerProps {
   headerTitle?: string;
   headerDescription?: string;
   className?: string;
+  pendingEnvironmentId?: PendingEnvironmentId;
+  onDraftCreated?: () => Promise<PendingEnvironmentId | undefined>;
 }
 
 export function RepositoryPicker({
@@ -112,6 +120,7 @@ export function RepositoryPicker({
   instanceId,
   initialSelectedRepos = [],
   initialSnapshotId,
+  initialConnectionLogin = null,
   showHeader = true,
   showContinueButton = true,
   showManualConfigOption = true,
@@ -120,24 +129,84 @@ export function RepositoryPicker({
   headerTitle = "Select Repositories",
   headerDescription = "Choose repositories to include in your environment.",
   className = "",
+  pendingEnvironmentId,
+  onDraftCreated,
 }: RepositoryPickerProps) {
   const router = useRouter();
   const navigate = useNavigate();
-  const [selectedRepos, setSelectedRepos] = useState<string[]>(() =>
-    Array.from(new Set(initialSelectedRepos))
+  const uniqueInitialRepos = useMemo(
+    () => Array.from(new Set(initialSelectedRepos)),
+    [initialSelectedRepos]
   );
+  const initialSnapshot = initialSnapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID;
+  const [selectedRepos, setSelectedRepos] = useState<string[]>(() => [
+    ...uniqueInitialRepos,
+  ]);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<MorphSnapshotId>(
-    initialSnapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID
+    () => initialSnapshot
   );
   const [selectedConnectionLogin, setSelectedConnectionLogin] = useState<
     string | null
-  >(null);
+  >(() => initialConnectionLogin ?? null);
   const [connectionContext, setConnectionContext] = useState<ConnectionContext>(
     {
       selectedLogin: null,
       installationId: null,
       hasConnections: false,
     }
+  );
+
+  const pendingIdRef = useRef<PendingEnvironmentId | null>(
+    pendingEnvironmentId ?? null
+  );
+  useEffect(() => {
+    pendingIdRef.current = pendingEnvironmentId ?? null;
+  }, [pendingEnvironmentId]);
+
+  const ensureDraftId = useCallback(
+    async (): Promise<PendingEnvironmentId | undefined> => {
+      if (pendingIdRef.current) {
+        return pendingIdRef.current;
+      }
+      if (!onDraftCreated) {
+        return undefined;
+      }
+      const createdId = await onDraftCreated();
+      if (createdId) {
+        pendingIdRef.current = createdId;
+      }
+      return createdId;
+    },
+    [onDraftCreated]
+  );
+
+  const handleSelectedLoginChange = useCallback(
+    (login: string | null) => {
+      setSelectedConnectionLogin(login);
+      if (!pendingIdRef.current && selectedRepos.length === 0) {
+        return;
+      }
+      void (async () => {
+        const draftId = pendingIdRef.current ?? (await ensureDraftId());
+        if (!draftId) {
+          return;
+        }
+        updatePendingEnvironment(teamSlugOrId, draftId, {
+          step: "select",
+          selectedRepos,
+          snapshotId: selectedSnapshotId,
+          instanceId: instanceId ?? undefined,
+          connectionLogin: login === null ? null : login,
+        });
+      })();
+    },
+    [
+      ensureDraftId,
+      instanceId,
+      selectedRepos,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
   );
 
   const setupInstanceMutation = useRQMutation(
@@ -148,12 +217,15 @@ export function RepositoryPicker({
   );
 
   useEffect(() => {
-    if (initialSnapshotId) {
-      setSelectedSnapshotId(initialSnapshotId);
-    } else {
-      setSelectedSnapshotId(DEFAULT_MORPH_SNAPSHOT_ID);
+    const nextSnapshot = initialSnapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID;
+    setSelectedSnapshotId(nextSnapshot);
+    if (!pendingIdRef.current) {
+      return;
     }
-  }, [initialSnapshotId]);
+    updatePendingEnvironment(teamSlugOrId, pendingIdRef.current, {
+      snapshotId: nextSnapshot,
+    });
+  }, [initialSnapshotId, teamSlugOrId]);
 
   const handleConnectionsInvalidated = useCallback((): void => {
     const qc = router.options.context?.queryClient;
@@ -180,35 +252,45 @@ export function RepositoryPicker({
 
   const goToConfigure = useCallback(
     async (repos: string[], maybeInstanceId?: string): Promise<void> => {
+      const effectiveInstanceId = maybeInstanceId ?? instanceId ?? undefined;
+      const draftId = pendingIdRef.current ?? (await ensureDraftId());
+      if (!draftId) {
+        return;
+      }
       await navigate({
         to: "/$teamSlugOrId/environments/new",
         params: { teamSlugOrId },
         search: (prev) => ({
           step: "configure",
           selectedRepos: repos,
-          instanceId: prev.instanceId,
-          connectionLogin: prev.connectionLogin,
+          instanceId: effectiveInstanceId ?? prev.instanceId,
+          connectionLogin:
+            selectedConnectionLogin ?? prev.connectionLogin ?? undefined,
           repoSearch: prev.repoSearch,
           snapshotId: selectedSnapshotId,
+          pendingId: draftId,
         }),
+        replace: !instanceId && Boolean(maybeInstanceId),
       });
-      if (!instanceId && maybeInstanceId) {
-        await navigate({
-          to: "/$teamSlugOrId/environments/new",
-          params: { teamSlugOrId },
-          search: (prev) => ({
-            step: "configure",
-            selectedRepos: repos,
-            instanceId: maybeInstanceId,
-            connectionLogin: prev.connectionLogin,
-            repoSearch: prev.repoSearch,
-            snapshotId: selectedSnapshotId,
-          }),
-          replace: true,
-        });
-      }
+      updatePendingEnvironment(teamSlugOrId, draftId, {
+        step: "configure",
+        selectedRepos: repos,
+        snapshotId: selectedSnapshotId,
+        instanceId: effectiveInstanceId,
+        connectionLogin:
+          selectedConnectionLogin === null
+            ? null
+            : selectedConnectionLogin,
+      });
     },
-    [instanceId, navigate, selectedSnapshotId, teamSlugOrId]
+    [
+      ensureDraftId,
+      instanceId,
+      navigate,
+      selectedConnectionLogin,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
   );
 
   const handleContinue = useCallback(
@@ -249,35 +331,102 @@ export function RepositoryPicker({
   const updateSnapshotSelection = useCallback(
     (nextSnapshotId: MorphSnapshotId) => {
       setSelectedSnapshotId(nextSnapshotId);
-      void navigate({
-        to: "/$teamSlugOrId/environments/new",
-        params: { teamSlugOrId },
-        search: (prev) => ({
-          step: prev.step ?? "select",
-          selectedRepos: prev.selectedRepos ?? [],
-          instanceId: prev.instanceId,
-          connectionLogin: prev.connectionLogin,
-          repoSearch: prev.repoSearch,
-          snapshotId: nextSnapshotId,
-        }),
-        replace: true,
-      });
+      void (async () => {
+        let draftId: PendingEnvironmentId | undefined =
+          pendingIdRef.current ?? undefined;
+        if (!draftId && selectedRepos.length > 0) {
+          draftId = await ensureDraftId();
+        }
+        await navigate({
+          to: "/$teamSlugOrId/environments/new",
+          params: { teamSlugOrId },
+          search: (prev) => ({
+            step: prev.step ?? "select",
+            selectedRepos: prev.selectedRepos ?? [],
+            instanceId: prev.instanceId,
+          connectionLogin:
+            selectedConnectionLogin ?? prev.connectionLogin ?? undefined,
+            repoSearch: prev.repoSearch,
+            snapshotId: nextSnapshotId,
+            pendingId: draftId ?? prev.pendingId,
+          }),
+          replace: true,
+        });
+        if (draftId) {
+          updatePendingEnvironment(teamSlugOrId, draftId, {
+            step: "select",
+            selectedRepos,
+            snapshotId: nextSnapshotId,
+            instanceId: instanceId ?? undefined,
+          });
+        }
+      })();
     },
-    [navigate, teamSlugOrId]
+    [
+      ensureDraftId,
+      instanceId,
+      navigate,
+      selectedConnectionLogin,
+      selectedRepos,
+      teamSlugOrId,
+    ]
   );
 
-  const toggleRepo = useCallback((repo: string) => {
-    setSelectedRepos((prev) => {
-      if (prev.includes(repo)) {
-        return prev.filter((item) => item !== repo);
+  const syncSelectedRepos = useCallback(
+    (nextSelected: string[]) => {
+      if (nextSelected.length === 0 && !pendingIdRef.current) {
+        return;
       }
-      return [...prev, repo];
-    });
-  }, []);
+      void (async () => {
+        const draftId: PendingEnvironmentId | undefined =
+          pendingIdRef.current ?? (await ensureDraftId());
+        if (!draftId) {
+          return;
+        }
+        updatePendingEnvironment(teamSlugOrId, draftId, {
+          step: "select",
+          selectedRepos: nextSelected,
+          snapshotId: selectedSnapshotId,
+          instanceId: instanceId ?? undefined,
+          connectionLogin:
+            selectedConnectionLogin === null
+              ? null
+              : selectedConnectionLogin,
+        });
+      })();
+    },
+    [
+      ensureDraftId,
+      instanceId,
+      selectedConnectionLogin,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
+  );
 
-  const removeRepo = useCallback((repo: string) => {
-    setSelectedRepos((prev) => prev.filter((item) => item !== repo));
-  }, []);
+  const toggleRepo = useCallback(
+    (repo: string) => {
+      setSelectedRepos((prev) => {
+        const next = prev.includes(repo)
+          ? prev.filter((item) => item !== repo)
+          : [...prev, repo];
+        syncSelectedRepos(next);
+        return next;
+      });
+    },
+    [syncSelectedRepos]
+  );
+
+  const removeRepo = useCallback(
+    (repo: string) => {
+      setSelectedRepos((prev) => {
+        const next = prev.filter((item) => item !== repo);
+        syncSelectedRepos(next);
+        return next;
+      });
+    },
+    [syncSelectedRepos]
+  );
 
   const setConnectionContextSafe = useCallback((ctx: ConnectionContext) => {
     setConnectionContext((prev) => {
@@ -311,8 +460,8 @@ export function RepositoryPicker({
       <div className="space-y-6 mt-6">
         <RepositoryConnectionsSection
           teamSlugOrId={teamSlugOrId}
-          selectedLogin={selectedConnectionLogin}
-          onSelectedLoginChange={setSelectedConnectionLogin}
+          selectedLogin={selectedConnectionLogin ?? null}
+          onSelectedLoginChange={handleSelectedLoginChange}
           onContextChange={setConnectionContextSafe}
           onConnectionsInvalidated={handleConnectionsInvalidated}
         />

@@ -2,10 +2,14 @@ import { EnvironmentConfiguration } from "@/components/EnvironmentConfiguration"
 import { FloatingPane } from "@/components/floating-pane";
 import { RepositoryPicker } from "@/components/RepositoryPicker";
 import { TitleBar } from "@/components/TitleBar";
+import {
+  createPendingEnvironment,
+  usePendingEnvironment,
+} from "@/lib/pendingEnvironmentsStore";
 import { toMorphVncUrl } from "@/lib/toProxyWorkspaceUrl";
 import { DEFAULT_MORPH_SNAPSHOT_ID, MORPH_SNAPSHOT_PRESETS, type MorphSnapshotId } from "@cmux/shared";
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { z } from "zod";
 
 const morphSnapshotIds = MORPH_SNAPSHOT_PRESETS.map(
@@ -19,6 +23,7 @@ const searchSchema = z.object({
   connectionLogin: z.string().optional(),
   repoSearch: z.string().optional(),
   snapshotId: z.enum(morphSnapshotIds).default(DEFAULT_MORPH_SNAPSHOT_ID),
+  pendingId: z.string().optional(),
 });
 
 export const Route = createFileRoute("/_layout/$teamSlugOrId/environments/new")(
@@ -30,11 +35,21 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/environments/new")(
 
 function EnvironmentsPage() {
   const searchParams = Route.useSearch();
-  const step = searchParams.step ?? "select";
-  const urlSelectedRepos = searchParams.selectedRepos ?? [];
-  const urlInstanceId = searchParams.instanceId;
-  const selectedSnapshotId = searchParams.snapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID;
   const { teamSlugOrId } = Route.useParams();
+  const navigate = useNavigate();
+  const pendingEnvironment = usePendingEnvironment(
+    teamSlugOrId,
+    searchParams.pendingId
+  );
+  const step = pendingEnvironment?.step ?? searchParams.step ?? "select";
+  const urlSelectedRepos =
+    pendingEnvironment?.selectedRepos ?? searchParams.selectedRepos ?? [];
+  const urlInstanceId =
+    pendingEnvironment?.instanceId ?? searchParams.instanceId;
+  const selectedSnapshotId =
+    pendingEnvironment?.snapshotId ??
+    searchParams.snapshotId ??
+    DEFAULT_MORPH_SNAPSHOT_ID;
   const [headerActions, setHeaderActions] = useState<ReactNode | null>(null);
   const derivedVscodeUrl = useMemo(() => {
     if (!urlInstanceId) return undefined;
@@ -55,6 +70,27 @@ function EnvironmentsPage() {
     }
   }, [step]);
 
+  const handleDraftCreated = useCallback(async (): Promise<string | undefined> => {
+      if (searchParams.pendingId) {
+        return searchParams.pendingId;
+      }
+      const pending = createPendingEnvironment(teamSlugOrId, {
+        step: "select",
+        snapshotId:
+          searchParams.snapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID,
+      });
+      await navigate({
+        to: "/$teamSlugOrId/environments/new",
+        params: { teamSlugOrId },
+        search: {
+          ...searchParams,
+          pendingId: pending.id,
+        },
+        replace: true,
+      });
+      return pending.id;
+    }, [navigate, searchParams, teamSlugOrId]);
+
   return (
     <FloatingPane header={<TitleBar title="Environments" actions={headerActions} />}>
       <div className="flex flex-col grow select-none relative h-full overflow-hidden">
@@ -65,9 +101,12 @@ function EnvironmentsPage() {
               instanceId={urlInstanceId}
               initialSelectedRepos={urlSelectedRepos}
               initialSnapshotId={selectedSnapshotId}
+              initialConnectionLogin={pendingEnvironment?.connectionLogin ?? null}
               showHeader={true}
               showContinueButton={true}
               showManualConfigOption={true}
+              pendingEnvironmentId={searchParams.pendingId}
+              onDraftCreated={handleDraftCreated}
             />
           </div>
         ) : (
@@ -78,7 +117,15 @@ function EnvironmentsPage() {
             vscodeUrl={derivedVscodeUrl}
             browserUrl={derivedBrowserUrl}
             isProvisioning={false}
+            initialEnvName={pendingEnvironment?.envName ?? ""}
+            initialMaintenanceScript={
+              pendingEnvironment?.maintenanceScript ?? ""
+            }
+            initialDevScript={pendingEnvironment?.devScript ?? ""}
+            initialExposedPorts={pendingEnvironment?.exposedPorts ?? ""}
+            initialEnvVars={pendingEnvironment?.envVars}
             onHeaderControlsChange={setHeaderActions}
+            pendingEnvironmentId={searchParams.pendingId}
           />
         )}
       </div>
