@@ -14,6 +14,9 @@ import { MergeButton, type MergeMethod } from "@/components/ui/merge-button";
 import { postApiIntegrationsGithubPrsCloseMutation, postApiIntegrationsGithubPrsMergeSimpleMutation } from "@cmux/www-openapi-client/react-query";
 import type { PostApiIntegrationsGithubPrsCloseData, PostApiIntegrationsGithubPrsCloseResponse, PostApiIntegrationsGithubPrsMergeSimpleData, PostApiIntegrationsGithubPrsMergeSimpleResponse, Options } from "@cmux/www-openapi-client";
 
+const RUN_PENDING_STATUSES = new Set(["in_progress", "queued", "waiting", "pending"]);
+const RUN_PASSING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
+
 type PullRequestDetailViewProps = {
   teamSlugOrId: string;
   owner: string;
@@ -518,6 +521,61 @@ export function PullRequestDetailView({
     },
   });
 
+  const { checksAllowMerge, checksDisabledReason } = useMemo(() => {
+    if (workflowData.isLoading) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "Loading check status...",
+      } as const;
+    }
+
+    const runs = workflowData.allRuns;
+    if (runs.length === 0) {
+      return {
+        checksAllowMerge: true,
+        checksDisabledReason: undefined,
+      } as const;
+    }
+
+    const hasPending = runs.some((run) => {
+      const status = run.status;
+      return typeof status === "string" && RUN_PENDING_STATUSES.has(status);
+    });
+
+    if (hasPending) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "Checks are still running",
+      } as const;
+    }
+
+    const allPassing = runs.every((run) => {
+      const conclusion = run.conclusion;
+      return typeof conclusion === "string" && RUN_PASSING_CONCLUSIONS.has(conclusion);
+    });
+
+    if (!allPassing) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "All checks must pass before merging",
+      } as const;
+    }
+
+    return {
+      checksAllowMerge: true,
+      checksDisabledReason: undefined,
+    } as const;
+  }, [workflowData.allRuns, workflowData.isLoading]);
+
+  const disabledBecauseOfChecks = !checksAllowMerge;
+  const mergeDisabled =
+    mergePrMutation.isPending ||
+    closePrMutation.isPending ||
+    disabledBecauseOfChecks;
+  const mergeDisabledReason = disabledBecauseOfChecks
+    ? checksDisabledReason
+    : undefined;
+
   const handleClosePR = () => {
     if (!currentPR) return;
     closePrMutation.mutate({
@@ -531,7 +589,14 @@ export function PullRequestDetailView({
   };
 
   const handleMergePR = (method: MergeMethod) => {
-    if (!currentPR) return;
+    if (
+      !currentPR ||
+      mergePrMutation.isPending ||
+      closePrMutation.isPending ||
+      disabledBecauseOfChecks
+    ) {
+      return;
+    }
     mergePrMutation.mutate({
       body: {
         teamSlugOrId,
@@ -593,11 +658,9 @@ export function PullRequestDetailView({
                     <MergeButton
                       onMerge={handleMergePR}
                       isOpen={true}
-                      disabled={
-                        mergePrMutation.isPending ||
-                        closePrMutation.isPending
-                      }
+                      disabled={mergeDisabled}
                       isLoading={mergePrMutation.isPending}
+                      disabledReason={mergeDisabledReason}
                     />
                     <button
                       onClick={handleClosePR}
