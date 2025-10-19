@@ -9,7 +9,7 @@ export interface MorphSnapshotPreset {
 
 export const MORPH_SNAPSHOT_PRESETS = [
   {
-    id: "snapshot_vb7uqz8o",
+    id: "snapshot_vwnox2w3",
     label: "Standard workspace",
     cpu: "4 vCPU",
     memory: "16 GB RAM",
@@ -18,7 +18,7 @@ export const MORPH_SNAPSHOT_PRESETS = [
       "Great default for day-to-day work. Balanced CPU, memory, and storage.",
   },
   {
-    id: "snapshot_oa4dps0g",
+    id: "snapshot_lhcrpuia",
     label: "Performance workspace",
     cpu: "6 vCPU",
     memory: "32 GB RAM",
@@ -27,8 +27,7 @@ export const MORPH_SNAPSHOT_PRESETS = [
   },
 ] as const satisfies readonly MorphSnapshotPreset[];
 
-export type MorphSnapshotId =
-  (typeof MORPH_SNAPSHOT_PRESETS)[number]["id"];
+export type MorphSnapshotId = (typeof MORPH_SNAPSHOT_PRESETS)[number]["id"];
 
 export const DEFAULT_MORPH_SNAPSHOT_ID: MorphSnapshotId =
   MORPH_SNAPSHOT_PRESETS[0].id;

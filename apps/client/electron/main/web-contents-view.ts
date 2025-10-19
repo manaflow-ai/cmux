@@ -8,7 +8,9 @@ import {
   type Session,
   type WebContents,
 } from "electron";
+import { createHash, randomUUID } from "node:crypto";
 import { STATUS_CODES } from "node:http";
+import { deriveMorphDetails, type ProxyConfig } from "./proxy-routing";
 import type {
   ElectronDevToolsMode,
   ElectronWebContentsEvent,
@@ -65,6 +67,10 @@ interface Entry {
   ownerWebContentsDestroyed: boolean;
   eventChannel: string;
   eventCleanup: Array<() => void>;
+  proxyConfig: ProxyConfig | null;
+  morphId: string | null;
+  displayUrl: string | null;
+  originalUrl: string | null;
 }
 
 const viewEntries = new Map<number, Entry>();
@@ -137,19 +143,88 @@ function sendEventToOwner(
 function buildState(entry: Entry): ElectronWebContentsState | null {
   const contents = entry.view.webContents;
   try {
+    const actualUrl = contents.getURL();
+    const displayUrl = entry.displayUrl ?? actualUrl;
     return {
       id: entry.id,
       webContentsId: contents.id,
-      url: contents.getURL(),
+      url: displayUrl,
       title: contents.getTitle(),
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
       isLoading: contents.isLoading(),
       isDevToolsOpened: contents.isDevToolsOpened(),
+      morphId: entry.morphId,
     };
   } catch {
     return null;
   }
+}
+
+function resolvePartitionId(persistKey: string | undefined): string {
+  if (persistKey && persistKey.trim().length > 0) {
+    const hash = createHash("sha1").update(persistKey.trim()).digest("hex");
+    return `persist:cmux-webview:${hash}`;
+  }
+  return `persist:cmux-webview:${randomUUID()}`;
+}
+
+function proxyConfigsEqual(a: ProxyConfig | null, b: ProxyConfig | null): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.scheme === b.scheme &&
+    a.host === b.host &&
+    a.port === b.port &&
+    a.bypassRules === b.bypassRules
+  );
+}
+
+async function applyProxyToSession(
+  targetSession: Session,
+  proxy: ProxyConfig | null,
+  logger: Logger,
+  context: string,
+): Promise<void> {
+  try {
+    if (!proxy) {
+      await targetSession.setProxy({ mode: "direct" });
+      targetSession.closeAllConnections();
+      return;
+    }
+
+    const proxyRules = `${proxy.scheme}://${proxy.host}:${proxy.port}`;
+    await targetSession.setProxy({
+      mode: "fixed_servers",
+      proxyRules,
+      proxyBypassRules: proxy.bypassRules,
+    });
+    targetSession.closeAllConnections();
+  } catch (error) {
+    logger.warn("Failed to apply proxy configuration", {
+      context,
+      error,
+    });
+  }
+}
+
+async function updateEntryProxy(
+  entry: Entry,
+  targetUrl: string | null | undefined,
+  logger: Logger,
+  context: string,
+): Promise<string | null> {
+  const { proxyConfig, morphId, navigationUrl, displayUrl } = deriveMorphDetails(
+    targetUrl,
+  );
+  if (!proxyConfigsEqual(entry.proxyConfig, proxyConfig)) {
+    await applyProxyToSession(entry.view.webContents.session, proxyConfig, logger, context);
+    entry.proxyConfig = proxyConfig;
+  }
+  entry.morphId = morphId;
+  entry.originalUrl = targetUrl ?? null;
+  entry.displayUrl = displayUrl ?? targetUrl ?? null;
+  return navigationUrl ?? targetUrl ?? null;
 }
 
 function sendState(entry: Entry, logger: Logger, reason: string) {
@@ -196,6 +271,10 @@ function setupEventForwarders(entry: Entry, logger: Logger) {
     httpResponseCode: number,
     httpStatusText: string,
   ) => {
+    if (!entry.proxyConfig) {
+      entry.displayUrl = url;
+      entry.originalUrl = url;
+    }
     // Check for HTTP errors (4xx, 5xx)
     if (httpResponseCode >= 400) {
       const statusText = httpStatusText || STATUS_CODES[httpResponseCode];
@@ -221,6 +300,15 @@ function setupEventForwarders(entry: Entry, logger: Logger) {
   });
 
   const onDidNavigateInPage = () => {
+    if (!entry.proxyConfig) {
+      try {
+        const current = entry.view.webContents.getURL();
+        entry.displayUrl = current;
+        entry.originalUrl = current;
+      } catch {
+        // ignore
+      }
+    }
     sendState(entry, logger, "did-navigate-in-page");
   };
   webContents.on("did-navigate-in-page", onDidNavigateInPage);
@@ -642,6 +730,10 @@ export function registerWebContentsViewHandlers({
               applyBorderRadius(candidate.view, options.borderRadius);
             }
 
+            const restoredUrl =
+              options.url ?? candidate.originalUrl ?? candidate.view.webContents.getURL();
+            await updateEntryProxy(candidate, restoredUrl, logger, "reattach");
+
             candidate.ownerWindowId = win.id;
             candidate.ownerWebContentsId = sender.id;
             candidate.ownerWebContentsDestroyed = false;
@@ -694,7 +786,12 @@ export function registerWebContentsViewHandlers({
           destroyConflictingEntries(persistKey, win.id, logger);
         }
 
-        const view = new WebContentsView();
+        const partitionId = resolvePartitionId(persistKey);
+        const view = new WebContentsView({
+          webPreferences: {
+            partition: partitionId,
+          },
+        });
 
         applyChromeCamouflage(view, logger);
 
@@ -724,12 +821,6 @@ export function registerWebContentsViewHandlers({
         }
 
         const finalUrl = options.url ?? "about:blank";
-        void view.webContents.loadURL(finalUrl).catch((error) =>
-          logger.warn("WebContentsView initial load failed", {
-            url: finalUrl,
-            error,
-          }),
-        );
 
         const id = nextViewId++;
         const entry: Entry = {
@@ -743,8 +834,20 @@ export function registerWebContentsViewHandlers({
           ownerWebContentsDestroyed: false,
           eventChannel: eventChannelFor(id),
           eventCleanup: [],
+          proxyConfig: null,
+          morphId: null,
+          displayUrl: null,
+          originalUrl: null,
         };
         viewEntries.set(id, entry);
+        const navigationTarget =
+          (await updateEntryProxy(entry, finalUrl, logger, "create")) ?? finalUrl;
+        void view.webContents.loadURL(navigationTarget).catch((error) =>
+          logger.warn("WebContentsView initial load failed", {
+            url: navigationTarget,
+            error,
+          }),
+        );
         setupEventForwarders(entry, logger);
         sendState(entry, logger, "created");
 
@@ -804,7 +907,7 @@ export function registerWebContentsViewHandlers({
 
   ipcMain.handle(
     "cmux:webcontents:load-url",
-    (event, options: LoadUrlOptions) => {
+    async (event, options: LoadUrlOptions) => {
       const { id, url } = options ?? {};
       if (
         typeof id !== "number" ||
@@ -820,7 +923,9 @@ export function registerWebContentsViewHandlers({
       }
       entry.ownerSender = event.sender;
       try {
-        void entry.view.webContents.loadURL(url);
+        const navigationTarget =
+          (await updateEntryProxy(entry, url, logger, "load-url")) ?? url;
+        void entry.view.webContents.loadURL(navigationTarget);
         return { ok: true };
       } catch (error) {
         logger.warn("Failed to load URL", { id, url, error });

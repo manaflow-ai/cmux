@@ -9,6 +9,7 @@ export interface ElectronWebContentsState {
   canGoForward: boolean;
   isLoading: boolean;
   isDevToolsOpened: boolean;
+  morphId?: string | null;
 }
 
 export interface ElectronWebContentsSnapshot {

@@ -4,7 +4,9 @@ set -euo pipefail
 IMAGE_BASENAME="${1:-cmux-local-sanity}"
 OPENVSCODE_URL="http://localhost:39378/?folder=/root/workspace"
 NOVNC_URL="http://localhost:39380/vnc.html"
+NOVNC_PORT=39380
 CDP_PORT=39381
+SING_BOX_PORT=39384
 FORCE_DIND=${FORCE_DIND:-0}
 
 declare -a ACTIVE_CONTAINERS=()
@@ -105,6 +107,27 @@ wait_for_cdp() {
     sleep 1
   done
   echo "[sanity][$platform] ERROR: DevTools endpoint did not become ready within 60s" >&2
+  exit 1
+}
+
+wait_for_sing_box_proxy() {
+  local container="$1"
+  local port="$2"
+  local target_port="$3"
+  local platform="$4"
+  echo "[sanity][$platform] Validating sing-box proxy on port ${port}..."
+  for _ in {1..60}; do
+    if curl -fsS \
+      --proxy "socks5h://127.0.0.1:${port}" \
+      "http://127.0.0.1:${target_port}/" >/dev/null 2>&1; then
+      echo "[sanity][$platform] sing-box proxy reachability confirmed"
+      return
+    fi
+    sleep 1
+  done
+
+  echo "[sanity][$platform] ERROR: sing-box proxy check failed" >&2
+  docker logs "$container" | tail -n 120 || true
   exit 1
 }
 
@@ -220,6 +243,7 @@ run_checks_for_platform() {
     -p 39379:39379 \
     -p 39380:39380 \
     -p 39381:39381 \
+    -p ${SING_BOX_PORT}:${SING_BOX_PORT} \
     --name "$container_name" \
     "$image_name" >/dev/null
 
@@ -228,6 +252,7 @@ run_checks_for_platform() {
   wait_for_openvscode "$container_name" "$OPENVSCODE_URL" "$platform"
   wait_for_novnc "$container_name" "$NOVNC_URL" "$platform"
   wait_for_cdp "$CDP_PORT" "$platform"
+  wait_for_sing_box_proxy "$container_name" "$SING_BOX_PORT" "$NOVNC_PORT" "$platform"
 
   check_unit "$container_name" cmux-openvscode.service
   check_unit "$container_name" cmux-worker.service
