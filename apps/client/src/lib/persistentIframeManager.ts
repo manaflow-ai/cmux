@@ -233,6 +233,7 @@ class PersistentIframeManager {
       if (activeEntry && activeEntry.isVisible) {
         if (this.debugMode)
           console.log(`[Mount] Hiding active iframe ${this.activeIframeKey}`);
+        this.blurIframe(activeEntry);
         activeEntry.wrapper.style.visibility = "hidden";
         activeEntry.wrapper.style.pointerEvents = "none";
         activeEntry.isVisible = false;
@@ -311,6 +312,7 @@ class PersistentIframeManager {
     return () => {
       if (this.debugMode) console.log(`[Unmount] Starting unmount for ${key}`);
 
+      this.blurIframe(entry);
       targetElement.removeAttribute("data-iframe-target");
       entry.wrapper.style.visibility = "hidden";
       entry.wrapper.style.pointerEvents = "none";
@@ -400,6 +402,7 @@ class PersistentIframeManager {
     const entry = this.iframes.get(key);
     if (!entry) return;
 
+    this.blurIframe(entry);
     entry.wrapper.style.visibility = "hidden";
     entry.wrapper.style.pointerEvents = "none";
     this.moveIframeOffscreen(entry);
@@ -450,8 +453,13 @@ class PersistentIframeManager {
     const entry = this.iframes.get(key);
     if (!entry) return;
 
+    this.handoffFocusBeforeRemoval(entry);
     if (entry.wrapper.parentElement) {
       entry.wrapper.parentElement.removeChild(entry.wrapper);
+    }
+
+    if (this.activeIframeKey === key) {
+      this.activeIframeKey = null;
     }
 
     this.iframes.delete(key);
@@ -537,6 +545,98 @@ class PersistentIframeManager {
     entry.wrapper.style.width = `${viewportWidth}px`;
     entry.wrapper.style.height = `${viewportHeight}px`;
     entry.wrapper.style.transform = `translate(-${viewportWidth}px, -${viewportHeight}px)`;
+  }
+
+  private blurIframe(entry: IframeEntry): void {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (document.activeElement !== entry.iframe) {
+      return;
+    }
+
+    try {
+      entry.iframe.blur();
+    } catch {
+      // ignore focus errors
+    }
+
+    try {
+      entry.iframe.contentWindow?.blur?.();
+    } catch {
+      // ignore cross-origin focus errors
+    }
+  }
+
+  private handoffFocusBeforeRemoval(entry: IframeEntry): void {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+
+    if (document.activeElement !== entry.iframe) {
+      return;
+    }
+
+    this.blurIframe(entry);
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const nextActiveKey = this.activeIframeKey;
+        const nextActiveEntry =
+          (nextActiveKey ? this.iframes.get(nextActiveKey) : null) ??
+          Array.from(this.iframes.values()).find((candidate) => candidate.isVisible) ??
+          null;
+
+        const focusTargets: Array<() => void> = [];
+
+        if (nextActiveEntry) {
+          focusTargets.push(() => {
+            try {
+              nextActiveEntry.iframe.focus({ preventScroll: true });
+            } catch {
+              // ignore focus errors
+            }
+          });
+          focusTargets.push(() => {
+            try {
+              nextActiveEntry.iframe.contentWindow?.focus?.();
+            } catch {
+              // ignore cross-origin focus errors
+            }
+          });
+        }
+
+        focusTargets.push(() => {
+          try {
+            (document.body ?? document.documentElement)?.focus?.();
+          } catch {
+            // ignore body focus errors
+          }
+        });
+        focusTargets.push(() => {
+          try {
+            window.focus?.();
+          } catch {
+            // ignore window focus errors
+          }
+        });
+
+        for (const focusTarget of focusTargets) {
+          try {
+            focusTarget();
+            if (
+              nextActiveEntry &&
+              document.activeElement === nextActiveEntry.iframe
+            ) {
+              break;
+            }
+          } catch {
+            // ignore focus target errors
+          }
+        }
+      });
+    });
   }
 }
 
