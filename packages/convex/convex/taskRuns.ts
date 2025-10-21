@@ -1113,6 +1113,7 @@ export const updateEnvironmentError = authMutation({
     id: v.id("taskRuns"),
     maintenanceError: v.optional(v.string()),
     devError: v.optional(v.string()),
+    devScriptFinished: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
@@ -1144,10 +1145,16 @@ export const updateEnvironmentError = authMutation({
       devError?: string;
     };
 
-    await ctx.db.patch(args.id, {
+    const updates: Partial<Doc<"taskRuns">> = {
       environmentError,
       updatedAt: Date.now(),
-    });
+    };
+
+    if (args.devScriptFinished !== undefined) {
+      updates.devScriptFinished = args.devScriptFinished;
+    }
+
+    await ctx.db.patch(args.id, updates);
   },
 });
 

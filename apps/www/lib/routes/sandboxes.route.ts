@@ -318,13 +318,14 @@ sandboxesRouter.openapi(
             devScript: devScript || undefined,
             identifiers: scriptIdentifiers ?? undefined,
           });
-          if (taskRunConvexId && (result.maintenanceError || result.devError)) {
+          if (taskRunConvexId) {
             try {
               await convex.mutation(api.taskRuns.updateEnvironmentError, {
                 teamSlugOrId: body.teamSlugOrId,
                 id: taskRunConvexId,
                 maintenanceError: result.maintenanceError ?? undefined,
                 devError: result.devError ?? undefined,
+                devScriptFinished: true,
               });
             } catch (mutationError) {
               console.error(
