@@ -258,7 +258,18 @@ export const TaskItem = memo(function TaskItem({
           <OpenWithDropdown
             vscodeUrl={vscodeUrl}
             worktreePath={runWithVSCode?.worktreePath || task.worktreePath}
-            branch={task.baseBranch}
+            branch={runWithVSCode?.newBranch || task.baseBranch}
+            environmentId={
+              runWithVSCode?.environment?._id ??
+              runWithVSCode?.environmentId ??
+              task.environmentId ??
+              null
+            }
+            repoUrl={
+              task.projectFullName
+                ? `https://github.com/${task.projectFullName}.git`
+                : null
+            }
             className="group-hover:opacity-100 aria-expanded:opacity-100 opacity-0"
           />
 

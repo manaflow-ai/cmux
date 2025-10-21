@@ -173,6 +173,9 @@ export const OpenInEditorSchema = z.object({
     "xcode",
   ]),
   path: z.string(),
+  environmentId: typedZid("environments").optional(),
+  repoUrl: z.string().optional(),
+  branch: z.string().optional(),
 });
 
 export const AvailableEditorsSchema = z.object({

@@ -1,5 +1,6 @@
 import { editorIcons } from "@/components/ui/dropdown-types";
 import { useSocket } from "@/contexts/socket/use-socket";
+import type { Id } from "@cmux/convex/dataModel";
 import { Menu } from "@base-ui-components/react/menu";
 import clsx from "clsx";
 import { Check, ChevronDown } from "lucide-react";
@@ -20,12 +21,18 @@ type EditorType =
 
 interface OpenEditorSplitButtonProps {
   worktreePath?: string | null;
+  environmentId?: Id<"environments"> | null;
+  repoUrl?: string | null;
+  branch?: string | null;
   classNameLeft?: string;
   classNameRight?: string;
 }
 
 export function OpenEditorSplitButton({
   worktreePath,
+  environmentId,
+  repoUrl,
+  branch,
   classNameLeft,
   classNameRight,
 }: OpenEditorSplitButtonProps) {
@@ -49,50 +56,68 @@ export function OpenEditorSplitButton({
         {
           id: "vscode" as const,
           name: "VS Code",
-          enabled: !!worktreePath && (availableEditors?.vscode ?? true),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.vscode ?? true),
         },
         {
           id: "cursor" as const,
           name: "Cursor",
-          enabled: !!worktreePath && (availableEditors?.cursor ?? true),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.cursor ?? true),
         },
         {
           id: "windsurf" as const,
           name: "Windsurf",
-          enabled: !!worktreePath && (availableEditors?.windsurf ?? true),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.windsurf ?? true),
         },
         {
           id: "finder" as const,
           name: "Finder",
-          enabled: !!worktreePath && (availableEditors?.finder ?? true),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.finder ?? true),
         },
         {
           id: "iterm" as const,
           name: "iTerm",
-          enabled: !!worktreePath && (availableEditors?.iterm ?? false),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.iterm ?? false),
         },
         {
           id: "terminal" as const,
           name: "Terminal",
-          enabled: !!worktreePath && (availableEditors?.terminal ?? false),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.terminal ?? false),
         },
         {
           id: "ghostty" as const,
           name: "Ghostty",
-          enabled: !!worktreePath && (availableEditors?.ghostty ?? false),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.ghostty ?? false),
         },
         {
           id: "alacritty" as const,
           name: "Alacritty",
-          enabled: !!worktreePath && (availableEditors?.alacritty ?? false),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.alacritty ?? false),
         },
         {
           id: "xcode" as const,
           name: "Xcode",
-          enabled: !!worktreePath && (availableEditors?.xcode ?? false),
+          enabled:
+            (!!worktreePath || !!environmentId) &&
+            (availableEditors?.xcode ?? false),
         },
       ].filter((item) => item.enabled),
-    [worktreePath, availableEditors]
+    [worktreePath, environmentId, availableEditors]
   );
 
   const [selectedEditor, setSelectedEditor] = useState<EditorType | null>(
@@ -108,7 +133,7 @@ export function OpenEditorSplitButton({
             : null
           : (raw as EditorType | null);
       if (stored) return stored;
-      if (worktreePath) return "vscode";
+      if (worktreePath || environmentId) return "vscode";
       return null;
     }
   );
@@ -132,6 +157,7 @@ export function OpenEditorSplitButton({
   const handleOpenInEditor = useCallback(
     (editor: EditorType): Promise<void> => {
       return new Promise((resolve, reject) => {
+        const hasWorkspace = Boolean(worktreePath) || Boolean(environmentId);
         if (
           socket &&
           [
@@ -145,11 +171,17 @@ export function OpenEditorSplitButton({
             "alacritty",
             "xcode",
           ].includes(editor) &&
-          worktreePath
+          hasWorkspace
         ) {
           socket.emit(
             "open-in-editor",
-            { editor, path: worktreePath },
+            {
+              editor,
+              path: worktreePath ?? "",
+              ...(environmentId ? { environmentId } : {}),
+              ...(repoUrl ? { repoUrl } : {}),
+              ...(branch ? { branch } : {}),
+            },
             (response: { success: boolean; error?: string }) => {
               if (response.success) resolve();
               else reject(new Error(response.error || "Failed to open editor"));
@@ -160,7 +192,7 @@ export function OpenEditorSplitButton({
         }
       });
     },
-    [socket, worktreePath]
+    [socket, worktreePath, environmentId, repoUrl, branch]
   );
 
   const selected = menuItems.find((m) => m.id === selectedEditor) || null;

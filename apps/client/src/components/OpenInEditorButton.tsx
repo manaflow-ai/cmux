@@ -1,4 +1,5 @@
 import { useSocket } from "@/contexts/socket/use-socket";
+import type { Id } from "@cmux/convex/dataModel";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { useEffect, useRef, useState, useMemo } from "react";
 
@@ -14,10 +15,18 @@ type EditorType =
   | "xcode";
 
 interface OpenInEditorButtonProps {
-  workspacePath: string;
+  workspacePath?: string | null;
+  environmentId?: Id<"environments"> | null;
+  repoUrl?: string | null;
+  branch?: string | null;
 }
 
-export function OpenInEditorButton({ workspacePath }: OpenInEditorButtonProps) {
+export function OpenInEditorButton({
+  workspacePath,
+  environmentId,
+  repoUrl,
+  branch,
+}: OpenInEditorButtonProps) {
   const [selectedEditor, setSelectedEditor] = useState<EditorType>("cursor");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -84,12 +93,15 @@ export function OpenInEditorButton({ workspacePath }: OpenInEditorButtonProps) {
   }, [socket]);
 
   const handleOpenInEditor = () => {
-    if (workspacePath && socket) {
+    if ((workspacePath || environmentId || repoUrl) && socket) {
       socket.emit(
         "open-in-editor",
         {
           editor: selectedEditor,
-          path: workspacePath,
+          path: workspacePath ?? "",
+          ...(environmentId ? { environmentId } : {}),
+          ...(repoUrl ? { repoUrl } : {}),
+          ...(branch ? { branch } : {}),
         },
         (response) => {
           if (!response.success) {

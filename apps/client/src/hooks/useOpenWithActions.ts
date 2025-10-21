@@ -1,5 +1,5 @@
 import { useSocket } from "@/contexts/socket/use-socket";
-import type { Doc } from "@cmux/convex/dataModel";
+import type { Doc, Id } from "@cmux/convex/dataModel";
 import { editorIcons, type EditorType } from "@/components/ui/dropdown-types";
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
@@ -22,6 +22,8 @@ type UseOpenWithActionsArgs = {
   worktreePath?: string | null;
   branch?: string | null;
   networking?: NetworkingInfo;
+  environmentId?: Id<"environments"> | null;
+  repoUrl?: string | null;
 };
 
 export function useOpenWithActions({
@@ -29,6 +31,8 @@ export function useOpenWithActions({
   worktreePath,
   branch,
   networking,
+  environmentId,
+  repoUrl,
 }: UseOpenWithActionsArgs) {
   const { socket, availableEditors } = useSocket();
 
@@ -53,50 +57,56 @@ export function useOpenWithActions({
           const vscodeUrlWithWorkspace = `${vscodeUrl}?folder=/root/workspace`;
           window.open(vscodeUrlWithWorkspace, "_blank", "noopener,noreferrer");
           resolve();
-        } else if (
-          socket &&
-          [
-            "cursor",
-            "vscode",
-            "windsurf",
-            "finder",
-            "iterm",
-            "terminal",
-            "ghostty",
-            "alacritty",
-            "xcode",
-          ].includes(editor) &&
-          worktreePath
-        ) {
-          socket.emit(
-            "open-in-editor",
-            {
-              editor: editor as
-                | "cursor"
-                | "vscode"
-                | "windsurf"
-                | "finder"
-                | "iterm"
-                | "terminal"
-                | "ghostty"
-                | "alacritty"
-                | "xcode",
-              path: worktreePath,
-            },
-            (response) => {
-              if (response.success) {
-                resolve();
-              } else {
-                reject(new Error(response.error || "Failed to open editor"));
-              }
-            }
-          );
         } else {
-          reject(new Error("Unable to open editor"));
+          const hasWorkspace = Boolean(worktreePath) || Boolean(environmentId);
+          if (
+            socket &&
+            [
+              "cursor",
+              "vscode",
+              "windsurf",
+              "finder",
+              "iterm",
+              "terminal",
+              "ghostty",
+              "alacritty",
+              "xcode",
+            ].includes(editor) &&
+            hasWorkspace
+          ) {
+            socket.emit(
+              "open-in-editor",
+              {
+                editor: editor as
+                  | "cursor"
+                  | "vscode"
+                  | "windsurf"
+                  | "finder"
+                  | "iterm"
+                  | "terminal"
+                  | "ghostty"
+                  | "alacritty"
+                  | "xcode",
+                path: worktreePath ?? "",
+                ...(environmentId ? { environmentId } : {}),
+                ...(repoUrl ? { repoUrl } : {}),
+                ...(branch ? { branch } : {}),
+              },
+              (response) => {
+                if (response.success) {
+                  resolve();
+                } else {
+                  reject(new Error(response.error || "Failed to open editor"));
+                }
+              }
+            );
+          } else {
+            reject(new Error("Unable to open editor"));
+          }
         }
       });
     },
-    [socket, worktreePath, vscodeUrl]
+    [socket, worktreePath, vscodeUrl, environmentId, repoUrl, branch]
   );
 
   const handleCopyBranch = useCallback(() => {
@@ -112,52 +122,53 @@ export function useOpenWithActions({
   }, [branch]);
 
   const openWithActions = useMemo<OpenWithAction[]>(() => {
+    const hasWorkspace = Boolean(worktreePath) || Boolean(environmentId);
     const baseItems: Array<{ id: EditorType; name: string; enabled: boolean }> = [
       { id: "vscode-remote", name: "VS Code (web)", enabled: Boolean(vscodeUrl) },
       {
         id: "vscode",
         name: "VS Code (local)",
-        enabled: Boolean(worktreePath) && (availableEditors?.vscode ?? true),
+        enabled: hasWorkspace && (availableEditors?.vscode ?? true),
       },
       {
         id: "cursor",
         name: "Cursor",
-        enabled: Boolean(worktreePath) && (availableEditors?.cursor ?? true),
+        enabled: hasWorkspace && (availableEditors?.cursor ?? true),
       },
       {
         id: "windsurf",
         name: "Windsurf",
-        enabled: Boolean(worktreePath) && (availableEditors?.windsurf ?? true),
+        enabled: hasWorkspace && (availableEditors?.windsurf ?? true),
       },
       {
         id: "finder",
         name: "Finder",
-        enabled: Boolean(worktreePath) && (availableEditors?.finder ?? true),
+        enabled: hasWorkspace && (availableEditors?.finder ?? true),
       },
       {
         id: "iterm",
         name: "iTerm",
-        enabled: Boolean(worktreePath) && (availableEditors?.iterm ?? false),
+        enabled: hasWorkspace && (availableEditors?.iterm ?? false),
       },
       {
         id: "terminal",
         name: "Terminal",
-        enabled: Boolean(worktreePath) && (availableEditors?.terminal ?? false),
+        enabled: hasWorkspace && (availableEditors?.terminal ?? false),
       },
       {
         id: "ghostty",
         name: "Ghostty",
-        enabled: Boolean(worktreePath) && (availableEditors?.ghostty ?? false),
+        enabled: hasWorkspace && (availableEditors?.ghostty ?? false),
       },
       {
         id: "alacritty",
         name: "Alacritty",
-        enabled: Boolean(worktreePath) && (availableEditors?.alacritty ?? false),
+        enabled: hasWorkspace && (availableEditors?.alacritty ?? false),
       },
       {
         id: "xcode",
         name: "Xcode",
-        enabled: Boolean(worktreePath) && (availableEditors?.xcode ?? false),
+        enabled: hasWorkspace && (availableEditors?.xcode ?? false),
       },
     ];
 
@@ -168,7 +179,7 @@ export function useOpenWithActions({
         name: item.name,
         Icon: editorIcons[item.id] ?? null,
       }));
-  }, [availableEditors, vscodeUrl, worktreePath]);
+  }, [availableEditors, vscodeUrl, worktreePath, environmentId]);
 
   const portActions = useMemo<PortAction[]>(() => {
     if (!networking) return [];

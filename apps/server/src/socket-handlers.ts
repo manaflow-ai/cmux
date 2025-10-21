@@ -47,8 +47,9 @@ import { getOctokit } from "./utils/octokit";
 import { checkAllProvidersStatus } from "./utils/providerStatus";
 import { refreshGitHubData } from "./utils/refreshGitHubData";
 import { runWithAuth, runWithAuthToken } from "./utils/requestContext";
+import { prepareEnvironmentWorkspace } from "./utils/prepareEnvironmentWorkspace";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
-import { getProjectPaths } from "./workspace";
+import { getProjectPaths, getWorktreePath, setupProjectWorkspace } from "./workspace";
 import {
   collectRepoFullNamesForRun,
   EMPTY_AGGREGATE,
@@ -821,41 +822,144 @@ export function setupSocketHandlers(
 
     socket.on("open-in-editor", async (data, callback) => {
       try {
-        const { editor, path } = OpenInEditorSchema.parse(data);
+        const {
+          editor,
+          path: requestedPath,
+          environmentId,
+          repoUrl,
+          branch,
+        } = OpenInEditorSchema.parse(data);
+
+        let targetPath = requestedPath;
+
+        const pathExists = requestedPath
+          ? await fs
+              .access(requestedPath)
+              .then(() => true)
+              .catch(() => false)
+          : false;
+
+        if (environmentId) {
+          try {
+            const prepared = await prepareEnvironmentWorkspace({
+              environmentId,
+              teamSlugOrId: safeTeam,
+            });
+
+            targetPath = prepared.targetPath;
+          } catch (prepError) {
+            serverLogger.error(
+              "Failed preparing environment workspace:",
+              prepError,
+            );
+            throw prepError;
+          }
+        } else if (repoUrl && !pathExists) {
+          try {
+            const repoManager = RepositoryManager.getInstance();
+            const projectPaths = await getProjectPaths(repoUrl, safeTeam);
+
+            await fs.mkdir(projectPaths.projectPath, { recursive: true });
+            await fs.mkdir(projectPaths.worktreesPath, { recursive: true });
+
+            const trimmedBranch = branch?.trim() || undefined;
+
+            await repoManager.ensureRepository(
+              repoUrl,
+              projectPaths.originPath,
+              trimmedBranch,
+            );
+
+            let targetBranch = trimmedBranch;
+            if (!targetBranch) {
+              targetBranch = await repoManager.getDefaultBranch(
+                projectPaths.originPath,
+              );
+            }
+
+            if (!targetBranch) {
+              targetBranch = "main";
+              serverLogger.warn(
+                `Falling back to branch "${targetBranch}" for ${repoUrl}`,
+              );
+            }
+
+            const worktreeInfo = await getWorktreePath(
+              { repoUrl, branch: targetBranch },
+              safeTeam,
+            );
+
+            const workspaceResult = await setupProjectWorkspace({
+              repoUrl,
+              branch: targetBranch,
+              worktreeInfo,
+            });
+
+            if (!workspaceResult.success || !workspaceResult.worktreePath) {
+              throw new Error(
+                workspaceResult.error ||
+                  `Failed to prepare workspace for ${repoUrl}`,
+              );
+            }
+
+            targetPath = workspaceResult.worktreePath;
+          } catch (prepError) {
+            serverLogger.error(
+              "Failed preparing repository workspace:",
+              prepError,
+            );
+            throw prepError;
+          }
+        }
+
+        if (!targetPath) {
+          throw new Error("Workspace path is missing");
+        }
+
+        const resolvedPathExists = await fs
+          .access(targetPath)
+          .then(() => true)
+          .catch(() => false);
+
+        if (!resolvedPathExists) {
+          throw new Error(
+            `Workspace path ${targetPath} does not exist locally`,
+          );
+        }
 
         let command: string[];
         switch (editor) {
           case "vscode":
-            command = ["code", path];
+            command = ["code", targetPath];
             break;
           case "cursor":
-            command = ["cursor", path];
+            command = ["cursor", targetPath];
             break;
           case "windsurf":
-            command = ["windsurf", path];
+            command = ["windsurf", targetPath];
             break;
           case "finder": {
             if (process.platform !== "darwin") {
               throw new Error("Finder is only supported on macOS");
             }
             // Use macOS 'open' to open the folder in Finder
-            command = ["open", path];
+            command = ["open", targetPath];
             break;
           }
           case "iterm":
-            command = ["open", "-a", "iTerm", path];
+            command = ["open", "-a", "iTerm", targetPath];
             break;
           case "terminal":
-            command = ["open", "-a", "Terminal", path];
+            command = ["open", "-a", "Terminal", targetPath];
             break;
           case "ghostty":
-            command = ["open", "-a", "Ghostty", path];
+            command = ["open", "-a", "Ghostty", targetPath];
             break;
           case "alacritty":
-            command = ["alacritty", "--working-directory", path];
+            command = ["alacritty", "--working-directory", targetPath];
             break;
           case "xcode":
-            command = ["open", "-a", "Xcode", path];
+            command = ["open", "-a", "Xcode", targetPath];
             break;
           default:
             throw new Error(`Unknown editor: ${editor}`);

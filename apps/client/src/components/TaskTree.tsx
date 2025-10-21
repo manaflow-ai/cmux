@@ -110,6 +110,8 @@ interface TaskRunExpansionContextValue {
 const TaskRunExpansionContext =
   createContext<TaskRunExpansionContextValue | null>(null);
 
+const TaskRunRepoContext = createContext<string | null>(null);
+
 function useTaskRunExpansionContext(): TaskRunExpansionContextValue {
   const context = useContext(TaskRunExpansionContext);
 
@@ -358,11 +360,12 @@ function TaskTreeInner({
         </ContextMenu.Root>
 
         {isExpanded ? (
-          <TaskRunsContent
-            taskId={task._id}
-            teamSlugOrId={teamSlugOrId}
-            level={level}
-          />
+        <TaskRunsContent
+          taskId={task._id}
+          teamSlugOrId={teamSlugOrId}
+          level={level}
+          projectFullName={task.projectFullName ?? null}
+        />
         ) : null}
       </div>
     </TaskRunExpansionContext.Provider>
@@ -373,12 +376,14 @@ interface TaskRunsContentProps {
   taskId: Id<"tasks">;
   teamSlugOrId: string;
   level: number;
+  projectFullName?: string | null;
 }
 
 function TaskRunsContent({
   taskId,
   teamSlugOrId,
   level,
+  projectFullName,
 }: TaskRunsContentProps) {
   const optimisticTask = isFakeConvexId(taskId);
   const runs = useConvexQuery(
@@ -390,6 +395,11 @@ function TaskRunsContent({
     () => (runs && runs.length > 0 ? annotateAgentOrdinals(runs) : []),
     [runs]
   );
+
+  const repoUrl = useMemo(() => {
+    if (!projectFullName) return null;
+    return `https://github.com/${projectFullName}.git`;
+  }, [projectFullName]);
 
   if (optimisticTask) {
     return (
@@ -417,17 +427,19 @@ function TaskRunsContent({
   }
 
   return (
-    <div className="flex flex-col">
-      {annotatedRuns.map((run) => (
-        <TaskRunTree
-          key={run._id}
-          run={run}
-          level={level + 1}
-          taskId={taskId}
-          teamSlugOrId={teamSlugOrId}
-        />
-      ))}
-    </div>
+    <TaskRunRepoContext.Provider value={repoUrl}>
+      <div className="flex flex-col">
+        {annotatedRuns.map((run) => (
+          <TaskRunTree
+            key={run._id}
+            run={run}
+            level={level + 1}
+            taskId={taskId}
+            teamSlugOrId={teamSlugOrId}
+          />
+        ))}
+      </div>
+    </TaskRunRepoContext.Provider>
   );
 }
 
@@ -456,13 +468,10 @@ interface TaskRunTreeProps {
   teamSlugOrId: string;
 }
 
-function TaskRunTreeInner({
-  run,
-  level,
-  taskId,
-  teamSlugOrId,
-}: TaskRunTreeProps) {
+function TaskRunTreeInner(props: TaskRunTreeProps) {
+  const { run, level, taskId, teamSlugOrId } = props;
   const { expandedRuns, setRunExpanded } = useTaskRunExpansionContext();
+  const repoUrl = useContext(TaskRunRepoContext);
   const defaultExpanded = Boolean(run.isCrowned);
   const isExpanded = expandedRuns[run._id] ?? defaultExpanded;
   const hasChildren = run.children.length > 0;
@@ -560,6 +569,8 @@ function TaskRunTreeInner({
     worktreePath: run.worktreePath,
     branch: run.newBranch,
     networking: run.networking,
+    environmentId: run.environment?._id ?? run.environmentId ?? null,
+    repoUrl,
   });
 
   const shouldRenderDiffLink = true;

@@ -224,6 +224,18 @@ export function TaskDetailHeader({
     [selectedRun?.worktreePath, task?.worktreePath],
   );
 
+  const environmentId = useMemo(
+    () => selectedRun?.environment?._id ?? selectedRun?.environmentId ?? task?.environmentId ?? null,
+    [selectedRun?.environment?._id, selectedRun?.environmentId, task?.environmentId],
+  );
+
+  const repoUrl = useMemo(() => {
+    if (task?.projectFullName) {
+      return `https://github.com/${task.projectFullName}.git`;
+    }
+    return null;
+  }, [task?.projectFullName]);
+
   const normalizedBaseBranch = useMemo(() => {
     const candidate = task?.baseBranch;
     if (candidate && candidate.trim()) {
@@ -335,7 +347,12 @@ export function TaskDetailHeader({
             />
           </Suspense>
 
-          <OpenEditorSplitButton worktreePath={worktreePath} />
+          <OpenEditorSplitButton
+            worktreePath={worktreePath}
+            environmentId={environmentId}
+            repoUrl={repoUrl}
+            branch={selectedRun?.newBranch ?? task?.baseBranch ?? null}
+          />
 
           <button className="p-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-white select-none hidden">
             <ExternalLink className="w-3.5 h-3.5" />
