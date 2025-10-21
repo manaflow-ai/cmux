@@ -20,6 +20,7 @@ import {
   getConvexHttpActionBaseUrl,
   startCodeReviewJob,
 } from "@/lib/services/code-review/start-code-review";
+import { type Team } from "@stackframe/stack";
 
 type PageParams = {
   teamSlugOrId: string;
@@ -64,11 +65,7 @@ export async function generateMetadata({
   }
 
   try {
-    const pullRequest = await fetchPullRequest(
-      githubOwner,
-      repo,
-      pullNumber
-    );
+    const pullRequest = await fetchPullRequest(githubOwner, repo, pullNumber);
 
     return {
       title: `${pullRequest.title} · #${pullRequest.number} · ${githubOwner}/${repo}`,
@@ -107,7 +104,7 @@ export default async function PullRequestPage({ params }: PageProps) {
   const pullRequestFilesPromise = fetchPullRequestFiles(
     githubOwner,
     repo,
-    pullNumber
+    pullNumber,
   );
 
   scheduleCodeReviewStart({
@@ -212,10 +209,10 @@ function scheduleCodeReviewStart({
             repo,
             pullNumber,
           },
-          error
+          error,
         );
       }
-    })()
+    })(),
   );
 }
 
@@ -268,10 +265,10 @@ function PullRequestHeaderContent({
 }) {
   const statusBadge = getStatusBadge(pullRequest);
   const createdAtLabel = formatRelativeTimeFromNow(
-    new Date(pullRequest.created_at)
+    new Date(pullRequest.created_at),
   );
   const updatedAtLabel = formatRelativeTimeFromNow(
-    new Date(pullRequest.updated_at)
+    new Date(pullRequest.updated_at),
   );
   const authorLogin = pullRequest.user?.login ?? null;
 
@@ -359,7 +356,7 @@ function PullRequestStatusBadge({
     <span
       className={cn(
         "rounded-md px-2 py-0.5 font-semibold uppercase tracking-wide",
-        className
+        className,
       )}
     >
       {label}
@@ -520,7 +517,7 @@ function summarizeFiles(files: GithubPullRequestFile[]): {
       acc.deletions += file.deletions;
       return acc;
     },
-    { fileCount: 0, additions: 0, deletions: 0 }
+    { fileCount: 0, additions: 0, deletions: 0 },
   );
 }
 
