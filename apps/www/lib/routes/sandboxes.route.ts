@@ -72,6 +72,15 @@ const UpdateSandboxEnvResponse = z
   })
   .openapi("UpdateSandboxEnvResponse");
 
+const hasNewReservedPort = (
+  services: { port: number }[],
+  requiredPorts: number[],
+): boolean => {
+  return requiredPorts.some((port) =>
+    !services.some((service) => service.port === port),
+  );
+};
+
 // Start a new sandbox (currently Morph-backed)
 sandboxesRouter.openapi(
   createRoute({
@@ -201,8 +210,31 @@ sandboxesRouter.openapi(
       });
 
       const exposed = instance.networking.httpServices;
-      const vscodeService = exposed.find((s) => s.port === 39378);
-      const workerService = exposed.find((s) => s.port === 39377);
+      const requiredPorts = [39375, 39376, 39377, 39378, 39379, 39380, 39381, 39383];
+
+      for (const port of requiredPorts) {
+        const hasService = exposed.some((service) => service.port === port);
+        if (!hasService) {
+          try {
+            await instance.exposeHttpService(`port-${port}`, port);
+          } catch (error) {
+            console.error(
+              `[sandboxes.start] Failed to expose reserved port ${port}`,
+              error,
+            );
+          }
+        }
+      }
+
+      const refreshedServices = hasNewReservedPort(
+        exposed,
+        requiredPorts,
+      )
+        ? (await client.instances.get({ instanceId: instance.id }))
+            .networking.httpServices
+        : exposed;
+      const vscodeService = refreshedServices.find((s) => s.port === 39378);
+      const workerService = refreshedServices.find((s) => s.port === 39377);
       if (!vscodeService || !workerService) {
         await instance.stop().catch(() => { });
         return c.text("VSCode or worker service not found", 500);

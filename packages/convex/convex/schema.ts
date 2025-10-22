@@ -219,6 +219,7 @@ const convexSchema = defineSchema({
             extension: v.optional(v.string()),
             proxy: v.optional(v.string()),
             vnc: v.optional(v.string()),
+            xterm: v.optional(v.string()),
           })
         ),
         url: v.optional(v.string()), // The VSCode URL

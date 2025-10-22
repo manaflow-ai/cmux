@@ -1,6 +1,6 @@
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-import { memo, use, useEffect, useMemo, useRef, useState } from "react";
+import { memo, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useTheme } from "@/components/theme/use-theme";
 import { loaderInitPromise } from "@/lib/monaco-environment";
@@ -466,6 +466,7 @@ function createDiffEditorMount({
   editorMinHeight,
   getVisibilityTarget,
   onReady,
+  onMeasurementStateChange,
 }: {
   editorMinHeight: number;
   getVisibilityTarget?: () => Element | null;
@@ -475,6 +476,7 @@ function createDiffEditorMount({
     applyLayout: () => void;
     controls: DiffEditorControls;
   }) => void;
+  onMeasurementStateChange?: (pending: boolean) => void;
 }): DiffOnMount {
   return (diffEditor, monacoInstance) => {
     const originalEditor = diffEditor.getOriginalEditor();
@@ -488,9 +490,37 @@ function createDiffEditorMount({
     const disposables: Array<{ dispose: () => void }> = [];
     const originalVisibility = container.style.visibility;
     const originalTransform = container.style.transform;
-    let isContainerVisible = container.style.visibility !== "hidden";
+    const originalMinHeight = container.style.minHeight;
+    const originalHeightValue = container.style.height;
+    const originalOverflowValue = container.style.overflow;
+    let isContainerVisible = false;
     let collapsedState = false;
     let targetMinHeight = Math.max(editorMinHeight, DEFAULT_EDITOR_MIN_HEIGHT);
+    let measuredMinHeight: number | null = null;
+    let initialMeasurementPending = true;
+    onMeasurementStateChange?.(initialMeasurementPending);
+    let pendingInitialMeasurementHandle: number | null = null;
+
+    const clearInitialMeasurementPending = () => {
+      if (!initialMeasurementPending) {
+        return;
+      }
+      initialMeasurementPending = false;
+      onMeasurementStateChange?.(false);
+    };
+
+    const getEffectiveMinHeight = () => {
+      if (measuredMinHeight !== null) {
+        return Math.max(measuredMinHeight, DEFAULT_EDITOR_MIN_HEIGHT);
+      }
+      return Math.max(targetMinHeight, DEFAULT_EDITOR_MIN_HEIGHT);
+    };
+
+    container.style.visibility = "hidden";
+    container.style.transform = "translateX(100000px)";
+    container.style.minHeight = "0px";
+    container.style.height = "0px";
+    container.style.overflow = "hidden";
 
     const parentElement = container.parentElement;
     let layoutAnchor: HTMLElement | null = null;
@@ -517,10 +547,17 @@ function createDiffEditorMount({
       });
     }
 
-    const computeHeight = (targetEditor: editor.IStandaloneCodeEditor) => {
+    const computeHeight = (
+      targetEditor: editor.IStandaloneCodeEditor,
+      allowFallback: boolean,
+    ) => {
       const contentHeight = targetEditor.getContentHeight();
       if (contentHeight > 0) {
-        return contentHeight;
+        return { height: contentHeight, hasContentMeasurement: true };
+      }
+
+      if (!allowFallback) {
+        return { height: 0, hasContentMeasurement: false };
       }
 
       const lineHeight = targetEditor.getOption(
@@ -529,17 +566,36 @@ function createDiffEditorMount({
       const model = targetEditor.getModel();
       const lineCount = model ? Math.max(1, model.getLineCount()) : 1;
 
-      return lineCount * lineHeight;
+      return { height: lineCount * lineHeight, hasContentMeasurement: false };
     };
 
-    container.style.minHeight = `${targetMinHeight}px`;
+    const scheduleInitialMeasurement = () => {
+      if (!initialMeasurementPending) {
+        return;
+      }
+      if (typeof window === "undefined") {
+        return;
+      }
+      if (pendingInitialMeasurementHandle !== null) {
+        return;
+      }
+      pendingInitialMeasurementHandle = window.requestAnimationFrame(() => {
+        pendingInitialMeasurementHandle = null;
+        applyLayout();
+      });
+    };
 
     const applyLayout = () => {
+      const allowFallback = !initialMeasurementPending;
+      const originalMeasurement = computeHeight(originalEditor, allowFallback);
+      const modifiedMeasurement = computeHeight(modifiedEditor, allowFallback);
       const height = Math.max(
-        computeHeight(originalEditor),
-        computeHeight(modifiedEditor),
+        originalMeasurement.height,
+        modifiedMeasurement.height,
       );
-
+      const hasReliableMeasurement =
+        originalMeasurement.hasContentMeasurement ||
+        modifiedMeasurement.hasContentMeasurement;
       const modifiedInfo = modifiedEditor.getLayoutInfo();
       const originalInfo = originalEditor.getLayoutInfo();
       const containerWidth =
@@ -548,16 +604,59 @@ function createDiffEditorMount({
         modifiedInfo.width ||
         originalInfo.width;
 
-      const enforcedHeight = Math.max(targetMinHeight, height);
+      if (hasReliableMeasurement) {
+        const measuredHeight = Math.max(DEFAULT_EDITOR_MIN_HEIGHT, height);
+        measuredMinHeight = measuredHeight;
+        clearInitialMeasurementPending();
+        if (
+          pendingInitialMeasurementHandle !== null &&
+          typeof window !== "undefined"
+        ) {
+          window.cancelAnimationFrame(pendingInitialMeasurementHandle);
+          pendingInitialMeasurementHandle = null;
+        }
+      } else if (initialMeasurementPending) {
+        scheduleInitialMeasurement();
+      }
 
-      if (containerWidth > 0 && enforcedHeight > 0) {
-        diffEditor.layout({ width: containerWidth, height: enforcedHeight });
+      const effectiveMinHeight = getEffectiveMinHeight();
+      const pendingMinHeight = Math.max(
+        targetMinHeight,
+        DEFAULT_EDITOR_MIN_HEIGHT,
+      );
+      const layoutHeight = collapsedState
+        ? 0
+        : initialMeasurementPending
+          ? pendingMinHeight
+          : effectiveMinHeight;
+
+      if (!collapsedState) {
+        if (initialMeasurementPending) {
+          container.style.minHeight = `${pendingMinHeight}px`;
+          container.style.height = "";
+          container.style.overflow = "hidden";
+        } else {
+          container.style.minHeight = `${effectiveMinHeight}px`;
+          container.style.height = "";
+          container.style.overflow = "";
+        }
+      }
+
+      if (containerWidth > 0 && layoutHeight > 0) {
+        diffEditor.layout({ width: containerWidth, height: layoutHeight });
+      }
+
+      if (!initialMeasurementPending) {
+        showContainer();
       }
 
       scheduleVisibilityEvaluation();
     };
 
     const showContainer = () => {
+      if (initialMeasurementPending) {
+        return;
+      }
       if (isContainerVisible) {
         return;
       }
@@ -581,7 +680,10 @@ function createDiffEditorMount({
       if (collapsedState) {
         return;
       }
-      container.style.minHeight = `${targetMinHeight}px`;
+      if (initialMeasurementPending) {
+        return;
+      }
+      container.style.minHeight = `${getEffectiveMinHeight()}px`;
       container.style.height = "";
       container.style.overflow = "";
     };
@@ -600,7 +702,8 @@ function createDiffEditorMount({
 
     const updateTargetMinHeight = (nextTarget: number) => {
       targetMinHeight = Math.max(nextTarget, DEFAULT_EDITOR_MIN_HEIGHT);
-      if (!collapsedState) {
+      measuredMinHeight = null;
+      if (!collapsedState && !initialMeasurementPending) {
         applyTargetMinHeight();
         applyLayout();
       }
@@ -745,6 +848,13 @@ function createDiffEditorMount({
         isContainerVisible = true;
         container.style.visibility = originalVisibility || "visible";
         container.style.transform = originalTransform || "";
+        container.style.minHeight = originalMinHeight;
+        container.style.height = originalHeightValue;
+        container.style.overflow = originalOverflowValue;
+        if (pendingInitialMeasurementHandle !== null && typeof window !== "undefined") {
+          window.cancelAnimationFrame(pendingInitialMeasurementHandle);
+        }
+        clearInitialMeasurementPending();
       },
     });
 
@@ -869,6 +979,20 @@ function MonacoFileDiffRow({
   const diffControlsRef = useRef<DiffEditorControls | null>(null);
   const isExpandedRef = useRef(isExpanded);
   const rowContainerRef = useRef<HTMLDivElement | null>(null);
+  const isMountedRef = useRef(true);
+  const [isInitialMeasurementPending, setIsInitialMeasurementPending] =
+    useState(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setIsInitialMeasurementPending(true);
+  }, [file.filePath]);
 
   useEffect(() => {
     isExpandedRef.current = isExpanded;
@@ -879,18 +1003,29 @@ function MonacoFileDiffRow({
     diffControlsRef.current?.updateTargetMinHeight(editorMinHeight);
   }, [editorMinHeight]);
 
+  const handleMeasurementStateChange = useCallback(
+    (pending: boolean) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+      setIsInitialMeasurementPending(pending);
+    },
+    [setIsInitialMeasurementPending],
+  );
+
   const onEditorMount = useMemo(
     () =>
       createDiffEditorMount({
         editorMinHeight,
         getVisibilityTarget: () => rowContainerRef.current,
+        onMeasurementStateChange: handleMeasurementStateChange,
         onReady: ({ controls }) => {
           diffControlsRef.current = controls;
           controls.updateTargetMinHeight(editorMinHeight);
           controls.updateCollapsedState(!isExpandedRef.current);
         },
       }),
-    [editorMinHeight],
+    [editorMinHeight, handleMeasurementStateChange],
   );
 
   return (
@@ -913,7 +1048,9 @@ function MonacoFileDiffRow({
         className="overflow-hidden border-b border-neutral-200 dark:border-neutral-800 flex flex-col"
         style={
           isExpanded
-            ? { minHeight: editorMinHeight }
+            ? isInitialMeasurementPending
+              ? { minHeight: editorMinHeight }
+              : undefined
             : { minHeight: 0, height: 0 }
         }
         aria-hidden={!isExpanded}
@@ -940,7 +1077,12 @@ function MonacoFileDiffRow({
             Diff content omitted due to size
           </div>
         ) : canRenderEditor ? (
-          <div className="relative" style={{ minHeight: editorMinHeight }}>
+          <div
+            className="relative"
+            style={
+              isInitialMeasurementPending ? { minHeight: editorMinHeight } : undefined
+            }
+          >
             <DiffEditor
               language={file.language}
               original={file.oldContent}

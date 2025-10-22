@@ -28,6 +28,7 @@ export interface ContainerMapping {
     extension?: string;
     proxy?: string;
     vnc?: string;
+    xterm?: string;
   };
   status: "starting" | "running" | "stopped";
   workspacePath?: string;
@@ -201,6 +202,9 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       if (ports["39381/tcp"]?.[0]?.HostPort) {
         portMapping["39381"] = ports["39381/tcp"][0].HostPort;
       }
+      if (ports["39383/tcp"]?.[0]?.HostPort) {
+        portMapping["39383"] = ports["39383/tcp"][0].HostPort;
+      }
 
       // Update cache
       this.portCache = {
@@ -238,7 +242,14 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       instanceId: this.instanceId,
       teamSlugOrId: this.teamSlugOrId,
       authToken: this.authToken,
-      ports: { vscode: "", worker: "", extension: "", proxy: "", vnc: "" },
+      ports: {
+        vscode: "",
+        worker: "",
+        extension: "",
+        proxy: "",
+        vnc: "",
+        xterm: "",
+      },
       status: "starting",
       workspacePath: this.config.workspacePath,
     });
@@ -276,6 +287,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         "39379/tcp": [{ HostPort: "0" }], // cmux-proxy port
         "39380/tcp": [{ HostPort: "0" }], // VNC websockify port
         "39381/tcp": [{ HostPort: "0" }], // Chrome DevTools port
+        "39383/tcp": [{ HostPort: "0" }], // cmux-xterm server
       },
       Tmpfs: {
         "/run": "rw,mode=755",
@@ -297,6 +309,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         "39379/tcp": {},
         "39380/tcp": {},
         "39381/tcp": {},
+        "39383/tcp": {},
       },
     };
     dockerLogger.info(
@@ -471,6 +484,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     const extensionPort = ports["39376/tcp"]?.[0]?.HostPort;
     const proxyPort = ports["39379/tcp"]?.[0]?.HostPort;
     const vncPort = ports["39380/tcp"]?.[0]?.HostPort;
+    const xtermPort = ports["39383/tcp"]?.[0]?.HostPort;
 
     if (!vscodePort) {
       dockerLogger.error(`Available ports:`, ports);
@@ -501,6 +515,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         extension: extensionPort,
         proxy: proxyPort,
         vnc: vncPort,
+        xterm: xtermPort,
       };
       mapping.status = "running";
     }
@@ -516,6 +531,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
           extension: extensionPort,
           proxy: proxyPort,
           vnc: vncPort,
+          ...(xtermPort ? { xterm: xtermPort } : {}),
         },
       });
     } catch (error) {
@@ -979,6 +995,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     extension?: string;
     proxy?: string;
     vnc?: string;
+    xterm?: string;
   } | null {
     const mapping = containerMappings.get(this.containerName);
     return mapping?.ports || null;
@@ -1368,6 +1385,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         const extensionPort = ports["39376/tcp"]?.[0]?.HostPort;
         const proxyPort = ports["39379/tcp"]?.[0]?.HostPort;
         const vncPort = ports["39380/tcp"]?.[0]?.HostPort;
+        const xtermPort = ports["39383/tcp"]?.[0]?.HostPort;
         if (vscodePort && workerPort && proxyPort && vncPort) {
           mapping.ports = {
             vscode: vscodePort,
@@ -1375,6 +1393,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
             extension: extensionPort,
             proxy: proxyPort,
             vnc: vncPort,
+            xterm: xtermPort,
           };
         }
         mapping.status = "running";
@@ -1396,6 +1415,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
                   extension: extensionPort,
                   proxy: proxyPort,
                   vnc: vncPort,
+                  ...(xtermPort ? { xterm: xtermPort } : {}),
                 },
               });
             }
