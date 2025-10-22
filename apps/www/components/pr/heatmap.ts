@@ -17,6 +17,8 @@ export type DiffHeatmap = {
 
 export type HeatmapRangeNode = RangeTokenNode & {
   className: string;
+  heatmapTier: number;
+  heatmapScore: number;
 };
 
 type ResolvedHeatmapLine = {
@@ -29,7 +31,26 @@ type ResolvedHeatmapLine = {
 const SCORE_CLAMP_MIN = 0;
 const SCORE_CLAMP_MAX = 1;
 
-const HEATMAP_TIERS = [0.2, 0.4, 0.6, 0.8] as const;
+export const HEATMAP_SCORE_BREAKPOINTS = [
+  0.15,
+  0.3,
+  0.5,
+  0.7,
+  0.85,
+  0.95,
+] as const;
+
+const HEATMAP_TIERS = HEATMAP_SCORE_BREAKPOINTS;
+
+export function scoreToHeatmapColor(
+  score: number,
+  options?: { alpha?: number }
+): string {
+  const alpha = options?.alpha ?? 0.35;
+  const normalized = clamp(score, SCORE_CLAMP_MIN, SCORE_CLAMP_MAX);
+  const hue = Math.max(0, Math.min(120, Math.round((1 - normalized) * 120)));
+  return `hsla(${hue}, 95%, 38%, ${alpha})`;
+}
 
 export function parseReviewHeatmap(raw: unknown): ReviewHeatmapLine[] {
   const payload = unwrapCodexPayload(raw);
@@ -140,14 +161,20 @@ export function buildDiffHeatmap(
       0,
       Math.max(content.length - 1, 0)
     );
+    const highlightRange = expandHighlightRange(content, highlightIndex);
+    if (highlightRange.length <= 0) {
+      continue;
+    }
 
     const charTier = tier > 0 ? tier : 1;
     const range: HeatmapRangeNode = {
       type: "span",
       lineNumber,
-      start: highlightIndex,
-      length: Math.min(1, Math.max(content.length - highlightIndex, 1)),
+      start: highlightRange.start,
+      length: highlightRange.length,
       className: `cmux-heatmap-char cmux-heatmap-char-tier-${charTier}`,
+      heatmapTier: charTier,
+      heatmapScore: normalizedScore ?? SCORE_CLAMP_MIN,
     };
     characterRanges.push(range);
   }
@@ -301,6 +328,74 @@ function collectNewLineContent(diff: FileData): Map<number, string> {
   }
 
   return map;
+}
+
+function expandHighlightRange(
+  content: string,
+  targetIndex: number
+): { start: number; length: number } {
+  if (content.length === 0) {
+    return { start: 0, length: 0 };
+  }
+
+  const sanitizedIndex = clamp(
+    Math.floor(targetIndex),
+    0,
+    Math.max(content.length - 1, 0)
+  );
+  const diffPrefixLength = /^[+\- ]/.test(content) ? 1 : 0;
+  let searchIndex = Math.max(sanitizedIndex, diffPrefixLength);
+
+  const isIdentifierChar = (char: string) => /[A-Za-z0-9_$]/.test(char);
+  const isWhitespace = (char: string) => /\s/.test(char);
+
+  if (isWhitespace(content[searchIndex] ?? "")) {
+    let forward = searchIndex + 1;
+    while (forward < content.length && isWhitespace(content[forward] ?? "")) {
+      forward += 1;
+    }
+
+    if (forward < content.length) {
+      searchIndex = Math.max(forward, diffPrefixLength);
+    } else {
+      let backward = searchIndex - 1;
+      while (backward >= diffPrefixLength && isWhitespace(content[backward] ?? "")) {
+        backward -= 1;
+      }
+      if (backward >= diffPrefixLength) {
+        searchIndex = backward;
+      }
+    }
+  }
+
+  let start = searchIndex;
+  let end = searchIndex + 1;
+  const currentChar = content[searchIndex] ?? "";
+
+  if (isIdentifierChar(currentChar)) {
+    while (start > diffPrefixLength && isIdentifierChar(content[start - 1] ?? "")) {
+      start -= 1;
+    }
+    while (end < content.length && isIdentifierChar(content[end] ?? "")) {
+      end += 1;
+    }
+  } else if (!isWhitespace(currentChar)) {
+    while (start > diffPrefixLength && !isWhitespace(content[start - 1] ?? "")) {
+      start -= 1;
+    }
+    while (end < content.length && !isWhitespace(content[end] ?? "")) {
+      end += 1;
+    }
+  }
+
+  const fallbackLength = 3;
+  if (end - start <= 0) {
+    start = Math.max(searchIndex - 1, diffPrefixLength);
+    end = Math.min(start + fallbackLength, content.length);
+  }
+
+  const length = Math.max(Math.min(end - start, content.length - start), 1);
+  return { start, length };
 }
 
 function computeHeatmapTier(score: number | null): number {

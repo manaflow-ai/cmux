@@ -7,6 +7,7 @@ import { ExternalLink, GitPullRequest } from "lucide-react";
 import { type Team } from "@stackframe/stack";
 
 import { PullRequestDiffViewer } from "@/components/pr/pull-request-diff-viewer";
+import { scoreToHeatmapColor } from "@/components/pr/heatmap";
 import {
   fetchPullRequest,
   fetchPullRequestFiles,
@@ -580,8 +581,43 @@ function PullRequestDiffSummary({
           {fileCount} file{fileCount === 1 ? "" : "s"}, {additions} additions,{" "}
           {deletions} deletions
         </p>
+        <HeatmapLegend />
       </div>
     </header>
+  );
+}
+
+function HeatmapLegend() {
+  const stops: Array<{ score: number; label: string }> = [
+    { score: 0.1, label: "Low" },
+    { score: 0.35, label: "Moderate" },
+    { score: 0.55, label: "Elevated" },
+    { score: 0.75, label: "High" },
+    { score: 0.9, label: "Critical" },
+  ];
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+      <span className="font-medium text-neutral-700">Review heatmap</span>
+      <div className="flex items-center gap-1">
+        {stops.map((stop) => (
+          <span key={stop.score} className="flex items-center gap-1">
+            <span
+              aria-hidden="true"
+              className="h-3 w-3 rounded-sm border border-neutral-200 shadow-sm"
+              style={{
+                backgroundColor: scoreToHeatmapColor(stop.score, {
+                  alpha: 0.45,
+                }),
+              }}
+            />
+            <span className="hidden text-neutral-500 sm:inline">
+              {stop.label}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

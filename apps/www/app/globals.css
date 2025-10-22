@@ -172,32 +172,42 @@ body {
 
 .cmux-heatmap-tier-1 .diff-gutter,
 .cmux-heatmap-tier-1 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(249, 115, 22, 0.08);
+  box-shadow: inset 0 0 0 999px rgba(16, 185, 129, 0.18);
 }
 
 .cmux-heatmap-tier-2 .diff-gutter,
 .cmux-heatmap-tier-2 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(249, 115, 22, 0.16);
+  box-shadow: inset 0 0 0 999px rgba(101, 163, 13, 0.18);
 }
 
 .cmux-heatmap-tier-3 .diff-gutter,
 .cmux-heatmap-tier-3 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(239, 68, 68, 0.22);
+  box-shadow: inset 0 0 0 999px rgba(250, 204, 21, 0.22);
 }
 
 .cmux-heatmap-tier-4 .diff-gutter,
 .cmux-heatmap-tier-4 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(220, 38, 38, 0.32);
+  box-shadow: inset 0 0 0 999px rgba(251, 146, 60, 0.24);
+}
+
+.cmux-heatmap-tier-5 .diff-gutter,
+.cmux-heatmap-tier-5 .diff-code {
+  box-shadow: inset 0 0 0 999px rgba(248, 113, 113, 0.28);
+}
+
+.cmux-heatmap-tier-6 .diff-gutter,
+.cmux-heatmap-tier-6 .diff-code {
+  box-shadow: inset 0 0 0 999px rgba(220, 38, 38, 0.34);
 }
 
 .dark .cmux-heatmap-tier-1 .diff-gutter,
 .dark .cmux-heatmap-tier-1 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(249, 115, 22, 0.16);
+  box-shadow: inset 0 0 0 999px rgba(16, 185, 129, 0.32);
 }
 
 .dark .cmux-heatmap-tier-2 .diff-gutter,
 .dark .cmux-heatmap-tier-2 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(249, 115, 22, 0.24);
+  box-shadow: inset 0 0 0 999px rgba(101, 163, 13, 0.32);
 }
 
 .diff-syntax {
@@ -224,12 +234,22 @@ body {
 
 .dark .cmux-heatmap-tier-3 .diff-gutter,
 .dark .cmux-heatmap-tier-3 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(239, 68, 68, 0.32);
+  box-shadow: inset 0 0 0 999px rgba(250, 204, 21, 0.28);
 }
 
 .dark .cmux-heatmap-tier-4 .diff-gutter,
 .dark .cmux-heatmap-tier-4 .diff-code {
-  box-shadow: inset 0 0 0 999px rgba(220, 38, 38, 0.4);
+  box-shadow: inset 0 0 0 999px rgba(251, 146, 60, 0.32);
+}
+
+.dark .cmux-heatmap-tier-5 .diff-gutter,
+.dark .cmux-heatmap-tier-5 .diff-code {
+  box-shadow: inset 0 0 0 999px rgba(248, 113, 113, 0.38);
+}
+
+.dark .cmux-heatmap-tier-6 .diff-gutter,
+.dark .cmux-heatmap-tier-6 .diff-code {
+  box-shadow: inset 0 0 0 999px rgba(220, 38, 38, 0.45);
 }
 
 .cmux-heatmap-char {
@@ -239,24 +259,35 @@ body {
 }
 
 .cmux-heatmap-char-wrapper {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   cursor: help;
+  border-radius: 0.35rem;
+  padding: 0 0.08rem;
 }
 
 .cmux-heatmap-char-tier-1 {
-  background-color: rgba(249, 115, 22, 0.35);
+  background-color: rgba(16, 185, 129, 0.45);
 }
 
 .cmux-heatmap-char-tier-2 {
-  background-color: rgba(249, 115, 22, 0.45);
+  background-color: rgba(101, 163, 13, 0.5);
 }
 
 .cmux-heatmap-char-tier-3 {
-  background-color: rgba(239, 68, 68, 0.5);
+  background-color: rgba(250, 204, 21, 0.55);
 }
 
 .cmux-heatmap-char-tier-4 {
-  background-color: rgba(220, 38, 38, 0.6);
+  background-color: rgba(251, 146, 60, 0.6);
+}
+
+.cmux-heatmap-char-tier-5 {
+  background-color: rgba(248, 113, 113, 0.65);
+}
+
+.cmux-heatmap-char-tier-6 {
+  background-color: rgba(220, 38, 38, 0.68);
 }
 
 .cmux-heatmap-focus td.diff-gutter,
@@ -279,19 +310,27 @@ body {
 }
 
 .dark .cmux-heatmap-char-tier-1 {
-  background-color: rgba(249, 115, 22, 0.45);
+  background-color: rgba(16, 185, 129, 0.55);
 }
 
 .dark .cmux-heatmap-char-tier-2 {
-  background-color: rgba(249, 115, 22, 0.55);
+  background-color: rgba(101, 163, 13, 0.6);
 }
 
 .dark .cmux-heatmap-char-tier-3 {
-  background-color: rgba(239, 68, 68, 0.6);
+  background-color: rgba(250, 204, 21, 0.6);
 }
 
 .dark .cmux-heatmap-char-tier-4 {
-  background-color: rgba(220, 38, 38, 0.65);
+  background-color: rgba(251, 146, 60, 0.65);
+}
+
+.dark .cmux-heatmap-char-tier-5 {
+  background-color: rgba(248, 113, 113, 0.7);
+}
+
+.dark .cmux-heatmap-char-tier-6 {
+  background-color: rgba(220, 38, 38, 0.75);
 }
 
 .cmux-heatmap-gutter {

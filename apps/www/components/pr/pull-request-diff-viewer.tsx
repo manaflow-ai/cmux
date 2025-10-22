@@ -2,13 +2,15 @@
 
 import {
   Fragment,
+  cloneElement,
+  isValidElement,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import type { ReactElement, ReactNode } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import {
   ChevronLeft,
   ChevronDown,
@@ -52,8 +54,10 @@ import {
 import { refractor } from "refractor/all";
 
 import {
+  HEATMAP_SCORE_BREAKPOINTS,
   buildDiffHeatmap,
   parseReviewHeatmap,
+  scoreToHeatmapColor,
   type DiffHeatmap,
   type ReviewHeatmapLine,
 } from "./heatmap";
@@ -1286,26 +1290,63 @@ function FileDiffCard({
             className.includes("cmux-heatmap-char-tier"))
         ) {
           const tooltipMeta = lineTooltips.get(lineNumber);
-          if (tooltipMeta) {
+          const intrinsicScore =
+            typeof tokenRecord.heatmapScore === "number"
+              ? Math.min(Math.max(tokenRecord.heatmapScore, 0), 1)
+              : null;
+          const score = intrinsicScore ?? tooltipMeta?.score ?? null;
+
+          if (tooltipMeta && score !== null) {
             const rendered = renderDefault(token, index);
+            const innerHighlightColor = scoreToHeatmapColor(score, {
+              alpha: 0.55,
+            });
+            const haloColor = scoreToHeatmapColor(score, {
+              alpha: 0.22,
+            });
+            const outlineColor = scoreToHeatmapColor(score, {
+              alpha: 0.38,
+            });
+
+            let coloredToken = rendered;
+            if (innerHighlightColor && isValidElement(rendered)) {
+              const element = rendered as ReactElement<{ style?: CSSProperties }>;
+              coloredToken = cloneElement(element, {
+                style: {
+                  ...(element.props.style ?? {}),
+                  backgroundColor: innerHighlightColor,
+                },
+              });
+            }
+
+            const wrapperStyle: CSSProperties = {
+              backgroundColor: haloColor,
+              boxShadow: `0 0 0 1px ${outlineColor} inset`,
+            };
+
             return (
               <Tooltip
                 key={`heatmap-char-${lineNumber}-${index}`}
                 delayDuration={120}
               >
                 <TooltipTrigger asChild>
-                  <span className="cmux-heatmap-char-wrapper">{rendered}</span>
+                  <span
+                    className="cmux-heatmap-char-wrapper"
+                    style={wrapperStyle}
+                  >
+                    {coloredToken}
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent
                   side="top"
                   align="start"
                   className={cn(
                     "max-w-xs space-y-1 text-left leading-relaxed border backdrop-blur",
-                    getHeatmapTooltipTheme(tooltipMeta.score).contentClass
+                    getHeatmapTooltipTheme(score).contentClass
                   )}
                 >
                   <HeatmapTooltipBody
-                    score={tooltipMeta.score}
+                    score={score}
                     reason={tooltipMeta.reason}
                   />
                 </TooltipContent>
@@ -1606,6 +1647,14 @@ function HeatmapGutterTooltip({
       <TooltipTrigger asChild>
         <span
           className="cmux-heatmap-gutter"
+          style={{
+            backgroundColor: scoreToHeatmapColor(tooltipMeta.score, {
+              alpha: 0.18,
+            }),
+            boxShadow: `0 0 0 1px ${scoreToHeatmapColor(tooltipMeta.score, {
+              alpha: 0.3,
+            })} inset`,
+          }}
           onPointerEnter={handlePointerEnter}
           onPointerLeave={handlePointerLeave}
         >
@@ -1646,7 +1695,7 @@ function HeatmapTooltipBody({
   );
 }
 
-const HEATMAP_SCORE_TIERS = [0.2, 0.4, 0.6, 0.8] as const;
+const HEATMAP_SCORE_TIERS = HEATMAP_SCORE_BREAKPOINTS;
 
 function getHeatmapTooltipTheme(score: number): HeatmapTooltipTheme {
   const tier = (() => {
@@ -1659,33 +1708,47 @@ function getHeatmapTooltipTheme(score: number): HeatmapTooltipTheme {
   })();
 
   switch (tier) {
-    case 4:
+    case 6:
+      return {
+        contentClass:
+          "bg-red-900/95 border-red-500/40 text-red-50 shadow-lg shadow-red-950/40",
+        titleClass: "text-red-100",
+        reasonClass: "text-red-200",
+      };
+    case 5:
       return {
         contentClass:
           "bg-rose-900/95 border-rose-500/40 text-rose-50 shadow-lg shadow-rose-950/40",
         titleClass: "text-rose-100",
         reasonClass: "text-rose-200",
       };
+    case 4:
+      return {
+        contentClass:
+          "bg-orange-900/95 border-orange-500/40 text-orange-50 shadow-lg shadow-orange-950/40",
+        titleClass: "text-orange-100",
+        reasonClass: "text-orange-200",
+      };
     case 3:
-      return {
-        contentClass:
-          "bg-rose-800/95 border-rose-400/40 text-rose-50 shadow-lg shadow-rose-950/30",
-        titleClass: "text-rose-100",
-        reasonClass: "text-rose-200",
-      };
-    case 2:
-      return {
-        contentClass:
-          "bg-amber-800/95 border-amber-400/40 text-amber-50 shadow-lg shadow-amber-950/30",
-        titleClass: "text-amber-100",
-        reasonClass: "text-amber-200",
-      };
-    case 1:
       return {
         contentClass:
           "bg-amber-900/95 border-amber-500/40 text-amber-50 shadow-lg shadow-amber-950/40",
         titleClass: "text-amber-100",
         reasonClass: "text-amber-200",
+      };
+    case 2:
+      return {
+        contentClass:
+          "bg-lime-900/95 border-lime-500/40 text-lime-50 shadow-lg shadow-lime-950/40",
+        titleClass: "text-lime-100",
+        reasonClass: "text-lime-200",
+      };
+    case 1:
+      return {
+        contentClass:
+          "bg-emerald-900/95 border-emerald-500/40 text-emerald-50 shadow-lg shadow-emerald-950/40",
+        titleClass: "text-emerald-100",
+        reasonClass: "text-emerald-200",
       };
     default:
       return {
