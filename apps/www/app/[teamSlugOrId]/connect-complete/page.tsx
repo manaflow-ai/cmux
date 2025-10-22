@@ -1,4 +1,4 @@
-import { OpenCmuxClient } from "../../handler/after-sign-in/OpenCmuxClient";
+import { OpenCmuxClient } from "../../desktop/after-sign-in/OpenCmuxClient";
 
 export const dynamic = "force-dynamic";
 
@@ -12,4 +12,3 @@ export default function ConnectCompletePage({
   )}`;
   return <OpenCmuxClient href={href} />;
 }
-

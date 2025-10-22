@@ -20,6 +20,7 @@ import {
   getConvexHttpActionBaseUrl,
   startCodeReviewJob,
 } from "@/lib/services/code-review/start-code-review";
+import { type Team } from "@stackframe/stack";
 
 type PageParams = {
   teamSlugOrId: string;
@@ -64,11 +65,7 @@ export async function generateMetadata({
   }
 
   try {
-    const pullRequest = await fetchPullRequest(
-      githubOwner,
-      repo,
-      pullNumber
-    );
+    const pullRequest = await fetchPullRequest(githubOwner, repo, pullNumber);
 
     return {
       title: `${pullRequest.title} · #${pullRequest.number} · ${githubOwner}/${repo}`,
