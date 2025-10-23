@@ -3,6 +3,7 @@ import {
   WorkerConfigureGitSchema,
   WorkerCreateTerminalSchema,
   WorkerExecSchema,
+  WorkerStartScreenshotCollectionSchema,
   type ClientToServerEvents,
   type InterServerEvents,
   type ServerToClientEvents,
@@ -10,6 +11,7 @@ import {
   type SocketData,
   type WorkerHeartbeat,
   type WorkerRegister,
+  type WorkerStartScreenshotCollection,
   type WorkerTaskRunContext,
   type WorkerToServerEventNames,
   type WorkerToServerEvents,
@@ -40,6 +42,7 @@ import { detectTerminalIdle } from "./detectTerminalIdle";
 import { runWorkerExec } from "./execRunner";
 import { FileWatcher, computeGitDiff, getFileWithDiff } from "./fileWatcher";
 import { log } from "./logger";
+import { startScreenshotCollection } from "./screenshotCollector/startScreenshotCollection";
 
 const execAsync = promisify(exec);
 
@@ -461,6 +464,50 @@ managementIO.on("connection", (socket) => {
       });
     }
   });
+
+  socket.on(
+    "worker:start-screenshot-collection",
+    async (rawData: WorkerStartScreenshotCollection | undefined) => {
+      log(
+        "INFO",
+        `Worker ${WORKER_ID} received request to start screenshot collection`,
+        undefined,
+        WORKER_ID
+      );
+      let config: WorkerStartScreenshotCollection | null = null;
+      if (rawData) {
+        try {
+          config = WorkerStartScreenshotCollectionSchema.parse(rawData);
+        } catch (validationError) {
+          log(
+            "ERROR",
+            "Invalid screenshot collection payload",
+            {
+              error:
+                validationError instanceof Error
+                  ? validationError.message
+                  : String(validationError),
+            },
+            WORKER_ID
+          );
+        }
+      }
+      try {
+        await startScreenshotCollection({
+          openAiApiKey: config?.openAiApiKey,
+        });
+      } catch (error) {
+        log(
+          "ERROR",
+          "Failed to start screenshot collection",
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+          WORKER_ID
+        );
+      }
+    }
+  );
 
   socket.on("worker:configure-git", async (data) => {
     try {

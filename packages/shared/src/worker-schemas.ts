@@ -182,6 +182,10 @@ export const WorkerExecResultSchema = z.object({
   signal: z.string().optional(),
 });
 
+export const WorkerStartScreenshotCollectionSchema = z.object({
+  openAiApiKey: z.string().min(1).optional(),
+});
+
 // Server to Worker Events
 export const ServerToWorkerCommandSchema = z.object({
   command: z.enum(["create-terminal", "destroy-terminal", "execute-command"]),
@@ -211,6 +215,9 @@ export type WorkerUploadFiles = z.infer<typeof WorkerUploadFilesSchema>;
 export type WorkerConfigureGit = z.infer<typeof WorkerConfigureGitSchema>;
 export type WorkerExec = z.infer<typeof WorkerExecSchema>;
 export type WorkerExecResult = z.infer<typeof WorkerExecResultSchema>;
+export type WorkerStartScreenshotCollection = z.infer<
+  typeof WorkerStartScreenshotCollectionSchema
+>;
 
 // Socket.io event maps for Server <-> Worker communication
 // Docker readiness response type
@@ -249,6 +256,9 @@ export interface ServerToWorkerEvents {
     worktreePath: string;
   }) => void;
   "worker:stop-file-watch": (data: { taskRunId: Id<"taskRuns"> }) => void;
+  "worker:start-screenshot-collection": (
+    data: WorkerStartScreenshotCollection | undefined
+  ) => void;
 
   // Management events
   "worker:terminal-assignment": (data: TerminalAssignment) => void;
