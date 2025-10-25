@@ -1,0 +1,16 @@
+[Unit]
+Description=Cmux VNC websocket proxy
+After=cmux-x11vnc.service
+Requires=cmux-x11vnc.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /var/log/cmux
+ExecStart=/usr/local/lib/cmux/cmux-vnc-proxy
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/cmux/vnc-proxy.log
+StandardError=append:/var/log/cmux/vnc-proxy.log
+
+[Install]
+WantedBy=cmux.target

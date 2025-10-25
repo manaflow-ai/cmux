@@ -274,7 +274,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         "39377/tcp": [{ HostPort: "0" }], // Worker port
         "39376/tcp": [{ HostPort: "0" }], // Extension socket port
         "39379/tcp": [{ HostPort: "0" }], // cmux-proxy port
-        "39380/tcp": [{ HostPort: "0" }], // VNC websockify port
+        "39380/tcp": [{ HostPort: "0" }], // VNC websocket proxy port
         "39381/tcp": [{ HostPort: "0" }], // Chrome DevTools port
       },
       Tmpfs: {

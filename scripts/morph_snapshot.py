@@ -736,7 +736,7 @@ def main() -> None:
                 "ss -lntp | rg -n ':39381' -N || true",
                 "tail -n 80 /var/log/cmux/cmux.service.log || true",
                 "tail -n 80 /var/log/cmux/server.log || true",
-                "tail -n 80 /var/log/cmux/websockify.log || true",
+                "tail -n 80 /var/log/cmux/vnc-proxy.log || true",
                 "tail -n 80 /var/log/cmux/x11vnc.log || true",
             ]
             for cmd in diag_cmds:

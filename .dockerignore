@@ -107,3 +107,6 @@ jspm_packages/
 
 # VS Code extension packages
 *.vsix
+
+# Go build artifacts
+scripts/vnc-proxy/vnc-proxy

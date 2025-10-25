@@ -1,8 +1,8 @@
 [Unit]
 Description=Cmux Services Target
-Requires=cmux-openvscode.service cmux-worker.service cmux-devtools.service cmux-websockify.service
-Wants=cmux-dockerd.service cmux-devtools.service cmux-websockify.service cmux-cdp-proxy.service cmux-xvfb.service
-After=cmux-openvscode.service cmux-dockerd.service cmux-devtools.service cmux-websockify.service
+Requires=cmux-openvscode.service cmux-worker.service cmux-devtools.service cmux-vnc-proxy.service
+Wants=cmux-dockerd.service cmux-devtools.service cmux-vnc-proxy.service cmux-cdp-proxy.service cmux-xvfb.service
+After=cmux-openvscode.service cmux-dockerd.service cmux-devtools.service cmux-vnc-proxy.service
 
 [Install]
 WantedBy=multi-user.target
