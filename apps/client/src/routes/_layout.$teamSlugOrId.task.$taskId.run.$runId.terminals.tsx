@@ -388,65 +388,88 @@ function TaskRunTerminals() {
         <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-100/70 px-3 dark:border-neutral-800 dark:bg-neutral-900/40">
           <div className="flex items-center overflow-x-auto py-0.5">
             {terminalIds.length > 0 ? (
-              terminalIds.map((id, index) => {
-                const state = connectionStates[id] ?? "connecting";
-                const isActive = activeTerminalId === id;
-                const isDeletingThis =
-                  isDeletingTerminal && deletingTerminalId === id;
-                return (
-                  <div key={id} className="relative pr-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTerminalId(id)}
-                      className={clsx(
-                        "flex items-center gap-2 rounded-md pl-3 pr-8 py-1.5 text-xs font-medium transition-colors",
-                        isActive
-                          ? "bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900"
-                          : "bg-transparent text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-100"
-                      )}
-                      title={id}
-                    >
-                      <span
+              <>
+                {terminalIds.map((id, index) => {
+                  const state = connectionStates[id] ?? "connecting";
+                  const isActive = activeTerminalId === id;
+                  const isDeletingThis =
+                    isDeletingTerminal && deletingTerminalId === id;
+                  return (
+                    <div key={id} className="relative pr-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTerminalId(id)}
                         className={clsx(
-                          "h-2 w-2 rounded-full",
-                          CONNECTION_STATE_COLORS[state]
+                          "flex items-center gap-2 rounded-md pl-3 pr-8 py-1.5 text-xs font-medium transition-colors",
+                          isActive
+                            ? "bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900"
+                            : "bg-transparent text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-100"
                         )}
-                      />
-                      <span className="whitespace-nowrap">
-                        Terminal {index + 1}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        event.preventDefault();
-                        if (isDeletingThis || !hasTerminalBackend) {
-                          return;
-                        }
-                        deleteTerminalMutation.mutate(id);
-                      }}
-                      disabled={isDeletingThis}
-                      className={clsx(
-                        "absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        isActive
-                          ? "text-neutral-100 hover:text-neutral-50 hover:bg-neutral-900/80 dark:text-neutral-700 dark:hover:text-neutral-900 dark:hover:bg-neutral-200"
-                          : "text-neutral-500 hover:text-neutral-900 hover:bg-neutral-300 dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-700"
-                      )}
-                      aria-label={`Close terminal ${index + 1}`}
-                      title="Close terminal"
-                    >
-                      {isDeletingThis ? (
-                        <span className="text-[10px] font-medium leading-none">
-                          …
+                        title={id}
+                      >
+                        <span
+                          className={clsx(
+                            "h-2 w-2 rounded-full",
+                            CONNECTION_STATE_COLORS[state]
+                          )}
+                        />
+                        <span className="whitespace-nowrap">
+                          Terminal {index + 1}
                         </span>
-                      ) : (
-                        <X className="h-3 w-3" />
-                      )}
-                    </button>
-                  </div>
-                );
-              })
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          event.preventDefault();
+                          if (isDeletingThis || !hasTerminalBackend) {
+                            return;
+                          }
+                          deleteTerminalMutation.mutate(id);
+                        }}
+                        disabled={isDeletingThis}
+                        className={clsx(
+                          "absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                          isActive
+                            ? "text-neutral-100 hover:text-neutral-50 hover:bg-neutral-900/80 dark:text-neutral-700 dark:hover:text-neutral-900 dark:hover:bg-neutral-200"
+                            : "text-neutral-500 hover:text-neutral-900 hover:bg-neutral-300 dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-700"
+                        )}
+                        aria-label={`Close terminal ${index + 1}`}
+                        title="Close terminal"
+                      >
+                        {isDeletingThis ? (
+                          <span className="text-[10px] font-medium leading-none">
+                            …
+                          </span>
+                        ) : (
+                          <X className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!hasTerminalBackend || isCreatingTerminal) {
+                      return;
+                    }
+                    createTerminalMutation.mutate(undefined);
+                  }}
+                  disabled={!hasTerminalBackend || isCreatingTerminal}
+                  className="rounded-full p-1.5 text-neutral-600 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-60 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-100"
+                  aria-label="New terminal"
+                  title="New terminal"
+                >
+                  {isCreatingTerminal ? (
+                    <span className="text-[10px] font-medium leading-none">
+                      …
+                    </span>
+                  ) : (
+                    <Plus className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </>
             ) : (
               <span className="text-xs text-neutral-500 dark:text-neutral-400">
                 No terminals detected yet.
