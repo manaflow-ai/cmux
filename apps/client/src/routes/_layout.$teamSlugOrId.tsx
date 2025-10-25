@@ -71,20 +71,18 @@ function LayoutComponent() {
   const displayTasks = tasks === undefined ? undefined : recentTasks;
 
   return (
-    <>
+    <ExpandTasksProvider>
       <CommandBar teamSlugOrId={teamSlugOrId} />
 
-      <ExpandTasksProvider>
-        <div className="flex flex-row grow min-h-0 h-dvh bg-white dark:bg-black">
-          <Sidebar tasks={displayTasks} teamSlugOrId={teamSlugOrId} />
+      <div className="flex flex-row grow min-h-0 h-dvh bg-white dark:bg-black">
+        <Sidebar tasks={displayTasks} teamSlugOrId={teamSlugOrId} />
 
-          {/* <div className="flex flex-col grow overflow-hidden bg-white dark:bg-neutral-950"> */}
-          <Suspense fallback={<div>Loading...</div>}>
-            <Outlet />
-          </Suspense>
-          {/* </div> */}
-        </div>
-      </ExpandTasksProvider>
+        {/* <div className="flex flex-col grow overflow-hidden bg-white dark:bg-neutral-950"> */}
+        <Suspense fallback={<div>Loading...</div>}>
+          <Outlet />
+        </Suspense>
+        {/* </div> */}
+      </div>
 
       <button
         onClick={() => {
@@ -114,7 +112,7 @@ function LayoutComponent() {
       >
         Add Debug Note
       </button>
-    </>
+    </ExpandTasksProvider>
   );
 }
 

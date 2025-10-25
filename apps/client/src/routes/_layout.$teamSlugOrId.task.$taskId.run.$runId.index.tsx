@@ -15,6 +15,7 @@ import {
   TASK_RUN_IFRAME_SANDBOX,
   preloadTaskRunIframes,
 } from "../lib/preloadTaskRunIframes";
+import { shouldUseServerIframePreflight } from "@/hooks/useIframePreflight";
 
 export const Route = createFileRoute(
   "/_layout/$teamSlugOrId/task/$taskId/run/$runId/"
@@ -56,8 +57,12 @@ function TaskRunComponent() {
   const workspaceUrl = rawWorkspaceUrl
     ? toProxyWorkspaceUrl(rawWorkspaceUrl)
     : null;
+  const disablePreflight = rawWorkspaceUrl
+    ? shouldUseServerIframePreflight(rawWorkspaceUrl)
+    : false;
   const persistKey = getTaskRunPersistKey(taskRunId);
   const hasWorkspace = workspaceUrl !== null;
+  const isLocalWorkspace = taskRun?.data?.vscode?.provider === "other";
   const [iframeStatus, setIframeStatus] =
     useState<PersistentIframeStatus>("loading");
 
@@ -80,8 +85,11 @@ function TaskRunComponent() {
   );
 
   const loadingFallback = useMemo(
-    () => <WorkspaceLoadingIndicator variant="vscode" status="loading" />,
-    []
+    () =>
+      isLocalWorkspace
+        ? null
+        : <WorkspaceLoadingIndicator variant="vscode" status="loading" />,
+    [isLocalWorkspace]
   );
   const errorFallback = useMemo(
     () => <WorkspaceLoadingIndicator variant="vscode" status="error" />,
@@ -105,6 +113,7 @@ function TaskRunComponent() {
               iframeClassName="select-none"
               allow={TASK_RUN_IFRAME_ALLOW}
               sandbox={TASK_RUN_IFRAME_SANDBOX}
+              preflight={!disablePreflight}
               retainOnUnmount
               suspended={!hasWorkspace}
               onLoad={onLoad}
@@ -119,17 +128,19 @@ function TaskRunComponent() {
           ) : (
             <div className="grow" />
           )}
-          <div
-            className={clsx(
-              "absolute inset-0 flex items-center justify-center transition pointer-events-none",
-              {
-                "opacity-100": !hasWorkspace,
-                "opacity-0": hasWorkspace,
-              }
-            )}
-          >
-            <WorkspaceLoadingIndicator variant="vscode" status="loading" />
-          </div>
+          {!isLocalWorkspace ? (
+            <div
+              className={clsx(
+                "absolute inset-0 flex items-center justify-center transition pointer-events-none",
+                {
+                  "opacity-100": !hasWorkspace,
+                  "opacity-0": hasWorkspace,
+                }
+              )}
+            >
+              <WorkspaceLoadingIndicator variant="vscode" status="loading" />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

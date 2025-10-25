@@ -1,6 +1,12 @@
 import { GitDiffManager } from "@cmux/server/gitDiff";
 import type { RealtimeServer, RealtimeSocket } from "@cmux/server/realtime";
 import { setupSocketHandlers } from "@cmux/server/socket-handlers";
+import {
+  ensureVSCodeServeWeb,
+  stopVSCodeServeWeb,
+  type VSCodeServeWebHandle,
+} from "@cmux/server/vscode/serveWeb";
+import { serverLogger } from "@cmux/server/utils/fileLogger";
 import { ipcMain } from "electron";
 
 // This starts the full server functionality over IPC (no HTTP port needed)
@@ -16,12 +22,29 @@ export async function startEmbeddedServer() {
   // Setup the FULL server socket handlers - this gives us complete parity
   setupSocketHandlers(ipcRealtimeServer, gitDiffManager, null);
 
+  let vscodeServeHandle: VSCodeServeWebHandle | null = null;
+  try {
+    vscodeServeHandle = await ensureVSCodeServeWeb(serverLogger);
+    if (vscodeServeHandle) {
+      vscodeServeHandle.process.on("exit", () => {
+        vscodeServeHandle = null;
+      });
+    }
+  } catch (error) {
+    serverLogger.error(
+      "Failed to ensure VS Code serve-web in embedded server:",
+      error
+    );
+  }
+
   console.log("[EmbeddedServer] Full server started successfully over IPC");
 
   return {
     async cleanup() {
       gitDiffManager.dispose();
       await ipcRealtimeServer.close();
+      stopVSCodeServeWeb(vscodeServeHandle, serverLogger);
+      vscodeServeHandle = null;
     },
   };
 }

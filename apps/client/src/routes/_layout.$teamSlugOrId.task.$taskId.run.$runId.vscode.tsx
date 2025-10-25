@@ -15,6 +15,7 @@ import {
   TASK_RUN_IFRAME_ALLOW,
   TASK_RUN_IFRAME_SANDBOX,
 } from "../lib/preloadTaskRunIframes";
+import { shouldUseServerIframePreflight } from "@/hooks/useIframePreflight";
 
 const paramsSchema = z.object({
   taskId: typedZid("tasks"),
@@ -65,8 +66,12 @@ function VSCodeComponent() {
   const workspaceUrl = taskRun?.data?.vscode?.workspaceUrl
     ? toProxyWorkspaceUrl(taskRun.data.vscode.workspaceUrl)
     : null;
+  const disablePreflight = taskRun?.data?.vscode?.workspaceUrl
+    ? shouldUseServerIframePreflight(taskRun.data.vscode.workspaceUrl)
+    : false;
   const persistKey = getTaskRunPersistKey(taskRunId);
   const hasWorkspace = workspaceUrl !== null;
+  const isLocalWorkspace = taskRun?.data?.vscode?.provider === "other";
 
   const [iframeStatus, setIframeStatus] =
     useState<PersistentIframeStatus>("loading");
@@ -89,8 +94,11 @@ function VSCodeComponent() {
   );
 
   const loadingFallback = useMemo(
-    () => <WorkspaceLoadingIndicator variant="vscode" status="loading" />,
-    []
+    () =>
+      isLocalWorkspace
+        ? null
+        : <WorkspaceLoadingIndicator variant="vscode" status="loading" />,
+    [isLocalWorkspace]
   );
   const errorFallback = useMemo(
     () => <WorkspaceLoadingIndicator variant="vscode" status="error" />,
@@ -116,6 +124,7 @@ function VSCodeComponent() {
               allow={TASK_RUN_IFRAME_ALLOW}
               retainOnUnmount
               suspended={!hasWorkspace}
+              preflight={!disablePreflight}
               onLoad={onLoad}
               onError={onError}
               fallback={loadingFallback}
@@ -128,7 +137,7 @@ function VSCodeComponent() {
           ) : (
             <div className="grow" />
           )}
-          {!hasWorkspace ? (
+          {!hasWorkspace && !isLocalWorkspace ? (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <WorkspaceLoadingIndicator variant="vscode" status="loading" />
             </div>

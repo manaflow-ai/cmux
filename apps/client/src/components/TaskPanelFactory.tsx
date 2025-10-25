@@ -21,6 +21,7 @@ import type { PersistentWebViewProps } from "./persistent-webview";
 import type { WorkspaceLoadingIndicatorProps } from "./workspace-loading-indicator";
 import type { TaskRunTerminalPaneProps } from "./TaskRunTerminalPane";
 import type { TaskRunGitDiffPanelProps } from "./TaskRunGitDiffPanel";
+import { shouldUseServerIframePreflight } from "@/hooks/useIframePreflight";
 
 type PanelPosition = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
@@ -386,10 +387,15 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
         WorkspaceLoadingIndicator,
         TASK_RUN_IFRAME_ALLOW,
         TASK_RUN_IFRAME_SANDBOX,
+        rawWorkspaceUrl,
       } = props;
 
       if (!PersistentWebView || !WorkspaceLoadingIndicator) return null;
-      const shouldShowWorkspaceLoader = Boolean(selectedRun) && !workspaceUrl;
+      const isLocalWorkspace = selectedRun?.vscode?.provider === "other";
+      const shouldShowWorkspaceLoader = Boolean(selectedRun) && !workspaceUrl && !isLocalWorkspace;
+      const disablePreflight = rawWorkspaceUrl
+        ? shouldUseServerIframePreflight(rawWorkspaceUrl)
+        : false;
 
       return panelWrapper(
         <Code2 className="size-3" aria-hidden />,
@@ -404,6 +410,7 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
               iframeClassName="select-none"
               allow={TASK_RUN_IFRAME_ALLOW}
               sandbox={TASK_RUN_IFRAME_SANDBOX}
+              preflight={!disablePreflight}
               retainOnUnmount
               suspended={!selectedRun}
               onLoad={onEditorLoad}

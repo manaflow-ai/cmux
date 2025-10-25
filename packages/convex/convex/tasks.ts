@@ -207,6 +207,26 @@ export const update = authMutation({
   },
 });
 
+export const updateWorktreePath = authMutation({
+  args: {
+    teamSlugOrId: v.string(),
+    id: v.id("tasks"),
+    worktreePath: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const task = await ctx.db.get(args.id);
+    if (!task || task.teamId !== teamId || task.userId !== userId) {
+      throw new Error("Task not found or unauthorized");
+    }
+    await ctx.db.patch(args.id, {
+      worktreePath: args.worktreePath,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const getById = authQuery({
   args: { teamSlugOrId: v.string(), id: taskIdWithFake },
   handler: async (ctx, args) => {

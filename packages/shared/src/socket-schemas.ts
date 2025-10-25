@@ -50,6 +50,29 @@ export const StartTaskSchema = z.object({
   environmentId: typedZid("environments").optional(),
 });
 
+export const CreateLocalWorkspaceSchema = z.object({
+  teamSlugOrId: z.string(),
+  projectFullName: z.string().optional(),
+  repoUrl: z.string().optional(),
+  branch: z.string().optional(),
+  taskId: typedZid("tasks").optional(),
+  taskRunId: typedZid("taskRuns").optional(),
+  workspaceName: z.string().optional(),
+  descriptor: z.string().optional(),
+  sequence: z.number().optional(),
+});
+
+export const CreateLocalWorkspaceResponseSchema = z.object({
+  success: z.boolean(),
+  taskId: typedZid("tasks").optional(),
+  taskRunId: typedZid("taskRuns").optional(),
+  workspaceName: z.string().optional(),
+  workspacePath: z.string().optional(),
+  workspaceUrl: z.string().optional(),
+  pending: z.boolean().optional(),
+  error: z.string().optional(),
+});
+
 // Server to Client Events
 export const TerminalCreatedSchema = z.object({
   terminalId: z.string(),
@@ -382,6 +405,10 @@ export type TerminalInput = z.infer<typeof TerminalInputSchema>;
 export type Resize = z.infer<typeof ResizeSchema>;
 export type CloseTerminal = z.infer<typeof CloseTerminalSchema>;
 export type StartTask = z.infer<typeof StartTaskSchema>;
+export type CreateLocalWorkspace = z.infer<typeof CreateLocalWorkspaceSchema>;
+export type CreateLocalWorkspaceResponse = z.infer<
+  typeof CreateLocalWorkspaceResponseSchema
+>;
 export type TerminalCreated = z.infer<typeof TerminalCreatedSchema>;
 export type TerminalOutput = z.infer<typeof TerminalOutputSchema>;
 export type TerminalExit = z.infer<typeof TerminalExitSchema>;
@@ -437,6 +464,10 @@ export interface ClientToServerEvents {
   "start-task": (
     data: StartTask,
     callback: (response: TaskAcknowledged | TaskStarted | TaskError) => void
+  ) => void;
+  "create-local-workspace": (
+    data: CreateLocalWorkspace,
+    callback: (response: CreateLocalWorkspaceResponse) => void
   ) => void;
   "git-status": (data: GitStatusRequest) => void;
   "git-diff": (

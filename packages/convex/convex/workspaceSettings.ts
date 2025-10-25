@@ -36,17 +36,25 @@ export const update = authMutation({
     const now = Date.now();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        worktreePath: args.worktreePath,
-        autoPrEnabled: args.autoPrEnabled,
-        userId,
-        teamId,
-        updatedAt: now,
-      });
+      const updates: {
+        worktreePath?: string;
+        autoPrEnabled?: boolean;
+        updatedAt: number;
+      } = { updatedAt: now };
+
+      if (args.worktreePath !== undefined) {
+        updates.worktreePath = args.worktreePath;
+      }
+      if (args.autoPrEnabled !== undefined) {
+        updates.autoPrEnabled = args.autoPrEnabled;
+      }
+
+      await ctx.db.patch(existing._id, updates);
     } else {
       await ctx.db.insert("workspaceSettings", {
         worktreePath: args.worktreePath,
         autoPrEnabled: args.autoPrEnabled,
+        nextLocalWorkspaceSequence: 0,
         createdAt: now,
         updatedAt: now,
         userId,

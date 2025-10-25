@@ -429,9 +429,14 @@ function TaskDetailPage() {
     }
   }, [selectedRunId]);
 
+  const isLocalWorkspace = selectedRun?.vscode?.provider === "other";
+
   const editorLoadingFallback = useMemo(
-    () => <WorkspaceLoadingIndicator variant="vscode" status="loading" />,
-    [],
+    () =>
+      isLocalWorkspace
+        ? null
+        : <WorkspaceLoadingIndicator variant="vscode" status="loading" />,
+    [isLocalWorkspace],
   );
   const editorErrorFallback = useMemo(
     () => <WorkspaceLoadingIndicator variant="vscode" status="error" />,

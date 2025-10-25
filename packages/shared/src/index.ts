@@ -14,6 +14,8 @@ export * from "./utils/reserved-cmux-ports";
 export * from "./utils/morph-instance";
 export * from "./utils/is-local-host";
 export * from "./utils/validate-exposed-ports";
+export * from "./utils/generate-workspace-name";
+export * from "./utils/derive-repo-base-name";
 export * from "./vscode-schemas";
 export * from "./worker-schemas";
 export * from "./pull-request-state";

@@ -58,6 +58,14 @@
       "import": "./src/utils/reserved-cmux-ports.ts",
       "types": "./src/utils/reserved-cmux-ports.ts"
     },
+    "./utils/generate-workspace-name": {
+      "import": "./src/utils/generate-workspace-name.ts",
+      "types": "./src/utils/generate-workspace-name.ts"
+    },
+    "./utils/derive-repo-base-name": {
+      "import": "./src/utils/derive-repo-base-name.ts",
+      "types": "./src/utils/derive-repo-base-name.ts"
+    },
     "./utils/validate-exposed-ports": {
       "import": "./src/utils/validate-exposed-ports.ts",
       "types": "./src/utils/validate-exposed-ports.ts"

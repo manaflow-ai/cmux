@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Skeleton } from "@heroui/react";
 import * as Popover from "@radix-ui/react-popover";
+import type { PopoverContentProps } from "@radix-ui/react-popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { clsx } from "clsx";
 import {
@@ -92,6 +93,9 @@ export interface SearchableSelectProps {
   itemVariant?: "default" | "agent";
   optionItemComponent?: ComponentType<OptionItemRenderProps>;
   maxCountPerValue?: number;
+  popoverSide?: PopoverContentProps["side"];
+  popoverAlign?: PopoverContentProps["align"];
+  popoverSideOffset?: number;
 }
 
 interface WarningIndicatorProps {
@@ -242,6 +246,9 @@ const SearchableSelect = forwardRef<
     itemVariant = "default",
     optionItemComponent,
     maxCountPerValue = 6,
+    popoverSide = "bottom",
+    popoverAlign = "start",
+    popoverSideOffset = 2,
   },
   ref
 ) {
@@ -558,8 +565,9 @@ const SearchableSelect = forwardRef<
       </div>
       <Popover.Portal>
         <Popover.Content
-          align="start"
-          sideOffset={2}
+          align={popoverAlign}
+          side={popoverSide}
+          sideOffset={popoverSideOffset}
           collisionPadding={{ top: 12, bottom: 12 }}
           onOpenAutoFocus={handleOpenAutoFocus}
           className={clsx(

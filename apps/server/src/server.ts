@@ -11,6 +11,12 @@ import { getConvex } from "./utils/convexClient";
 import { dockerLogger, serverLogger } from "./utils/fileLogger";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
 import { VSCodeInstance } from "./vscode/VSCodeInstance";
+import {
+  ensureVSCodeServeWeb,
+  getVSCodeServeWebBaseUrl,
+  stopVSCodeServeWeb,
+  type VSCodeServeWebHandle,
+} from "./vscode/serveWeb";
 
 const execAsync = promisify(exec);
 
@@ -91,6 +97,8 @@ export async function startServer({
   // Set up all socket handlers
   setupSocketHandlers(rt, gitDiffManager, defaultRepo);
 
+  let vscodeServeHandle: VSCodeServeWebHandle | null = null;
+
   const server = httpServer.listen(port, async () => {
     serverLogger.info(`Terminal server listening on port ${port}`);
     serverLogger.info(`Visit http://localhost:${port} to see the app`);
@@ -132,6 +140,17 @@ export async function startServer({
       );
     }
 
+    vscodeServeHandle = await ensureVSCodeServeWeb(serverLogger);
+    if (vscodeServeHandle) {
+      vscodeServeHandle.process.on("exit", () => {
+        vscodeServeHandle = null;
+      });
+      const baseUrl = getVSCodeServeWebBaseUrl();
+      if (baseUrl) {
+        serverLogger.info(`VS Code serve-web proxy available at ${baseUrl}`);
+      }
+    }
+
     // Startup refresh moved to first authenticated socket connection
   });
 
@@ -160,6 +179,9 @@ export async function startServer({
 
     // Stop Docker container state sync
     DockerVSCodeInstance.stopContainerStateSync();
+
+    stopVSCodeServeWeb(vscodeServeHandle, serverLogger);
+    vscodeServeHandle = null;
 
     // Stop all VSCode instances using docker commands
     try {

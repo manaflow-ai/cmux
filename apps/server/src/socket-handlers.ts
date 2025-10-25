@@ -1,4 +1,5 @@
 import { api } from "@cmux/convex/api";
+import type { Id } from "@cmux/convex/dataModel";
 import {
   ArchiveTaskSchema,
   GitFullDiffRequestSchema,
@@ -11,6 +12,8 @@ import {
   OpenInEditorSchema,
   SpawnFromCommentSchema,
   StartTaskSchema,
+  CreateLocalWorkspaceSchema,
+  type CreateLocalWorkspaceResponse,
   type AvailableEditors,
   type FileInfo,
   isLoopbackHostname,
@@ -22,7 +25,7 @@ import {
 } from "@cmux/shared/pull-request-state";
 import fuzzysort from "fuzzysort";
 import { minimatch } from "minimatch";
-import { exec, spawn } from "node:child_process";
+import { exec, execFile, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -48,6 +51,10 @@ import { checkAllProvidersStatus } from "./utils/providerStatus";
 import { refreshGitHubData } from "./utils/refreshGitHubData";
 import { runWithAuth, runWithAuthToken } from "./utils/requestContext";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
+import {
+  getVSCodeServeWebBaseUrl,
+  waitForVSCodeServeWebBaseUrl,
+} from "./vscode/serveWeb";
 import { getProjectPaths } from "./workspace";
 import {
   collectRepoFullNamesForRun,
@@ -59,6 +66,7 @@ import {
 } from "./pullRequestState";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const GitSocketDiffRequestSchema = z.object({
   headRef: z.string(),
@@ -76,10 +84,19 @@ const IframePreflightRequestSchema = z.object({
   url: z.string().url(),
 });
 
+function buildServeWebWorkspaceUrl(
+  baseUrl: string,
+  folderPath: string
+): string {
+  const workspaceUrl = new URL(baseUrl);
+  workspaceUrl.searchParams.set("folder", folderPath);
+  return workspaceUrl.toString();
+}
+
 export function setupSocketHandlers(
   rt: RealtimeServer,
   gitDiffManager: GitDiffManager,
-  defaultRepo?: GitRepoInfo | null,
+  defaultRepo?: GitRepoInfo | null
 ) {
   let hasRefreshedGithub = false;
   let dockerEventsStarted = false;
@@ -126,7 +143,7 @@ export function setupSocketHandlers(
       "iframe-preflight",
       async (
         rawData: unknown,
-        callback: (result: IframePreflightResult) => void,
+        callback: (result: IframePreflightResult) => void
       ) => {
         const respond = (result: IframePreflightResult) => {
           callback(result);
@@ -202,7 +219,7 @@ export function setupSocketHandlers(
             error: message,
           });
         }
-      },
+      }
     );
 
     // Send default repo info to newly connected client if available
@@ -214,7 +231,7 @@ export function setupSocketHandlers(
       };
       serverLogger.info(
         `Sending default-repo to new client ${socket.id}:`,
-        defaultRepoData,
+        defaultRepoData
       );
       socket.emit("default-repo", defaultRepoData);
     }
@@ -244,7 +261,7 @@ export function setupSocketHandlers(
       runWithAuth(initialToken, initialAuthJson, () => {
         if (!initialTeam) {
           serverLogger.warn(
-            "No team provided on socket handshake; skipping initial GitHub refresh",
+            "No team provided on socket handshake; skipping initial GitHub refresh"
           );
           return;
         }
@@ -257,14 +274,14 @@ export function setupSocketHandlers(
         dockerEventsStarted = true;
         runWithAuth(initialToken, initialAuthJson, () => {
           serverLogger.info(
-            "Starting Docker container state sync after authenticated connect",
+            "Starting Docker container state sync after authenticated connect"
           );
           DockerVSCodeInstance.startContainerStateSync();
         });
       }
     } else if (!initialToken) {
       serverLogger.info(
-        "Skipping initial GitHub refresh: no auth token on connect",
+        "Skipping initial GitHub refresh: no auth token on connect"
       );
     }
 
@@ -278,7 +295,7 @@ export function setupSocketHandlers(
           !parsed.originPathOverride
         ) {
           throw new Error(
-            "repoFullName, repoUrl, or originPathOverride is required",
+            "repoFullName, repoUrl, or originPathOverride is required"
           );
         }
 
@@ -306,7 +323,7 @@ export function setupSocketHandlers(
             });
           } catch (e) {
             serverLogger.warn(
-              `Failed to start watcher for ${parsed.originPathOverride}: ${String(e)}`,
+              `Failed to start watcher for ${parsed.originPathOverride}: ${String(e)}`
             );
           }
         }
@@ -384,7 +401,7 @@ export function setupSocketHandlers(
       if (!taskDataParseResult.success) {
         serverLogger.error(
           "Task data failed schema validation:",
-          taskDataParseResult.error,
+          taskDataParseResult.error
         );
         callback({
           taskId: data.taskId,
@@ -414,7 +431,7 @@ export function setupSocketHandlers(
           } catch (e) {
             serverLogger.warn(
               "Failed to verify Docker status before start-task",
-              e,
+              e
             );
             callback({
               taskId,
@@ -436,7 +453,7 @@ export function setupSocketHandlers(
             try {
               generatedTitle = await getPRTitleFromTaskDescription(
                 taskData.taskDescription,
-                safeTeam,
+                safeTeam
               );
               // Persist to Convex immediately
               await getConvex().mutation(api.tasks.setPullRequestTitle, {
@@ -445,12 +462,12 @@ export function setupSocketHandlers(
                 pullRequestTitle: generatedTitle,
               });
               serverLogger.info(
-                `[Server] Saved early PR title: ${generatedTitle}`,
+                `[Server] Saved early PR title: ${generatedTitle}`
               );
             } catch (e) {
               serverLogger.error(
                 `[Server] Failed generating/saving early PR title:`,
-                e,
+                e
               );
             }
 
@@ -468,12 +485,12 @@ export function setupSocketHandlers(
                 theme: taskData.theme,
                 environmentId: taskData.environmentId,
               },
-              safeTeam,
+              safeTeam
             );
 
             // Check if at least one agent spawned successfully
             const successfulAgents = agentResults.filter(
-              (result) => result.success,
+              (result) => result.success
             );
             if (successfulAgents.length === 0) {
               const errors = agentResults
@@ -482,7 +499,7 @@ export function setupSocketHandlers(
                 .join("; ");
               serverLogger.error(
                 `Failed to spawn any agents for task ${taskId}:`,
-                errors,
+                errors
               );
               rt.emit("task-failed", {
                 taskId,
@@ -495,16 +512,16 @@ export function setupSocketHandlers(
             agentResults.forEach((result) => {
               if (result.success) {
                 serverLogger.info(
-                  `Successfully spawned ${result.agentName} with terminal ${result.terminalId}`,
+                  `Successfully spawned ${result.agentName} with terminal ${result.terminalId}`
                 );
                 if (result.vscodeUrl) {
                   serverLogger.info(
-                    `VSCode URL for ${result.agentName}: ${result.vscodeUrl}`,
+                    `VSCode URL for ${result.agentName}: ${result.vscodeUrl}`
                   );
                 }
               } else {
                 serverLogger.error(
-                  `Failed to spawn ${result.agentName}: ${result.error}`,
+                  `Failed to spawn ${result.agentName}: ${result.error}`
                 );
               }
             });
@@ -526,7 +543,7 @@ export function setupSocketHandlers(
                 instanceId: primaryAgent.terminalId,
                 url: primaryAgent.vscodeUrl.replace(
                   "/?folder=/root/workspace",
-                  "",
+                  ""
                 ),
                 workspaceUrl: primaryAgent.vscodeUrl,
                 provider: taskData.isCloudMode ? "morph" : "docker",
@@ -542,16 +559,15 @@ export function setupSocketHandlers(
                     workspacePath: primaryAgent.worktreePath,
                     filePath: changedPath,
                   });
-                },
+                }
               );
             } catch (error) {
               serverLogger.warn(
                 "Could not set up file watching for workspace:",
-                error,
+                error
               );
               // Continue without file watching
             }
-
           } catch (error) {
             serverLogger.error("Error spawning agents for task:", error);
             rt.emit("task-failed", {
@@ -568,6 +584,336 @@ export function setupSocketHandlers(
         });
       }
     });
+
+    socket.on(
+      "create-local-workspace",
+      async (
+        rawData,
+        callback: (response: CreateLocalWorkspaceResponse) => void
+      ) => {
+        const parsed = CreateLocalWorkspaceSchema.safeParse(rawData);
+        if (!parsed.success) {
+          serverLogger.error(
+            "Invalid create-local-workspace payload:",
+            parsed.error
+          );
+          callback({
+            success: false,
+            error: "Invalid workspace request",
+          });
+          return;
+        }
+
+        const {
+          teamSlugOrId: requestedTeamSlugOrId,
+          projectFullName,
+          repoUrl: explicitRepoUrl,
+          branch: requestedBranch,
+          taskId: providedTaskId,
+          taskRunId: providedTaskRunId,
+          workspaceName: providedWorkspaceName,
+          descriptor: providedDescriptor,
+        } = parsed.data;
+        const teamSlugOrId = requestedTeamSlugOrId || safeTeam;
+
+        if (projectFullName && projectFullName.startsWith("env:")) {
+          callback({
+            success: false,
+            error: "Local workspaces cannot be created from environments.",
+          });
+          return;
+        }
+
+        if (
+          projectFullName &&
+          !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(projectFullName)
+        ) {
+          callback({
+            success: false,
+            error: "Invalid repository name.",
+          });
+          return;
+        }
+
+        const repoUrl =
+          explicitRepoUrl ??
+          (projectFullName
+            ? `https://github.com/${projectFullName}.git`
+            : undefined);
+        const branch = requestedBranch?.trim();
+
+        let taskId: Id<"tasks"> | null =
+          providedTaskId !== undefined ? providedTaskId : null;
+        let taskRunId: Id<"taskRuns"> | null =
+          providedTaskRunId !== undefined ? providedTaskRunId : null;
+        let workspaceName: string | null = providedWorkspaceName ?? null;
+        let descriptor: string | null = providedDescriptor ?? null;
+        let workspacePath: string | null = null;
+        let cleanupWorkspace: (() => Promise<void>) | null = null;
+        let responded = false;
+
+        const convex = getConvex();
+
+        try {
+          if (!taskId || !taskRunId || !workspaceName) {
+            const reservation = await convex.mutation(
+              api.localWorkspaces.reserve,
+              {
+                teamSlugOrId,
+                projectFullName: projectFullName ?? undefined,
+                repoUrl,
+                branch,
+              }
+            );
+            taskId = reservation.taskId;
+            taskRunId = reservation.taskRunId;
+            workspaceName = reservation.workspaceName;
+            descriptor = reservation.descriptor;
+          }
+
+          if (!workspaceName || !taskId || !taskRunId) {
+            throw new Error("Failed to prepare workspace metadata");
+          }
+
+          if (!descriptor) {
+            const descriptorBase = projectFullName
+              ? `Local workspace ${workspaceName} (${projectFullName})`
+              : `Local workspace ${workspaceName}`;
+            descriptor =
+              branch && branch.length > 0
+                ? `${descriptorBase} [${branch}]`
+                : descriptorBase;
+          }
+
+          const workspaceRoot = process.env.CMUX_WORKSPACE_DIR
+            ? path.resolve(process.env.CMUX_WORKSPACE_DIR)
+            : path.join(os.homedir(), "cmux", "local-workspaces");
+          const resolvedWorkspacePath = path.join(
+            workspaceRoot,
+            workspaceName
+          );
+          workspacePath = resolvedWorkspacePath;
+
+          await fs.mkdir(workspaceRoot, { recursive: true });
+          cleanupWorkspace = async () => {
+            await fs
+              .rm(resolvedWorkspacePath, { recursive: true, force: true })
+              .catch(() => undefined);
+          };
+
+          const baseServeWebUrl =
+            (await waitForVSCodeServeWebBaseUrl()) ??
+            getVSCodeServeWebBaseUrl();
+          if (!baseServeWebUrl) {
+            throw new Error("VS Code serve-web proxy is not ready");
+          }
+
+          const folderForUrl = resolvedWorkspacePath.replace(/\\/g, "/");
+          const workspaceUrl = buildServeWebWorkspaceUrl(
+            baseServeWebUrl,
+            folderForUrl
+          );
+          const now = Date.now();
+
+          try {
+            await convex.mutation(api.tasks.updateWorktreePath, {
+              teamSlugOrId,
+              id: taskId,
+              worktreePath: resolvedWorkspacePath,
+            });
+          } catch (error) {
+            serverLogger.warn(
+              `Unable to update worktree path for task ${taskId}:`,
+              error
+            );
+          }
+
+          await convex.mutation(api.taskRuns.updateVSCodeInstance, {
+            teamSlugOrId,
+            id: taskRunId,
+            vscode: {
+              provider: "other",
+              status: "starting",
+              url: baseServeWebUrl,
+              workspaceUrl,
+              startedAt: now,
+            },
+          });
+
+          await convex.mutation(api.taskRuns.updateStatusPublic, {
+            teamSlugOrId,
+            id: taskRunId,
+            status: "pending",
+          });
+
+          callback({
+            success: true,
+            pending: true,
+            taskId,
+            taskRunId,
+            workspaceName,
+            workspacePath: resolvedWorkspacePath,
+            workspaceUrl,
+          });
+          responded = true;
+
+          if (repoUrl) {
+            if (cleanupWorkspace) {
+              await cleanupWorkspace();
+            }
+            const cloneArgs = ["clone"];
+            if (branch) {
+              cloneArgs.push("--branch", branch, "--single-branch");
+            }
+            cloneArgs.push(repoUrl, resolvedWorkspacePath);
+            try {
+              await execFileAsync("git", cloneArgs, { cwd: workspaceRoot });
+            } catch (error) {
+              if (cleanupWorkspace) {
+                await cleanupWorkspace();
+              }
+              const message =
+                error &&
+                typeof error === "object" &&
+                "stderr" in error &&
+                typeof (error as { stderr?: unknown }).stderr === "string"
+                  ? (error as { stderr: string }).stderr.trim() ||
+                    (error instanceof Error ? error.message : "")
+                  : error instanceof Error
+                    ? error.message
+                    : "Git clone failed";
+              throw new Error(
+                message ? `Git clone failed: ${message}` : "Git clone failed"
+              );
+            }
+
+            try {
+              await execFileAsync(
+                "git",
+                ["rev-parse", "--verify", "HEAD"],
+                {
+                  cwd: resolvedWorkspacePath,
+                }
+              );
+            } catch (error) {
+              if (cleanupWorkspace) {
+                await cleanupWorkspace();
+              }
+              throw new Error(
+                error instanceof Error
+                  ? `Git clone failed to produce a checkout: ${error.message}`
+                  : "Git clone failed to produce a checkout"
+              );
+            }
+          } else {
+            try {
+            await fs.mkdir(resolvedWorkspacePath, { recursive: false });
+            } catch (error) {
+              if (
+                error &&
+                typeof error === "object" &&
+                "code" in error &&
+                (error as NodeJS.ErrnoException).code === "EEXIST"
+              ) {
+                throw new Error(
+                  `Workspace directory already exists: ${workspacePath}`
+                );
+              }
+              throw error;
+            }
+
+            await execFileAsync("git", ["init"], {
+              cwd: resolvedWorkspacePath,
+            });
+          }
+
+          await convex.mutation(api.taskRuns.updateWorktreePath, {
+            teamSlugOrId,
+            id: taskRunId,
+            worktreePath: resolvedWorkspacePath,
+          });
+
+          await convex.mutation(api.taskRuns.updateStatusPublic, {
+            teamSlugOrId,
+            id: taskRunId,
+            status: "running",
+          });
+
+          await convex.mutation(api.taskRuns.updateVSCodeStatus, {
+            teamSlugOrId,
+            id: taskRunId,
+            status: "running",
+          });
+
+          try {
+            void gitDiffManager.watchWorkspace(
+              resolvedWorkspacePath,
+              (changedPath: string) => {
+                rt.emit("git-file-changed", {
+                  workspacePath: resolvedWorkspacePath,
+                  filePath: changedPath,
+                });
+              }
+            );
+          } catch (error) {
+            serverLogger.warn(
+              "Could not set up file watching for workspace:",
+              error
+            );
+          }
+        } catch (error) {
+          serverLogger.error("Error creating local workspace:", error);
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Failed to create local workspace";
+
+          if (!responded) {
+            callback({
+              success: false,
+              error: message,
+            });
+          } else if (taskRunId) {
+            try {
+              await convex.mutation(api.taskRuns.fail, {
+                teamSlugOrId,
+                id: taskRunId,
+                errorMessage: message,
+              });
+            } catch (failError) {
+              serverLogger.error(
+                "Failed to mark task run as failed:",
+                failError
+              );
+            }
+            try {
+              await convex.mutation(api.taskRuns.updateVSCodeStatus, {
+                teamSlugOrId,
+                id: taskRunId,
+                status: "stopped",
+                stoppedAt: Date.now(),
+              });
+            } catch (statusError) {
+              serverLogger.warn(
+                "Failed to update VS Code status after failure:",
+                statusError
+              );
+            }
+          }
+
+          if (cleanupWorkspace) {
+            try {
+              await cleanupWorkspace();
+            } catch (cleanupError) {
+              serverLogger.warn(
+                "Failed to clean up workspace after error:",
+                cleanupError
+              );
+            }
+          }
+        }
+      }
+    );
 
     // Sync PR state (non-destructive): query GitHub and update Convex
     socket.on("github-sync-pr-state", async (data, callback) => {
@@ -616,7 +962,7 @@ export function setupSocketHandlers(
         const repoFullNames = await collectRepoFullNamesForRun(
           run,
           task,
-          safeTeam,
+          safeTeam
         );
         if (repoFullNames.length === 0) {
           callback({
@@ -629,8 +975,8 @@ export function setupSocketHandlers(
 
         const existingByRepo = new Map(
           (run.pullRequests ?? []).map(
-            (record) => [record.repoFullName, record] as const,
-          ),
+            (record) => [record.repoFullName, record] as const
+          )
         );
 
         const results = await Promise.all(
@@ -675,7 +1021,7 @@ export function setupSocketHandlers(
                 error: message,
               } satisfies PullRequestActionResult;
             }
-          }),
+          })
         );
 
         const persisted = await persistPullRequestResults({
@@ -742,26 +1088,26 @@ export function setupSocketHandlers(
           const updatedRecords: StoredPullRequestInfo[] =
             existingRecords.length > 0
               ? existingRecords.map((record) =>
-                record.repoFullName === repoFullName
-                  ? {
-                    ...record,
+                  record.repoFullName === repoFullName
+                    ? {
+                        ...record,
+                        state: "merged",
+                        isDraft: false,
+                      }
+                    : record
+                )
+              : [
+                  {
+                    repoFullName,
+                    url:
+                      run.pullRequestUrl && run.pullRequestUrl !== "pending"
+                        ? run.pullRequestUrl
+                        : undefined,
+                    number: run.pullRequestNumber ?? undefined,
                     state: "merged",
                     isDraft: false,
-                  }
-                  : record,
-              )
-              : [
-                {
-                  repoFullName,
-                  url:
-                    run.pullRequestUrl && run.pullRequestUrl !== "pending"
-                      ? run.pullRequestUrl
-                      : undefined,
-                  number: run.pullRequestNumber ?? undefined,
-                  state: "merged",
-                  isDraft: false,
-                },
-              ];
+                  },
+                ];
 
           await getConvex().mutation(api.taskRuns.updatePullRequestState, {
             teamSlugOrId: safeTeam,
@@ -874,7 +1220,7 @@ export function setupSocketHandlers(
             }
           } else {
             serverLogger.error(
-              `Error opening ${editor}: process exited with code ${code}`,
+              `Error opening ${editor}: process exited with code ${code}`
             );
             const error = `Failed to open ${editor}: process exited with code ${code}`;
             socket.emit("open-in-editor-error", { error });
@@ -935,7 +1281,7 @@ export function setupSocketHandlers(
 
         async function walkDir(
           dir: string,
-          baseDir: string,
+          baseDir: string
         ): Promise<FileInfo[]> {
           const files: FileInfo[] = [];
 
@@ -949,7 +1295,7 @@ export function setupSocketHandlers(
               const shouldIgnore = ignoredPatterns.some(
                 (ignorePattern) =>
                   minimatch(relativePath, ignorePattern) ||
-                  minimatch(fullPath, ignorePattern),
+                  minimatch(fullPath, ignorePattern)
               );
 
               if (shouldIgnore) continue;
@@ -998,7 +1344,7 @@ export function setupSocketHandlers(
 
           await repoManager.ensureRepository(
             targetRepoUrl,
-            projectPaths.originPath,
+            projectPaths.originPath
           );
 
           const baseBranch =
@@ -1008,7 +1354,7 @@ export function setupSocketHandlers(
           await repoManager.ensureRepository(
             targetRepoUrl,
             projectPaths.originPath,
-            baseBranch,
+            baseBranch
           );
 
           const worktreeInfo = {
@@ -1022,14 +1368,14 @@ export function setupSocketHandlers(
           } catch {
             serverLogger.error(
               "Origin directory does not exist:",
-              worktreeInfo.originPath,
+              worktreeInfo.originPath
             );
             return [];
           }
 
           let fileList = await walkDir(
             worktreeInfo.originPath,
-            worktreeInfo.originPath,
+            worktreeInfo.originPath
           );
 
           if (pattern) {
@@ -1100,7 +1446,7 @@ export function setupSocketHandlers(
             } catch (error) {
               serverLogger.error(
                 `Failed to list files for environment repo ${repoFullName}:`,
-                error,
+                error
               );
             }
           }
@@ -1141,7 +1487,7 @@ export function setupSocketHandlers(
           execWithEnv("whoami").then((r) => r.stdout),
           execWithEnv("echo $HOME").then((r) => r.stdout),
           execWithEnv('ls -la ~/.config/gh/ || echo "No gh config"').then(
-            (r) => r.stdout,
+            (r) => r.stdout
           ),
         ]);
 
@@ -1193,14 +1539,14 @@ export function setupSocketHandlers(
           runWithAuthToken(initialToken, () =>
             refreshGitHubData({ teamSlugOrId }).catch((error) => {
               serverLogger.error("Background refresh failed:", error);
-            }),
+            })
           );
           return;
         }
 
         // If no repos exist, do a full fetch
         await runWithAuthToken(initialToken, () =>
-          refreshGitHubData({ teamSlugOrId }),
+          refreshGitHubData({ teamSlugOrId })
         );
         const reposByOrg = await getConvex().query(api.github.getReposByOrg, {
           teamSlugOrId,
@@ -1210,8 +1556,9 @@ export function setupSocketHandlers(
         serverLogger.error("Error fetching repos:", error);
         callback({
           success: false,
-          error: `Failed to fetch GitHub repos: ${error instanceof Error ? error.message : String(error)
-            }`,
+          error: `Failed to fetch GitHub repos: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         });
       }
     });
@@ -1283,12 +1630,12 @@ Please address the issue mentioned in the comment above.`;
               "codex/gpt-5",
             ],
           },
-          safeTeam,
+          safeTeam
         );
 
         // Check if at least one agent spawned successfully
         const successfulAgents = agentResults.filter(
-          (result) => result.success,
+          (result) => result.success
         );
 
         if (successfulAgents.length === 0) {
@@ -1414,7 +1761,7 @@ Please address the issue mentioned in the comment above.`;
         const repoFullNames = await collectRepoFullNamesForRun(
           run,
           task,
-          safeTeam,
+          safeTeam
         );
         if (repoFullNames.length === 0) {
           callback({
@@ -1438,8 +1785,8 @@ ${title}`;
 
         const existingByRepo = new Map(
           (run.pullRequests ?? []).map(
-            (record) => [record.repoFullName, record] as const,
-          ),
+            (record) => [record.repoFullName, record] as const
+          )
         );
 
         const results = await Promise.all(
@@ -1470,14 +1817,14 @@ ${title}`;
                   truncatedTitle,
                   branchName,
                   baseBranch,
-                  body,
+                  body
                 );
                 detail =
                   (await fetchPrDetail(
                     githubToken,
                     owner,
                     repo,
-                    created.number,
+                    created.number
                   ).catch(() => null)) ??
                   ({
                     ...created,
@@ -1498,7 +1845,7 @@ ${title}`;
                 error: message,
               } satisfies PullRequestActionResult;
             }
-          }),
+          })
         );
 
         const persisted = await persistPullRequestResults({
@@ -1530,7 +1877,6 @@ ${title}`;
       }
     });
 
-
     socket.on("check-provider-status", async (callback) => {
       try {
         const status = await checkAllProvidersStatus({
@@ -1559,11 +1905,11 @@ ${title}`;
 
         if (failed > 0) {
           serverLogger.warn(
-            `Archived task ${taskId}: ${successful} containers stopped, ${failed} failed`,
+            `Archived task ${taskId}: ${successful} containers stopped, ${failed} failed`
           );
         } else {
           serverLogger.info(
-            `Successfully archived task ${taskId}: all ${successful} containers stopped`,
+            `Successfully archived task ${taskId}: all ${successful} containers stopped`
           );
         }
 

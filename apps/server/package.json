@@ -24,6 +24,14 @@
     "./realtime": {
       "import": "./src/realtime.ts",
       "types": "./src/realtime.ts"
+    },
+    "./vscode/serveWeb": {
+      "import": "./src/vscode/serveWeb.ts",
+      "types": "./src/vscode/serveWeb.ts"
+    },
+    "./utils/fileLogger": {
+      "import": "./src/utils/fileLogger.ts",
+      "types": "./src/utils/fileLogger.ts"
     }
   },
   "type": "module",
