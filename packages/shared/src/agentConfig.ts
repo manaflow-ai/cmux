@@ -57,6 +57,9 @@ export { checkGitStatus } from "./providers/common/check-git";
 
 export { type EnvironmentResult };
 
+// Maximum number of agents that can be spawned per task
+export const MAX_AGENTS_PER_TASK = 6;
+
 export type AgentConfigApiKey = {
   envVar: string;
   displayName: string;

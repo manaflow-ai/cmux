@@ -28,6 +28,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import z from "zod";
+import { MAX_AGENTS_PER_TASK } from "@cmux/shared/agentConfig";
 import { spawnAllAgents } from "./agentSpawner";
 import { stopContainersForRuns } from "./archiveTask";
 import { execWithEnv } from "./execWithEnv";
@@ -395,6 +396,19 @@ export function setupSocketHandlers(
       const taskData = taskDataParseResult.data;
       serverLogger.info("starting task!", taskData);
       const taskId = taskData.taskId;
+
+      // Validate agent count limit
+      if (taskData.selectedAgents && taskData.selectedAgents.length > MAX_AGENTS_PER_TASK) {
+        serverLogger.warn(
+          `[Socket] User attempted to spawn ${taskData.selectedAgents.length} agents, but maximum is ${MAX_AGENTS_PER_TASK}`
+        );
+        callback({
+          taskId,
+          error: `Cannot spawn more than ${MAX_AGENTS_PER_TASK} agents per task. You selected ${taskData.selectedAgents.length} agents.`,
+        });
+        return;
+      }
+
       try {
         // For local mode, ensure Docker is running before attempting to spawn
         if (!taskData.isCloudMode) {
