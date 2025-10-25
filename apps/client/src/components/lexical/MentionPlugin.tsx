@@ -1,6 +1,7 @@
 import type { Id } from "@cmux/convex/dataModel";
 import type { FileInfo } from "@cmux/shared";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import fuzzysort from "fuzzysort";
 import {
@@ -29,6 +30,7 @@ import {
 import { useSocket } from "../../contexts/socket/use-socket";
 
 const MENTION_TRIGGER = "@";
+const MENTION_ITEM_HEIGHT = 24;
 
 interface MentionMenuProps {
   files: FileInfo[];
@@ -48,17 +50,35 @@ function MentionMenu({
   isLoading,
 }: MentionMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: files.length,
+    getScrollElement: () => menuRef.current,
+    estimateSize: () => MENTION_ITEM_HEIGHT,
+    overscan: 8,
+    initialRect: { width: 320, height: 192 },
+  });
 
   useEffect(() => {
-    if (menuRef.current && selectedIndex >= 0) {
-      const selectedElement = menuRef.current.children[
-        selectedIndex
-      ] as HTMLElement;
-      if (selectedElement) {
-        selectedElement.scrollIntoView({ block: "nearest" });
-      }
+    if (typeof window === "undefined") {
+      return;
     }
-  }, [selectedIndex]);
+    if (isLoading || files.length === 0) {
+      return;
+    }
+    if (selectedIndex < 0 || selectedIndex >= files.length) {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      try {
+        rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+      } catch {
+        /* noop */
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [files.length, isLoading, rowVirtualizer, selectedIndex]);
 
   if (!position) return null;
 
@@ -109,47 +129,67 @@ function MentionMenu({
             : "Please select a project to see files"}
         </div>
       ) : (
-        files.map((file, index) => {
-          const rel = file.relativePath.replace(/\\/g, "/");
-          const lastSlash = rel.lastIndexOf("/");
-          const dirPath = lastSlash > -1 ? rel.slice(0, lastSlash) : "";
-          const rawName = file.name || (lastSlash > -1 ? rel.slice(lastSlash + 1) : rel);
-          const displayName = file.isDirectory ? `${rawName}/` : rawName;
-          const iconName = file.isDirectory
-            ? getIconForFolder(rawName) || DEFAULT_FOLDER
-            : rawName === "Dockerfile"
-              ? "file_type_docker.svg"
-              : getIconForFile(rawName) || DEFAULT_FILE;
-          const iconSrc = `https://cdn.jsdelivr.net/gh/vscode-icons/vscode-icons/icons/${iconName}`;
-          return (
-          <button
-            key={file.relativePath}
-            onMouseDown={(e) => {
-              e.preventDefault(); // Prevent blur event from firing
-              onSelect(file);
-            }}
-            className={clsx(
-              "w-full text-left px-2.5 py-1 text-xs flex items-center gap-1.5",
-              index === selectedIndex
-                ? "bg-blue-100 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100"
-                : "hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
-            )}
-            type="button"
-          >
-            <img
-              src={iconSrc}
-              alt=""
-              className="w-3 h-3 flex-shrink-0"
-            />
-            <div className="flex items-center gap-1 min-w-0 whitespace-nowrap">
-              <span className="truncate font-medium">{displayName}</span>
-              {dirPath ? (
-                <span className="truncate text-neutral-500 dark:text-neutral-400">{dirPath}</span>
-              ) : null}
-            </div>
-          </button>
-          );
-        })
+        <div
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            position: "relative",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const file = files[virtualRow.index];
+            if (!file) {
+              return null;
+            }
+            const rel = file.relativePath.replace(/\\/g, "/");
+            const lastSlash = rel.lastIndexOf("/");
+            const dirPath = lastSlash > -1 ? rel.slice(0, lastSlash) : "";
+            const rawName = file.name || (lastSlash > -1 ? rel.slice(lastSlash + 1) : rel);
+            const displayName = file.isDirectory ? `${rawName}/` : rawName;
+            const iconName = file.isDirectory
+              ? getIconForFolder(rawName) || DEFAULT_FOLDER
+              : rawName === "Dockerfile"
+                ? "file_type_docker.svg"
+                : getIconForFile(rawName) || DEFAULT_FILE;
+            const iconSrc = `https://cdn.jsdelivr.net/gh/vscode-icons/vscode-icons/icons/${iconName}`;
+            const isActive = virtualRow.index === selectedIndex;
+            return (
+              <button
+                key={file.relativePath}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // Prevent blur from closing the menu
+                  onSelect(file);
+                }}
+                className={clsx(
+                  "w-full text-left px-2.5 text-xs flex items-center gap-1.5 h-6",
+                  isActive
+                    ? "bg-blue-100 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100"
+                    : "hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
+                )}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: virtualRow.size,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                type="button"
+              >
+                <img
+                  src={iconSrc}
+                  alt=""
+                  className="w-3 h-3 flex-shrink-0"
+                />
+                <div className="flex items-center gap-1 min-w-0 whitespace-nowrap">
+                  <span className="truncate font-medium">{displayName}</span>
+                  {dirPath ? (
+                    <span className="truncate text-neutral-500 dark:text-neutral-400">{dirPath}</span>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>,
     document.body
