@@ -15,6 +15,7 @@ import { Skeleton } from "@heroui/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { clsx } from "clsx";
+import fuzzysort from "fuzzysort";
 import {
   AlertTriangle,
   Check,
@@ -169,6 +170,16 @@ export interface OptionItemRenderProps {
   itemClassName?: string;
 }
 
+interface SearchableOptionData {
+  option: SelectOptionObject;
+  index: number;
+  heading: SelectOptionObject | null;
+  labelText: string;
+  displayText: string;
+  valueText: string;
+  combinedText: string;
+}
+
 function DefaultOptionItem({
   opt,
   isSelected,
@@ -250,6 +261,30 @@ const SearchableSelect = forwardRef<
     () => new Map(normOptions.map((o) => [o.value, o])),
     [normOptions]
   );
+  const searchableOptions = useMemo<SearchableOptionData[]>(() => {
+    let activeHeading: SelectOptionObject | null = null;
+    return normOptions.map((option, index) => {
+      if (option.heading) {
+        activeHeading = option;
+      }
+      const segments = [
+        option.label,
+        option.displayLabel,
+        option.value,
+      ].filter(
+        (segment): segment is string => typeof segment === "string" && segment.length > 0
+      );
+      return {
+        option,
+        index,
+        heading: option.heading ? option : activeHeading,
+        labelText: option.label ?? "",
+        displayText: option.displayLabel ?? "",
+        valueText: option.value ?? "",
+        combinedText: segments.join(" ").trim(),
+      } satisfies SearchableOptionData;
+    });
+  }, [normOptions]);
   const ItemComponent = CommandItem;
   const OptionComponent: ComponentType<OptionItemRenderProps> =
     optionItemComponent ?? DefaultOptionItem;
@@ -400,12 +435,74 @@ const SearchableSelect = forwardRef<
   ]);
 
   const filteredOptions = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return normOptions;
-    return normOptions.filter((o) =>
-      `${o.label} ${o.value}`.toLowerCase().includes(q)
-    );
-  }, [normOptions, search]);
+    const rawQuery = search.replace(/\s+/g, " ").trim();
+    if (!rawQuery) {
+      return normOptions;
+    }
+    const limit = searchableOptions.length || normOptions.length;
+    const threshold = rawQuery.length <= 1 ? 0 : rawQuery.length === 2 ? 0.1 : 0.2;
+    const results = fuzzysort.go(rawQuery, searchableOptions, {
+      keys: ["labelText", "displayText", "valueText", "combinedText"],
+      limit,
+      threshold,
+      scoreFn: (keysResult) => {
+        const data = keysResult.obj as SearchableOptionData | undefined;
+        if (!data) return 0;
+        const weights = [1, 0.9, 0.5, 0.3];
+        let weightedScore = 0;
+        let totalWeight = 0;
+        for (let i = 0; i < keysResult.length; i++) {
+          const match = keysResult[i];
+          const score = match && typeof match.score === "number" ? match.score : 0;
+          if (score <= 0) continue;
+          const weight = weights[i] ?? 0.25;
+          weightedScore += score * weight;
+          totalWeight += weight;
+        }
+        let combinedScore = totalWeight > 0 ? weightedScore / totalWeight : 0;
+        const labelScore = keysResult[0]?.score ?? 0;
+        const displayScore = keysResult[1]?.score ?? 0;
+        if (labelScore > 0) {
+          combinedScore = Math.max(combinedScore, labelScore * 1.05);
+        } else if (displayScore > 0) {
+          combinedScore = Math.max(combinedScore, displayScore);
+        }
+        if (data.option.heading) {
+          combinedScore *= 0.6;
+        }
+        combinedScore -= data.index * 1e-6;
+        return combinedScore > 0 ? combinedScore : 0;
+      },
+    });
+    if (results.length === 0) {
+      return [];
+    }
+    const hasNonHeadingResult = results.some((res) => !res.obj.option.heading);
+    const seen = new Set<string>();
+    const insertedHeadings = new Set<string>();
+    const ordered: SelectOptionObject[] = [];
+    for (const res of results) {
+      const data = res.obj as SearchableOptionData;
+      const option = data.option;
+      const id = option.value ?? option.label;
+      if (!id || seen.has(id)) continue;
+      if (!option.heading && data.heading && data.heading !== option) {
+        // Re-insert the group heading above the first matching child result
+        const headingId = data.heading.value ?? data.heading.label;
+        if (headingId && !insertedHeadings.has(headingId)) {
+          insertedHeadings.add(headingId);
+          ordered.push(data.heading);
+          seen.add(headingId);
+        }
+      }
+      if (option.heading && hasNonHeadingResult) {
+        continue;
+      }
+      ordered.push(option);
+      seen.add(id);
+    }
+    return ordered;
+  }, [normOptions, search, searchableOptions]);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
