@@ -30,6 +30,9 @@ import {
 
 export const sandboxesRouter = new OpenAPIHono();
 
+const DEFAULT_TTL_SECONDS = 60 * 30;
+const MAX_TTL_SECONDS = 60 * 60 * 12;
+
 const StartSandboxBody = z
   .object({
     teamSlugOrId: z.string(),
@@ -37,8 +40,11 @@ const StartSandboxBody = z
     snapshotId: z.string().optional(),
     ttlSeconds: z
       .number()
+      .int()
+      .positive()
+      .max(MAX_TTL_SECONDS)
       .optional()
-      .default(60 * 60),
+      .default(DEFAULT_TTL_SECONDS),
     metadata: z.record(z.string(), z.string()).optional(),
     taskRunId: z.string().optional(),
     taskRunJwt: z.string().optional(),
@@ -188,9 +194,12 @@ sandboxesRouter.openapi(
 
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
 
+      const requestedTtlSeconds = body.ttlSeconds ?? DEFAULT_TTL_SECONDS;
+      const ttlSeconds = Math.min(requestedTtlSeconds, MAX_TTL_SECONDS);
+
       const instance = await client.instances.start({
         snapshotId: resolvedSnapshotId,
-        ttlSeconds: body.ttlSeconds ?? 60 * 60,
+        ttlSeconds,
         ttlAction: "pause",
         metadata: {
           app: "cmux",

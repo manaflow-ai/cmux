@@ -427,7 +427,11 @@ def main():
     )
 
     print(f"Starting instance from snapshot {snapshot.id}...")
-    instance = client.instances.start(snapshot.id)
+    instance = client.instances.start(
+        snapshot_id=snapshot.id,
+        ttl_seconds=60 * 30,
+        ttl_action="pause",
+    )
 
     try:
         # Setup Docker environment with BuildKit

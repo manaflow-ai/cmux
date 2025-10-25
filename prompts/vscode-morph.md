@@ -22,7 +22,7 @@ console.log("Starting instance");
 const instance = await client.instances.start({
   snapshotId: "snapshot_hzlmd4kx",
   // 30 minutes
-  ttlSeconds: 60 * 60 * 2,
+  ttlSeconds: 60 * 30,
   ttlAction: "pause",
   metadata: {
     app: "cmux-dev",

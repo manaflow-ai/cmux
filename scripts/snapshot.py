@@ -65,6 +65,8 @@ VNC_HTTP_PORT = 39380
 CDP_HTTP_PORT = 39381
 XTERM_HTTP_PORT = 39383
 CDP_PROXY_BINARY_NAME = "cmux-cdp-proxy"
+DEFAULT_TTL_SECONDS = 60 * 30
+MAX_TTL_SECONDS = 60 * 60 * 12
 
 
 @dataclass(slots=True)
@@ -2295,6 +2297,7 @@ async def provision_and_snapshot(args: argparse.Namespace) -> None:
     timings = TimingsCollector()
     client = MorphCloudClient()
     started_instances: list[Instance] = []
+    requested_ttl_seconds = max(60, min(args.ttl_seconds, MAX_TTL_SECONDS))
 
     def _cleanup() -> None:
         while started_instances:
@@ -2313,7 +2316,7 @@ async def provision_and_snapshot(args: argparse.Namespace) -> None:
         vcpus=args.vcpus,
         memory=args.memory,
         disk_size=args.disk_size,
-        ttl_seconds=args.ttl_seconds,
+        ttl_seconds=requested_ttl_seconds,
         ttl_action=args.ttl_action,
     )
     started_instances.append(instance)
@@ -2478,14 +2481,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ttl-seconds",
         type=int,
-        default=3600,
-        help="TTL seconds for created instances",
+        default=DEFAULT_TTL_SECONDS,
+        help="TTL seconds for created instances (default 1800, max 43200)",
     )
     parser.add_argument(
         "--ttl-action",
         default="pause",
-        choices=("pause", "stop"),
-        help="Action when TTL expires",
+        choices=("pause",),
+        help="Action when TTL expires (pause only)",
     )
     parser.add_argument(
         "--print-deps",
