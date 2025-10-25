@@ -87,7 +87,7 @@ const newlinePattern = /\r?\n/;
 
 function debugGitDiffViewerLog(
   message: string,
-  payload?: Record<string, unknown>,
+  payload?: Record<string, unknown>
 ) {
   if (!isElectron && import.meta.env.PROD) {
     return;
@@ -120,7 +120,7 @@ type DiffSegment = {
 
 function computeDiffBlocks(
   originalLines: readonly string[],
-  modifiedLines: readonly string[],
+  modifiedLines: readonly string[]
 ): DiffBlock[] {
   const originalLength = originalLines.length;
   const modifiedLength = modifiedLines.length;
@@ -131,7 +131,7 @@ function computeDiffBlocks(
 
   const dp: Uint32Array[] = Array.from(
     { length: originalLength + 1 },
-    () => new Uint32Array(modifiedLength + 1),
+    () => new Uint32Array(modifiedLength + 1)
   );
 
   for (
@@ -152,7 +152,7 @@ function computeDiffBlocks(
       } else {
         currentRow[modifiedIndex] = Math.max(
           nextRow[modifiedIndex],
-          currentRow[modifiedIndex + 1],
+          currentRow[modifiedIndex + 1]
         );
       }
     }
@@ -281,7 +281,7 @@ function computeDiffBlocks(
 
 function estimateCollapsedLayout(
   original: string,
-  modified: string,
+  modified: string
 ): CollapsedLayoutEstimate {
   const originalLines = splitContentIntoLines(original);
   const modifiedLines = splitContentIntoLines(modified);
@@ -291,7 +291,7 @@ function estimateCollapsedLayout(
     return {
       visibleLineCount: Math.max(
         HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
-        MIN_EDITOR_LINE_FALLBACK,
+        MIN_EDITOR_LINE_FALLBACK
       ),
       collapsedRegionCount: 0,
       hiddenLineCount: 0,
@@ -301,7 +301,7 @@ function estimateCollapsedLayout(
   const hasChange = blocks.some(
     (block) =>
       block.kind === "changed" &&
-      (block.originalLength > 0 || block.modifiedLength > 0),
+      (block.originalLength > 0 || block.modifiedLength > 0)
   );
 
   if (!hasChange) {
@@ -310,8 +310,8 @@ function estimateCollapsedLayout(
       totalLines,
       Math.max(
         HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
-        MIN_EDITOR_LINE_FALLBACK,
-      ),
+        MIN_EDITOR_LINE_FALLBACK
+      )
     );
 
     return {
@@ -357,12 +357,12 @@ function estimateCollapsedLayout(
     if (!hasPreviousChange && !hasNextChange) {
       visibleBudget = Math.max(
         HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
-        MIN_EDITOR_LINE_FALLBACK,
+        MIN_EDITOR_LINE_FALLBACK
       );
     } else {
       visibleBudget = Math.max(
         visibleBudget,
-        HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
+        HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount
       );
     }
 
@@ -382,14 +382,14 @@ function estimateCollapsedLayout(
 
 function computeEditorLayoutMetrics(
   original: string,
-  modified: string,
+  modified: string
 ): EditorLayoutMetrics {
   const { visibleLineCount, collapsedRegionCount, hiddenLineCount } =
     estimateCollapsedLayout(original, modified);
 
   const limitedVisibleLineCount = Math.min(
     Math.max(visibleLineCount, MIN_EDITOR_LINE_FALLBACK),
-    120,
+    120
   );
 
   const lineHeightPortion =
@@ -524,7 +524,7 @@ function createDiffEditorMount({
       }
 
       const lineHeight = targetEditor.getOption(
-        monacoInstance.editor.EditorOption.lineHeight,
+        monacoInstance.editor.EditorOption.lineHeight
       );
       const model = targetEditor.getModel();
       const lineCount = model ? Math.max(1, model.getLineCount()) : 1;
@@ -537,7 +537,7 @@ function createDiffEditorMount({
     const applyLayout = () => {
       const height = Math.max(
         computeHeight(originalEditor),
-        computeHeight(modifiedEditor),
+        computeHeight(modifiedEditor)
       );
 
       const modifiedInfo = modifiedEditor.getLayoutInfo();
@@ -705,7 +705,7 @@ function createDiffEditorMount({
       {
         threshold: 0,
         rootMargin: `${INTERSECTION_VISIBILITY_MARGIN_PX}px 0px ${INTERSECTION_VISIBILITY_MARGIN_PX}px 0px`,
-      },
+      }
     );
 
     if (intersectionObserver) {
@@ -751,13 +751,13 @@ function createDiffEditorMount({
     const onOriginalContentChange = originalEditor.onDidChangeModelContent(
       () => {
         applyLayout();
-      },
+      }
     );
 
     const onModifiedContentChange = modifiedEditor.onDidChangeModelContent(
       () => {
         applyLayout();
-      },
+      }
     );
 
     const onOriginalConfigChange = originalEditor.onDidChangeConfiguration(
@@ -765,7 +765,7 @@ function createDiffEditorMount({
         if (event.hasChanged(monacoInstance.editor.EditorOption.lineHeight)) {
           applyLayout();
         }
-      },
+      }
     );
 
     const onModifiedConfigChange = modifiedEditor.onDidChangeConfiguration(
@@ -773,7 +773,7 @@ function createDiffEditorMount({
         if (event.hasChanged(monacoInstance.editor.EditorOption.lineHeight)) {
           applyLayout();
         }
-      },
+      }
     );
 
     const onOriginalSizeChange = originalEditor.onDidContentSizeChange(() => {
@@ -787,13 +787,13 @@ function createDiffEditorMount({
     const onOriginalHiddenAreasChange = originalEditor.onDidChangeHiddenAreas(
       () => {
         applyLayout();
-      },
+      }
     );
 
     const onModifiedHiddenAreasChange = modifiedEditor.onDidChangeHiddenAreas(
       () => {
         applyLayout();
-      },
+      }
     );
 
     const onDidUpdateDiff = diffEditor.onDidUpdateDiff(() => {
@@ -809,7 +809,7 @@ function createDiffEditorMount({
       onModifiedSizeChange,
       onOriginalHiddenAreasChange,
       onModifiedHiddenAreasChange,
-      onDidUpdateDiff,
+      onDidUpdateDiff
     );
 
     const disposeListener = diffEditor.onDidDispose(() => {
@@ -863,7 +863,7 @@ function MonacoFileDiffRow({
 
   const editorMinHeight = Math.max(
     file.editorMetrics?.editorMinHeight ?? DEFAULT_EDITOR_MIN_HEIGHT,
-    DEFAULT_EDITOR_MIN_HEIGHT,
+    DEFAULT_EDITOR_MIN_HEIGHT
   );
 
   const diffControlsRef = useRef<DiffEditorControls | null>(null);
@@ -890,7 +890,7 @@ function MonacoFileDiffRow({
           controls.updateCollapsedState(!isExpandedRef.current);
         },
       }),
-    [editorMinHeight],
+    [editorMinHeight]
   );
 
   return (
@@ -990,7 +990,7 @@ export function MonacoGitDiffViewer({
   }, []);
 
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(
-    () => new Set(diffs.map((diff) => diff.filePath)),
+    () => new Set(diffs.map((diff) => diff.filePath))
   );
 
   const fileGroups: MonacoFileGroup[] = useMemo(
@@ -1023,7 +1023,7 @@ export function MonacoGitDiffViewer({
           editorMetrics,
         };
       }),
-    [diffs],
+    [diffs]
   );
 
   const expandAll = () => {
@@ -1086,7 +1086,8 @@ export function MonacoGitDiffViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalAdditions, totalDeletions, diffs.length]);
 
-  const editorTheme = theme === "dark" ? "cmux-dark" : "cmux-light";
+  // const editorTheme = theme === "dark" ? "cmux-dark" : "cmux-light";
+  const editorTheme = theme === "dark" ? "dark" : "light";
 
   const diffOptions = useMemo<editor.IDiffEditorConstructionOptions>(
     () => ({
@@ -1111,7 +1112,7 @@ export function MonacoGitDiffViewer({
         ...HIDE_UNCHANGED_REGIONS_SETTINGS,
       },
     }),
-    [],
+    []
   );
 
   use(loaderInitPromise);

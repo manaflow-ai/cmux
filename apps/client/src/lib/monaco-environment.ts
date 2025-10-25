@@ -40,6 +40,20 @@ function defineThemes(instance: typeof monaco) {
   const lightPalette = getDiffColorPalette("light");
   const darkPalette = getDiffColorPalette("dark");
 
+  instance.editor.defineTheme("light", {
+    base: "vs",
+    inherit: true,
+    rules: [],
+    colors: {},
+  });
+
+  instance.editor.defineTheme("dark", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: {},
+  });
+
   instance.editor.defineTheme("cmux-light", {
     base: "vs",
     inherit: true,
@@ -51,16 +65,22 @@ function defineThemes(instance: typeof monaco) {
       "diffEditor.removedTextBorder": lightPalette.deletion.textBackground,
       "diffEditor.insertedLineBackground": lightPalette.addition.lineBackground,
       "diffEditor.removedLineBackground": lightPalette.deletion.lineBackground,
-      "diffEditorGutter.insertedLineBackground": lightPalette.addition.gutterBackground,
-      "diffEditorGutter.removedLineBackground": lightPalette.deletion.gutterBackground,
+      "diffEditorGutter.insertedLineBackground":
+        lightPalette.addition.gutterBackground,
+      "diffEditorGutter.removedLineBackground":
+        lightPalette.deletion.gutterBackground,
       "editorGutter.addedBackground": lightPalette.addition.gutterBackground,
       "editorGutter.deletedBackground": lightPalette.deletion.gutterBackground,
-      "editorGutter.addedForeground": lightPalette.addition.lineNumberForeground,
-      "editorGutter.deletedForeground": lightPalette.deletion.lineNumberForeground,
+      "editorGutter.addedForeground":
+        lightPalette.addition.lineNumberForeground,
+      "editorGutter.deletedForeground":
+        lightPalette.deletion.lineNumberForeground,
       "minimapGutter.addedBackground": lightPalette.addition.gutterBackground,
       "minimapGutter.deletedBackground": lightPalette.deletion.gutterBackground,
-      "diffEditorOverview.insertedForeground": lightPalette.addition.gutterBackground,
-      "diffEditorOverview.removedForeground": lightPalette.deletion.gutterBackground,
+      "diffEditorOverview.insertedForeground":
+        lightPalette.addition.gutterBackground,
+      "diffEditorOverview.removedForeground":
+        lightPalette.deletion.gutterBackground,
       "diffEditor.unchangedRegionBackground": lightPalette.collapsed.background,
       "diffEditor.unchangedRegionForeground": lightPalette.collapsed.foreground,
       "diffEditor.unchangedRegionShadow": "#0f172a33",
@@ -78,16 +98,21 @@ function defineThemes(instance: typeof monaco) {
       "diffEditor.removedTextBorder": darkPalette.deletion.textBackground,
       "diffEditor.insertedLineBackground": darkPalette.addition.lineBackground,
       "diffEditor.removedLineBackground": darkPalette.deletion.lineBackground,
-      "diffEditorGutter.insertedLineBackground": darkPalette.addition.gutterBackground,
-      "diffEditorGutter.removedLineBackground": darkPalette.deletion.gutterBackground,
+      "diffEditorGutter.insertedLineBackground":
+        darkPalette.addition.gutterBackground,
+      "diffEditorGutter.removedLineBackground":
+        darkPalette.deletion.gutterBackground,
       "editorGutter.addedBackground": darkPalette.addition.gutterBackground,
       "editorGutter.deletedBackground": darkPalette.deletion.gutterBackground,
       "editorGutter.addedForeground": darkPalette.addition.lineNumberForeground,
-      "editorGutter.deletedForeground": darkPalette.deletion.lineNumberForeground,
+      "editorGutter.deletedForeground":
+        darkPalette.deletion.lineNumberForeground,
       "minimapGutter.addedBackground": darkPalette.addition.gutterBackground,
       "minimapGutter.deletedBackground": darkPalette.deletion.gutterBackground,
-      "diffEditorOverview.insertedForeground": darkPalette.addition.gutterBackground,
-      "diffEditorOverview.removedForeground": darkPalette.deletion.gutterBackground,
+      "diffEditorOverview.insertedForeground":
+        darkPalette.addition.gutterBackground,
+      "diffEditorOverview.removedForeground":
+        darkPalette.deletion.gutterBackground,
       "diffEditor.unchangedRegionBackground": darkPalette.collapsed.background,
       "diffEditor.unchangedRegionForeground": darkPalette.collapsed.foreground,
       "diffEditor.unchangedRegionShadow": "#00000080",
