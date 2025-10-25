@@ -6,6 +6,12 @@ import { SCRIPT_COPY } from "@/components/scriptCopy";
 import { ResizableColumns } from "@/components/ResizableColumns";
 import { parseEnvBlock } from "@/lib/parseEnvBlock";
 import {
+  clearPendingEnvironment,
+  updatePendingEnvironment,
+  type PendingEnvironmentDraft,
+  type PendingEnvironmentId,
+} from "@/lib/pendingEnvironmentsStore";
+import {
   TASK_RUN_IFRAME_ALLOW,
   TASK_RUN_IFRAME_SANDBOX,
 } from "@/lib/preloadTaskRunIframes";
@@ -67,6 +73,7 @@ export function EnvironmentConfiguration({
   initialExposedPorts = "",
   initialEnvVars,
   onHeaderControlsChange,
+  pendingEnvironmentId,
 }: {
   selectedRepos: string[];
   teamSlugOrId: string;
@@ -82,6 +89,7 @@ export function EnvironmentConfiguration({
   initialExposedPorts?: string;
   initialEnvVars?: EnvVar[];
   onHeaderControlsChange?: (controls: ReactNode | null) => void;
+  pendingEnvironmentId?: PendingEnvironmentId;
 }) {
   const navigate = useNavigate();
   const searchRoute:
@@ -97,6 +105,7 @@ export function EnvironmentConfiguration({
     repoSearch?: string;
     instanceId?: string;
     snapshotId?: MorphSnapshotId;
+    pendingId?: string;
   };
   const [envName, setEnvName] = useState(() => initialEnvName);
   const [envVars, setEnvVars] = useState<EnvVar[]>(() =>
@@ -130,6 +139,57 @@ export function EnvironmentConfiguration({
   }, [browserUrl, instanceId, vscodeUrl]);
   const vscodePersistKey = `${basePersistKey}:vscode`;
   const browserPersistKey = `${basePersistKey}:browser`;
+  const shouldPersistDraft = mode === "new";
+  const syncPendingEnvironment = useCallback(
+    (patch?: PendingEnvironmentDraft) => {
+      if (!shouldPersistDraft || !pendingEnvironmentId) {
+        return;
+      }
+      updatePendingEnvironment(teamSlugOrId, pendingEnvironmentId, {
+        step: "configure",
+        selectedRepos,
+        instanceId,
+        envName,
+        maintenanceScript,
+        devScript,
+        envVars,
+        exposedPorts,
+        ...patch,
+      });
+    },
+    [
+      devScript,
+      envName,
+      envVars,
+      exposedPorts,
+      instanceId,
+      maintenanceScript,
+      pendingEnvironmentId,
+      selectedRepos,
+      shouldPersistDraft,
+      teamSlugOrId,
+    ]
+  );
+  const hasSyncedInitialDraft = useRef(false);
+  useEffect(() => {
+    if (!shouldPersistDraft || !pendingEnvironmentId || hasSyncedInitialDraft.current) {
+      return;
+    }
+    syncPendingEnvironment();
+    hasSyncedInitialDraft.current = true;
+  }, [pendingEnvironmentId, shouldPersistDraft, syncPendingEnvironment]);
+
+  const previousInstanceId = useRef(instanceId);
+  useEffect(() => {
+    if (previousInstanceId.current === instanceId) {
+      return;
+    }
+    previousInstanceId.current = instanceId;
+    if (!shouldPersistDraft || !pendingEnvironmentId) {
+      return;
+    }
+    syncPendingEnvironment({ instanceId });
+  }, [instanceId, pendingEnvironmentId, shouldPersistDraft, syncPendingEnvironment]);
   useEffect(() => {
     if (!browserUrl && activePreview === "browser") {
       setActivePreview("vscode");
@@ -360,6 +420,9 @@ export function EnvironmentConfiguration({
         },
         {
           onSuccess: async () => {
+            if (pendingEnvironmentId) {
+              clearPendingEnvironment(teamSlugOrId, pendingEnvironmentId);
+            }
             await navigate({
               to: "/$teamSlugOrId/environments",
               params: { teamSlugOrId },
@@ -584,7 +647,14 @@ export function EnvironmentConfiguration({
       <div className="flex items-center gap-4 mb-4">
         {mode === "new" ? (
           <button
+            type="button"
             onClick={async () => {
+              const draftId = pendingEnvironmentId ?? search.pendingId;
+              if (draftId) {
+                updatePendingEnvironment(teamSlugOrId, draftId, {
+                  step: "select",
+                });
+              }
               await navigate({
                 to: "/$teamSlugOrId/environments/new",
                 params: { teamSlugOrId },
@@ -596,6 +666,7 @@ export function EnvironmentConfiguration({
                   connectionLogin: search.connectionLogin,
                   repoSearch: search.repoSearch,
                   snapshotId: search.snapshotId,
+                  pendingId: draftId,
                 },
               });
             }}
@@ -606,6 +677,7 @@ export function EnvironmentConfiguration({
           </button>
         ) : sourceEnvironmentId ? (
           <button
+            type="button"
             onClick={async () => {
               await navigate({
                 to: "/$teamSlugOrId/environments/$environmentId",
@@ -650,7 +722,11 @@ export function EnvironmentConfiguration({
           <input
             type="text"
             value={envName}
-            onChange={(e) => setEnvName(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setEnvName(value);
+              syncPendingEnvironment({ envName: value });
+            }}
             readOnly={mode === "snapshot"}
             aria-readonly={mode === "snapshot"}
             placeholder={
@@ -743,6 +819,7 @@ export function EnvironmentConfiguration({
                       const next = Array.from(map.values());
                       next.push({ name: "", value: "", isSecret: true });
                       setPendingFocusIndex(next.length - 1);
+                      syncPendingEnvironment({ envVars: next });
                       return next;
                     });
                   }
@@ -781,6 +858,7 @@ export function EnvironmentConfiguration({
                         setEnvVars((prev) => {
                           const next = [...prev];
                           next[idx] = { ...next[idx]!, name: v };
+                          syncPendingEnvironment({ envVars: next });
                           return next;
                         });
                       }}
@@ -794,6 +872,7 @@ export function EnvironmentConfiguration({
                         setEnvVars((prev) => {
                           const next = [...prev];
                           next[idx] = { ...next[idx]!, value: v };
+                          syncPendingEnvironment({ envVars: next });
                           return next;
                         });
                       }}
@@ -808,9 +887,12 @@ export function EnvironmentConfiguration({
                         onClick={() => {
                           setEnvVars((prev) => {
                             const next = prev.filter((_, i) => i !== idx);
-                            return next.length > 0
-                              ? next
-                              : [{ name: "", value: "", isSecret: true }];
+                            const normalized =
+                              next.length > 0
+                                ? next
+                                : [{ name: "", value: "", isSecret: true }];
+                            syncPendingEnvironment({ envVars: normalized });
+                            return normalized;
                           });
                         }}
                         className="h-10 w-[44px] rounded-md border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 grid place-items-center hover:bg-neutral-50 dark:hover:bg-neutral-900"
@@ -827,10 +909,14 @@ export function EnvironmentConfiguration({
                 <button
                   type="button"
                   onClick={() =>
-                    setEnvVars((prev) => [
-                      ...prev,
-                      { name: "", value: "", isSecret: true },
-                    ])
+                    setEnvVars((prev) => {
+                      const next = [
+                        ...prev,
+                        { name: "", value: "", isSecret: true },
+                      ];
+                      syncPendingEnvironment({ envVars: next });
+                      return next;
+                    })
                   }
                   className="inline-flex items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-900"
                 >
@@ -872,7 +958,10 @@ export function EnvironmentConfiguration({
                 description={SCRIPT_COPY.maintenance.description}
                 subtitle={SCRIPT_COPY.maintenance.subtitle}
                 value={maintenanceScript}
-                onChange={(next) => setMaintenanceScript(next)}
+                onChange={(next) => {
+                  setMaintenanceScript(next);
+                  syncPendingEnvironment({ maintenanceScript: next });
+                }}
                 placeholder={SCRIPT_COPY.maintenance.placeholder}
                 descriptionClassName="mb-3"
                 minHeightClassName="min-h-[114px]"
@@ -890,7 +979,10 @@ export function EnvironmentConfiguration({
                 description={SCRIPT_COPY.dev.description}
                 subtitle={SCRIPT_COPY.dev.subtitle}
                 value={devScript}
-                onChange={(next) => setDevScript(next)}
+                onChange={(next) => {
+                  setDevScript(next);
+                  syncPendingEnvironment({ devScript: next });
+                }}
                 placeholder={SCRIPT_COPY.dev.placeholder}
                 minHeightClassName="min-h-[130px]"
               />
@@ -902,7 +994,11 @@ export function EnvironmentConfiguration({
                 <input
                   type="text"
                   value={exposedPorts}
-                  onChange={(e) => setExposedPorts(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setExposedPorts(value);
+                    syncPendingEnvironment({ exposedPorts: value });
+                  }}
                   placeholder="3000, 8080, 5432"
                   className="w-full rounded-md border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:focus:ring-neutral-700"
                 />

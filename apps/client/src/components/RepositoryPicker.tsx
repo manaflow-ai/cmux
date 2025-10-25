@@ -36,8 +36,13 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import {
+  updatePendingEnvironment,
+  type PendingEnvironmentId,
+} from "@/lib/pendingEnvironmentsStore";
 import { RepositoryAdvancedOptions } from "./RepositoryAdvancedOptions";
 
 function ConnectionIcon({ type }: { type?: string }) {
@@ -97,6 +102,7 @@ export interface RepositoryPickerProps {
   instanceId?: string;
   initialSelectedRepos?: string[];
   initialSnapshotId?: MorphSnapshotId;
+  initialConnectionLogin?: string | null;
   showHeader?: boolean;
   showContinueButton?: boolean;
   showManualConfigOption?: boolean;
@@ -105,6 +111,8 @@ export interface RepositoryPickerProps {
   headerTitle?: string;
   headerDescription?: string;
   className?: string;
+  pendingEnvironmentId?: PendingEnvironmentId;
+  onDraftCreated?: () => Promise<PendingEnvironmentId | undefined>;
 }
 
 export function RepositoryPicker({
@@ -112,6 +120,7 @@ export function RepositoryPicker({
   instanceId,
   initialSelectedRepos = [],
   initialSnapshotId,
+  initialConnectionLogin = null,
   showHeader = true,
   showContinueButton = true,
   showManualConfigOption = true,
@@ -120,24 +129,101 @@ export function RepositoryPicker({
   headerTitle = "Select Repositories",
   headerDescription = "Choose repositories to include in your environment.",
   className = "",
+  pendingEnvironmentId,
+  onDraftCreated,
 }: RepositoryPickerProps) {
   const router = useRouter();
   const navigate = useNavigate();
-  const [selectedRepos, setSelectedRepos] = useState<string[]>(() =>
-    Array.from(new Set(initialSelectedRepos))
+  const uniqueInitialRepos = useMemo(
+    () => Array.from(new Set(initialSelectedRepos)),
+    [initialSelectedRepos]
   );
+  const initialSnapshot = initialSnapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID;
+  const [selectedRepos, setSelectedRepos] = useState<string[]>(() => [
+    ...uniqueInitialRepos,
+  ]);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<MorphSnapshotId>(
-    initialSnapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID
+    () => initialSnapshot
   );
   const [selectedConnectionLogin, setSelectedConnectionLogin] = useState<
     string | null
-  >(null);
+  >(() => initialConnectionLogin ?? null);
   const [connectionContext, setConnectionContext] = useState<ConnectionContext>(
     {
       selectedLogin: null,
       installationId: null,
       hasConnections: false,
     }
+  );
+
+  const pendingIdRef = useRef<PendingEnvironmentId | null>(
+    pendingEnvironmentId ?? null
+  );
+  const creatingDraftPromiseRef = useRef<
+    Promise<PendingEnvironmentId | undefined> | null
+  >(null);
+  useEffect(() => {
+    pendingIdRef.current = pendingEnvironmentId ?? null;
+    if (pendingEnvironmentId) {
+      creatingDraftPromiseRef.current = null;
+    }
+  }, [pendingEnvironmentId]);
+
+  const ensureDraftId = useCallback(
+    async (): Promise<PendingEnvironmentId | undefined> => {
+      if (pendingIdRef.current) {
+        return pendingIdRef.current;
+      }
+      if (creatingDraftPromiseRef.current) {
+        return creatingDraftPromiseRef.current;
+      }
+      if (!onDraftCreated) {
+        return undefined;
+      }
+      const creationPromise = (async () => {
+        try {
+          const createdId = await onDraftCreated();
+          if (createdId) {
+            pendingIdRef.current = createdId;
+          }
+          return createdId;
+        } finally {
+          creatingDraftPromiseRef.current = null;
+        }
+      })();
+      creatingDraftPromiseRef.current = creationPromise;
+      return creationPromise;
+    },
+    [onDraftCreated]
+  );
+
+  const handleSelectedLoginChange = useCallback(
+    (login: string | null) => {
+      setSelectedConnectionLogin(login);
+      if (!pendingIdRef.current && selectedRepos.length === 0) {
+        return;
+      }
+      void (async () => {
+        const draftId = pendingIdRef.current ?? (await ensureDraftId());
+        if (!draftId) {
+          return;
+        }
+        updatePendingEnvironment(teamSlugOrId, draftId, {
+          step: "select",
+          selectedRepos,
+          snapshotId: selectedSnapshotId,
+          instanceId: instanceId ?? undefined,
+          connectionLogin: login === null ? null : login,
+        });
+      })();
+    },
+    [
+      ensureDraftId,
+      instanceId,
+      selectedRepos,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
   );
 
   const setupInstanceMutation = useRQMutation(
@@ -148,12 +234,15 @@ export function RepositoryPicker({
   );
 
   useEffect(() => {
-    if (initialSnapshotId) {
-      setSelectedSnapshotId(initialSnapshotId);
-    } else {
-      setSelectedSnapshotId(DEFAULT_MORPH_SNAPSHOT_ID);
+    const nextSnapshot = initialSnapshotId ?? DEFAULT_MORPH_SNAPSHOT_ID;
+    setSelectedSnapshotId(nextSnapshot);
+    if (!pendingIdRef.current) {
+      return;
     }
-  }, [initialSnapshotId]);
+    updatePendingEnvironment(teamSlugOrId, pendingIdRef.current, {
+      snapshotId: nextSnapshot,
+    });
+  }, [initialSnapshotId, teamSlugOrId]);
 
   const handleConnectionsInvalidated = useCallback((): void => {
     const qc = router.options.context?.queryClient;
@@ -180,35 +269,45 @@ export function RepositoryPicker({
 
   const goToConfigure = useCallback(
     async (repos: string[], maybeInstanceId?: string): Promise<void> => {
+      const effectiveInstanceId = maybeInstanceId ?? instanceId ?? undefined;
+      const draftId = pendingIdRef.current ?? (await ensureDraftId());
+      if (!draftId) {
+        return;
+      }
       await navigate({
         to: "/$teamSlugOrId/environments/new",
         params: { teamSlugOrId },
         search: (prev) => ({
           step: "configure",
           selectedRepos: repos,
-          instanceId: prev.instanceId,
-          connectionLogin: prev.connectionLogin,
+          instanceId: effectiveInstanceId ?? prev.instanceId,
+          connectionLogin:
+            selectedConnectionLogin ?? prev.connectionLogin ?? undefined,
           repoSearch: prev.repoSearch,
           snapshotId: selectedSnapshotId,
+          pendingId: draftId,
         }),
+        replace: !instanceId && Boolean(maybeInstanceId),
       });
-      if (!instanceId && maybeInstanceId) {
-        await navigate({
-          to: "/$teamSlugOrId/environments/new",
-          params: { teamSlugOrId },
-          search: (prev) => ({
-            step: "configure",
-            selectedRepos: repos,
-            instanceId: maybeInstanceId,
-            connectionLogin: prev.connectionLogin,
-            repoSearch: prev.repoSearch,
-            snapshotId: selectedSnapshotId,
-          }),
-          replace: true,
-        });
-      }
+      updatePendingEnvironment(teamSlugOrId, draftId, {
+        step: "configure",
+        selectedRepos: repos,
+        snapshotId: selectedSnapshotId,
+        instanceId: effectiveInstanceId,
+        connectionLogin:
+          selectedConnectionLogin === null
+            ? null
+            : selectedConnectionLogin,
+      });
     },
-    [instanceId, navigate, selectedSnapshotId, teamSlugOrId]
+    [
+      ensureDraftId,
+      instanceId,
+      navigate,
+      selectedConnectionLogin,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
   );
 
   const handleContinue = useCallback(
@@ -248,37 +347,94 @@ export function RepositoryPicker({
 
   const updateSnapshotSelection = useCallback(
     (nextSnapshotId: MorphSnapshotId) => {
-      const shouldResetInstanceId = nextSnapshotId !== selectedSnapshotId;
+      const hasChanged = nextSnapshotId !== selectedSnapshotId;
+      if (!hasChanged && pendingIdRef.current) {
+        return;
+      }
       setSelectedSnapshotId(nextSnapshotId);
-      void navigate({
-        to: "/$teamSlugOrId/environments/new",
-        params: { teamSlugOrId },
-        search: (prev) => ({
-          step: prev.step ?? "select",
-          selectedRepos: prev.selectedRepos ?? [],
-          instanceId: shouldResetInstanceId ? undefined : prev.instanceId,
-          connectionLogin: prev.connectionLogin,
-          repoSearch: prev.repoSearch,
+      void (async () => {
+        const draftId: PendingEnvironmentId | undefined =
+          pendingIdRef.current ?? (await ensureDraftId());
+        if (!draftId) {
+          return;
+        }
+        updatePendingEnvironment(teamSlugOrId, draftId, {
+          step: "select",
+          selectedRepos,
           snapshotId: nextSnapshotId,
-        }),
-        replace: true,
-      });
+          instanceId: hasChanged ? undefined : instanceId ?? undefined,
+          connectionLogin:
+            selectedConnectionLogin === null
+              ? null
+              : selectedConnectionLogin,
+        });
+      })();
     },
-    [navigate, selectedSnapshotId, teamSlugOrId]
+    [
+      ensureDraftId,
+      instanceId,
+      selectedConnectionLogin,
+      selectedRepos,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
   );
 
-  const toggleRepo = useCallback((repo: string) => {
-    setSelectedRepos((prev) => {
-      if (prev.includes(repo)) {
-        return prev.filter((item) => item !== repo);
+  const syncSelectedRepos = useCallback(
+    (nextSelected: string[]) => {
+      if (nextSelected.length === 0 && !pendingIdRef.current) {
+        return;
       }
-      return [...prev, repo];
-    });
-  }, []);
+      void (async () => {
+        const draftId: PendingEnvironmentId | undefined =
+          pendingIdRef.current ?? (await ensureDraftId());
+        if (!draftId) {
+          return;
+        }
+        updatePendingEnvironment(teamSlugOrId, draftId, {
+          step: "select",
+          selectedRepos: nextSelected,
+          snapshotId: selectedSnapshotId,
+          instanceId: instanceId ?? undefined,
+          connectionLogin:
+            selectedConnectionLogin === null
+              ? null
+              : selectedConnectionLogin,
+        });
+      })();
+    },
+    [
+      ensureDraftId,
+      instanceId,
+      selectedConnectionLogin,
+      selectedSnapshotId,
+      teamSlugOrId,
+    ]
+  );
 
-  const removeRepo = useCallback((repo: string) => {
-    setSelectedRepos((prev) => prev.filter((item) => item !== repo));
-  }, []);
+  const toggleRepo = useCallback(
+    (repo: string) => {
+      setSelectedRepos((prev) => {
+        const next = prev.includes(repo)
+          ? prev.filter((item) => item !== repo)
+          : [...prev, repo];
+        syncSelectedRepos(next);
+        return next;
+      });
+    },
+    [syncSelectedRepos]
+  );
+
+  const removeRepo = useCallback(
+    (repo: string) => {
+      setSelectedRepos((prev) => {
+        const next = prev.filter((item) => item !== repo);
+        syncSelectedRepos(next);
+        return next;
+      });
+    },
+    [syncSelectedRepos]
+  );
 
   const setConnectionContextSafe = useCallback((ctx: ConnectionContext) => {
     setConnectionContext((prev) => {
@@ -312,8 +468,8 @@ export function RepositoryPicker({
       <div className="space-y-6 mt-6">
         <RepositoryConnectionsSection
           teamSlugOrId={teamSlugOrId}
-          selectedLogin={selectedConnectionLogin}
-          onSelectedLoginChange={setSelectedConnectionLogin}
+          selectedLogin={selectedConnectionLogin ?? null}
+          onSelectedLoginChange={handleSelectedLoginChange}
           onContextChange={setConnectionContextSafe}
           onConnectionsInvalidated={handleConnectionsInvalidated}
         />
@@ -364,9 +520,8 @@ export function RepositoryPicker({
                   isManualLoading
                 }
                 onClick={() => handleContinue(selectedRepos)}
-                className={`inline-flex items-center gap-2 rounded-md bg-neutral-900 text-white disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:cursor-not-allowed px-3 py-2 text-sm hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 transition-opacity ${
-                  isManualLoading ? "opacity-50" : "opacity-100"
-                }`}
+                className={`inline-flex items-center gap-2 rounded-md bg-neutral-900 text-white disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:cursor-not-allowed px-3 py-2 text-sm hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 transition-opacity ${isManualLoading ? "opacity-50" : "opacity-100"
+                  }`}
               >
                 {isContinueLoading && (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -378,9 +533,8 @@ export function RepositoryPicker({
                   type="button"
                   disabled={isContinueLoading || isManualLoading}
                   onClick={() => handleContinue([])}
-                  className={`inline-flex items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-900 disabled:cursor-not-allowed transition-opacity ${
-                    isContinueLoading ? "opacity-50" : "opacity-100"
-                  }`}
+                  className={`inline-flex items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-900 disabled:cursor-not-allowed transition-opacity ${isContinueLoading ? "opacity-50" : "opacity-100"
+                    }`}
                 >
                   {isManualLoading && (
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -860,16 +1014,14 @@ function RepositoryListSection({
                 >
                   <div className="text-sm flex items-center gap-2 min-w-0 flex-1">
                     <div
-                      className={`mr-1 h-4 w-4 rounded-sm border grid place-items-center shrink-0 ${
-                        isSelected
-                          ? "border-neutral-700 bg-neutral-800"
-                          : "border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950"
-                      }`}
+                      className={`mr-1 h-4 w-4 rounded-sm border grid place-items-center shrink-0 ${isSelected
+                        ? "border-neutral-700 bg-neutral-800"
+                        : "border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950"
+                        }`}
                     >
                       <Check
-                        className={`w-3 h-3 text-white transition-opacity ${
-                          isSelected ? "opacity-100" : "opacity-0"
-                        }`}
+                        className={`w-3 h-3 text-white transition-opacity ${isSelected ? "opacity-100" : "opacity-0"
+                          }`}
                       />
                     </div>
                     <GitHubIcon className="h-4 w-4 shrink-0 text-neutral-700 dark:text-neutral-200" />
