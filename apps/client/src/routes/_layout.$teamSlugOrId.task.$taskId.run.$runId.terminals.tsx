@@ -18,6 +18,7 @@ import {
 } from "@/components/task-run-terminal-session";
 import { toMorphXtermBaseUrl } from "@/lib/toProxyWorkspaceUrl";
 import {
+  buildTmuxAttachRequest,
   createTerminalTab,
   deleteTerminalTab,
   terminalTabsQueryKey,
@@ -80,10 +81,7 @@ export const Route = createFileRoute(
     try {
       const created = await createTerminalTab({
         baseUrl,
-        request: {
-          cmd: "tmux",
-          args: ["attach", "-t", "cmux"],
-        },
+        request: buildTmuxAttachRequest("cmux"),
       });
 
       queryClient.setQueryData<TerminalTabId[]>(tabsQueryKey, (current) => {

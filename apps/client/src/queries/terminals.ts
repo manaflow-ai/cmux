@@ -62,6 +62,56 @@ function isCreateTerminalTabHttpResponse(
   return typeof id === "string" && typeof wsUrl === "string";
 }
 
+const DEFAULT_TMUX_ATTACH_TIMEOUT_MS = 15_000;
+const DEFAULT_TMUX_ATTACH_INTERVAL_MS = 200;
+
+function formatSleepInterval(intervalMs: number): string {
+  const seconds = intervalMs / 1_000;
+  return seconds.toFixed(3).replace(/\.?0+$/, "");
+}
+
+// Produce a shell command that waits for the tmux session before attaching.
+export function buildTmuxAttachRequest(
+  sessionName: string,
+  options?: {
+    timeoutMs?: number;
+    checkIntervalMs?: number;
+  }
+): CreateTerminalTabRequest {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TMUX_ATTACH_TIMEOUT_MS;
+  const checkIntervalMs =
+    options?.checkIntervalMs ?? DEFAULT_TMUX_ATTACH_INTERVAL_MS;
+  const maxAttempts = Math.max(
+    1,
+    Math.ceil(timeoutMs / Math.max(1, checkIntervalMs))
+  );
+  const sleepInterval = formatSleepInterval(checkIntervalMs);
+  const sessionLiteral = JSON.stringify(sessionName);
+
+  const script = `
+session_name=${sessionLiteral};
+max_attempts=${maxAttempts};
+sleep_interval=${sleepInterval};
+attempt=0;
+
+while ! tmux has-session -t "$session_name" 2>/dev/null; do
+  attempt=$((attempt + 1));
+  if [ "$attempt" -ge "$max_attempts" ]; then
+    echo "tmux session '$session_name' not available yet" >&2;
+    exit 1;
+  fi;
+  sleep "$sleep_interval";
+done;
+
+exec tmux attach -t "$session_name";
+`.trim();
+
+  return {
+    cmd: "bash",
+    args: ["-lc", script],
+  };
+}
+
 export function terminalTabsQueryOptions({
   baseUrl,
   contextKey,

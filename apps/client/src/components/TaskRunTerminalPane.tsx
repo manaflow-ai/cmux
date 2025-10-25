@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { TaskRunTerminalSession } from "./task-run-terminal-session";
 import { toMorphXtermBaseUrl } from "@/lib/toProxyWorkspaceUrl";
 import {
+  buildTmuxAttachRequest,
   createTerminalTab,
   terminalTabsQueryKey,
   terminalTabsQueryOptions,

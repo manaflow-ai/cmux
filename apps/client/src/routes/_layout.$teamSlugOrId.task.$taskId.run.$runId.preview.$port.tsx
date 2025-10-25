@@ -8,7 +8,13 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import z from "zod";
 import { TaskRunTerminalSession } from "@/components/task-run-terminal-session";
 import { toMorphXtermBaseUrl } from "@/lib/toProxyWorkspaceUrl";
-import { createTerminalTab, terminalTabsQueryKey, terminalTabsQueryOptions, type TerminalTabId } from "@/queries/terminals";
+import {
+  buildTmuxAttachRequest,
+  createTerminalTab,
+  terminalTabsQueryKey,
+  terminalTabsQueryOptions,
+  type TerminalTabId,
+} from "@/queries/terminals";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 
@@ -72,10 +78,7 @@ export const Route = createFileRoute(
         // Attach to cmux session
         const created = await createTerminalTab({
           baseUrl,
-          request: {
-            cmd: "tmux",
-            args: ["attach", "-t", "cmux"],
-          },
+          request: buildTmuxAttachRequest("cmux"),
         });
 
         queryClient.setQueryData<TerminalTabId[]>(tabsQueryKey, (current) => {
