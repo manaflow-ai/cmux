@@ -545,7 +545,8 @@ export const Route = createFileRoute(
           return;
         }
 
-        const baseRefForDiff = normalizeGitRef(task.baseBranch || "main");
+        const trimmedBaseBranch = task.baseBranch?.trim();
+        const baseRefForDiff = normalizeGitRef(trimmedBaseBranch || "main");
         const headRefForDiff = normalizeGitRef(selectedTaskRun.newBranch);
         if (!headRefForDiff || !baseRefForDiff) {
           return;
@@ -555,7 +556,7 @@ export const Route = createFileRoute(
           ? branchMetadataByRepo?.[trimmedProjectFullName]
           : undefined;
         const baseBranchMeta = metadataForPrimaryRepo?.find(
-          (branch) => branch.name === task.baseBranch,
+          (branch) => branch.name === trimmedBaseBranch,
         );
 
         const prefetches = Array.from(targetRepos).map(async (repoFullName) => {
@@ -630,6 +631,8 @@ function RunDiffPage() {
   const restartProvider = selectedRun?.vscode?.provider;
   const restartRunEnvironmentId = selectedRun?.environmentId;
   const taskEnvironmentId = task?.environmentId;
+  const trimmedProjectFullName = task?.projectFullName?.trim();
+  const trimmedBaseBranch = task?.baseBranch?.trim();
   const restartIsCloudMode = useMemo(() => {
     if (restartProvider === "docker") {
       return false;
@@ -651,11 +654,11 @@ function RunDiffPage() {
   }, [selectedRun]);
 
   const repoFullNames = useMemo(() => {
-    if (task?.projectFullName) {
-      return [task.projectFullName];
+    if (trimmedProjectFullName) {
+      return [trimmedProjectFullName];
     }
     return environmentRepos;
-  }, [task?.projectFullName, environmentRepos]);
+  }, [trimmedProjectFullName, environmentRepos]);
 
   const [primaryRepo, ...additionalRepos] = repoFullNames;
 
@@ -672,11 +675,11 @@ function RunDiffPage() {
     | undefined;
 
   const baseBranchMetadata = useMemo(() => {
-    if (!task?.baseBranch) {
+    if (!trimmedBaseBranch) {
       return undefined;
     }
-    return branchMetadata?.find((branch) => branch.name === task.baseBranch);
-  }, [branchMetadata, task?.baseBranch]);
+    return branchMetadata?.find((branch) => branch.name === trimmedBaseBranch);
+  }, [branchMetadata, trimmedBaseBranch]);
 
   const metadataByRepo = useMemo(() => {
     if (!primaryRepo) return undefined;
@@ -717,7 +720,7 @@ function RunDiffPage() {
     );
   }
 
-  const baseRef = normalizeGitRef(task?.baseBranch || "main");
+  const baseRef = normalizeGitRef(trimmedBaseBranch || "main");
   const headRef = normalizeGitRef(selectedRun.newBranch);
   const hasDiffSources =
     Boolean(primaryRepo) && Boolean(baseRef) && Boolean(headRef);
