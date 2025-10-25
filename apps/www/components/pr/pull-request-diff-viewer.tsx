@@ -997,6 +997,8 @@ function ReviewProgressIndicator({
     processedFileCount === null ? "— done" : `${processedFileCount} done`;
   const pendingBadgeText =
     processedFileCount === null ? "— waiting" : `${pendingFileCount} waiting`;
+  const showPendingAnimation =
+    !isLoading && processedFileCount !== null && pendingFileCount > 0;
 
   return (
     <div
@@ -1013,7 +1015,7 @@ function ReviewProgressIndicator({
         <div className="flex items-center gap-2 text-xs font-semibold">
           <span
             className={cn(
-              "rounded-md bg-emerald-100 px-2 py-0.5 text-emerald-700",
+              "inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-emerald-700",
               isLoading ? "animate-pulse" : undefined
             )}
           >
@@ -1021,17 +1023,30 @@ function ReviewProgressIndicator({
           </span>
           <span
             className={cn(
-              "rounded-md bg-amber-100 px-2 py-0.5 text-amber-700",
+              "inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-amber-700",
               isLoading ? "animate-pulse" : undefined
             )}
           >
-            {pendingBadgeText}
+            {showPendingAnimation ? (
+              <>
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full bg-amber-500/90 shadow-[0_0_0_2px_rgba(253,230,138,0.45)] animate-[cmuxPendingPulse_1400ms_ease-in-out_infinite]"
+                />
+                {pendingBadgeText}
+              </>
+            ) : (
+              pendingBadgeText
+            )}
           </span>
         </div>
       </div>
-      <div className="mt-3 h-2 rounded-full bg-neutral-200">
+      <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-neutral-200">
         <div
-          className="h-full rounded-full bg-sky-500 transition-[width] duration-300 ease-out"
+          className={cn(
+            "h-full rounded-full bg-sky-500 transition-[width] duration-300 ease-out",
+            showPendingAnimation ? "cmux-progress-bar" : undefined
+          )}
           style={{ width: `${progressPercent}%` }}
           role="progressbar"
           aria-label="Automated review progress"
@@ -1039,6 +1054,12 @@ function ReviewProgressIndicator({
           aria-valuemax={totalFileCount}
           aria-valuenow={processedFileCount ?? 0}
         />
+        {showPendingAnimation ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 cmux-progress-sheen"
+          />
+        ) : null}
       </div>
     </div>
   );
