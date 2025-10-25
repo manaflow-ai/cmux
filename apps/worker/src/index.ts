@@ -903,6 +903,7 @@ async function createTerminal(
   const taskRunToken = taskRunContext.taskRunToken;
   const convexUrl = taskRunContext.convexUrl;
   const promptValue = taskRunContext.prompt;
+  const teamSlugOrId = taskRunContext.teamSlugOrId;
 
   if (!taskRunToken) {
     log("ERROR", "[createTerminal] Missing CMUX task run token in context", {
@@ -916,6 +917,16 @@ async function createTerminal(
       terminalId,
       taskRunId: options.taskRunId,
     });
+  }
+
+  // Register task run for periodic token refresh
+  if (options.taskRunId && taskRunToken && convexUrl) {
+    taskRunTokens.set(options.taskRunId, {
+      token: taskRunToken,
+      convexUrl,
+      teamSlugOrId,
+    });
+    log("INFO", `Registered task run ${options.taskRunId} for periodic token refresh`);
   }
 
   const shell = command || (platform() === "win32" ? "powershell.exe" : "bash");
@@ -1224,6 +1235,12 @@ async function createTerminal(
       command: spawnCommand,
       args: spawnArgs.slice(0, 5), // Log first 5 args for debugging
     });
+
+    // Clean up task run token tracking when terminal exits
+    if (options.taskRunId && taskRunTokens.has(options.taskRunId)) {
+      taskRunTokens.delete(options.taskRunId);
+      log("INFO", `Cleaned up token tracking for task run ${options.taskRunId}`);
+    }
   });
 
   childProcess.on("error", (error) => {
@@ -1349,6 +1366,12 @@ startAmpProxy({
   emitToMainServer,
 });
 
+// Track task run tokens for periodic refresh
+const taskRunTokens: Map<
+  Id<"taskRuns">,
+  { token: string; convexUrl?: string; teamSlugOrId?: string }
+> = new Map();
+
 // Periodic maintenance for pending events
 setInterval(() => {
   const MAX_EVENT_AGE = 30 * 60 * 1000; // 30 minutes (increased to handle longer tasks)
@@ -1414,6 +1437,93 @@ setInterval(() => {
   }
 }, 30000); // Run every 30 seconds
 
+// Periodic token refresh to prevent expiration issues
+// Refresh tokens every 25 minutes to ensure they don't expire
+setInterval(async () => {
+  if (taskRunTokens.size === 0) {
+    return;
+  }
+
+  log("INFO", `Starting periodic token refresh for ${taskRunTokens.size} task runs`);
+
+  for (const [taskRunId, tokenInfo] of taskRunTokens.entries()) {
+    try {
+      if (!tokenInfo.convexUrl || !tokenInfo.teamSlugOrId) {
+        log("WARN", `Missing convexUrl or teamSlugOrId for task run ${taskRunId}, skipping token refresh`);
+        continue;
+      }
+
+      // Call the Convex mutation to refresh the JWT
+      const response = await fetch(`${tokenInfo.convexUrl}/api/mutation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenInfo.token}`,
+        },
+        body: JSON.stringify({
+          path: "taskRuns:refreshJwt",
+          args: {
+            teamSlugOrId: tokenInfo.teamSlugOrId,
+            taskRunId,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        log("ERROR", `Failed to refresh token for task run ${taskRunId}`, {
+          status: response.status,
+          statusText: response.statusText,
+        });
+        continue;
+      }
+
+      const result = await response.json();
+      const newToken = result.value?.jwt;
+
+      if (!newToken) {
+        log("ERROR", `No JWT returned from token refresh for task run ${taskRunId}`);
+        continue;
+      }
+
+      // Update the token in our map
+      taskRunTokens.set(taskRunId, {
+        ...tokenInfo,
+        token: newToken,
+      });
+
+      // Update Claude settings.json if it exists
+      const settingsPath = path.join(process.env.HOME || "/root", ".claude", "settings.json");
+      try {
+        const settingsContent = await fs.readFile(settingsPath, "utf-8");
+        const settings = JSON.parse(settingsContent);
+
+        if (settings.env && settings.env.ANTHROPIC_CUSTOM_HEADERS) {
+          settings.env.ANTHROPIC_CUSTOM_HEADERS = `x-cmux-token:${newToken}`;
+          await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+          log("INFO", `Updated Claude settings.json with refreshed token for task run ${taskRunId}`);
+        }
+      } catch (error) {
+        log("DEBUG", `Could not update settings.json (may not exist for this agent): ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Update the helper script that returns the token
+      const helperScriptPath = "/root/lifecycle/claude/secrets/anthropic_key_helper.sh";
+      try {
+        const helperScript = `#!/bin/sh\necho ${newToken}`;
+        await fs.writeFile(helperScriptPath, helperScript);
+        await fs.chmod(helperScriptPath, 0o700);
+        log("INFO", `Updated Claude helper script with refreshed token for task run ${taskRunId}`);
+      } catch (error) {
+        log("DEBUG", `Could not update helper script (may not exist for this agent): ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      log("INFO", `Successfully refreshed token for task run ${taskRunId}`);
+    } catch (error) {
+      log("ERROR", `Error refreshing token for task run ${taskRunId}`, error);
+    }
+  }
+}, 25 * 60 * 1000); // Run every 25 minutes
+
 // Graceful shutdown
 function gracefulShutdown() {
   console.log(`Worker ${WORKER_ID} shutting down...`);
@@ -1424,6 +1534,10 @@ function gracefulShutdown() {
     log("INFO", `Stopped file watcher for task ${taskRunId} during shutdown`);
   }
   activeFileWatchers.clear();
+
+  // Clear all task run token tracking
+  taskRunTokens.clear();
+  log("INFO", "Cleared all task run token tracking");
 
   // Close server
   io.close(() => {
