@@ -1,3 +1,4 @@
+import { trackModelUsage } from "@/lib/analytics/posthog-server";
 import { getAccessTokenFromRequest } from "@/lib/utils/auth";
 import {
   generateBranchNamesFromBase,
@@ -80,7 +81,7 @@ branchRouter.openapi(
       throw new HTTPException(401, { message: "Unauthorized" });
     }
 
-    await verifyTeamAccess({ req, teamSlugOrId: body.teamSlugOrId });
+    const team = await verifyTeamAccess({ req, teamSlugOrId: body.teamSlugOrId });
 
     const convex = getConvex({ accessToken });
 
@@ -100,6 +101,18 @@ branchRouter.openapi(
           count,
           body.uniqueId,
         );
+
+        trackModelUsage({
+          team,
+          modelProvider: "manual_pr_title",
+          usedFallback: false,
+          branchCount: branchNames.length,
+          taskDescriptionLength: body.taskDescription?.length ?? null,
+          taskDescriptionProvided: Boolean(body.taskDescription),
+          prTitleProvided: Boolean(body.prTitle),
+          uniqueIdProvided: Boolean(body.uniqueId),
+          source: "branch.fromTitle",
+        });
 
         return c.json({
           branchNames,
@@ -122,6 +135,19 @@ branchRouter.openapi(
           apiKeys,
           body.uniqueId,
         );
+
+        trackModelUsage({
+          team,
+          modelProvider: providerName,
+          usedFallback,
+          branchCount: 1,
+          taskDescriptionLength: body.taskDescription?.length ?? null,
+          taskDescriptionProvided: Boolean(body.taskDescription),
+          prTitleProvided: Boolean(body.prTitle),
+          uniqueIdProvided: Boolean(body.uniqueId),
+          source: "branch.generate",
+        });
+
         return c.json({
           branchNames: [branchName],
           baseBranchName,
@@ -143,6 +169,18 @@ branchRouter.openapi(
         apiKeys,
         body.uniqueId,
       );
+
+      trackModelUsage({
+        team,
+        modelProvider: providerName,
+        usedFallback,
+        branchCount: branchNames.length,
+        taskDescriptionLength: body.taskDescription?.length ?? null,
+        taskDescriptionProvided: Boolean(body.taskDescription),
+        prTitleProvided: Boolean(body.prTitle),
+        uniqueIdProvided: Boolean(body.uniqueId),
+        source: "branch.generateUnique",
+      });
 
       return c.json({
         branchNames,

@@ -1,5 +1,20 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Analytics
+
+The `apps/www` frontend now ships with optional [PostHog](https://posthog.com/) instrumentation. Provide the following environment variables to enable event capture:
+
+- `POSTHOG_API_KEY` – server-side project API key used when emitting events from API routes.
+- `POSTHOG_HOST` – optional override for the PostHog ingestion URL (defaults to `https://app.posthog.com`).
+- `NEXT_PUBLIC_POSTHOG_KEY` – client-side key for loading `posthog-js` in the browser.
+- `NEXT_PUBLIC_POSTHOG_HOST` – optional browser ingestion URL override (defaults to `https://app.posthog.com`).
+
+Tracked events today:
+
+- `sandbox_started` – fired after a Morph sandbox spin-up (includes team, environment linkage, hydration metadata, TTL, script flags, etc.).
+- `environment_created` – triggered when a new environment snapshot is registered (ports, selected repos, maintenance/dev script flags).
+- `model_usage` – records model provider usage for branch generation requests and fallback behaviour.
+
 ## Getting Started
 
 First, run the development server:

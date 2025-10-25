@@ -47,6 +47,8 @@
     "morphcloud": "^0.0.18",
     "next": "15.5.2",
     "octokit": "^3.2.2",
+    "posthog-js": "^1.280.1",
+    "posthog-node": "^5.10.3",
     "react": "^19.1.0",
     "react-diff-view": "^3.3.2",
     "react-dom": "^19.1.0",

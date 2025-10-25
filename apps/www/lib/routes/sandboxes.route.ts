@@ -1,3 +1,4 @@
+import { trackSandboxStarted } from "@/lib/analytics/posthog-server";
 import { getAccessTokenFromRequest } from "@/lib/utils/auth";
 import { getConvex } from "@/lib/utils/get-convex";
 import { selectGitIdentity } from "@/lib/utils/gitIdentity";
@@ -222,8 +223,10 @@ sandboxesRouter.openapi(
         envVarsToApply += `\nCMUX_TASK_RUN_JWT="${body.taskRunJwt}"`;
       }
 
+      const hasEnvVarsToApply = envVarsToApply.trim().length > 0;
+
       // Apply all environment variables if any
-      if (envVarsToApply.trim().length > 0) {
+      if (hasEnvVarsToApply) {
         try {
           const encodedEnv = encodeEnvContentForEnvctl(envVarsToApply);
           const loadRes = await instance.exec(envctlLoadCommand(encodedEnv));
@@ -342,6 +345,23 @@ sandboxesRouter.openapi(
       }
 
       await configureGitIdentityTask;
+
+      trackSandboxStarted({
+        team,
+        instanceId: instance.id,
+        snapshotId: resolvedSnapshotId,
+        environmentId: body.environmentId,
+        ttlSeconds: body.ttlSeconds,
+        metadata: body.metadata ?? null,
+        repoUrl: body.repoUrl ?? null,
+        branch: body.branch ?? null,
+        newBranch: body.newBranch ?? null,
+        depth: body.depth ?? null,
+        taskRunIdProvided: Boolean(body.taskRunId),
+        environmentVarsApplied: hasEnvVarsToApply,
+        maintenanceScriptConfigured: Boolean(maintenanceScript),
+        devScriptConfigured: Boolean(devScript),
+      });
 
       return c.json({
         instanceId: instance.id,

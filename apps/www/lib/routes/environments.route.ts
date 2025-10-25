@@ -1,3 +1,4 @@
+import { trackEnvironmentCreated } from "@/lib/analytics/posthog-server";
 import { getAccessTokenFromRequest } from "@/lib/utils/auth";
 import { getConvex } from "@/lib/utils/get-convex";
 import { stackServerAppJs } from "@/lib/utils/stack";
@@ -267,6 +268,16 @@ environmentsRouter.openapi(
           exposedPorts: sanitizedPorts.length > 0 ? sanitizedPorts : undefined,
         }
       );
+
+      trackEnvironmentCreated({
+        team,
+        environmentId,
+        snapshotId: snapshot.id,
+        exposedPorts: sanitizedPorts,
+        selectedRepos: body.selectedRepos ?? null,
+        maintenanceScript: body.maintenanceScript ?? null,
+        devScript: body.devScript ?? null,
+      });
 
       return c.json({
         id: environmentId,
