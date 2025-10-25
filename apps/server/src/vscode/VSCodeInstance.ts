@@ -2,6 +2,10 @@ import { Id } from "@cmux/convex/dataModel";
 import { connectToWorkerManagement } from "@cmux/shared/socket";
 import { EventEmitter } from "node:events";
 import { dockerLogger } from "../utils/fileLogger";
+import {
+  detectPreferredEditorSettings,
+  syncEditorSettingsToWorker,
+} from "../utils/editorSettingsSync";
 
 export interface VSCodeInstanceConfig {
   workspacePath?: string;
@@ -94,6 +98,13 @@ export abstract class VSCodeInstance extends EventEmitter {
         );
         this.workerConnected = true;
         this.emit("worker-connected");
+        // Fire and forget settings sync; errors are logged downstream
+        this.syncHostEditorSettings().catch((error) => {
+          dockerLogger.warn(
+            `[VSCodeInstance ${this.instanceId}] Failed to queue settings sync`,
+            error
+          );
+        });
         resolve();
       });
 
@@ -177,6 +188,72 @@ export abstract class VSCodeInstance extends EventEmitter {
         this.emit("worker-error", data);
       });
     });
+  }
+
+  protected async syncHostEditorSettings(): Promise<void> {
+    if (!this.workerSocket || !this.workerConnected) {
+      dockerLogger.debug(
+        `[VSCodeInstance ${this.instanceId}] Skipping settings sync; worker not connected`
+      );
+      return;
+    }
+
+    try {
+      const detection = await detectPreferredEditorSettings();
+      const { selection } = detection;
+      if (!selection) {
+        dockerLogger.info(
+          `[VSCodeInstance ${this.instanceId}] No host editor settings found`,
+          {
+            candidates: detection.all.map((candidate) => ({
+              id: candidate.id,
+              userDir: candidate.userDir,
+              hasSettings: Boolean(candidate.settings),
+            })),
+          }
+        );
+        return;
+      }
+
+      const hasFiles = Boolean(
+        selection.settings ||
+          selection.keybindings ||
+          selection.snippets.length > 0
+      );
+
+      if (!hasFiles) {
+        dockerLogger.info(
+          `[VSCodeInstance ${this.instanceId}] Host editor selection has no user files; skipping sync`
+        );
+        return;
+      }
+      await syncEditorSettingsToWorker({
+        workerSocket: this.workerSocket,
+        selection,
+        logger: {
+          info: (message, metadata) =>
+            dockerLogger.info(
+              `[VSCodeInstance ${this.instanceId}] ${message}`,
+              metadata
+            ),
+          warn: (message, metadata) =>
+            dockerLogger.warn(
+              `[VSCodeInstance ${this.instanceId}] ${message}`,
+              metadata
+            ),
+          error: (message, metadata) =>
+            dockerLogger.error(
+              `[VSCodeInstance ${this.instanceId}] ${message}`,
+              metadata
+            ),
+        },
+      });
+    } catch (error) {
+      dockerLogger.warn(
+        `[VSCodeInstance ${this.instanceId}] Error during settings detection`,
+        error
+      );
+    }
   }
 
   getWorkerSocket(): ReturnType<typeof connectToWorkerManagement> {
