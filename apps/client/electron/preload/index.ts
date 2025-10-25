@@ -154,6 +154,14 @@ const cmuxAPI = {
         updateAvailable?: boolean;
         version?: string | null;
       }>,
+    setAllowPrerelease: (allow: boolean) =>
+      ipcRenderer.invoke("cmux:auto-update:set-allow-prerelease", {
+        allowPrerelease: Boolean(allow),
+      }) as Promise<{
+        ok: boolean;
+        allowPrerelease: boolean;
+        checkTriggered?: boolean;
+      }>,
     install: () =>
       ipcRenderer.invoke("cmux:auto-update:install") as Promise<{
         ok: boolean;

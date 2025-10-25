@@ -83,6 +83,7 @@ let pendingProtocolUrl: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 let previewReloadMenuItem: MenuItem | null = null;
 let previewReloadMenuVisible = false;
+let allowPrereleasePreference = false;
 
 function getTimestamp(): string {
   return new Date().toISOString();
@@ -395,6 +396,63 @@ function registerAutoUpdateIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle(
+    "cmux:auto-update:set-allow-prerelease",
+    async (_event, payload) => {
+      const allow =
+        typeof payload === "object" && payload !== null
+          ? "allowPrerelease" in payload
+            ? Boolean(
+                (payload as { allowPrerelease?: unknown }).allowPrerelease
+              )
+            : Boolean(payload)
+          : Boolean(payload);
+
+      const previous = allowPrereleasePreference;
+      allowPrereleasePreference = allow;
+      autoUpdater.allowPrerelease = allow;
+
+      mainLog("Renderer updated allowPrerelease preference", {
+        previous,
+        next: allow,
+        packaged: app.isPackaged,
+      });
+
+      if (!app.isPackaged) {
+        return {
+          ok: true as const,
+          allowPrerelease: allow,
+          checkTriggered: false as const,
+        };
+      }
+
+      if (previous === allow) {
+        return {
+          ok: true as const,
+          allowPrerelease: allow,
+          checkTriggered: false as const,
+        };
+      }
+
+      try {
+        const result = await autoUpdater.checkForUpdates();
+        logUpdateCheckResult("Renderer setAllowPrerelease", result);
+        return {
+          ok: true as const,
+          allowPrerelease: allow,
+          checkTriggered: true as const,
+        };
+      } catch (error) {
+        mainWarn(
+          "Renderer setAllowPrerelease checkForUpdates failed",
+          error
+        );
+        const err = error instanceof Error ? error : new Error(String(error));
+        throw err;
+      }
+    }
+  );
+
   ipcMain.handle("cmux:auto-update:install", async () => {
     if (!app.isPackaged) {
       mainLog(
@@ -467,7 +525,7 @@ function setupAutoUpdates(): void {
 
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.allowPrerelease = false;
+    autoUpdater.allowPrerelease = allowPrereleasePreference;
 
     if (process.platform === "darwin") {
       const channel = "latest-universal";
@@ -485,6 +543,7 @@ function setupAutoUpdates(): void {
       autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
       allowPrerelease: autoUpdater.allowPrerelease,
       channel: autoUpdater.channel ?? null,
+      preference: allowPrereleasePreference,
     });
   } catch (e) {
     mainWarn("Failed to initialize autoUpdater", e);

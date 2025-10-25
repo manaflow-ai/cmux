@@ -40,6 +40,12 @@ function SettingsComponent() {
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [originalAutoPrEnabled, setOriginalAutoPrEnabled] =
     useState<boolean>(false);
+  const [alwaysUseLatestRelease, setAlwaysUseLatestRelease] =
+    useState<boolean>(false);
+  const [
+    originalAlwaysUseLatestRelease,
+    setOriginalAlwaysUseLatestRelease,
+  ] = useState<boolean>(false);
   // const [isSaveButtonVisible, setIsSaveButtonVisible] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveButtonRef = useRef<HTMLDivElement>(null);
@@ -59,6 +65,23 @@ function SettingsComponent() {
   } | null>(null);
   const [originalContainerSettingsData, setOriginalContainerSettingsData] =
     useState<typeof containerSettingsData>(null);
+
+  const applyAutoUpdatePreference = useCallback((value: boolean) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const cmux = window.cmux;
+    const setAllowPrerelease = cmux?.autoUpdate?.setAllowPrerelease;
+    if (!setAllowPrerelease) {
+      return;
+    }
+    void setAllowPrerelease(value).catch((error: unknown) => {
+      console.error(
+        "Failed to update auto-update prerelease preference",
+        error
+      );
+    });
+  }, []);
 
   // Get all required API keys from agent configs
   const apiKeys = Array.from(
@@ -85,6 +108,10 @@ function SettingsComponent() {
   // Query workspace settings
   const { data: workspaceSettings } = useQuery(
     convexQuery(api.workspaceSettings.get, { teamSlugOrId })
+  );
+
+  const { data: releasePreferences } = useQuery(
+    convexQuery(api.releasePreferences.get, { teamSlugOrId })
   );
 
   // Initialize form values when data loads
@@ -148,6 +175,18 @@ function SettingsComponent() {
     }
   }, [workspaceSettings]);
 
+  useEffect(() => {
+    if (releasePreferences !== undefined) {
+      const preference = (
+        releasePreferences as unknown as { alwaysUseLatestRelease?: boolean }
+      )?.alwaysUseLatestRelease;
+      const effective = preference === undefined ? false : Boolean(preference);
+      setAlwaysUseLatestRelease(effective);
+      setOriginalAlwaysUseLatestRelease(effective);
+      applyAutoUpdatePreference(effective);
+    }
+  }, [releasePreferences, applyAutoUpdatePreference]);
+
   // Track save button visibility
   // Footer-based save button; no visibility tracking needed
 
@@ -206,6 +245,10 @@ function SettingsComponent() {
     setShowKeys((prev) => ({ ...prev, [envVar]: !prev[envVar] }));
   };
 
+  const handleLatestReleaseToggle = useCallback((value: boolean) => {
+    setAlwaysUseLatestRelease(value);
+  }, []);
+
   const handleContainerSettingsChange = useCallback(
     (data: {
       maxRunningContainers: number;
@@ -244,9 +287,13 @@ function SettingsComponent() {
     // Auto PR toggle changes
     const autoPrChanged = autoPrEnabled !== originalAutoPrEnabled;
 
+    const releasePreferenceChanged =
+      alwaysUseLatestRelease !== originalAlwaysUseLatestRelease;
+
     return (
       worktreePathChanged ||
       autoPrChanged ||
+      releasePreferenceChanged ||
       apiKeysChanged ||
       containerSettingsChanged
     );
@@ -271,6 +318,15 @@ function SettingsComponent() {
         });
         setOriginalWorktreePath(worktreePath);
         setOriginalAutoPrEnabled(autoPrEnabled);
+      }
+
+      if (alwaysUseLatestRelease !== originalAlwaysUseLatestRelease) {
+        await convex.mutation(api.releasePreferences.update, {
+          teamSlugOrId,
+          alwaysUseLatestRelease,
+        });
+        setOriginalAlwaysUseLatestRelease(alwaysUseLatestRelease);
+        applyAutoUpdatePreference(alwaysUseLatestRelease);
       }
 
       // Save container settings if changed
@@ -619,33 +675,61 @@ function SettingsComponent() {
                 <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                   Crown Evaluator
                 </h2>
-              </div>
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                      Auto pull request for crown winner
-                    </label>
-                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                      When enabled, cmux automatically creates a pull request
-                      for the winning model’s code diff.
-                    </p>
-                  </div>
-                  <Switch
-                    aria-label="Auto pull request for crown winner"
-                    size="sm"
-                    color="primary"
-                    isSelected={autoPrEnabled}
-                    onValueChange={setAutoPrEnabled}
-                  />
+            </div>
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                    Auto pull request for crown winner
+                  </label>
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    When enabled, cmux automatically creates a pull request
+                    for the winning model’s code diff.
+                  </p>
                 </div>
+                <Switch
+                  aria-label="Auto pull request for crown winner"
+                  size="sm"
+                  color="primary"
+                  isSelected={autoPrEnabled}
+                  onValueChange={setAutoPrEnabled}
+                />
               </div>
             </div>
+          </div>
 
-            {/* Worktree Path */}
-            <div className="bg-white dark:bg-neutral-950 rounded-lg border border-neutral-200 dark:border-neutral-800">
-              <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
-                <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          {/* Release Preferences */}
+          <div className="bg-white dark:bg-neutral-950 rounded-lg border border-neutral-200 dark:border-neutral-800">
+            <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
+              <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                Updates
+              </h2>
+            </div>
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                    Always use the latest GitHub release
+                  </label>
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    Enable prerelease builds published to GitHub so cmux stays on the newest release as soon as it is available.
+                  </p>
+                </div>
+                <Switch
+                  aria-label="Always use the latest GitHub release"
+                  size="sm"
+                  color="primary"
+                  isSelected={alwaysUseLatestRelease}
+                  onValueChange={handleLatestReleaseToggle}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Worktree Path */}
+          <div className="bg-white dark:bg-neutral-950 rounded-lg border border-neutral-200 dark:border-neutral-800">
+            <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
+              <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                   Worktree Location
                 </h2>
               </div>

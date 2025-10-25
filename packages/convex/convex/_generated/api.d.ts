@@ -32,6 +32,7 @@ import type * as github_webhook from "../github_webhook.js";
 import type * as github_workflows from "../github_workflows.js";
 import type * as http from "../http.js";
 import type * as migrations from "../migrations.js";
+import type * as releasePreferences from "../releasePreferences.js";
 import type * as stack from "../stack.js";
 import type * as stack_webhook from "../stack_webhook.js";
 import type * as stack_webhook_actions from "../stack_webhook_actions.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   github_workflows: typeof github_workflows;
   http: typeof http;
   migrations: typeof migrations;
+  releasePreferences: typeof releasePreferences;
   stack: typeof stack;
   stack_webhook: typeof stack_webhook;
   stack_webhook_actions: typeof stack_webhook_actions;
