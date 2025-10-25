@@ -19,6 +19,7 @@ import {
 import { getConvex } from "./utils/convexClient";
 import { retryOnOptimisticConcurrency } from "./utils/convexRetry";
 import { serverLogger } from "./utils/fileLogger";
+import { collectPreferredEditorSettingsFiles } from "./utils/editorSettingsIntegration";
 import {
   getAuthHeaderJson,
   getAuthToken,
@@ -319,6 +320,36 @@ export async function spawnAgent(
           `[AgentSpawner] Removed ${envVar} from environment for ${agent.name} as requested by agent config`
         );
       }
+    }
+
+    try {
+      const { files: openVSCodeFiles, editorId: preferredEditorId } =
+        await collectPreferredEditorSettingsFiles();
+      if (openVSCodeFiles.length > 0) {
+        const existingPaths = new Set<string>(
+          authFiles.map((file) => file.destinationPath)
+        );
+        let addedCount = 0;
+        for (const file of openVSCodeFiles) {
+          if (existingPaths.has(file.destinationPath)) {
+            continue;
+          }
+          authFiles.push(file);
+          existingPaths.add(file.destinationPath);
+          addedCount += 1;
+        }
+        if (addedCount > 0) {
+          const editorLabel = preferredEditorId ?? "unknown";
+          serverLogger.info(
+            `[AgentSpawner] Added ${addedCount} editor setting file(s) from ${editorLabel}`
+          );
+        }
+      }
+    } catch (error) {
+      serverLogger.warn(
+        "[AgentSpawner] Failed to collect local editor settings for container sync",
+        error
+      );
     }
 
     // Replace $PROMPT placeholders in args with $CMUX_PROMPT token for shell-time expansion
