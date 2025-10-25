@@ -162,7 +162,17 @@ async function fetchTaskRunsForTask(
 
   const sortRuns = (items: TaskRunWithChildren[]) => {
     items.sort((a, b) => {
-      // Sort crowned runs first, then by creation time
+      const aPinned = Boolean(a.isPinned);
+      const bPinned = Boolean(b.isPinned);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      if (aPinned && bPinned) {
+        const aPinnedAt = a.pinnedAt ?? a.updatedAt ?? a.createdAt ?? 0;
+        const bPinnedAt = b.pinnedAt ?? b.updatedAt ?? b.createdAt ?? 0;
+        if (bPinnedAt !== aPinnedAt) return bPinnedAt - aPinnedAt;
+      }
+
+      // Sort crowned runs next, then by creation time
       if (a.isCrowned && !b.isCrowned) return -1;
       if (!a.isCrowned && b.isCrowned) return 1;
       return a.createdAt - b.createdAt;
@@ -208,6 +218,7 @@ export const create = authMutation({
       status: "pending",
       createdAt: now,
       updatedAt: now,
+      isPinned: false,
       userId,
       teamId,
       environmentId: args.environmentId,
@@ -251,6 +262,62 @@ export const getByTask = authQuery({
       userId,
       args.taskId as Id<"tasks">,
     );
+  },
+});
+
+export const getPinned = authQuery({
+  args: { teamSlugOrId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+
+    const runs = await ctx.db
+      .query("taskRuns")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId),
+      )
+      .filter((q) => q.eq(q.field("isPinned"), true))
+      .collect();
+
+    if (runs.length === 0) {
+      return [];
+    }
+
+    const normalizedRuns = runs.map((run) => {
+      if (!run.networking) {
+        return run;
+      }
+      return {
+        ...run,
+        networking: run.networking.map((item) => ({
+          ...item,
+          url: rewriteMorphUrl(item.url),
+        })),
+      };
+    });
+
+    normalizedRuns.sort((a, b) => {
+      const aPinnedAt = a.pinnedAt ?? a.updatedAt ?? a.createdAt;
+      const bPinnedAt = b.pinnedAt ?? b.updatedAt ?? b.createdAt;
+      return bPinnedAt - aPinnedAt;
+    });
+
+    const taskIds = Array.from(new Set(normalizedRuns.map((run) => run.taskId)));
+    const tasks = await Promise.all(taskIds.map((taskId) => ctx.db.get(taskId)));
+    const taskById = new Map<Id<"tasks">, Doc<"tasks">>();
+
+    for (const task of tasks) {
+      if (!task) continue;
+      if (task.teamId !== teamId || task.userId !== userId) continue;
+      taskById.set(task._id, task);
+    }
+
+    return normalizedRuns
+      .filter((run) => taskById.has(run.taskId))
+      .map((run) => ({
+        run,
+        task: taskById.get(run.taskId)!,
+      }));
   },
 });
 
@@ -907,6 +974,31 @@ export const toggleKeepAlive = authMutation({
           ? undefined
           : run.vscode.scheduledStopAt,
       },
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const setPinned = authMutation({
+  args: {
+    teamSlugOrId: v.string(),
+    id: v.id("taskRuns"),
+    isPinned: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const run = await ctx.db.get(args.id);
+    if (!run) {
+      throw new Error("Task run not found");
+    }
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    if (run.teamId !== teamId || run.userId !== userId) {
+      throw new Error("Unauthorized");
+    }
+
+    await ctx.db.patch(args.id, {
+      isPinned: args.isPinned,
+      pinnedAt: args.isPinned ? Date.now() : undefined,
       updatedAt: Date.now(),
     });
   },

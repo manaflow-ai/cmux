@@ -34,7 +34,25 @@ export const get = authQuery({
 
     // Note: order by createdAt desc, fallback to insertion order if not present
     const results = await q.collect();
-    return results.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    return results.sort((a, b) => {
+      const aPinned = Boolean(a.isPinned);
+      const bPinned = Boolean(b.isPinned);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      if (aPinned && bPinned) {
+        const aPinnedAt = a.pinnedAt ?? a.updatedAt ?? a.createdAt ?? 0;
+        const bPinnedAt = b.pinnedAt ?? b.updatedAt ?? b.createdAt ?? 0;
+        if (bPinnedAt !== aPinnedAt) {
+          return bPinnedAt - aPinnedAt;
+        }
+      }
+      const aUpdated = a.updatedAt ?? a.createdAt ?? 0;
+      const bUpdated = b.updatedAt ?? b.createdAt ?? 0;
+      if (bUpdated !== aUpdated) {
+        return bUpdated - aUpdated;
+      }
+      return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+    });
   },
 });
 
@@ -66,9 +84,25 @@ export const getTasksWithTaskRuns = authQuery({
     }
 
     const tasks = await q.collect();
-    const sortedTasks = tasks.sort(
-      (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
-    );
+    const sortedTasks = tasks.sort((a, b) => {
+      const aPinned = Boolean(a.isPinned);
+      const bPinned = Boolean(b.isPinned);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      if (aPinned && bPinned) {
+        const aPinnedAt = a.pinnedAt ?? a.updatedAt ?? a.createdAt ?? 0;
+        const bPinnedAt = b.pinnedAt ?? b.updatedAt ?? b.createdAt ?? 0;
+        if (bPinnedAt !== aPinnedAt) {
+          return bPinnedAt - aPinnedAt;
+        }
+      }
+      const aUpdated = a.updatedAt ?? a.createdAt ?? 0;
+      const bUpdated = b.updatedAt ?? b.createdAt ?? 0;
+      if (bUpdated !== aUpdated) {
+        return bUpdated - aUpdated;
+      }
+      return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+    });
 
     const tasksWithRuns = await Promise.all(
       sortedTasks.map(async (task) => {
@@ -138,6 +172,7 @@ export const create = authMutation({
       isCompleted: false,
       createdAt: now,
       updatedAt: now,
+      isPinned: false,
       images: args.images,
       userId,
       teamId,
@@ -189,6 +224,28 @@ export const setCompleted = authMutation({
     }
     await ctx.db.patch(args.id, {
       isCompleted: args.isCompleted,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const setPinned = authMutation({
+  args: {
+    teamSlugOrId: v.string(),
+    id: v.id("tasks"),
+    isPinned: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const task = await ctx.db.get(args.id);
+    if (task === null || task.teamId !== teamId || task.userId !== userId) {
+      throw new Error("Task not found or unauthorized");
+    }
+
+    await ctx.db.patch(args.id, {
+      isPinned: args.isPinned,
+      pinnedAt: args.isPinned ? Date.now() : undefined,
       updatedAt: Date.now(),
     });
   },

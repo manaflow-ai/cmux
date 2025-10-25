@@ -11,7 +11,7 @@ import { useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
 import { useQuery as useConvexQuery, useMutation } from "convex/react";
 // Read team slug from path to avoid route type coupling
-import { Archive, ArchiveRestore, Check, Copy, Pin } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Copy, Pin, PinOff } from "lucide-react";
 import { memo, useCallback, useMemo } from "react";
 
 interface TaskItemProps {
@@ -35,6 +35,7 @@ export const TaskItem = memo(function TaskItem({
 
   // Mutation for toggling keep-alive status
   const toggleKeepAlive = useMutation(api.taskRuns.toggleKeepAlive);
+  const setPinned = useMutation(api.tasks.setPinned);
 
   // Find the latest task run with a VSCode instance
   const getLatestVSCodeInstance = useCallback(() => {
@@ -104,6 +105,26 @@ export const TaskItem = memo(function TaskItem({
     clipboard.copy(task.text);
   }, [clipboard, task.text]);
 
+  const handleTogglePinned = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      void setPinned({
+        teamSlugOrId,
+        id: task._id,
+        isPinned: !task.isPinned,
+      });
+    },
+    [setPinned, task._id, task.isPinned, teamSlugOrId]
+  );
+
+  const handleTogglePinnedFromMenu = useCallback(() => {
+    void setPinned({
+      teamSlugOrId,
+      id: task._id,
+      isPinned: !task.isPinned,
+    });
+  }, [setPinned, task._id, task.isPinned, teamSlugOrId]);
+
   const handleToggleKeepAlive = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -168,6 +189,14 @@ export const TaskItem = memo(function TaskItem({
               )}
             />
             <div className="flex-1 min-w-0 flex items-center gap-2">
+              {task.isPinned ? (
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <Pin className="w-3 h-3 text-amber-500 rotate-45 flex-shrink-0" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Pinned task</TooltipContent>
+                </Tooltip>
+              ) : null}
               <span className="text-[14px] truncate min-w-0">{task.text}</span>
               {(task.projectFullName ||
                 (task.baseBranch && task.baseBranch !== "main")) && (
@@ -204,6 +233,17 @@ export const TaskItem = memo(function TaskItem({
               >
                 <Copy className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
                 <span>Copy Description</span>
+              </ContextMenu.Item>
+              <ContextMenu.Item
+                className="flex items-center gap-2 cursor-default py-1.5 pr-8 pl-3 text-[13px] leading-5 outline-none select-none data-[highlighted]:relative data-[highlighted]:z-0 data-[highlighted]:text-white data-[highlighted]:before:absolute data-[highlighted]:before:inset-x-1 data-[highlighted]:before:inset-y-0 data-[highlighted]:before:z-[-1] data-[highlighted]:before:rounded-sm data-[highlighted]:before:bg-neutral-900 dark:data-[highlighted]:before:bg-neutral-700"
+                onClick={handleTogglePinnedFromMenu}
+              >
+                {task.isPinned ? (
+                  <PinOff className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
+                ) : (
+                  <Pin className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300 rotate-45" />
+                )}
+                <span>{task.isPinned ? "Unpin Task" : "Pin Task"}</span>
               </ContextMenu.Item>
               {task.isArchived ? (
                 <ContextMenu.Item
@@ -251,6 +291,35 @@ export const TaskItem = memo(function TaskItem({
             </TooltipTrigger>
             <TooltipContent side="top">
               {clipboard.copied ? "Copied!" : "Copy description"}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Pin toggle button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleTogglePinned}
+                className={clsx(
+                  "p-1 rounded",
+                  "bg-neutral-100 dark:bg-neutral-700",
+                  task.isPinned
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-neutral-600 dark:text-neutral-400",
+                  "hover:bg-neutral-200 dark:hover:bg-neutral-600",
+                  "group-hover:opacity-100 opacity-0"
+                )}
+                title={task.isPinned ? "Unpin task" : "Pin task"}
+              >
+                <Pin
+                  className={clsx(
+                    "w-3.5 h-3.5 rotate-45",
+                    task.isPinned ? "fill-current" : null
+                  )}
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {task.isPinned ? "Unpin task" : "Pin task"}
             </TooltipContent>
           </Tooltip>
 

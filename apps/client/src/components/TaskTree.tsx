@@ -9,6 +9,7 @@ import { useArchiveTask } from "@/hooks/useArchiveTask";
 import { useOpenWithActions } from "@/hooks/useOpenWithActions";
 import { isElectron } from "@/lib/electron";
 import { isFakeConvexId } from "@/lib/fakeConvexId";
+import { getTaskRunDisplayText } from "@/lib/getTaskRunDisplayText";
 import type { AnnotatedTaskRun, TaskRunWithChildren } from "@/types/task";
 import { ContextMenu } from "@base-ui-components/react/context-menu";
 import { api } from "@cmux/convex/api";
@@ -16,7 +17,7 @@ import { type Doc, type Id } from "@cmux/convex/dataModel";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { Link, useLocation, type LinkProps } from "@tanstack/react-router";
 import clsx from "clsx";
-import { useQuery as useConvexQuery } from "convex/react";
+import { useQuery as useConvexQuery, useMutation } from "convex/react";
 import {
   AlertTriangle,
   Archive as ArchiveIcon,
@@ -36,6 +37,8 @@ import {
   Globe,
   Monitor,
   TerminalSquare,
+  Pin,
+  PinOff,
   Loader2,
   XCircle,
 } from "lucide-react";
@@ -91,20 +94,6 @@ interface TaskTreeProps {
   // When true, expand the task node on initial mount
   defaultExpanded?: boolean;
   teamSlugOrId: string;
-}
-
-// Extract the display text logic to avoid re-creating it on every render
-function getRunDisplayText(run: TaskRunWithChildren): string {
-  const fromRun = run.agentName?.trim();
-  if (fromRun && fromRun.length > 0) {
-    return fromRun;
-  }
-
-  if (run.summary) {
-    return run.summary;
-  }
-
-  return run.prompt.substring(0, 50) + "...";
 }
 
 type TaskRunExpansionState = Partial<Record<Id<"taskRuns">, boolean>>;
@@ -565,10 +554,11 @@ function TaskRunTreeInner({
   }, [isExpanded, isRunSelected, run._id, setRunExpanded]);
 
   const hasChildren = run.children.length > 0;
+  const setRunPinned = useMutation(api.taskRuns.setPinned);
 
   // Memoize the display text to avoid recalculating on every render
   const displayText = useMemo(() => {
-    const base = getRunDisplayText(run);
+    const base = getTaskRunDisplayText(run);
     if (!run.hasDuplicateAgentName) {
       return base;
     }
@@ -584,6 +574,14 @@ function TaskRunTreeInner({
     },
     [isExpanded, run._id, setRunExpanded]
   );
+
+  const handleTogglePinned = useCallback(() => {
+    void setRunPinned({
+      teamSlugOrId,
+      id: run._id,
+      isPinned: !run.isPinned,
+    });
+  }, [run._id, run.isPinned, setRunPinned, teamSlugOrId]);
 
   const statusIcon = {
     pending: <Circle className="w-3 h-3 text-neutral-400" />,
@@ -629,13 +627,23 @@ function TaskRunTreeInner({
     </Tooltip>
   ) : null;
 
-  const leadingContent = crownIcon ? (
+  const pinnedIndicator = run.isPinned ? (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <Pin className="w-3 h-3 text-amber-500 rotate-45" />
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={6}>
+        <span className="text-xs text-neutral-200">Pinned run</span>
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+
+  const statusIndicators = (
     <div className="flex items-center gap-1">
+      {pinnedIndicator}
       {crownIcon}
       {runLeadingIcon}
     </div>
-  ) : (
-    runLeadingIcon
   );
 
   // Generate VSCode URL if available
@@ -728,7 +736,7 @@ function TaskRunTreeInner({
               }}
               title={displayText}
               titleClassName="text-[13px] text-neutral-700 dark:text-neutral-300"
-              meta={leadingContent}
+              meta={statusIndicators}
             />
           </Link>
         </ContextMenu.Trigger>
@@ -790,6 +798,18 @@ function TaskRunTreeInner({
                   <div className="my-1 h-px bg-neutral-200 dark:bg-neutral-700" />
                 </>
               ) : null}
+              <ContextMenu.Item
+                className="flex items-center gap-2 cursor-default py-1.5 pr-8 pl-3 text-[13px] leading-5 outline-none select-none data-[highlighted]:relative data-[highlighted]:z-0 data-[highlighted]:text-white data-[highlighted]:before:absolute data-[highlighted]:before:inset-x-1 data-[highlighted]:before:inset-y-0 data-[highlighted]:before:z-[-1] data-[highlighted]:before:rounded-sm data-[highlighted]:before:bg-neutral-900 dark:data-[highlighted]:before:bg-neutral-700"
+                onClick={handleTogglePinned}
+              >
+                {run.isPinned ? (
+                  <PinOff className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
+                ) : (
+                  <Pin className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300 rotate-45" />
+                )}
+                <span>{run.isPinned ? "Unpin run" : "Pin run"}</span>
+              </ContextMenu.Item>
+              <div className="my-1 h-px bg-neutral-200 dark:bg-neutral-700" />
               <ContextMenu.Item
                 className="flex items-center gap-2 cursor-default py-1.5 pr-8 pl-3 text-[13px] leading-5 outline-none select-none data-[highlighted]:relative data-[highlighted]:z-0 data-[highlighted]:text-white data-[highlighted]:before:absolute data-[highlighted]:before:inset-x-1 data-[highlighted]:before:inset-y-0 data-[highlighted]:before:z-[-1] data-[highlighted]:before:rounded-sm data-[highlighted]:before:bg-neutral-900 dark:data-[highlighted]:before:bg-neutral-700"
                 onClick={() => setRunExpanded(run._id, !isExpanded)}
