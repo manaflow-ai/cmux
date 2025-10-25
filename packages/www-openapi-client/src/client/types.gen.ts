@@ -338,6 +338,32 @@ export type SetupInstanceBody = {
     snapshotId?: string | ('snapshot_2nwm6jjm' | 'snapshot_a0wb2lw8');
 };
 
+export type PlanChatResponse = {
+    reply: string;
+    tasks?: Array<{
+        title: string;
+        prompt: string;
+        rationale?: string;
+        priority?: 'high' | 'medium' | 'low';
+    }>;
+    followUpQuestions?: Array<string>;
+    model: string;
+};
+
+export type PlanChatBody = {
+    teamSlugOrId: string;
+    repoFullName?: string;
+    branch?: string;
+    messages: Array<{
+        role: 'user' | 'assistant';
+        content: string;
+    }>;
+    contextSnippets?: Array<{
+        path: string;
+        content: string;
+    }>;
+};
+
 export type CreateEnvironmentResponse = {
     id: string;
     snapshotId: string;
@@ -1488,6 +1514,41 @@ export type PostApiMorphSetupInstanceResponses = {
 };
 
 export type PostApiMorphSetupInstanceResponse = PostApiMorphSetupInstanceResponses[keyof PostApiMorphSetupInstanceResponses];
+
+export type PostApiPlanChatData = {
+    body: PlanChatBody;
+    path?: never;
+    query?: never;
+    url: '/api/plan/chat';
+};
+
+export type PostApiPlanChatErrors = {
+    /**
+     * Missing OpenAI credentials
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Failed to generate plan
+     */
+    500: unknown;
+};
+
+export type PostApiPlanChatResponses = {
+    /**
+     * Generated plan response
+     */
+    200: PlanChatResponse;
+};
+
+export type PostApiPlanChatResponse = PostApiPlanChatResponses[keyof PostApiPlanChatResponses];
 
 export type GetApiIframePreflightData = {
     body?: never;
