@@ -511,6 +511,17 @@ jobs:
               gh release upload "$RELEASE_TAG" "$artifact" --repo "$REPO" --clobber
             fi
           done
+      - name: Upload macOS arm64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-artifacts
+          path: |
+            apps/client/dist-electron/*.dmg
+            apps/client/dist-electron/*.zip
+            apps/client/dist-electron/*.yml
+            apps/client/dist-electron/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
 
   windows-x64:
     name: Windows x64
@@ -561,7 +572,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_FLAG: ${{ github.event_name == 'release' && 'always' || 'never' }}
         working-directory: apps/client
-        run: bunx electron-vite build -c electron.vite.config.ts && bunx electron-builder --config electron-builder.json --win --x64 --publish always --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}"
+        run: bunx electron-vite build -c electron.vite.config.ts && bunx electron-builder --config electron-builder.json --win --x64 --publish "$env:PUBLISH_FLAG" --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}"
+      - name: Upload Windows x64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-artifacts
+          path: |
+            apps/client/dist-electron/*.exe
+            apps/client/dist-electron/*.yml
+            apps/client/dist-electron/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
 
   linux-x64:
     name: Linux x64
@@ -585,8 +606,22 @@ jobs:
           toolchain: stable
           profile: minimal
           targets: x86_64-unknown-linux-gnu
+      - name: Install system dependencies for AppImage and deb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 fakeroot dpkg
       - name: Install dependencies (bun)
         run: bun install --frozen-lockfile
+      - name: Ensure local production node_modules (apps/client)
+        working-directory: apps/client
+        run: |
+          set -euo pipefail
+          # electron-builder needs a local node_modules, not just workspace symlinks
+          # On Linux with limited disk, rely on bun install in apps/client
+          if [ ! -d "node_modules" ]; then
+            echo "Installing local node_modules..."
+            bun install --frozen-lockfile
+          fi
       - name: Write .env for build
         shell: bash
         run: |
@@ -604,9 +639,95 @@ jobs:
       - name: Generate icons
         working-directory: apps/client
         run: bun run ./scripts/generate-icons.mjs
-      - name: Build & publish Linux AppImage x64 to GitHub Releases
+      - name: Build & publish Linux x64 packages to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_FLAG: ${{ github.event_name == 'release' && 'always' || 'never' }}
         working-directory: apps/client
-        run: bunx electron-vite build -c electron.vite.config.ts && bunx electron-builder --config electron-builder.json --linux AppImage --x64 --publish always --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}"
+        run: bunx electron-vite build -c electron.vite.config.ts && bunx electron-builder --config electron-builder.json --linux --x64 --publish "$PUBLISH_FLAG" --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}"
+      - name: Upload Linux x64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-artifacts
+          path: |
+            apps/client/dist-electron/*.AppImage
+            apps/client/dist-electron/*.deb
+            apps/client/dist-electron/*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-arm64:
+    name: Linux arm64
+    needs: prepare-release
+    environment: electron
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          profile: minimal
+          targets: aarch64-unknown-linux-gnu
+      - name: Install system dependencies for AppImage, deb, and cross-compilation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 fakeroot dpkg gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+      - name: Install dependencies (bun)
+        run: bun install --frozen-lockfile
+      - name: Ensure local production node_modules (apps/client)
+        working-directory: apps/client
+        run: |
+          set -euo pipefail
+          # electron-builder needs a local node_modules, not just workspace symlinks
+          # On Linux with limited disk, rely on bun install in apps/client
+          if [ ! -d "node_modules" ]; then
+            echo "Installing local node_modules..."
+            bun install --frozen-lockfile
+          fi
+      - name: Write .env for build
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          NEXT_PUBLIC_CONVEX_URL=${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+          NEXT_PUBLIC_STACK_PROJECT_ID=${{ secrets.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=${{ secrets.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          NEXT_PUBLIC_WWW_ORIGIN=${{ secrets.NEXT_PUBLIC_WWW_ORIGIN }}
+          NEXT_PUBLIC_GITHUB_APP_SLUG=${{ secrets.NEXT_PUBLIC_GITHUB_APP_SLUG }}
+          EOF
+      - name: Build native Rust addon for ARM64
+        working-directory: apps/server/native/core
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+        run: bunx --bun @napi-rs/cli build --platform --release --target aarch64-unknown-linux-gnu
+      - name: Generate icons
+        working-directory: apps/client
+        run: bun run ./scripts/generate-icons.mjs
+      - name: Build & publish Linux arm64 packages to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_FLAG: ${{ github.event_name == 'release' && 'always' || 'never' }}
+        working-directory: apps/client
+        run: bunx electron-vite build -c electron.vite.config.ts && bunx electron-builder --config electron-builder.json --linux --arm64 --publish "$PUBLISH_FLAG" --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}"
+      - name: Upload Linux arm64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-artifacts
+          path: |
+            apps/client/dist-electron/*.AppImage
+            apps/client/dist-electron/*.deb
+            apps/client/dist-electron/*.yml
+          if-no-files-found: error
+          retention-days: 7
