@@ -1,4 +1,5 @@
 import { api } from "@cmux/convex/api";
+import type { Id } from "@cmux/convex/dataModel";
 import {
   ArchiveTaskSchema,
   GitFullDiffRequestSchema,
@@ -47,6 +48,7 @@ import { getOctokit } from "./utils/octokit";
 import { checkAllProvidersStatus } from "./utils/providerStatus";
 import { refreshGitHubData } from "./utils/refreshGitHubData";
 import { runWithAuth, runWithAuthToken } from "./utils/requestContext";
+import { getRunBranchStatus, syncRunWithBase } from "./utils/runSync";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
 import { getProjectPaths } from "./workspace";
 import {
@@ -70,6 +72,14 @@ const GitSocketDiffRequestSchema = z.object({
   maxBytes: z.number().optional(),
   lastKnownBaseSha: z.string().optional(),
   lastKnownMergeCommitSha: z.string().optional(),
+});
+
+const TaskRunSyncStatusSchema = z.object({
+  taskRunId: z.string(),
+});
+
+const TaskRunSyncSchema = z.object({
+  taskRunId: z.string(),
 });
 
 const IframePreflightRequestSchema = z.object({
@@ -318,6 +328,40 @@ export function setupSocketHandlers(
           ok: false,
           error: error instanceof Error ? error.message : "Unknown error",
           diffs: [],
+        });
+      }
+    });
+
+    socket.on("task-run-sync-status", async (data, callback) => {
+      try {
+        const { taskRunId } = TaskRunSyncStatusSchema.parse(data ?? {});
+        const status = await getRunBranchStatus({
+          taskRunId: taskRunId as Id<"taskRuns">,
+          teamSlugOrId: safeTeam,
+        });
+        callback?.({ ok: true, status });
+      } catch (error) {
+        serverLogger.error("Error in task-run-sync-status:", error);
+        callback?.({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    socket.on("task-run-sync", async (data, callback) => {
+      try {
+        const { taskRunId } = TaskRunSyncSchema.parse(data ?? {});
+        const result = await syncRunWithBase({
+          taskRunId: taskRunId as Id<"taskRuns">,
+          teamSlugOrId: safeTeam,
+        });
+        callback?.(result);
+      } catch (error) {
+        serverLogger.error("Error in task-run-sync:", error);
+        callback?.({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unknown error",
         });
       }
     });

@@ -14,14 +14,20 @@ import { useSocket } from "@/contexts/socket/use-socket";
 import { normalizeGitRef } from "@/lib/refWithOrigin";
 import { cn } from "@/lib/utils";
 import { gitDiffQueryOptions } from "@/queries/git-diff";
+import { performRunSync, runSyncStatusQueryOptions } from "@/queries/run-sync";
 import { api } from "@cmux/convex/api";
 import type { Doc, Id } from "@cmux/convex/dataModel";
-import type { TaskAcknowledged, TaskStarted, TaskError } from "@cmux/shared";
+import type {
+  TaskAcknowledged,
+  TaskStarted,
+  TaskError,
+  RunBranchStatus,
+} from "@cmux/shared";
 import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
 import { Switch } from "@heroui/react";
-import { useQuery as useRQ } from "@tanstack/react-query";
+import { useQuery as useRQ, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { Command } from "lucide-react";
@@ -67,6 +73,56 @@ type TaskRunWithChildren = Doc<"taskRuns"> & {
 };
 
 const AVAILABLE_AGENT_NAMES = new Set(AGENT_CONFIGS.map((agent) => agent.name));
+
+type AutoSyncReason = "merge-in-progress" | "pull-error" | "pull-exception";
+
+function buildAutoSyncPrompt({
+  task,
+  run,
+  status,
+  reason,
+}: {
+  task: Doc<"tasks">;
+  run: TaskRunWithChildren;
+  status?: RunBranchStatus;
+  reason: AutoSyncReason;
+}): string {
+  const baseBranch = task.baseBranch || "main";
+  const branchName = run.newBranch || "(unknown branch)";
+  const lines: string[] = [];
+
+  if (reason === "merge-in-progress") {
+    lines.push(
+      "A previous sync attempt left the repository mid-merge. Finish syncing the branch with the latest base.",
+    );
+  } else {
+    lines.push(
+      `Sync the branch ${branchName} with the latest commits on origin/${baseBranch}.`,
+    );
+  }
+
+  if (status?.behind) {
+    lines.push(
+      `The branch is currently ${status.behind} commit${status.behind === 1 ? "" : "s"} behind origin/${baseBranch}.`,
+    );
+  }
+
+  if (status?.mergeInProgress) {
+    lines.push(
+      "A merge conflict is already in progress; resolve every conflicting file, stage the results, and complete the merge.",
+    );
+  } else {
+    lines.push(
+      `Pull from origin/${baseBranch}, resolve any conflicts, and ensure the project still builds and tests successfully.`,
+    );
+  }
+
+  lines.push(
+    "Leave a brief summary of what changed so reviewers understand the resolution steps.",
+  );
+
+  return lines.join(" ");
+}
 
 interface RestartTaskFormProps {
   task: Doc<"tasks"> | null | undefined;
@@ -386,6 +442,98 @@ const RestartTaskForm = memo(function RestartTaskForm({
   );
 });
 
+interface RunSyncBannerProps {
+  status?: RunBranchStatus;
+  isLoading: boolean;
+  onSync: () => void;
+  isSyncing: boolean;
+  isDeployingAgent: boolean;
+  baseBranchLabel: string;
+}
+
+function RunSyncBanner({
+  status,
+  isLoading,
+  onSync,
+  isSyncing,
+  isDeployingAgent,
+  baseBranchLabel,
+}: RunSyncBannerProps) {
+  const branchLabel = baseBranchLabel || "main";
+
+  let primaryText = `Checking sync status for origin/${branchLabel}…`;
+  let secondaryText: string | null = null;
+  let toneClass = "text-neutral-600 dark:text-neutral-300";
+  let actionLabel = "Sync";
+  let showAction = false;
+
+  if (!isLoading && status) {
+    if (status.status === "up_to_date" && !status.mergeInProgress) {
+      primaryText = `Branch is up to date with origin/${branchLabel}.`;
+      toneClass = "text-green-600 dark:text-green-400";
+    } else if (status.mergeInProgress) {
+      primaryText = `Merge conflicts detected while syncing with origin/${branchLabel}.`;
+      secondaryText =
+        "Handing off to an agent will finish the merge and resolve conflicts.";
+      toneClass = "text-amber-600 dark:text-amber-400";
+      actionLabel = "Deploy Agent";
+      showAction = true;
+    } else if (status.status === "behind") {
+      primaryText = `Branch is ${status.behind} commit${status.behind === 1 ? "" : "s"} behind origin/${branchLabel}.`;
+      secondaryText = "Sync now to pull the latest changes.";
+      toneClass = "text-amber-600 dark:text-amber-400";
+      showAction = true;
+    } else {
+      primaryText = `Unable to confirm if branch is current with origin/${branchLabel}.`;
+      secondaryText = "You can still attempt to sync or deploy an agent.";
+      showAction = true;
+    }
+  } else if (!isLoading) {
+    primaryText = `Unable to load sync status for origin/${branchLabel}.`;
+    secondaryText = "You can attempt to sync anyway.";
+    showAction = true;
+  }
+
+  const warnings = status?.warnings?.filter((warning, index, arr) =>
+    arr.indexOf(warning) === index,
+  );
+
+  const isBusy = isSyncing || isDeployingAgent;
+  if (isBusy) {
+    actionLabel = isDeployingAgent ? "Deploying…" : "Syncing…";
+  }
+
+  return (
+    <div className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-1">
+        <span className={cn("text-sm font-medium", toneClass)}>{primaryText}</span>
+        {secondaryText ? (
+          <span className="text-xs text-neutral-600 dark:text-neutral-400">
+            {secondaryText}
+          </span>
+        ) : null}
+        {warnings && warnings.length > 0 ? (
+          <ul className="text-xs text-neutral-500 dark:text-neutral-400 list-disc pl-4 space-y-0.5">
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      {showAction ? (
+        <Button
+          size="sm"
+          onClick={onSync}
+          disabled={isBusy}
+          className="self-start md:self-auto"
+        >
+          {actionLabel}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 RestartTaskForm.displayName = "RestartTaskForm";
 
 function collectAgentNamesFromRuns(
@@ -588,6 +736,11 @@ export const Route = createFileRoute(
 function RunDiffPage() {
   const { taskId, teamSlugOrId, runId } = Route.useParams();
   const [diffControls, setDiffControls] = useState<DiffControls | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isDeployingAgent, setIsDeployingAgent] = useState(false);
+  const queryClient = useQueryClient();
+  const { theme } = useTheme();
+  const { addTaskToExpand: addTaskToExpandGlobal } = useExpandTasks();
   const task = useQuery(api.tasks.getById, {
     teamSlugOrId,
     id: taskId,
@@ -599,6 +752,21 @@ function RunDiffPage() {
   const selectedRun = useMemo(() => {
     return taskRuns?.find((run) => run._id === runId);
   }, [runId, taskRuns]);
+
+  const syncStatusQueryOptions = useMemo(
+    () =>
+      runSyncStatusQueryOptions({
+        taskRunId: selectedRun?._id ?? "",
+        teamSlugOrId,
+        enabled: Boolean(selectedRun?._id),
+      }),
+    [selectedRun?._id, teamSlugOrId],
+  );
+
+  const runSyncStatusQuery = useRQ(syncStatusQueryOptions);
+  const syncStatus = runSyncStatusQuery.data;
+  const isSyncStatusLoading =
+    runSyncStatusQuery.isPending || runSyncStatusQuery.isFetching;
 
   // Get PR information from the selected run
   const pullRequests = useMemo(() => {
@@ -705,6 +873,236 @@ function RunDiffPage() {
     return [];
   }, [selectedRun?.agentName, taskRuns]);
 
+  const createFollowUpTask = useMutation(api.tasks.create);
+
+  const deployAgentForSync = useCallback(
+    async (reason: AutoSyncReason, status?: RunBranchStatus) => {
+      if (isDeployingAgent) {
+        return;
+      }
+      if (!task) {
+        toast.error("Task data is still loading. Try again in a moment.");
+        return;
+      }
+      if (!selectedRun) {
+        toast.error("Run data is unavailable. Refresh and try again.");
+        return;
+      }
+      if (!socket) {
+        toast.error("Socket not connected. Refresh or try again later.");
+        return;
+      }
+      if (restartAgents.length === 0) {
+        toast.error(
+          "No previous agents found for this task. Start a new run from the dashboard.",
+        );
+        return;
+      }
+
+      const projectFullNameForSocket =
+        task.projectFullName ??
+        (task.environmentId ? `env:${task.environmentId}` : undefined);
+
+      if (!projectFullNameForSocket) {
+        toast.error("Missing repository or environment to deploy the agent.");
+        return;
+      }
+
+      setIsDeployingAgent(true);
+      const prompt = buildAutoSyncPrompt({
+        task,
+        run: selectedRun,
+        status,
+        reason,
+      });
+
+      const imagesPayload =
+        task.images && task.images.length > 0
+          ? task.images.map((image) => ({
+              storageId: image.storageId,
+              fileName: image.fileName,
+              altText: image.altText,
+            }))
+          : undefined;
+
+      try {
+        const newTaskId = await createFollowUpTask({
+          teamSlugOrId,
+          text: prompt,
+          projectFullName: task.projectFullName ?? undefined,
+          baseBranch: task.baseBranch ?? undefined,
+          images: imagesPayload,
+          environmentId: task.environmentId ?? undefined,
+        });
+
+        addTaskToExpandGlobal(newTaskId);
+
+        const repoUrl = projectFullNameForSocket.startsWith("env:")
+          ? undefined
+          : `https://github.com/${projectFullNameForSocket}.git`;
+
+        const handleRestartAck = (
+          response: TaskAcknowledged | TaskStarted | TaskError,
+        ) => {
+          if ("error" in response) {
+            toast.error(`Failed to deploy agent: ${response.error}`);
+            return;
+          }
+
+          attachTaskLifecycleListeners(socket, response.taskId, {
+            onFailed: (payload) => {
+              toast.error(
+                `Auto-sync agent failed to start: ${payload.error}`,
+              );
+            },
+          });
+        };
+
+        socket.emit(
+          "start-task",
+          {
+            ...(repoUrl ? { repoUrl } : {}),
+            ...(task.baseBranch ? { branch: task.baseBranch } : {}),
+            taskDescription: prompt,
+            projectFullName: projectFullNameForSocket,
+            taskId: newTaskId,
+            selectedAgents: [...restartAgents],
+            isCloudMode: restartIsCloudMode,
+            ...(task.environmentId ? { environmentId: task.environmentId } : {}),
+            theme,
+          },
+          handleRestartAck,
+        );
+
+        toast.info("Deploying an agent to resolve sync issues…");
+
+        void queryClient.invalidateQueries({
+          queryKey: syncStatusQueryOptions.queryKey,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error ?? "");
+        toast.error("Failed to deploy agent", { description: message });
+      } finally {
+        setIsDeployingAgent(false);
+      }
+    },
+    [
+      addTaskToExpandGlobal,
+      createFollowUpTask,
+      isDeployingAgent,
+      queryClient,
+      restartAgents,
+      restartIsCloudMode,
+      selectedRun,
+      socket,
+      syncStatusQueryOptions.queryKey,
+      task,
+      teamSlugOrId,
+      theme,
+    ],
+  );
+
+  const invalidateDiffQueries = useCallback(async () => {
+    if (!selectedRun) {
+      return;
+    }
+    const baseRefForDiff = normalizeGitRef(task?.baseBranch || "main");
+    const headRefForDiff = normalizeGitRef(selectedRun.newBranch);
+    if (!baseRefForDiff || !headRefForDiff || !primaryRepo) {
+      return;
+    }
+
+    const repos = [primaryRepo, ...additionalRepos];
+    await Promise.all(
+      repos.map((repo) => {
+        const options = gitDiffQueryOptions({
+          repoFullName: repo,
+          baseRef: baseRefForDiff,
+          headRef: headRefForDiff,
+          lastKnownBaseSha: metadataByRepo?.[repo]?.lastKnownBaseSha,
+          lastKnownMergeCommitSha: metadataByRepo?.[repo]?.lastKnownMergeCommitSha,
+        });
+        return queryClient.invalidateQueries({ queryKey: options.queryKey });
+      }),
+    );
+  }, [
+    additionalRepos,
+    metadataByRepo,
+    primaryRepo,
+    queryClient,
+    selectedRun,
+    task?.baseBranch,
+  ]);
+
+  const handleSync = useCallback(async () => {
+    if (isSyncing || isDeployingAgent) {
+      return;
+    }
+    if (!selectedRun) {
+      toast.error("Run data is unavailable. Refresh and try again.");
+      return;
+    }
+    if (!task) {
+      toast.error("Task data is still loading. Try again in a moment.");
+      return;
+    }
+
+    if (syncStatus?.mergeInProgress) {
+      await deployAgentForSync("merge-in-progress", syncStatus);
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const response = await performRunSync(selectedRun._id);
+
+      if (response.ok) {
+        const branchLabel = task.baseBranch || "main";
+        toast.success(`Synced with origin/${branchLabel}.`);
+        if (response.status) {
+          queryClient.setQueryData(
+            syncStatusQueryOptions.queryKey,
+            response.status,
+          );
+        } else {
+          void runSyncStatusQuery.refetch();
+        }
+        await invalidateDiffQueries();
+        return;
+      }
+
+      if (response.status) {
+        queryClient.setQueryData(
+          syncStatusQueryOptions.queryKey,
+          response.status,
+        );
+      }
+      toast.error("Sync failed", {
+        description: response.error,
+      });
+      await deployAgentForSync("pull-error", response.status);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "");
+      toast.error("Sync failed", { description: message });
+      await deployAgentForSync("pull-exception", syncStatus);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [
+    deployAgentForSync,
+    invalidateDiffQueries,
+    isDeployingAgent,
+    isSyncing,
+    queryClient,
+    runSyncStatusQuery,
+    selectedRun,
+    syncStatus,
+    syncStatusQueryOptions.queryKey,
+    task,
+  ]);
+
   const taskRunId = selectedRun?._id ?? runId;
   const restartTaskPersistenceKey = `restart-task-${taskId}-${runId}`;
 
@@ -764,32 +1162,42 @@ function RunDiffPage() {
                 ))}
               </Suspense>
             )}
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-neutral-500 dark:text-neutral-400 text-sm select-none">
-                    Loading diffs...
-                  </div>
-                </div>
-              }
-            >
-              {hasDiffSources ? (
-                <RunDiffSection
-                  repoFullName={primaryRepo as string}
-                  additionalRepoFullNames={additionalRepos}
-                  withRepoPrefix={shouldPrefixDiffs}
-                  ref1={baseRef}
-                  ref2={headRef}
-                  onControlsChange={setDiffControls}
-                  classNames={gitDiffViewerClassNames}
-                  metadataByRepo={metadataByRepo}
+            {hasDiffSources ? (
+              <>
+                <RunSyncBanner
+                  status={syncStatus}
+                  isLoading={isSyncStatusLoading}
+                  onSync={handleSync}
+                  isSyncing={isSyncing}
+                  isDeployingAgent={isDeployingAgent}
+                  baseBranchLabel={task?.baseBranch || "main"}
                 />
-              ) : (
-                <div className="p-6 text-sm text-neutral-600 dark:text-neutral-300">
-                  Missing repo or branches to show diff.
-                </div>
-              )}
-            </Suspense>
+                <Suspense
+                  fallback={
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-neutral-500 dark:text-neutral-400 text-sm select-none">
+                        Loading diffs...
+                      </div>
+                    </div>
+                  }
+                >
+                  <RunDiffSection
+                    repoFullName={primaryRepo as string}
+                    additionalRepoFullNames={additionalRepos}
+                    withRepoPrefix={shouldPrefixDiffs}
+                    ref1={baseRef}
+                    ref2={headRef}
+                    onControlsChange={setDiffControls}
+                    classNames={gitDiffViewerClassNames}
+                    metadataByRepo={metadataByRepo}
+                  />
+                </Suspense>
+              </>
+            ) : (
+              <div className="p-6 text-sm text-neutral-600 dark:text-neutral-300">
+                Missing repo or branches to show diff.
+              </div>
+            )}
             <RestartTaskForm
               key={restartTaskPersistenceKey}
               task={task}
