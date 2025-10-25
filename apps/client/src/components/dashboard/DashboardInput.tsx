@@ -9,6 +9,7 @@ import {
   useRef,
 } from "react";
 import type { Id } from "@cmux/convex/dataModel";
+import { isElectron } from "@/lib/electron";
 
 export interface EditorApi {
   getContent: () => {
@@ -288,6 +289,57 @@ export const DashboardInput = memo(
         document.removeEventListener("pointerup", handlePointerEvent, true);
         document.removeEventListener("keydown", handleKeyEvent, true);
         document.removeEventListener("keyup", handleKeyEvent, true);
+      };
+    }, []);
+
+    useEffect(() => {
+      if (!isElectron) {
+        return;
+      }
+
+      const handleContextMenu = (event: MouseEvent) => {
+        const target = event.target;
+        const elementTarget =
+          target instanceof Element
+            ? target
+            : target instanceof Text
+              ? target.parentElement
+              : null;
+
+        if (!elementTarget) {
+          return;
+        }
+
+        if (!elementTarget.closest(".dashboard-input-editor")) {
+          return;
+        }
+
+        const bridge = window as typeof window & {
+          cmux?: {
+            ui?: {
+              showEditContextMenu?: (position?: {
+                x?: number;
+                y?: number;
+              }) => Promise<{ ok: boolean }>;
+            };
+          };
+        };
+        const showMenu = bridge.cmux?.ui?.showEditContextMenu;
+        if (!showMenu) {
+          return;
+        }
+
+        event.preventDefault();
+        const x = Number.isFinite(event.screenX) ? event.screenX : undefined;
+        const y = Number.isFinite(event.screenY) ? event.screenY : undefined;
+
+        void showMenu({ x, y });
+      };
+
+      document.addEventListener("contextmenu", handleContextMenu);
+
+      return () => {
+        document.removeEventListener("contextmenu", handleContextMenu);
       };
     }, []);
 

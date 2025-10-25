@@ -121,6 +121,12 @@ const cmuxAPI = {
         Boolean(open)
       ) as Promise<{ ok: boolean }>;
     },
+    showEditContextMenu: (position?: { x?: number; y?: number }) => {
+      return ipcRenderer.invoke("cmux:ui:show-edit-context-menu", {
+        x: typeof position?.x === "number" ? position.x : undefined,
+        y: typeof position?.y === "number" ? position.y : undefined,
+      }) as Promise<{ ok: boolean }>;
+    },
     setPreviewReloadVisible: (visible: boolean) => {
       return ipcRenderer.invoke(
         "cmux:ui:set-preview-reload-visible",
