@@ -1,11 +1,15 @@
-export async function checkClaudeRequirements(): Promise<string[]> {
+import type { ProviderRequirementsContext } from "../../agentConfig.js";
+
+export async function checkClaudeRequirements(
+  context?: ProviderRequirementsContext
+): Promise<string[]> {
   const { access } = await import("node:fs/promises");
   const { homedir } = await import("node:os");
   const { join } = await import("node:path");
   const { exec } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const execAsync = promisify(exec);
-  
+
   const missing: string[] = [];
 
   try {
@@ -13,6 +17,14 @@ export async function checkClaudeRequirements(): Promise<string[]> {
     await access(join(homedir(), ".claude.json"));
   } catch {
     missing.push(".claude.json file");
+  }
+
+  let hasAuth = false;
+
+  // Check for API key from Convex settings
+  const apiKeyFromSettings = context?.apiKeys?.ANTHROPIC_API_KEY;
+  if (typeof apiKeyFromSettings === "string" && apiKeyFromSettings.trim()) {
+    hasAuth = true;
   }
 
   try {
@@ -23,10 +35,14 @@ export async function checkClaudeRequirements(): Promise<string[]> {
       .then(() => true)
       .catch(() => false);
 
-    if (!hasCredentialsFile) {
+    if (hasCredentialsFile) {
+      hasAuth = true;
+    }
+
+    if (!hasCredentialsFile && !hasAuth) {
       // Check for API key in keychain - try both Claude Code and Claude Code-credentials
       let foundInKeychain = false;
-      
+
       try {
         await execAsync(
           "security find-generic-password -a $USER -w -s 'Claude Code'"
@@ -43,15 +59,21 @@ export async function checkClaudeRequirements(): Promise<string[]> {
           // Neither keychain entry found
         }
       }
-      
-      if (!foundInKeychain) {
+
+      if (foundInKeychain) {
+        hasAuth = true;
+      }
+
+      if (!hasAuth) {
         missing.push(
-          "Claude credentials (no .credentials.json or API key in keychain)"
+          "Claude credentials (no .credentials.json, API key in settings, or API key in keychain)"
         );
       }
     }
   } catch {
-    missing.push("Claude credentials");
+    if (!hasAuth) {
+      missing.push("Claude credentials");
+    }
   }
 
   return missing;
