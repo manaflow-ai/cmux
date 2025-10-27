@@ -13,6 +13,7 @@ export { githubPrsRouter } from "./github.prs.route";
 export { healthRouter } from "./health.route";
 export { iframePreflightRouter } from "./iframe-preflight.route";
 export { morphRouter } from "./morph.route";
+export { planRouter } from "./plan.route";
 export { sandboxesRouter } from "./sandboxes.route";
 export { teamsRouter } from "./teams.route";
 export { usersRouter } from "./users.route";

@@ -20,11 +20,20 @@ import { useExpandTasks } from "@/contexts/expand-tasks/ExpandTasksContext";
 import { useSocket } from "@/contexts/socket/use-socket";
 import { createFakeConvexId } from "@/lib/fakeConvexId";
 import { attachTaskLifecycleListeners } from "@/lib/socket/taskLifecycleListeners";
+import {
+  filterKnownAgents,
+  loadPersistedAgentSelection,
+  persistAgentSelection,
+} from "@/lib/taskAgentSelection";
+import {
+  clearPendingPlanTask,
+  readPendingPlanTask,
+  type PendingPlanTaskPayload,
+} from "@/lib/planMode";
 import { branchesQueryOptions } from "@/queries/branches";
 import { api } from "@cmux/convex/api";
 import type { Doc, Id } from "@cmux/convex/dataModel";
 import type { ProviderStatusResponse, TaskAcknowledged, TaskError, TaskStarted } from "@cmux/shared";
-import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
 import { convexQuery } from "@convex-dev/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -32,47 +41,10 @@ import { useMutation } from "convex/react";
 import { Server as ServerIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { z } from "zod";
 
 export const Route = createFileRoute("/_layout/$teamSlugOrId/dashboard")({
   component: DashboardComponent,
 });
-
-// Default agents (not persisted to localStorage)
-const DEFAULT_AGENTS = [
-  "claude/sonnet-4.5",
-  "claude/opus-4.1",
-  "codex/gpt-5-codex-high",
-];
-const KNOWN_AGENT_NAMES = new Set(AGENT_CONFIGS.map((agent) => agent.name));
-const DEFAULT_AGENT_SELECTION = DEFAULT_AGENTS.filter((agent) =>
-  KNOWN_AGENT_NAMES.has(agent),
-);
-
-const AGENT_SELECTION_SCHEMA = z.array(z.string());
-
-const filterKnownAgents = (agents: string[]): string[] =>
-  agents.filter((agent) => KNOWN_AGENT_NAMES.has(agent));
-
-const parseStoredAgentSelection = (stored: string | null): string[] => {
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored);
-    const result = AGENT_SELECTION_SCHEMA.safeParse(parsed);
-    if (!result.success) {
-      console.warn("Invalid stored agent selection", result.error);
-      return [];
-    }
-
-    return filterKnownAgents(result.data);
-  } catch (error) {
-    console.warn("Failed to parse stored agent selection", error);
-    return [];
-  }
-};
 
 function DashboardComponent() {
   const { teamSlugOrId } = Route.useParams();
@@ -87,19 +59,9 @@ function DashboardComponent() {
   });
   const [selectedBranch, setSelectedBranch] = useState<string[]>([]);
 
-  const [selectedAgents, setSelectedAgentsState] = useState<string[]>(() => {
-    const storedAgents = parseStoredAgentSelection(
-      localStorage.getItem("selectedAgents"),
-    );
-
-    if (storedAgents.length > 0) {
-      return storedAgents;
-    }
-
-    return DEFAULT_AGENT_SELECTION.length > 0
-      ? [...DEFAULT_AGENT_SELECTION]
-      : [];
-  });
+  const [selectedAgents, setSelectedAgentsState] = useState<string[]>(
+    () => loadPersistedAgentSelection(),
+  );
   const selectedAgentsRef = useRef<string[]>(selectedAgents);
 
   const setSelectedAgents = useCallback((agents: string[]) => {
@@ -119,24 +81,14 @@ function DashboardComponent() {
 
   // Ref to access editor API
   const editorApiRef = useRef<EditorApi | null>(null);
+  const pendingPlanTaskRef = useRef<{
+    payload: PendingPlanTaskPayload;
+    inserted: boolean;
+  } | null>(null);
+  const pendingPlanTaskTimerRef = useRef<number | null>(null);
 
-  const persistAgentSelection = useCallback((agents: string[]) => {
-    try {
-      const isDefaultSelection =
-        DEFAULT_AGENT_SELECTION.length > 0 &&
-        agents.length === DEFAULT_AGENT_SELECTION.length &&
-        agents.every(
-          (agent, index) => agent === DEFAULT_AGENT_SELECTION[index],
-        );
-
-      if (agents.length === 0 || isDefaultSelection) {
-        localStorage.removeItem("selectedAgents");
-      } else {
-        localStorage.setItem("selectedAgents", JSON.stringify(agents));
-      }
-    } catch (error) {
-      console.warn("Failed to persist agent selection", error);
-    }
+  const persistAgentSelectionMemo = useCallback((agents: string[]) => {
+    persistAgentSelection(agents);
   }, []);
 
   // Preselect environment if provided in URL search params
@@ -216,9 +168,9 @@ function DashboardComponent() {
     (newAgents: string[]) => {
       const normalizedAgents = filterKnownAgents(newAgents);
       setSelectedAgents(normalizedAgents);
-      persistAgentSelection(normalizedAgents);
+      persistAgentSelectionMemo(normalizedAgents);
     },
-    [persistAgentSelection, setSelectedAgents],
+    [persistAgentSelectionMemo, setSelectedAgents],
   );
 
   // Fetch repos from Convex
@@ -259,7 +211,7 @@ function DashboardComponent() {
         const normalizedOnly = filterKnownAgents(currentAgents);
         if (normalizedOnly.length !== currentAgents.length) {
           setSelectedAgents(normalizedOnly);
-          persistAgentSelection(normalizedOnly);
+          persistAgentSelectionMemo(normalizedOnly);
         }
         return;
       }
@@ -285,7 +237,7 @@ function DashboardComponent() {
       }
 
       setSelectedAgents(filteredAgents);
-      persistAgentSelection(filteredAgents);
+      persistAgentSelectionMemo(filteredAgents);
 
       if (removedUnavailable.length > 0) {
         const uniqueMissing = Array.from(new Set(removedUnavailable));
@@ -298,7 +250,7 @@ function DashboardComponent() {
         }
       }
     });
-  }, [persistAgentSelection, setDockerReady, setSelectedAgents, socket]);
+  }, [persistAgentSelectionMemo, setDockerReady, setSelectedAgents, socket]);
 
   // Mutation to create tasks with optimistic update
   const createTask = useMutation(api.tasks.create).withOptimisticUpdate(
@@ -529,6 +481,127 @@ function DashboardComponent() {
     theme,
     generateUploadUrl,
   ]);
+
+  const applyPendingPlanTask = useCallback(() => {
+    const pending = pendingPlanTaskRef.current;
+    if (!pending) {
+      if (pendingPlanTaskTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(pendingPlanTaskTimerRef.current);
+        pendingPlanTaskTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (pending.inserted) {
+      if (pendingPlanTaskTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(pendingPlanTaskTimerRef.current);
+        pendingPlanTaskTimerRef.current = null;
+      }
+      return;
+    }
+
+    const editor = editorApiRef.current;
+    if (!editor?.insertText) {
+      if (typeof window !== "undefined" && pendingPlanTaskTimerRef.current === null) {
+        pendingPlanTaskTimerRef.current = window.setTimeout(() => {
+          pendingPlanTaskTimerRef.current = null;
+          applyPendingPlanTask();
+        }, 50);
+      }
+      return;
+    }
+
+    editor.clear?.();
+    editor.insertText?.(pending.payload.prompt);
+    pendingPlanTaskRef.current = { payload: pending.payload, inserted: true };
+
+    if (pendingPlanTaskTimerRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(pendingPlanTaskTimerRef.current);
+      pendingPlanTaskTimerRef.current = null;
+    }
+
+    if (pending.payload.shouldAutoStart) {
+      const triggerStart = () => {
+        void handleStartTask();
+      };
+      if (typeof window !== "undefined") {
+        window.setTimeout(triggerStart, 0);
+      } else {
+        triggerStart();
+      }
+    }
+  }, [handleStartTask]);
+
+  useEffect(() => {
+    const payload = readPendingPlanTask();
+
+    if (!payload) {
+      applyPendingPlanTask();
+      return;
+    }
+
+    clearPendingPlanTask();
+
+    if (payload.repoFullName) {
+      setSelectedProject([payload.repoFullName]);
+      try {
+        localStorage.setItem(
+          "selectedProject",
+          JSON.stringify([payload.repoFullName]),
+        );
+      } catch (error) {
+        console.warn("Failed to persist selectedProject", error);
+      }
+    }
+
+    if (payload.branch) {
+      setSelectedBranch([payload.branch]);
+    }
+
+    if (typeof payload.isCloudMode === "boolean") {
+      setIsCloudMode(payload.isCloudMode);
+      try {
+        localStorage.setItem(
+          "isCloudMode",
+          JSON.stringify(payload.isCloudMode),
+        );
+      } catch (error) {
+        console.warn("Failed to persist isCloudMode", error);
+      }
+    }
+
+    if (payload.selectedAgents && payload.selectedAgents.length > 0) {
+      setSelectedAgents(payload.selectedAgents);
+      persistAgentSelectionMemo(payload.selectedAgents);
+    }
+
+    handleTaskDescriptionChange(payload.prompt);
+    pendingPlanTaskRef.current = {
+      payload: {
+        ...payload,
+        shouldAutoStart: Boolean(payload.shouldAutoStart),
+      },
+      inserted: false,
+    };
+
+    applyPendingPlanTask();
+  }, [
+    applyPendingPlanTask,
+    handleTaskDescriptionChange,
+    persistAgentSelectionMemo,
+    setIsCloudMode,
+    setSelectedAgents,
+    setSelectedBranch,
+    setSelectedProject,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingPlanTaskTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(pendingPlanTaskTimerRef.current);
+      }
+    };
+  }, []);
 
   // Fetch repos on mount if none exist
   // useEffect(() => {
