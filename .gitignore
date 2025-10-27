@@ -34,6 +34,7 @@ data/codemirror-merge/
 # Binary files
 cmux-cli
 .vercel
+scripts/vnc-proxy/vnc-proxy
 
 # Native Rust addon artifacts
 apps/server/native/**/target/
