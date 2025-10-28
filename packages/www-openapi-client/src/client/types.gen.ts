@@ -347,7 +347,35 @@ export type CreateEnvironmentBody = {
     teamSlugOrId: string;
     name: string;
     morphInstanceId: string;
-    envVarsContent: string;
+    envVarsContent?: string;
+    nestedEnvVars?: {
+        /**
+         * Global variables applied to all paths
+         */
+        global: Array<{
+            name: string;
+            value: string;
+            isSecret: boolean;
+        }>;
+        /**
+         * Path-specific variable configurations
+         */
+        paths: Array<{
+            /**
+             * Relative path from workspace root (e.g., 'apps/frontend', '.')
+             */
+            path: string;
+            /**
+             * Optional description for this path's configuration
+             */
+            description?: string;
+            variables: Array<{
+                name: string;
+                value: string;
+                isSecret: boolean;
+            }>;
+        }>;
+    };
     selectedRepos?: Array<string>;
     description?: string;
     maintenanceScript?: string;
@@ -373,6 +401,34 @@ export type ListEnvironmentsResponse = Array<GetEnvironmentResponse>;
 
 export type GetEnvironmentVarsResponse = {
     envVarsContent: string;
+    nestedEnvVars: {
+        /**
+         * Global variables applied to all paths
+         */
+        global: Array<{
+            name: string;
+            value: string;
+            isSecret: boolean;
+        }>;
+        /**
+         * Path-specific variable configurations
+         */
+        paths: Array<{
+            /**
+             * Relative path from workspace root (e.g., 'apps/frontend', '.')
+             */
+            path: string;
+            /**
+             * Optional description for this path's configuration
+             */
+            description?: string;
+            variables: Array<{
+                name: string;
+                value: string;
+                isSecret: boolean;
+            }>;
+        }>;
+    };
 };
 
 export type UpdateEnvironmentBody = {

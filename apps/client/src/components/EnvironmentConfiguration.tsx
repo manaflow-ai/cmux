@@ -1,7 +1,6 @@
 import { GitHubIcon } from "@/components/icons/github";
 import { PersistentWebView } from "@/components/persistent-webview";
 import { WorkspaceLoadingIndicator } from "@/components/workspace-loading-indicator";
-import { ScriptTextareaField } from "@/components/ScriptTextareaField";
 import { SCRIPT_COPY } from "@/components/scriptCopy";
 import { ResizableColumns } from "@/components/ResizableColumns";
 import { parseEnvBlock } from "@/lib/parseEnvBlock";
@@ -925,15 +924,22 @@ export function EnvironmentConfiguration({
             title="Maintenance script"
           >
             <div className="pb-4">
-              <ScriptTextareaField
-                description={SCRIPT_COPY.maintenance.description}
-                subtitle={SCRIPT_COPY.maintenance.subtitle}
-                value={maintenanceScript}
-                onChange={updateMaintenanceScript}
-                placeholder={SCRIPT_COPY.maintenance.placeholder}
-                descriptionClassName="mb-3"
-                minHeightClassName="min-h-[114px]"
-              />
+              <div className="space-y-2">
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  {SCRIPT_COPY.maintenance.description}
+                </p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-500">
+                  {SCRIPT_COPY.maintenance.subtitle}
+                </p>
+                <TextareaAutosize
+                  value={maintenanceScript}
+                  onChange={(event) => updateMaintenanceScript(event.target.value)}
+                  placeholder={SCRIPT_COPY.maintenance.placeholder}
+                  minRows={3}
+                  maxRows={15}
+                  className="w-full rounded-md border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-xs font-mono text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:focus:ring-neutral-700 resize-none"
+                />
+              </div>
             </div>
           </AccordionItem>
 
@@ -943,14 +949,22 @@ export function EnvironmentConfiguration({
             title="Dev script"
           >
             <div className="space-y-4 pb-4">
-              <ScriptTextareaField
-                description={SCRIPT_COPY.dev.description}
-                subtitle={SCRIPT_COPY.dev.subtitle}
-                value={devScript}
-                onChange={updateDevScript}
-                placeholder={SCRIPT_COPY.dev.placeholder}
-                minHeightClassName="min-h-[130px]"
-              />
+              <div className="space-y-2">
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  {SCRIPT_COPY.dev.description}
+                </p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-500">
+                  {SCRIPT_COPY.dev.subtitle}
+                </p>
+                <TextareaAutosize
+                  value={devScript}
+                  onChange={(event) => updateDevScript(event.target.value)}
+                  placeholder={SCRIPT_COPY.dev.placeholder}
+                  minRows={3}
+                  maxRows={15}
+                  className="w-full rounded-md border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-xs font-mono text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:focus:ring-neutral-700 resize-none"
+                />
+              </div>
 
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">

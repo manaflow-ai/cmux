@@ -4,6 +4,10 @@ import { stackServerAppJs } from "@/lib/utils/stack";
 import { verifyTeamAccess } from "@/lib/utils/team-verification";
 import { env } from "@/lib/utils/www-env";
 import { api } from "@cmux/convex/api";
+import {
+  legacyContentToNestedEnvVars,
+  NestedEnvVarsSchema,
+} from "@cmux/shared/environment-vars";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { validateExposedPorts } from "@cmux/shared/utils/validate-exposed-ports";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -36,13 +40,19 @@ const CreateEnvironmentBody = z
     teamSlugOrId: z.string(),
     name: z.string(),
     morphInstanceId: z.string(),
-    envVarsContent: z.string(), // The entire .env file content
+    // Support both legacy string format and new nested format
+    envVarsContent: z.string().optional(), // Legacy: .env file content
+    nestedEnvVars: NestedEnvVarsSchema.optional(), // New: nested structure
     selectedRepos: z.array(z.string()).optional(),
     description: z.string().optional(),
     maintenanceScript: z.string().optional(),
     devScript: z.string().optional(),
     exposedPorts: z.array(z.number()).optional(),
   })
+  .refine(
+    (data) => data.envVarsContent !== undefined || data.nestedEnvVars !== undefined,
+    { message: "Either envVarsContent or nestedEnvVars must be provided" }
+  )
   .openapi("CreateEnvironmentBody");
 
 const CreateEnvironmentResponse = z
@@ -74,7 +84,8 @@ const ListEnvironmentsResponse = z
 
 const GetEnvironmentVarsResponse = z
   .object({
-    envVarsContent: z.string(),
+    envVarsContent: z.string(), // Legacy format for backward compatibility
+    nestedEnvVars: NestedEnvVarsSchema, // New nested format
   })
   .openapi("GetEnvironmentVarsResponse");
 
@@ -233,7 +244,16 @@ environmentsRouter.openapi(
         const dataVaultKey = `env_${randomBytes(16).toString("hex")}`;
         const store =
           await stackServerAppJs.getDataVaultStore("cmux-snapshot-envs");
-        await store.setValue(dataVaultKey, body.envVarsContent, {
+
+        // Convert to nested format if legacy content is provided
+        const nestedEnvVars = body.nestedEnvVars
+          ? body.nestedEnvVars
+          : body.envVarsContent
+            ? legacyContentToNestedEnvVars(body.envVarsContent)
+            : { global: [], paths: [] };
+
+        // Store as JSON string in DataVault
+        await store.setValue(dataVaultKey, JSON.stringify(nestedEnvVars), {
           secret: env.STACK_DATA_VAULT_SECRET,
         });
         return { dataVaultKey };
@@ -464,18 +484,38 @@ environmentsRouter.openapi(
         return c.text("Environment not found", 404);
       }
 
-      // Retrieve environment variables from StackAuth DataBook
+      // Retrieve environment variables from StackAuth DataVault
       const store =
         await stackServerAppJs.getDataVaultStore("cmux-snapshot-envs");
-      const envVarsContent = await store.getValue(environment.dataVaultKey, {
+      const storedValue = await store.getValue(environment.dataVaultKey, {
         secret: env.STACK_DATA_VAULT_SECRET,
       });
 
-      if (!envVarsContent) {
-        return c.json({ envVarsContent: "" });
+      if (!storedValue) {
+        return c.json({
+          envVarsContent: "",
+          nestedEnvVars: { global: [], paths: [] },
+        });
       }
 
-      return c.json({ envVarsContent });
+      // Try to parse as nested format (JSON)
+      let nestedEnvVars;
+      try {
+        nestedEnvVars = JSON.parse(storedValue);
+        // Validate it's a nested structure
+        if (typeof nestedEnvVars !== "object" || !Array.isArray(nestedEnvVars.global)) {
+          throw new Error("Invalid nested format");
+        }
+      } catch {
+        // If parsing fails or validation fails, treat as legacy format
+        nestedEnvVars = legacyContentToNestedEnvVars(storedValue);
+      }
+
+      // Return both formats for compatibility
+      return c.json({
+        envVarsContent: storedValue, // Keep raw value for backward compatibility
+        nestedEnvVars,
+      });
     } catch (error) {
       console.error("Failed to get environment variables:", error);
       return c.text("Failed to get environment variables", 500);

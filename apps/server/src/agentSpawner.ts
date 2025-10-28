@@ -9,7 +9,7 @@ import type {
   WorkerCreateTerminal,
   WorkerTerminalFailed,
 } from "@cmux/shared/worker-schemas";
-import { parse as parseDotenv } from "dotenv";
+import { resolveNestedEnvVars } from "@cmux/shared/environment-vars";
 import { sanitizeTmuxSessionName } from "./sanitizeTmuxSessionName";
 import {
   generateNewBranchName,
@@ -216,12 +216,8 @@ export async function spawnAgent(
       );
     }
 
-    let envVars: Record<string, string> = {
-      CMUX_PROMPT: processedTaskDescription,
-      CMUX_TASK_RUN_ID: taskRunId,
-      CMUX_TASK_RUN_JWT: taskRunJwt,
-      PROMPT: processedTaskDescription,
-    };
+    // Load environment variables from environment configuration (nested structure)
+    let resolvedEnvVars: Record<string, string> = {};
 
     if (options.environmentId) {
       try {
@@ -230,24 +226,24 @@ export async function spawnAgent(
           path: { id: String(options.environmentId) },
           query: { teamSlugOrId },
         });
-        const envContent = envRes.data?.envVarsContent;
-        if (envContent && envContent.trim().length > 0) {
-          const parsed = parseDotenv(envContent);
-          if (Object.keys(parsed).length > 0) {
-            const preserved = {
-              CMUX_PROMPT: envVars.CMUX_PROMPT,
-              CMUX_TASK_RUN_ID: envVars.CMUX_TASK_RUN_ID,
-              PROMPT: envVars.PROMPT,
-            };
-            envVars = {
-              ...envVars,
-              ...parsed,
-              ...preserved,
-            };
+
+        // Use nested env vars structure
+        const nestedEnvVars = envRes.data?.nestedEnvVars;
+        if (nestedEnvVars) {
+          // Resolve env vars for the workspace root
+          // The worker will further resolve based on the actual working directory
+          resolvedEnvVars = resolveNestedEnvVars(nestedEnvVars, "/root/workspace");
+
+          serverLogger.info(
+            `[AgentSpawner] Resolved ${Object.keys(resolvedEnvVars).length} env vars from nested structure for environment ${String(
+              options.environmentId
+            )}`
+          );
+
+          // Log discovered paths for debugging
+          if (nestedEnvVars.paths.length > 0) {
             serverLogger.info(
-              `[AgentSpawner] Injected ${Object.keys(parsed).length} env vars from environment ${String(
-                options.environmentId
-              )}`
+              `[AgentSpawner] Environment has path-specific configs: ${nestedEnvVars.paths.map(p => p.path).join(", ")}`
             );
           }
         }
@@ -260,6 +256,20 @@ export async function spawnAgent(
         );
       }
     }
+
+    // Start with CMUX-specific variables (these always take highest priority)
+    let envVars: Record<string, string> = {
+      CMUX_PROMPT: processedTaskDescription,
+      CMUX_TASK_RUN_ID: taskRunId,
+      CMUX_TASK_RUN_JWT: taskRunJwt,
+      PROMPT: processedTaskDescription,
+    };
+
+    // Merge with resolved env vars from environment configuration
+    envVars = {
+      ...resolvedEnvVars,
+      ...envVars, // CMUX vars override
+    };
 
     let authFiles: EnvironmentResult["files"] = [];
     let startupCommands: string[] = [];
