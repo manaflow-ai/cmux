@@ -1,5 +1,6 @@
 import { Suspense, use } from "react";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { waitUntil } from "@vercel/functions";
 import { type Team } from "@stackframe/stack";
@@ -26,6 +27,12 @@ import {
   ReviewGitHubLinkButton,
   summarizeFiles,
 } from "../../_components/review-diff-content";
+import {
+  DEFAULT_THEME,
+  THEME_COOKIE_NAME,
+  isThemePreference,
+} from "./theme";
+import { PageThemeProvider, ThemeToggleButton } from "./theme-provider";
 
 type PageParams = {
   teamSlugOrId: string;
@@ -140,29 +147,36 @@ export default async function PullRequestPage({ params }: PageProps) {
     pullRequestPromise,
   });
 
-  return (
-    <div className="min-h-dvh bg-neutral-50 text-neutral-900">
-      <div className="flex w-full flex-col gap-8 px-6 pb-16 pt-10 sm:px-8 lg:px-12">
-        <Suspense fallback={<PullRequestHeaderSkeleton />}>
-          <PullRequestHeader
-            promise={pullRequestPromise}
-            githubOwner={githubOwner}
-            repo={repo}
-          />
-        </Suspense>
+  const themeCookie = cookies().get(THEME_COOKIE_NAME)?.value;
+  const initialTheme = isThemePreference(themeCookie)
+    ? themeCookie
+    : DEFAULT_THEME;
 
-        <Suspense fallback={<DiffViewerSkeleton />}>
-          <PullRequestDiffSection
-            filesPromise={pullRequestFilesPromise}
-            pullRequestPromise={pullRequestPromise}
-            teamSlugOrId={selectedTeam.id}
-            githubOwner={githubOwner}
-            repo={repo}
-            pullNumber={pullNumber}
-          />
-        </Suspense>
+  return (
+    <PageThemeProvider initialTheme={initialTheme}>
+      <div className="min-h-dvh bg-neutral-50 text-neutral-900 transition-colors dark:bg-neutral-950 dark:text-neutral-100">
+        <div className="flex w-full flex-col gap-8 px-6 pb-16 pt-10 sm:px-8 lg:px-12">
+          <Suspense fallback={<PullRequestHeaderSkeleton />}>
+            <PullRequestHeader
+              promise={pullRequestPromise}
+              githubOwner={githubOwner}
+              repo={repo}
+            />
+          </Suspense>
+
+          <Suspense fallback={<DiffViewerSkeleton />}>
+            <PullRequestDiffSection
+              filesPromise={pullRequestFilesPromise}
+              pullRequestPromise={pullRequestPromise}
+              teamSlugOrId={selectedTeam.id}
+              githubOwner={githubOwner}
+              repo={repo}
+              pullNumber={pullNumber}
+            />
+          </Suspense>
+        </div>
       </div>
-    </div>
+    </PageThemeProvider>
   );
 }
 
@@ -338,7 +352,7 @@ function PullRequestHeaderContent({
   const authorLogin = pullRequest.user?.login ?? null;
 
   return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+    <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-lg dark:shadow-black/10">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <PullRequestHeaderSummary
           statusLabel={statusBadge.label}
@@ -386,18 +400,20 @@ function PullRequestHeaderSummary({
 }) {
   return (
     <div className="flex-1 min-w-0">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
         <PullRequestStatusBadge
           label={statusLabel}
           className={statusClassName}
         />
-        <span className="font-mono text-neutral-500">#{pullNumber}</span>
-        <span className="text-neutral-500">
+        <span className="font-mono text-neutral-500 dark:text-neutral-400">
+          #{pullNumber}
+        </span>
+        <span className="text-neutral-500 dark:text-neutral-400">
           {githubOwner}/{repo}
         </span>
       </div>
 
-      <h1 className="mt-2 text-xl font-semibold leading-tight text-neutral-900">
+      <h1 className="mt-2 text-xl font-semibold leading-tight text-neutral-900 dark:text-neutral-50">
         {title}
       </h1>
 
@@ -439,15 +455,17 @@ function PullRequestHeaderMeta({
   updatedAtLabel: string;
 }) {
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
       {authorLogin ? (
         <>
-          <span className="font-medium text-neutral-900">@{authorLogin}</span>
-          <span className="text-neutral-400">•</span>
+          <span className="font-medium text-neutral-900 dark:text-neutral-100">
+            @{authorLogin}
+          </span>
+          <span className="text-neutral-400 dark:text-neutral-500">•</span>
         </>
       ) : null}
       <span>{createdAtLabel}</span>
-      <span className="text-neutral-400">•</span>
+      <span className="text-neutral-400 dark:text-neutral-500">•</span>
       <span>Updated {updatedAtLabel}</span>
     </div>
   );
@@ -465,7 +483,8 @@ function PullRequestHeaderActions({
   githubUrl?: string | null;
 }) {
   return (
-    <aside className="flex flex-wrap items-center gap-3 text-xs">
+    <aside className="flex flex-wrap items-center gap-3 text-xs text-neutral-600 dark:text-neutral-300">
+      <ThemeToggleButton />
       <ReviewChangeSummary
         changedFiles={changedFiles}
         additions={additions}
@@ -544,38 +563,38 @@ function getStatusBadge(pullRequest: GithubPullRequest): {
   if (pullRequest.merged) {
     return {
       label: "Merged",
-      className: "bg-purple-100 text-purple-700",
+      className: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-200",
     };
   }
 
   if (pullRequest.state === "closed") {
     return {
       label: "Closed",
-      className: "bg-rose-100 text-rose-700",
+      className: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200",
     };
   }
 
   if (pullRequest.draft) {
     return {
       label: "Draft",
-      className: "bg-neutral-200 text-neutral-700",
+      className: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700/60 dark:text-neutral-200",
     };
   }
 
   return {
     label: "Open",
-    className: "bg-emerald-100 text-emerald-700",
+    className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200",
   };
 }
 
 function PullRequestHeaderSkeleton() {
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
       <div className="animate-pulse space-y-4">
-        <div className="h-4 w-32 rounded bg-neutral-200" />
-        <div className="h-8 w-3/4 rounded bg-neutral-200" />
-        <div className="h-4 w-1/2 rounded bg-neutral-200" />
-        <div className="h-4 w-full rounded bg-neutral-200" />
+        <div className="h-4 w-32 rounded bg-neutral-200 dark:bg-neutral-700" />
+        <div className="h-8 w-3/4 rounded bg-neutral-200 dark:bg-neutral-700" />
+        <div className="h-4 w-1/2 rounded bg-neutral-200 dark:bg-neutral-700" />
+        <div className="h-4 w-full rounded bg-neutral-200 dark:bg-neutral-700" />
       </div>
     </div>
   );

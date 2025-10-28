@@ -74,10 +74,10 @@ export function ReviewDiffSummary({
   return (
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 className="text-lg font-semibold text-neutral-900">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
           Files changed
         </h2>
-        <p className="text-sm text-neutral-600">
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
           {fileCount} file{fileCount === 1 ? "" : "s"}, {additions} additions,{" "}
           {deletions} deletions
         </p>
@@ -97,12 +97,12 @@ export function ReviewChangeSummary({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-neutral-600">
-        <GitPullRequest className="inline h-3 w-3" /> {changedFiles}
+      <span className="text-neutral-600 dark:text-neutral-300">
+        <GitPullRequest className="inline h-3 w-3" aria-hidden /> {changedFiles}
       </span>
-      <span className="text-neutral-400">•</span>
-      <span className="text-emerald-700">+{additions}</span>
-      <span className="text-rose-700">-{deletions}</span>
+      <span className="text-neutral-400 dark:text-neutral-600">•</span>
+      <span className="text-emerald-700 dark:text-emerald-400">+{additions}</span>
+      <span className="text-rose-700 dark:text-rose-400">-{deletions}</span>
     </div>
   );
 }
@@ -110,7 +110,7 @@ export function ReviewChangeSummary({
 export function ReviewGitHubLinkButton({ href }: { href: string }) {
   return (
     <a
-      className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 font-medium text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
+      className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 font-medium text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-neutral-600 dark:hover:text-neutral-50"
       href={href}
       target="_blank"
       rel="noreferrer"
@@ -159,12 +159,12 @@ export function ReviewDiffViewerWrapper({
 export function DiffViewerSkeleton() {
   return (
     <div className="space-y-4">
-      <div className="h-6 w-48 rounded bg-neutral-200" />
+      <div className="h-6 w-48 rounded bg-neutral-200 dark:bg-neutral-700" />
       <div className="space-y-3">
         {Array.from({ length: 3 }).map((_, index) => (
           <div
             key={index}
-            className="h-32 rounded-xl border border-neutral-200 bg-neutral-100"
+            className="h-32 rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800"
           />
         ))}
       </div>
@@ -182,11 +182,11 @@ export function ErrorPanel({
   documentationUrl?: string;
 }) {
   return (
-    <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
+    <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
       <p className="font-semibold">{title}</p>
       <p className="mt-2 leading-relaxed">{message}</p>
       {documentationUrl ? (
-        <p className="mt-3 text-xs text-rose-600 underline">
+        <p className="mt-3 text-xs text-rose-600 underline dark:text-rose-300">
           <Link href={documentationUrl} target="_blank" rel="noreferrer">
             View GitHub documentation
           </Link>
