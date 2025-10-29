@@ -159,8 +159,7 @@ export default function CmuxLogo({
           y={162}
           fontSize={108}
         >
-          cmux.dev
-          {/* cmux */}
+          cmux
         </text>
       )}
 

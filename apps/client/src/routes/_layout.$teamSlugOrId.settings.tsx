@@ -472,7 +472,7 @@ function SettingsComponent() {
                             <path d="M14.5 12.5a5 5 0 1 0-7 7"></path>
                           </svg>
                           <span className="truncate">
-                            {`https://cmux.dev/${(teamSlug || "your-team").replace(/^\/+/, "")}/dashboard`}
+                            {`https://cmux/${(teamSlug || "your-team").replace(/^\/+/, "")}/dashboard`}
                           </span>
                         </div>
                       </div>
@@ -531,7 +531,7 @@ function SettingsComponent() {
                       aria-hidden
                       className="px-3 py-2 text-sm text-neutral-500 dark:text-neutral-400 select-none bg-neutral-50 dark:bg-neutral-800/50 border-r border-neutral-200 dark:border-neutral-700 rounded-l-lg"
                     >
-                      cmux.dev/
+                      cmux/
                     </span>
                     <input
                       id="teamSlug"

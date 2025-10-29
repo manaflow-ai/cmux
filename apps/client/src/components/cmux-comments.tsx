@@ -669,7 +669,7 @@ export function CmuxComments({ teamSlugOrId }: { teamSlugOrId: string }) {
 
   const user = useUser({ or: "redirect" });
   const userId = user.id;
-  const profileImageUrl = user.profileImageUrl || "https://cmux.dev/rick.png";
+  const profileImageUrl = user.profileImageUrl || "https://cmux/rick.png";
 
   const handleSubmitComment = async () => {
     if (!pendingCommentData || !commentDraft.trim()) return;
