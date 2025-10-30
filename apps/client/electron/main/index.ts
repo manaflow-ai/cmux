@@ -1,3 +1,4 @@
+import { exec } from "node:child_process";
 import path, { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -44,6 +45,8 @@ const { autoUpdater } = electronUpdater;
 import util from "node:util";
 import { initCmdK, keyDebug } from "./cmdk";
 import { env } from "./electron-main-env";
+
+const execAsync = util.promisify(exec);
 
 // Use a cookieable HTTPS origin intercepted locally instead of a custom scheme.
 const PARTITION = "persist:cmux";
@@ -672,7 +675,42 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    // On Linux, xdg-open can be misconfigured. Try common browsers explicitly for HTTP(S) URLs
+    if (process.platform === "linux" && /^https?:\/\//i.test(details.url)) {
+      void (async () => {
+        const browsers = [
+          "google-chrome",
+          "chromium-browser",
+          "chromium",
+          "firefox",
+          "microsoft-edge",
+          "xdg-open",
+        ];
+
+        let opened = false;
+        for (const browser of browsers) {
+          try {
+            // Check if browser exists
+            await execAsync(`command -v ${browser}`);
+            // If we get here, browser exists - open URL
+            await execAsync(`${browser} "${details.url}" &`, {
+              shell: true,
+            });
+            opened = true;
+            break;
+          } catch {
+            // Browser not found, try next
+          }
+        }
+
+        if (!opened) {
+          // Fallback to shell.openExternal
+          await shell.openExternal(details.url);
+        }
+      })();
+    } else {
+      void shell.openExternal(details.url);
+    }
     return { action: "deny" };
   });
 
@@ -691,6 +729,14 @@ function createWindow(): void {
 app.on("open-url", (_event, url) => {
   handleOrQueueProtocolUrl(url);
 });
+
+// Fix for Linux AppImage: disable setuid sandbox, use namespace sandbox instead
+// AppImages can't use setuid sandbox (chrome-sandbox) because the filesystem is read-only
+// The namespace sandbox provides similar security without requiring setuid binaries
+if (process.platform === "linux" && process.env.APPIMAGE) {
+  app.commandLine.appendSwitch("disable-setuid-sandbox");
+  // Namespace sandbox will be used automatically as fallback
+}
 
 app.whenReady().then(async () => {
   ensureLogFiles();

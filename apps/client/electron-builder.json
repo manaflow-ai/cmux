@@ -74,7 +74,29 @@
   },
   "linux": {
     "icon": "build/icon.png",
-    "category": "Development"
+    "category": "Development",
+    "executableName": "cmux",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "desktop": {
+      "entry": {
+        "Name": "cmux",
+        "StartupWMClass": "cmux",
+        "Terminal": "false",
+        "Type": "Application",
+        "Categories": "Development;"
+      }
+    },
+    "maintainer": "cmux <hello@cmux.dev>"
   },
   "dmg": {
     "icon": "build/icon.icns",
