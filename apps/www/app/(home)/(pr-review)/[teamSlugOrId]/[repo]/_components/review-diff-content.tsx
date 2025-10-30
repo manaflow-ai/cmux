@@ -27,6 +27,7 @@ export function ReviewDiffContent({
   reviewTarget,
   commitRef,
   baseCommitRef,
+  sharingScope,
 }: {
   files: GithubFileChange[];
   teamSlugOrId: string;
@@ -36,6 +37,7 @@ export function ReviewDiffContent({
     | { type: "comparison"; slug: string };
   commitRef?: string;
   baseCommitRef?: string;
+  sharingScope?: "team" | "shared";
 }) {
   return (
     <section className="flex flex-col gap-1">
@@ -46,6 +48,7 @@ export function ReviewDiffContent({
         reviewTarget={reviewTarget}
         commitRef={commitRef}
         baseCommitRef={baseCommitRef}
+        sharingScope={sharingScope}
       />
     </section>
   );
@@ -117,6 +120,7 @@ export function ReviewDiffViewerWrapper({
   reviewTarget,
   commitRef,
   baseCommitRef,
+  sharingScope,
 }: {
   files: GithubFileChange[];
   teamSlugOrId: string;
@@ -126,6 +130,7 @@ export function ReviewDiffViewerWrapper({
     | { type: "comparison"; slug: string };
   commitRef?: string;
   baseCommitRef?: string;
+  sharingScope?: "team" | "shared";
 }) {
   return (
     <PullRequestDiffViewer
@@ -141,6 +146,7 @@ export function ReviewDiffViewerWrapper({
       }
       commitRef={commitRef}
       baseCommitRef={baseCommitRef}
+      sharingScope={sharingScope}
     />
   );
 }

@@ -62,6 +62,7 @@ type StartCodeReviewResult = {
     comparisonBaseRef: string | null;
     comparisonHeadOwner: string | null;
     comparisonHeadRef: string | null;
+    sharingScope: "team" | "shared";
   };
   deduplicated: boolean;
   backgroundTask: Promise<void> | null;
@@ -308,6 +309,8 @@ function normalizeJob(job: RawJob): StartCodeReviewResult["job"] {
   return {
     ...job,
     teamId: job.teamId ?? null,
+    sharingScope:
+      (job.sharingScope as "team" | "shared" | undefined) ?? "team",
     prNumber: (job.prNumber as number | undefined) ?? null,
     headCommitRef:
       (job.headCommitRef as string | undefined) ??

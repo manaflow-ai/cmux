@@ -26,6 +26,7 @@ function serializeJob(job: JobDoc) {
     comparisonBaseRef: job.comparisonBaseRef ?? null,
     comparisonHeadOwner: job.comparisonHeadOwner ?? null,
     comparisonHeadRef: job.comparisonHeadRef ?? null,
+    sharingScope: job.sharingScope ?? "team",
     state: job.state,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -694,6 +695,7 @@ export const reserveJob = authMutation({
       updatedAt: now,
       callbackTokenHash: args.callbackTokenHash,
       callbackTokenIssuedAt: now,
+      sharingScope: "team",
     });
 
     const job = await ctx.db.get(jobId);
@@ -792,6 +794,7 @@ export const upsertFileOutputFromCallback = mutation({
     codexReviewOutput: v.any(),
     sandboxInstanceId: v.optional(v.string()),
     commitRef: v.optional(v.string()),
+    sharingScope: v.optional(v.union(v.literal("team"), v.literal("shared"))),
   },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
@@ -814,6 +817,7 @@ export const upsertFileOutputFromCallback = mutation({
     if (!sandboxInstanceId) {
       throw new ConvexError("Missing sandbox instance id for file output");
     }
+    const sharingScope = args.sharingScope ?? job.sharingScope ?? "team";
 
     const existing = await ctx.db
       .query("automatedCodeReviewFileOutputs")
@@ -855,15 +859,20 @@ export const upsertFileOutputFromCallback = mutation({
         sandboxInstanceId,
         filePath: args.filePath,
         codexReviewOutput: args.codexReviewOutput,
+        sharingScope,
         createdAt: now,
         updatedAt: now,
       });
     }
 
-    await ctx.db.patch(job._id, {
+    const jobPatch: Partial<JobDoc> = {
       updatedAt: now,
       sandboxInstanceId,
-    });
+    };
+    if (job.sharingScope !== sharingScope) {
+      jobPatch.sharingScope = sharingScope;
+    }
+    await ctx.db.patch(job._id, jobPatch);
 
     return {
       success: true as const,
@@ -877,6 +886,7 @@ export const completeJobFromCallback = mutation({
     callbackToken: v.string(),
     sandboxInstanceId: v.optional(v.string()),
     codeReviewOutput: v.record(v.string(), v.any()),
+    sharingScope: v.optional(v.union(v.literal("team"), v.literal("shared"))),
   },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
@@ -901,6 +911,7 @@ export const completeJobFromCallback = mutation({
     if (!sandboxInstanceId) {
       throw new ConvexError("Missing sandbox instance id for completion");
     }
+    const sharingScope = args.sharingScope ?? job.sharingScope ?? "team";
     await ctx.db.patch(job._id, {
       state: "completed",
       updatedAt: now,
@@ -910,6 +921,7 @@ export const completeJobFromCallback = mutation({
       callbackTokenHash: undefined,
       errorCode: undefined,
       errorDetail: undefined,
+      sharingScope,
     });
 
     await ctx.db.insert("automatedCodeReviewVersions", {
@@ -930,6 +942,7 @@ export const completeJobFromCallback = mutation({
       comparisonHeadRef: job.comparisonHeadRef,
       sandboxInstanceId,
       codeReviewOutput: args.codeReviewOutput,
+      sharingScope,
       createdAt: now,
     });
 
@@ -994,26 +1007,76 @@ export const failJobFromCallback = mutation({
 
 export const listFileOutputsForPr = authQuery({
   args: {
-    teamSlugOrId: v.string(),
+    teamSlugOrId: v.optional(v.string()),
     repoFullName: v.string(),
     prNumber: v.number(),
     commitRef: v.optional(v.string()),
     baseCommitRef: v.optional(v.string()),
     limit: v.optional(v.number()),
+    sharingScope: v.optional(v.union(v.literal("team"), v.literal("shared"))),
   },
   handler: async (ctx, args) => {
-    const teamId = await getTeamId(ctx, args.teamSlugOrId);
     const limit = Math.min(args.limit ?? 200, 500);
+    const sharingScope = args.sharingScope ?? "team";
 
-    let query = ctx.db
-      .query("automatedCodeReviewFileOutputs")
-      .withIndex("by_team_repo_pr_commit", (q) =>
-        q
-          .eq("teamId", teamId)
-          .eq("repoFullName", args.repoFullName)
-          .eq("prNumber", args.prNumber)
-      )
-      .order("desc");
+    let query;
+    if (sharingScope === "shared") {
+      query = ctx.db
+        .query("automatedCodeReviewFileOutputs")
+        .withIndex("by_sharing_repo_pr_commit", (q) =>
+          q
+            .eq("sharingScope", "shared")
+            .eq("repoFullName", args.repoFullName)
+            .eq("prNumber", args.prNumber)
+        )
+        .order("desc");
+    } else {
+      const teamSlugOrId = args.teamSlugOrId;
+      if (!teamSlugOrId) {
+        throw new ConvexError(
+          "teamSlugOrId is required when sharingScope is 'team'"
+        );
+      }
+      const teamId = await getTeamId(ctx, teamSlugOrId);
+      query = ctx.db
+        .query("automatedCodeReviewFileOutputs")
+        .withIndex("by_team_repo_pr_commit", (q) =>
+          q
+            .eq("teamId", teamId)
+            .eq("repoFullName", args.repoFullName)
+            .eq("prNumber", args.prNumber)
+        )
+        .order("desc");
+
+      if (args.commitRef) {
+        query = query.filter((q) =>
+          q.eq(q.field("commitRef"), args.commitRef)
+        );
+      }
+      if (args.baseCommitRef) {
+        query = query.filter((q) =>
+          q.eq(q.field("baseCommitRef"), args.baseCommitRef)
+        );
+      }
+      const outputs = await query.take(limit);
+
+      return outputs.map((output) => ({
+        id: output._id,
+        jobId: output.jobId,
+        teamId: output.teamId,
+        repoFullName: output.repoFullName,
+        prNumber: output.prNumber,
+        commitRef: output.commitRef,
+        headCommitRef: output.headCommitRef ?? output.commitRef,
+        baseCommitRef: output.baseCommitRef ?? null,
+        sandboxInstanceId: output.sandboxInstanceId ?? null,
+        filePath: output.filePath,
+        codexReviewOutput: output.codexReviewOutput,
+        sharingScope: output.sharingScope ?? "team",
+        createdAt: output.createdAt,
+        updatedAt: output.updatedAt,
+      }));
+    }
 
     if (args.commitRef) {
       query = query.filter((q) => q.eq(q.field("commitRef"), args.commitRef));
@@ -1038,6 +1101,7 @@ export const listFileOutputsForPr = authQuery({
       sandboxInstanceId: output.sandboxInstanceId ?? null,
       filePath: output.filePath,
       codexReviewOutput: output.codexReviewOutput,
+      sharingScope: output.sharingScope ?? "team",
       createdAt: output.createdAt,
       updatedAt: output.updatedAt,
     }));
@@ -1090,6 +1154,7 @@ export const listFileOutputsForComparison = authQuery({
       sandboxInstanceId: output.sandboxInstanceId ?? null,
       filePath: output.filePath,
       codexReviewOutput: output.codexReviewOutput,
+      sharingScope: output.sharingScope ?? "team",
       createdAt: output.createdAt,
       updatedAt: output.updatedAt,
     }));

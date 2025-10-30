@@ -91,6 +91,7 @@ type PullRequestDiffViewerProps = {
   jobType?: "pull_request" | "comparison";
   commitRef?: string;
   baseCommitRef?: string;
+  sharingScope?: "team" | "shared";
 };
 
 type ParsedFileDiff = {
@@ -438,9 +439,12 @@ export function PullRequestDiffViewer({
   jobType,
   commitRef,
   baseCommitRef,
+  sharingScope = "team",
 }: PullRequestDiffViewerProps) {
   const normalizedJobType: "pull_request" | "comparison" =
     jobType ?? (comparisonSlug ? "comparison" : "pull_request");
+  const normalizedSharingScope: "team" | "shared" =
+    sharingScope ?? "team";
 
   const prQueryArgs = useMemo(
     () =>
@@ -448,13 +452,23 @@ export function PullRequestDiffViewer({
       prNumber === null ||
       prNumber === undefined
         ? ("skip" as const)
-        : {
-            teamSlugOrId,
-            repoFullName,
-            prNumber,
-            ...(commitRef ? { commitRef } : {}),
-            ...(baseCommitRef ? { baseCommitRef } : {}),
-          },
+        : normalizedSharingScope === "shared"
+          ? {
+              sharingScope: "shared" as const,
+              repoFullName,
+              prNumber,
+              ...(commitRef ? { commitRef } : {}),
+              ...(baseCommitRef ? { baseCommitRef } : {}),
+            }
+          : teamSlugOrId
+            ? {
+                teamSlugOrId,
+                repoFullName,
+                prNumber,
+                ...(commitRef ? { commitRef } : {}),
+                ...(baseCommitRef ? { baseCommitRef } : {}),
+              }
+            : ("skip" as const),
     [
       normalizedJobType,
       teamSlugOrId,
@@ -462,6 +476,7 @@ export function PullRequestDiffViewer({
       prNumber,
       commitRef,
       baseCommitRef,
+      normalizedSharingScope,
     ]
   );
 

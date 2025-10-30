@@ -28,6 +28,62 @@ interface HeatmapReviewConfig {
 // Placeholder sandbox ID for heatmap strategy (no Morph VM used)
 const HEATMAP_SANDBOX_ID = "heatmap-no-vm";
 
+type SharingScope = "team" | "shared";
+
+async function fetchRepoVisibility(
+  owner: string,
+  repo: string,
+  githubToken: string
+): Promise<"public" | "private" | null> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "cmux-heatmap-review",
+  };
+  if (githubToken.trim().length > 0) {
+    headers.Authorization = `Bearer ${githubToken}`;
+  }
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers,
+    });
+    if (!response.ok) {
+      console.warn("[heatmap-review] Failed to fetch repo visibility", {
+        owner,
+        repo,
+        status: response.status,
+      });
+      return null;
+    }
+    const json = (await response.json()) as { private?: boolean | null };
+    if (json.private === true) {
+      return "private";
+    }
+    if (json.private === false) {
+      return "public";
+    }
+    return null;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error ?? "Unknown error");
+    console.warn("[heatmap-review] Error determining repo visibility", {
+      owner,
+      repo,
+      error: message,
+    });
+    return null;
+  }
+}
+
+function resolveSharingScope(
+  visibility: "public" | "private" | null
+): SharingScope {
+  if (visibility === "public") {
+    return "shared";
+  }
+  return "team";
+}
+
 /**
  * Run PR review using the heatmap strategy without Morph.
  * This calls OpenAI API directly and processes the PR via GitHub API.
@@ -74,6 +130,12 @@ export async function runHeatmapReview(
       maxFiles: null,
       githubToken,
     });
+    const repoVisibility = await fetchRepoVisibility(
+      metadata.owner,
+      metadata.repo,
+      githubToken
+    );
+    const sharingScope = resolveSharingScope(repoVisibility);
 
     // Sort files alphabetically by path
     const sortedFiles = [...fileDiffs].sort((a, b) =>
@@ -83,6 +145,8 @@ export async function runHeatmapReview(
     console.info("[heatmap-review] Processing files with heatmap strategy", {
       jobId: config.jobId,
       fileCount: sortedFiles.length,
+      repoVisibility,
+      sharingScope,
     });
 
     const openai = createOpenAI({ apiKey: openAiApiKey });
@@ -166,6 +230,7 @@ export async function runHeatmapReview(
           filePath: file.filePath,
           codexReviewOutput: fileResult,
           sandboxInstanceId: HEATMAP_SANDBOX_ID,
+          sharingScope,
         });
 
         console.info(
@@ -201,6 +266,7 @@ export async function runHeatmapReview(
     // Build final code review output
     const codeReviewOutput = {
       strategy: "heatmap",
+      sharingScope,
       pr: {
         url: metadata.prUrl,
         number: metadata.number,
@@ -217,6 +283,7 @@ export async function runHeatmapReview(
       callbackToken: config.callbackToken,
       sandboxInstanceId: HEATMAP_SANDBOX_ID,
       codeReviewOutput,
+      sharingScope,
     });
 
     console.info("[heatmap-review] Job marked as completed", {

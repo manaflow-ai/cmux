@@ -615,6 +615,8 @@ function PullRequestDiffSection({
       `${githubOwner}/${repo}`;
     const commitRef = pullRequest.head?.sha ?? undefined;
     const baseCommitRef = pullRequest.base?.sha ?? undefined;
+    const sharingScope: "team" | "shared" =
+      pullRequest.base?.repo?.private === false ? "shared" : "team";
 
     return (
       <ReviewDiffContent
@@ -624,6 +626,7 @@ function PullRequestDiffSection({
         reviewTarget={{ type: "pull_request", prNumber: pullNumber }}
         commitRef={commitRef}
         baseCommitRef={baseCommitRef}
+        sharingScope={sharingScope}
       />
     );
   } catch (error) {

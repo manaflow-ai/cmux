@@ -343,6 +343,9 @@ const convexSchema = defineSchema({
     comparisonBaseRef: v.optional(v.string()),
     comparisonHeadOwner: v.optional(v.string()),
     comparisonHeadRef: v.optional(v.string()),
+    sharingScope: v.optional(
+      v.union(v.literal("team"), v.literal("shared"))
+    ),
     state: v.union(
       v.literal("pending"),
       v.literal("running"),
@@ -406,6 +409,9 @@ const convexSchema = defineSchema({
     comparisonHeadRef: v.optional(v.string()),
     sandboxInstanceId: v.optional(v.string()), // `morphvm_` prefix indicates Morph-managed instance IDs
     codeReviewOutput: v.record(v.string(), v.any()),
+    sharingScope: v.optional(
+      v.union(v.literal("team"), v.literal("shared"))
+    ),
     createdAt: v.number(),
   })
     .index("by_job", ["jobId"])
@@ -428,6 +434,9 @@ const convexSchema = defineSchema({
     sandboxInstanceId: v.optional(v.string()),
     filePath: v.string(),
     codexReviewOutput: v.any(),
+    sharingScope: v.optional(
+      v.union(v.literal("team"), v.literal("shared"))
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -444,6 +453,13 @@ const convexSchema = defineSchema({
       "teamId",
       "repoFullName",
       "comparisonSlug",
+      "commitRef",
+      "createdAt",
+    ])
+    .index("by_sharing_repo_pr_commit", [
+      "sharingScope",
+      "repoFullName",
+      "prNumber",
       "commitRef",
       "createdAt",
     ]),
