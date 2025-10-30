@@ -9,6 +9,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  Loader2,
   Play,
   Sparkles,
   Trophy,
@@ -52,6 +53,44 @@ interface TaskTimelineProps {
   } | null;
 }
 
+type CrownEvaluationStatus =
+  | {
+      state: "pending" | "running";
+      title: string;
+      description: string;
+      detail?: string;
+    }
+  | {
+      state: "error";
+      title: string;
+      description: string;
+    };
+
+type TaskRunStats = {
+  total: number;
+  completed: number;
+  running: number;
+  failed: number;
+};
+
+function flattenTaskRuns(runs: TaskRunWithChildren[]): Doc<"taskRuns">[] {
+  const result: Doc<"taskRuns">[] = [];
+  for (const run of runs) {
+    result.push(run);
+    if (run.children?.length) {
+      result.push(...flattenTaskRuns(run.children));
+    }
+  }
+  return result;
+}
+
+function pluralize(count: number, singular: string, plural?: string): string {
+  if (count === 1) {
+    return singular;
+  }
+  return plural ?? `${singular}s`;
+}
+
 export function TaskTimeline({
   task,
   taskRuns,
@@ -63,6 +102,89 @@ export function TaskTimeline({
     teamSlugOrId: params.teamSlugOrId,
     taskId: params.taskId as Id<"tasks">,
   });
+
+  const flattenedRuns = useMemo(
+    () => (taskRuns ? flattenTaskRuns(taskRuns) : []),
+    [taskRuns]
+  );
+
+  const runStats = useMemo<TaskRunStats>(() => {
+    const stats: TaskRunStats = {
+      total: flattenedRuns.length,
+      completed: 0,
+      running: 0,
+      failed: 0,
+    };
+
+    for (const run of flattenedRuns) {
+      if (run.status === "completed") {
+        stats.completed += 1;
+      } else if (run.status === "running") {
+        stats.running += 1;
+      } else if (run.status === "failed") {
+        stats.failed += 1;
+      }
+    }
+
+    return stats;
+  }, [flattenedRuns]);
+
+  const crownEvaluationStatus = useMemo<CrownEvaluationStatus | null>(() => {
+    if (!task) {
+      return null;
+    }
+
+    const pending = task.crownEvaluationError === "pending_evaluation";
+    const running = task.crownEvaluationError === "in_progress";
+
+    if (running) {
+      const completedText =
+        runStats.completed > 0
+          ? `${runStats.completed} completed ${pluralize(runStats.completed, "implementation")}`
+          : "the available implementations";
+
+      const detail =
+        runStats.running > 0
+          ? `${runStats.running} ${pluralize(runStats.running, "agent")} still running.`
+          : undefined;
+
+      return {
+        state: "running",
+        title: "Crown evaluation in progress",
+        description: `Claude is reviewing ${completedText} to decide the winner.`,
+        detail,
+      };
+    }
+
+    if (pending) {
+      const readyText =
+        runStats.completed > 0
+          ? `${runStats.completed} ${pluralize(runStats.completed, "implementation")} ready for evaluation.`
+          : "Waiting for the first implementation to complete.";
+
+      const detail =
+        runStats.running > 0
+          ? `${runStats.running} ${pluralize(runStats.running, "agent")} still running.`
+          : undefined;
+
+      return {
+        state: "pending",
+        title: "Crown evaluation queued",
+        description: `${readyText} Claude will begin once enough implementations are ready.`,
+        detail,
+      };
+    }
+
+    if (task.crownEvaluationError) {
+      return {
+        state: "error",
+        title: "Crown evaluation failed",
+        description: task.crownEvaluationError,
+      };
+    }
+
+    return null;
+  }, [runStats, task]);
 
   const events = useMemo(() => {
     const timelineEvents: TimelineEvent[] = [];
@@ -77,24 +199,12 @@ export function TaskTimeline({
       });
     }
 
-    if (!taskRuns) return timelineEvents;
-
-    // Flatten the tree structure to get all runs
-    const flattenRuns = (runs: TaskRunWithChildren[]): Doc<"taskRuns">[] => {
-      const result: Doc<"taskRuns">[] = [];
-      runs.forEach((run) => {
-        result.push(run);
-        if (run.children?.length) {
-          result.push(...flattenRuns(run.children));
-        }
-      });
-      return result;
-    };
-
-    const allRuns = flattenRuns(taskRuns);
+    if (!flattenedRuns.length) {
+      return timelineEvents;
+    }
 
     // Add run events
-    allRuns.forEach((run) => {
+    flattenedRuns.forEach((run) => {
       // Run started event
       timelineEvents.push({
         id: `${run._id}-start`,
@@ -135,7 +245,7 @@ export function TaskTimeline({
 
     // Sort by timestamp
     return timelineEvents.sort((a, b) => a.timestamp - b.timestamp);
-  }, [task, taskRuns, crownEvaluation]);
+  }, [task, flattenedRuns, crownEvaluation]);
 
   if (!events.length && !task) {
     return (
@@ -430,6 +540,32 @@ export function TaskTimeline({
           timestamp={task.createdAt}
           content={task.text}
         />
+      )}
+
+      {crownEvaluationStatus && (
+        <div
+          className={`flex items-start gap-3 rounded-lg border p-3 text-sm text-neutral-800 dark:text-neutral-100 ${crownEvaluationStatus.state === "error" ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30" : "border-blue-200 bg-blue-50 dark:border-blue-900/60 dark:bg-blue-950/20"}`}
+        >
+          {crownEvaluationStatus.state === "error" ? (
+            <AlertCircle className="mt-0.5 h-4 w-4 text-red-600 dark:text-red-400" />
+          ) : (
+            <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+          )}
+          <div className="space-y-1">
+            <p className="font-medium text-neutral-900 dark:text-neutral-100">
+              {crownEvaluationStatus.title}
+            </p>
+            <p className="text-xs text-neutral-700 dark:text-neutral-300">
+              {crownEvaluationStatus.description}
+            </p>
+            {crownEvaluationStatus.state !== "error" &&
+            crownEvaluationStatus.detail ? (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                {crownEvaluationStatus.detail}
+              </p>
+            ) : null}
+          </div>
+        </div>
       )}
 
       <div>
