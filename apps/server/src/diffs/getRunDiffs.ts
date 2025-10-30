@@ -48,26 +48,29 @@ export async function getRunDiffs(
         lastKnownMergeCommitSha?: string;
       }
     | undefined;
-  if (ensured.task.projectFullName && ensured.baseBranch) {
+  const repoFullName = ensured.task.projectFullName?.trim();
+  const baseBranch = ensured.baseBranch?.trim();
+
+  if (repoFullName && baseBranch) {
     try {
       const rows = await getConvex().query(api.github.getBranchesByRepo, {
         teamSlugOrId,
-        repo: ensured.task.projectFullName,
+        repo: repoFullName,
       });
-      baseBranchMetadata = rows?.find(
-        (branch) => branch.name === ensured.baseBranch
-      );
+      baseBranchMetadata = rows?.find((branch) => branch.name === baseBranch);
     } catch (error) {
       serverLogger.warn(
-        `Failed to load branch metadata for ${ensured.task.projectFullName}#${ensured.baseBranch}: ${String(error)}`
+        `Failed to load branch metadata for ${repoFullName}#${baseBranch}: ${String(
+          error
+        )}`
       );
     }
   }
 
   const entries = await getGitDiff({
-    baseRef: ensured.baseBranch,
+    baseRef: baseBranch,
     headRef: ensured.branchName,
-    repoFullName: ensured.task.projectFullName || undefined,
+    repoFullName: repoFullName || undefined,
     originPathOverride: worktreePath,
     includeContents,
     lastKnownBaseSha: baseBranchMetadata?.lastKnownBaseSha,
