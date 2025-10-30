@@ -52,6 +52,15 @@ is_ignored_path() {
   return 1
 }
 
+normalize_size() {
+  local raw="${1:-}"
+  raw=${raw//[[:space:]]/}
+  case "$raw" in
+    ''|*[!0-9]*) echo 0 ;;
+    *) echo "$raw" ;;
+  esac
+}
+
 # Determine the base ref on origin
 determine_base_ref() {
   if [[ -n "${CMUX_DIFF_BASE:-}" ]]; then
@@ -118,9 +127,7 @@ if [[ -n "$base_ref" ]]; then
       elif [[ -n "$merge_base" ]]; then
         size=$(git cat-file -s "$merge_base:$f" 2>/dev/null || echo 0)
       fi
-      case "$size" in
-        ''|*[!0-9]*) size=0 ;;
-      esac
+      size=$(normalize_size "$size")
       if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
       filtered_files+=("$f")
     done
@@ -129,9 +136,7 @@ if [[ -n "$base_ref" ]]; then
       if is_ignored_path "$f"; then continue; fi
       if [[ -f "$f" ]]; then
         size=$(wc -c <"$f" 2>/dev/null || echo 0)
-        case "$size" in
-          ''|*[!0-9]*) size=0 ;;
-        esac
+        size=$(normalize_size "$size")
         if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
       fi
       filtered_files+=("$f")
@@ -169,9 +174,7 @@ if [[ -n "$base_ref" ]]; then
       elif git cat-file -e "$merge_base:$f" 2>/dev/null; then
         size=$(git cat-file -s "$merge_base:$f" 2>/dev/null || echo 0)
       fi
-      case "$size" in
-        ''|*[!0-9]*) size=0 ;;
-      esac
+      size=$(normalize_size "$size")
       if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
       filtered_files+=("$f")
     done
@@ -207,9 +210,7 @@ export GIT_INDEX_FILE="$tmp_index"
   if is_ignored_path "$f"; then continue; fi
   if [[ -f "$f" ]]; then
     size=$(wc -c <"$f" 2>/dev/null || echo 0)
-    case "$size" in
-      ''|*[!0-9]*) size=0 ;;
-    esac
+    size=$(normalize_size "$size")
     if [ "$size" -gt "$MAX_SIZE" ]; then continue; fi
   fi
   git add -- "$f" 2>/dev/null || true
