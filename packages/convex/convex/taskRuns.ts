@@ -268,6 +268,35 @@ export const create = authMutation({
   },
 });
 
+// Refresh JWT token for a task run
+export const refreshJwt = authMutation({
+  args: {
+    teamSlugOrId: v.string(),
+    taskRunId: v.id("taskRuns"),
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const taskRun = await ctx.db.get(args.taskRunId);
+
+    if (!taskRun || taskRun.teamId !== teamId || taskRun.userId !== userId) {
+      throw new Error("Task run not found or unauthorized");
+    }
+
+    const jwt = await new SignJWT({
+      taskRunId: args.taskRunId,
+      teamId,
+      userId,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("12h")
+      .sign(new TextEncoder().encode(env.CMUX_TASK_RUN_JWT_SECRET));
+
+    return { jwt };
+  },
+});
+
 // Get all task runs for a task, organized in tree structure
 export const getByTask = authQuery({
   args: { teamSlugOrId: v.string(), taskId: taskIdWithFake },

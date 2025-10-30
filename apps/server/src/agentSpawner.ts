@@ -657,6 +657,7 @@ export async function spawnAgent(
         taskRunToken: taskRunJwt,
         prompt: processedTaskDescription,
         convexUrl: env.NEXT_PUBLIC_CONVEX_URL,
+        teamSlugOrId,
       },
       taskRunId,
       agentModel: agent.name,
