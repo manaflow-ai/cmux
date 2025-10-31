@@ -1,5 +1,6 @@
 import type { AgentConfig } from "../../agentConfig";
 import { OPENAI_API_KEY } from "../../apiKeys";
+import { applyOpenAIApiKeys } from "./apply-api-keys";
 import { checkOpenAIRequirements } from "./check-requirements";
 // Lazy-load Node-only completion detector to avoid bundling fs in browser
 import { startCodexCompletionDetector } from "./completion-detector";
@@ -21,6 +22,7 @@ export const CODEX_GPT_5_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -42,6 +44,7 @@ export const CODEX_GPT_5_HIGH_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -63,6 +66,7 @@ export const CODEX_GPT_5_MEDIUM_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -84,6 +88,7 @@ export const CODEX_GPT_5_LOW_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -105,6 +110,7 @@ export const CODEX_GPT_5_MINIMAL_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -124,6 +130,7 @@ export const CODEX_O3_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -143,6 +150,7 @@ export const CODEX_O4_MINI_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -162,6 +170,7 @@ export const CODEX_GPT_4_1_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -183,6 +192,7 @@ export const CODEX_GPT_5_CODEX_LOW_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -204,6 +214,7 @@ export const CODEX_GPT_5_CODEX_MEDIUM_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
 
@@ -225,5 +236,6 @@ export const CODEX_GPT_5_CODEX_HIGH_REASONING_CONFIG: AgentConfig = {
   environment: getOpenAIEnvironment,
   checkRequirements: checkOpenAIRequirements,
   apiKeys: [OPENAI_API_KEY],
+  applyApiKeys: applyOpenAIApiKeys,
   completionDetector: startCodexCompletionDetector,
 };
