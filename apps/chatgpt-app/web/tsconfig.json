@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+    "types": ["dom", "dom.iterable"],
+    "resolvePackageJsonExports": true
+  },
+  "include": ["./src/**/*"],
+  "exclude": ["../dist", "node_modules"]
+}

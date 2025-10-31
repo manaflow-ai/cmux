@@ -1,0 +1,35 @@
+{
+  "name": "@cmux/chatgpt-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev:server": "bunx tsx --watch server/src/index.ts",
+    "serve": "bunx tsx server/src/index.ts",
+    "serve:http": "bunx tsx server/src/http.ts",
+    "dev:web": "bunx --bun esbuild web/src/component.tsx --bundle --format=esm --sourcemap --outfile=web/dist/component.js --watch",
+    "build:server": "bunx --bun esbuild server/src/index.ts --bundle --platform=node --format=esm --sourcemap --outfile=server/dist/index.js --external:@modelcontextprotocol/sdk/server/* --external:@stackframe/js --external:@stackframe/js/*",
+    "build:web": "bunx --bun esbuild web/src/component.tsx --bundle --format=esm --outfile=web/dist/component.js",
+    "typecheck:server": "tsc -p server/tsconfig.json --noEmit",
+    "typecheck:web": "tsc -p web/tsconfig.json --noEmit",
+    "build": "bun run build:server && bun run build:web",
+    "lint": "echo 'TODO: add lint step for chatgpt-app'"
+  },
+  "dependencies": {
+    "@stackframe/js": "^2.8.41",
+    "@modelcontextprotocol/sdk": "^1.20.1",
+    "convex": "^1.27.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "esbuild": "^0.24.0",
+    "typescript": "5.8.3"
+  }
+}

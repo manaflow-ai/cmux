@@ -1,0 +1,25 @@
+{
+  "name": "cmux Workspace Orchestrator",
+  "version": "0.1.0",
+  "description": "ChatGPT app that provisions cmux tasks and streams the VS Code workspace plus browser preview inline.",
+  "instructions": [
+    "Whenever the user types '@cmux …', call the cmux.create_task tool with their description.",
+    "Use cmux.poll_task to keep the workspace status fresh while the session is open.",
+    "If a tool call fails, explain the error and suggest retrying." 
+  ],
+  "mcpServers": [
+    {
+      "name": "cmux",
+      "command": [
+        "bun",
+        "x",
+        "tsx",
+        "apps/chatgpt-app/server/src/index.ts"
+      ],
+      "note": "Ensure required cmux_* environment variables are set before launching."
+    }
+  ],
+  "customUi": {
+    "bundle": "./web/dist/component.js"
+  }
+}
