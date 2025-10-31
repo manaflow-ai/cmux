@@ -711,6 +711,7 @@ async function fetchGithubResponse(
   const url = buildGithubApiUrl(baseUrl, path);
   const response = await fetch(url, {
     headers: buildGithubHeaders(token, accept),
+    cache: "force-cache",
   });
   if (!response.ok) {
     const errorText = await response.text();

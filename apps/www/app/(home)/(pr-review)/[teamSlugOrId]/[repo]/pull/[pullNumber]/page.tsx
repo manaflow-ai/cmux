@@ -116,10 +116,13 @@ export async function generateMetadata({
   }
 
   const githubAccessToken = user ? await resolveGithubAccessToken(user) : null;
+  const disableCacheForAuthedUser =
+    typeof githubAccessToken === "string" && githubAccessToken.trim().length > 0;
 
   try {
     const pullRequest = await fetchPullRequest(githubOwner, repo, pullNumber, {
       authToken: githubAccessToken,
+      disableCache: disableCacheForAuthedUser,
     });
 
     return {
@@ -192,11 +195,14 @@ export default async function PullRequestPage({ params }: PageProps) {
   }
 
   const githubAccessToken = await resolveGithubAccessToken(user!);
+  const disableCacheForAuthedUser =
+    typeof githubAccessToken === "string" && githubAccessToken.trim().length > 0;
 
   let initialPullRequest: GithubPullRequest;
   try {
     initialPullRequest = await fetchPullRequest(githubOwner, repo, pullNumber, {
       authToken: githubAccessToken,
+      disableCache: disableCacheForAuthedUser,
     });
   } catch (error) {
     if (isGithubApiError(error) && error.status === 404) {
@@ -227,12 +233,17 @@ export default async function PullRequestPage({ params }: PageProps) {
     throw error;
   }
 
+  const headCommitRef = initialPullRequest.head?.sha ?? null;
+
   const pullRequestPromise = Promise.resolve(initialPullRequest);
   const pullRequestFilesPromise = fetchPullRequestFiles(
     githubOwner,
     repo,
     pullNumber,
-    { authToken: githubAccessToken }
+    {
+      authToken: githubAccessToken,
+      ref: headCommitRef ?? undefined,
+    }
   ).then((files) => files.map(toGithubFileChange));
 
   // Schedule code review in background (non-blocking)
