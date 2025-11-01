@@ -9,6 +9,12 @@ declare global {
   }
 }
 
+export function resetCachedUserCache() {
+  if (typeof window === "undefined") return;
+  window.cachedUser = null;
+  window.userPromise = null;
+}
+
 export async function cachedGetUser(
   stackClientApp: StackClientApp
 ): Promise<User | null> {
@@ -17,21 +23,18 @@ export async function cachedGetUser(
     try {
       const tokens = await window.cachedUser.currentSession.getTokens();
       if (!tokens.accessToken) {
-        window.cachedUser = null;
-        window.userPromise = null;
+        resetCachedUserCache();
         return null;
       }
       const jwt = decodeJwt(tokens.accessToken);
       if (jwt.exp && jwt.exp < Date.now() / 1000) {
-        window.cachedUser = null;
-        window.userPromise = null;
+        resetCachedUserCache();
         return null;
       }
       return window.cachedUser;
     } catch (error) {
       console.warn("Error checking cached user validity:", error);
-      window.cachedUser = null;
-      window.userPromise = null;
+      resetCachedUserCache();
     }
   }
 
@@ -44,16 +47,14 @@ export async function cachedGetUser(
       const user = await stackClientApp.getUser();
 
       if (!user) {
-        window.cachedUser = null;
-        window.userPromise = null;
+        resetCachedUserCache();
         return null;
       }
 
       const tokens = await user.currentSession.getTokens();
 
       if (!tokens.accessToken) {
-        window.cachedUser = null;
-        window.userPromise = null;
+        resetCachedUserCache();
         return null;
       }
       window.cachedUser = user;
@@ -61,8 +62,7 @@ export async function cachedGetUser(
       return user;
     } catch (error) {
       console.error("Error fetching user:", error);
-      window.cachedUser = null;
-      window.userPromise = null;
+      resetCachedUserCache();
       return null;
     } finally {
       window.userPromise = null;
