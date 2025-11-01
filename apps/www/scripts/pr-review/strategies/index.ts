@@ -11,6 +11,7 @@ import type { PrReviewStrategyId } from "../core/options";
 
 const STRATEGY_MAP: Record<PrReviewStrategyId, ReviewStrategy> = {
   "json-lines": jsonLinesStrategy,
+  "json-lines-direct": jsonLinesStrategy,
   "line-numbers": lineNumbersStrategy,
   "openai-responses": openAiResponsesStrategy,
   "inline-phrase": inlinePhraseStrategy,

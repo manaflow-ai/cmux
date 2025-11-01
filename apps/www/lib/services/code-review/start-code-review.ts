@@ -12,6 +12,7 @@ import {
 import type { ComparisonJobDetails } from "./comparison";
 import { PR_REVIEW_STRATEGY } from "@/pr-review.config";
 import { runHeatmapReview } from "./run-heatmap-review";
+import { runJsonLinesDirectReview } from "./run-json-lines-direct-review";
 import { loadOptionsFromEnv } from "@/scripts/pr-review/core/options";
 import type { PrReviewStrategyId } from "@/scripts/pr-review/core/options";
 
@@ -275,6 +276,20 @@ export async function startCodeReviewJob({
           strategy: "heatmap",
         });
         await runHeatmapReview({
+          jobId: job.jobId,
+          teamId: job.teamId ?? undefined,
+          prUrl: payload.githubLink,
+          prNumber: job.prNumber ?? undefined,
+          accessToken,
+          callbackToken,
+          githubAccessToken,
+        });
+      } else if (strategy === "json-lines-direct") {
+        console.info("[code-review] Starting json-lines-direct review (no Morph)", {
+          jobId: job.jobId,
+          strategy: "json-lines-direct",
+        });
+        await runJsonLinesDirectReview({
           jobId: job.jobId,
           teamId: job.teamId ?? undefined,
           prUrl: payload.githubLink,

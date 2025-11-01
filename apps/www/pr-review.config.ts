@@ -15,7 +15,7 @@
  * - "inline-files": Inline file-based annotations
  */
 
-export const PR_REVIEW_STRATEGY = "json-lines" as const;
+export const PR_REVIEW_STRATEGY = "json-lines-direct" as const;
 
 export const PR_REVIEW_CONFIG = {
   strategy: PR_REVIEW_STRATEGY,

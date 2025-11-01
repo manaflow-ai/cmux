@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   ReviewStrategy,
   StrategyPrepareContext,
@@ -6,15 +7,28 @@ import type {
   StrategyRunResult,
 } from "../core/types";
 
-function buildPrompt(context: StrategyPrepareContext): string {
+export interface JsonLinesPromptInput {
+  filePath: string;
+  diff: string;
+  formattedDiff: string[];
+  showDiffLineNumbers: boolean;
+  showContextLineNumbers: boolean;
+}
+
+export function buildJsonLinesPrompt({
+  filePath,
+  diff,
+  formattedDiff,
+  showDiffLineNumbers,
+  showContextLineNumbers,
+}: JsonLinesPromptInput): string {
   const diffForPrompt =
-    context.options.showDiffLineNumbers ||
-    context.options.showContextLineNumbers
-      ? context.formattedDiff.join("\n")
-      : context.diff || "(no diff output)";
+    showDiffLineNumbers || showContextLineNumbers
+      ? formattedDiff.join("\n")
+      : diff || "(no diff output)";
 
   return `You are a senior engineer performing a focused pull request review, focusing only on the diffs in the file provided.
-File path: ${context.filePath}
+File path: ${filePath}
 Return a JSON object of type { lines: { line: string, shouldBeReviewedScore: number, shouldReviewWhy: string | null, mostImportantWord: string }[] }.
 You should only have the "post-diff" array of lines in the JSON object.
 The "line" property MUST contain the exact line of code you want a human to review (no truncation, no summaries).
@@ -33,7 +47,7 @@ The diff:
 ${diffForPrompt || "(no diff output)"}`;
 }
 
-const outputSchema = {
+export const jsonLinesOutputSchema = {
   type: "object",
   properties: {
     lines: {
@@ -60,13 +74,32 @@ const outputSchema = {
   additionalProperties: false,
 } as const;
 
+export const jsonLinesZodSchema = z.object({
+  lines: z.array(
+    z.object({
+      line: z.string(),
+      shouldBeReviewedScore: z.number().min(0).max(1),
+      shouldReviewWhy: z.string().nullable(),
+      mostImportantWord: z.string().min(1),
+    })
+  ),
+});
+
+export type JsonLinesResult = z.infer<typeof jsonLinesZodSchema>;
+
 async function prepare(
   context: StrategyPrepareContext
 ): Promise<StrategyPrepareResult> {
-  const prompt = buildPrompt(context);
+  const prompt = buildJsonLinesPrompt({
+    filePath: context.filePath,
+    diff: context.diff,
+    formattedDiff: context.formattedDiff,
+    showDiffLineNumbers: context.options.showDiffLineNumbers,
+    showContextLineNumbers: context.options.showContextLineNumbers,
+  });
   return {
     prompt,
-    outputSchema,
+    outputSchema: jsonLinesOutputSchema,
   };
 }
 
