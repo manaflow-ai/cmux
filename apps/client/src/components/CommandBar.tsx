@@ -681,12 +681,11 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
           } else if (action === "vs") {
             if (runId) {
               await router.preloadRoute({
-                to: "/$teamSlugOrId/task/$taskId/run/$runId",
+                to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
                 params: {
                   teamSlugOrId,
                   taskId,
                   runId,
-                  taskRunId: runId,
                 },
               });
             } else {
@@ -883,12 +882,11 @@ export function CommandBar({ teamSlugOrId }: CommandBarProps) {
         } else if (action === "vs") {
           if (runId) {
             navigate({
-              to: "/$teamSlugOrId/task/$taskId/run/$runId",
+              to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
               params: {
                 teamSlugOrId,
                 taskId,
                 runId,
-                taskRunId: runId,
               },
             });
           } else {

@@ -956,12 +956,11 @@ function TaskRunDetails({
     <Fragment>
       {hasActiveVSCode ? (
         <TaskRunDetailLink
-          to="/$teamSlugOrId/task/$taskId/run/$runId"
+          to="/$teamSlugOrId/task/$taskId/run/$runId/vscode"
           params={{
             teamSlugOrId,
             taskId,
             runId: run._id,
-            taskRunId: run._id,
           }}
           icon={
             <VSCodeIcon className="w-3 h-3 mr-2 text-neutral-400 grayscale opacity-60" />

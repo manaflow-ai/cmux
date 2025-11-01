@@ -116,12 +116,11 @@ function TaskDetailPage() {
 
         if (flatRuns[runIndex]) {
           navigate({
-            to: "/$teamSlugOrId/task/$taskId/run/$runId",
+            to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
             params: {
               teamSlugOrId,
               taskId,
               runId: flatRuns[runIndex]._id,
-              taskRunId: flatRuns[runIndex]._id,
             },
           });
         }
@@ -187,12 +186,11 @@ function TaskDetailPage() {
             {flatRuns.map((run, index) => (
               <Link
                 key={run._id}
-                to="/$teamSlugOrId/task/$taskId/run/$runId"
+                to="/$teamSlugOrId/task/$taskId/run/$runId/vscode"
                 params={{
                   teamSlugOrId,
                   taskId,
                   runId: run._id,
-                  taskRunId: run._id,
                 }}
                 className={clsx(
                   "px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors select-none",
