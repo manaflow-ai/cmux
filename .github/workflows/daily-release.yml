@@ -1,0 +1,48 @@
+name: Daily Release
+
+on:
+  schedule:
+    # Run at 4:00 AM UTC every day
+    - cron: '0 4 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  create-daily-release:
+    name: Create Daily Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for tags
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Create release with version bump
+        run: |
+          # Run the release script to bump patch version and create tag
+          bun run scripts/release.ts patch
+
+      - name: Trigger release build workflow
+        run: |
+          echo "Release created successfully!"
+          echo "The release-updates workflow will automatically build and publish artifacts."
+
