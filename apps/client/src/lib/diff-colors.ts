@@ -16,18 +16,23 @@ export type DiffColorPalette = {
   collapsed: DiffCollapsedPalette;
 };
 
+const lightAdditionLineBackground = "#dafbe1";
+const lightDeletionLineBackground = "#ffebe9";
+const darkAdditionLineBackground = "#2ea04326";
+const darkDeletionLineBackground = "#f851491a";
+
 export const diffColors: Record<"light" | "dark", DiffColorPalette> = {
   light: {
     addition: {
-      lineBackground: "#dafbe1",
+      lineBackground: lightAdditionLineBackground,
       gutterBackground: "#b8f0c8",
-      textBackground: "#dafbe1",
+      textBackground: lightAdditionLineBackground,
       lineNumberForeground: "#116329",
     },
     deletion: {
-      lineBackground: "#ffebe9",
+      lineBackground: lightDeletionLineBackground,
       gutterBackground: "#ffdcd7",
-      textBackground: "#ffebe9",
+      textBackground: lightDeletionLineBackground,
       lineNumberForeground: "#a0111f",
     },
     collapsed: {
@@ -37,15 +42,15 @@ export const diffColors: Record<"light" | "dark", DiffColorPalette> = {
   },
   dark: {
     addition: {
-      lineBackground: "#2ea04326",
+      lineBackground: darkAdditionLineBackground,
       gutterBackground: "#3fb9504d",
-      textBackground: "#2ea04326",
+      textBackground: darkAdditionLineBackground,
       lineNumberForeground: "#7ee787",
     },
     deletion: {
-      lineBackground: "#f851491a",
+      lineBackground: darkDeletionLineBackground,
       gutterBackground: "#f851494d",
-      textBackground: "#f851491a",
+      textBackground: darkDeletionLineBackground,
       lineNumberForeground: "#ff7b72",
     },
     collapsed: {
