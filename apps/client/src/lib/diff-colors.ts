@@ -39,13 +39,13 @@ export const diffColors: Record<"light" | "dark", DiffColorPalette> = {
     addition: {
       lineBackground: "#2ea04326",
       gutterBackground: "#3fb9504d",
-      textBackground: "#2ea04326",
+      textBackground: "#2ea04366",
       lineNumberForeground: "#7ee787",
     },
     deletion: {
       lineBackground: "#f851491a",
       gutterBackground: "#f851494d",
-      textBackground: "#f851491a",
+      textBackground: "#f8514966",
       lineNumberForeground: "#ff7b72",
     },
     collapsed: {
