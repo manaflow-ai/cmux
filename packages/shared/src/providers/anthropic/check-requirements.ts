@@ -1,4 +1,8 @@
-export async function checkClaudeRequirements(): Promise<string[]> {
+import type { ProviderRequirementsContext } from "../../agentConfig";
+
+export async function checkClaudeRequirements(
+  context?: ProviderRequirementsContext,
+): Promise<string[]> {
   const { access } = await import("node:fs/promises");
   const { homedir } = await import("node:os");
   const { join } = await import("node:path");
@@ -7,51 +11,54 @@ export async function checkClaudeRequirements(): Promise<string[]> {
   const execAsync = promisify(exec);
   
   const missing: string[] = [];
+  const hasApiKey = Boolean(context?.apiKeys?.ANTHROPIC_API_KEY?.trim());
+  const homeDir = homedir();
 
+  let hasClaudeJson = true;
   try {
-    // Check for .claude.json
-    await access(join(homedir(), ".claude.json"));
+    await access(join(homeDir, ".claude.json"));
   } catch {
-    missing.push(".claude.json file");
+    hasClaudeJson = false;
   }
 
-  try {
-    // Check for credentials
-    const hasCredentialsFile = await access(
-      join(homedir(), ".claude", ".credentials.json")
-    )
-      .then(() => true)
-      .catch(() => false);
+  if (!hasClaudeJson && !hasApiKey) {
+    missing.push(".claude.json file or ANTHROPIC_API_KEY");
+  }
 
-    if (!hasCredentialsFile) {
-      // Check for API key in keychain - try both Claude Code and Claude Code-credentials
-      let foundInKeychain = false;
-      
+  let hasCredentials = hasApiKey;
+
+  if (!hasCredentials) {
+    try {
+      await access(join(homeDir, ".claude", ".credentials.json"));
+      hasCredentials = true;
+    } catch {
+      // No local credentials file
+    }
+  }
+
+  if (!hasCredentials) {
+    // Check for API key in keychain - try both Claude Code and Claude Code-credentials
+    try {
+      await execAsync(
+        "security find-generic-password -a $USER -w -s 'Claude Code'",
+      );
+      hasCredentials = true;
+    } catch {
       try {
         await execAsync(
-          "security find-generic-password -a $USER -w -s 'Claude Code'"
+          "security find-generic-password -a $USER -w -s 'Claude Code-credentials'",
         );
-        foundInKeychain = true;
+        hasCredentials = true;
       } catch {
-        // Try Claude Code-credentials as fallback
-        try {
-          await execAsync(
-            "security find-generic-password -a $USER -w -s 'Claude Code-credentials'"
-          );
-          foundInKeychain = true;
-        } catch {
-          // Neither keychain entry found
-        }
-      }
-      
-      if (!foundInKeychain) {
-        missing.push(
-          "Claude credentials (no .credentials.json or API key in keychain)"
-        );
+        // Neither keychain entry found
       }
     }
-  } catch {
-    missing.push("Claude credentials");
+  }
+
+  if (!hasCredentials) {
+    missing.push(
+      "Claude credentials (no .credentials.json, keychain entry, or ANTHROPIC_API_KEY)",
+    );
   }
 
   return missing;

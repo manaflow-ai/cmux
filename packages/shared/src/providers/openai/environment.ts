@@ -4,7 +4,7 @@ import type {
 } from "../common/environment-result";
 
 export async function getOpenAIEnvironment(
-  _ctx: EnvironmentContext
+  ctx: EnvironmentContext
 ): Promise<EnvironmentResult> {
   // These must be lazy since configs are imported into the browser
   const { readFile } = await import("node:fs/promises");
@@ -42,6 +42,9 @@ touch /root/lifecycle/codex-done.txt /root/lifecycle/done.txt
     { name: "instructions.md", mode: "644" },
   ];
 
+  // Track if we found auth.json locally
+  let hasAuthJson = false;
+
   // Try to copy each file
   for (const file of codexFiles) {
     try {
@@ -54,9 +57,23 @@ touch /root/lifecycle/codex-done.txt /root/lifecycle/done.txt
         contentBase64: Buffer.from(content).toString("base64"),
         mode: file.mode,
       });
+      if (file.name === "auth.json") {
+        hasAuthJson = true;
+      }
     } catch (error) {
       // File doesn't exist or can't be read, skip it
       console.warn(`Failed to read .codex/${file.name}:`, error);
+    }
+  }
+
+  // If no local auth.json but we have an API key, use it to login
+  if (!hasAuthJson && ctx.apiKeys?.OPENAI_API_KEY) {
+    const apiKey = ctx.apiKeys.OPENAI_API_KEY.trim();
+    if (apiKey.length > 0) {
+      // Use the --with-api-key flag to authenticate Codex
+      startupCommands.push(
+        `echo "${apiKey}" | bunx @openai/codex@latest login --with-api-key`
+      );
     }
   }
 
