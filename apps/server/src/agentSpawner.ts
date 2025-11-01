@@ -4,6 +4,7 @@ import {
   AGENT_CONFIGS,
   type AgentConfig,
   type EnvironmentResult,
+  MAX_AGENTS_PER_TASK,
 } from "@cmux/shared/agentConfig";
 import type {
   WorkerCreateTerminal,
@@ -940,11 +941,19 @@ export async function spawnAllAgents(
   teamSlugOrId: string
 ): Promise<AgentSpawnResult[]> {
   // If selectedAgents is provided, map each entry to an AgentConfig to preserve duplicates
-  const agentsToSpawn = options.selectedAgents
+  let agentsToSpawn = options.selectedAgents
     ? options.selectedAgents
         .map((name) => AGENT_CONFIGS.find((agent) => agent.name === name))
         .filter((a): a is AgentConfig => Boolean(a))
     : AGENT_CONFIGS;
+
+  // Enforce maximum agents per task limit
+  if (agentsToSpawn.length > MAX_AGENTS_PER_TASK) {
+    serverLogger.warn(
+      `[AgentSpawner] Attempted to spawn ${agentsToSpawn.length} agents, but maximum is ${MAX_AGENTS_PER_TASK}. Limiting to first ${MAX_AGENTS_PER_TASK} agents.`
+    );
+    agentsToSpawn = agentsToSpawn.slice(0, MAX_AGENTS_PER_TASK);
+  }
 
   // Generate unique branch names for all agents at once to ensure no collisions
   const branchNames = options.prTitle
