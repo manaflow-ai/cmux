@@ -681,10 +681,10 @@ function createWindow(): void {
     mainLog("Loading renderer (dev)", { url });
     mainWindow.loadURL(url);
   } else {
-    // In production, serve the renderer over HTTPS on a private host which we
+    // In production, serve the renderer over HTTP on a private host which we
     // intercept and back with local files (supports cookies).
     mainLog("Loading renderer (prod)", { host: APP_HOST });
-    mainWindow.loadURL(`https://${APP_HOST}/index.html`);
+    mainWindow.loadURL(`http://${APP_HOST}/index.html`);
   }
 }
 
@@ -760,7 +760,7 @@ app.whenReady().then(async () => {
   const rendererBaseUrl =
     is.dev && process.env["ELECTRON_RENDERER_URL"]
       ? process.env["ELECTRON_RENDERER_URL"]
-      : `https://${APP_HOST}`;
+      : `http://${APP_HOST}`;
 
   registerWebContentsViewHandlers({
     logger: {
