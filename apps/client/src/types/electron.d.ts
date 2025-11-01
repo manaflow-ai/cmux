@@ -101,6 +101,7 @@ interface CmuxAPI {
       frameProcessId: number
     ) => Promise<{ ok: boolean; queued?: boolean }>;
     setCommandPaletteOpen: (open: boolean) => Promise<{ ok: boolean }>;
+    showEditContextMenu: (position?: { x?: number; y?: number }) => Promise<{ ok: boolean }>;
     setPreviewReloadVisible?: (visible: boolean) => Promise<{ ok: boolean }>;
     restoreLastFocus: () => Promise<{ ok: boolean; queued?: boolean }>;
   };

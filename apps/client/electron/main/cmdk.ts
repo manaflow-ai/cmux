@@ -6,7 +6,9 @@ import {
   ipcMain,
   webContents,
   webFrameMain,
+  Menu,
 } from "electron";
+import type { MenuItemConstructorOptions } from "electron";
 
 type Logger = {
   log: (...args: unknown[]) => void;
@@ -727,6 +729,59 @@ export function initCmdK(opts: {
         return { ok: false };
       }
     }
+  );
+
+  ipcMain.handle(
+    "cmux:ui:show-edit-context-menu",
+    (evt, position?: { x?: number; y?: number }) => {
+      try {
+        const senderWindow = BrowserWindow.fromWebContents(evt.sender);
+        if (!senderWindow || senderWindow.isDestroyed()) {
+          return { ok: false };
+        }
+
+        const template: MenuItemConstructorOptions[] = [
+          { role: "undo" },
+          { role: "redo" },
+          { type: "separator" },
+          { role: "cut" },
+          { role: "copy" },
+          { role: "paste" },
+        ];
+
+        if (process.platform === "darwin") {
+          template.push({ role: "pasteAndMatchStyle" });
+        }
+
+        template.push({ role: "delete" });
+        template.push({ type: "separator" });
+        template.push({ role: "selectAll" });
+
+        if (process.platform === "darwin") {
+          template.push({ type: "separator" });
+          template.push({
+            label: "Speech",
+            submenu: [{ role: "startSpeaking" }, { role: "stopSpeaking" }],
+          });
+        }
+
+        const menu = Menu.buildFromTemplate(template);
+        const popupX = typeof position?.x === "number" ? Math.round(position.x) : undefined;
+        const popupY = typeof position?.y === "number" ? Math.round(position.y) : undefined;
+
+        menu.popup({
+          window: senderWindow,
+          x: popupX,
+          y: popupY,
+          positioningItem: 0,
+        });
+
+        return { ok: true };
+      } catch (error) {
+        opts.logger.warn("Failed to show edit context menu", error);
+        return { ok: false };
+      }
+    },
   );
 
   // Renderer reports when Command Palette opens/closes so we don't
