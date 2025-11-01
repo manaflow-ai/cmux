@@ -430,7 +430,7 @@ echo "Using snapshot $SNAPSHOT_ID"
 
 # Start an instance from the snapshot
 echo "Starting instance from snapshot $SNAPSHOT_ID..."
-INSTANCE_ID=$(morphcloud instance start "$SNAPSHOT_ID")
+INSTANCE_ID=$(morphcloud instance start "$SNAPSHOT_ID" --ttl-seconds 1800 --ttl-action pause)
 echo "Started instance $INSTANCE_ID"
 
 # Setup Docker environment with BuildKit
@@ -478,4 +478,4 @@ FINAL_SNAPSHOT_ID=$(morphcloud instance snapshot "$INSTANCE_ID")
 morphcloud snapshot set-metadata "$FINAL_SNAPSHOT_ID" "type=docker-buildkit" "description=Docker with BuildKit environment"
 
 echo "Final snapshot created: $FINAL_SNAPSHOT_ID"
-echo "To start new instances from this snapshot, run: morphcloud instance start $FINAL_SNAPSHOT_ID"
+echo "To start new instances from this snapshot, run: morphcloud instance start $FINAL_SNAPSHOT_ID --ttl-seconds 1800 --ttl-action pause"

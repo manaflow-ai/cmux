@@ -36,6 +36,9 @@ dotenv.load_dotenv()
 client = MorphCloudClient()
 current_instance: Optional[Instance] = None
 
+DEFAULT_TTL_SECONDS = 60 * 30
+MAX_TTL_SECONDS = 60 * 60 * 12
+
 
 class CommandError(RuntimeError):
     def __init__(self, label: str, command: str, response: InstanceExecResponse):
@@ -186,8 +189,8 @@ def main() -> None:
     parser.add_argument(
         "--ttl",
         type=int,
-        default=3600,
-        help="TTL in seconds for the temporary instance (default: 3600).",
+        default=DEFAULT_TTL_SECONDS,
+        help="TTL in seconds for the temporary instance (default: 1800, max 43200).",
     )
     parser.add_argument(
         "--snapshot-metadata",
@@ -207,10 +210,12 @@ def main() -> None:
     metadata.update(parse_metadata(args.snapshot_metadata))
 
     print(f"Starting instance from snapshot {args.source_snapshot}...")
+    requested_ttl = max(60, min(args.ttl, MAX_TTL_SECONDS))
+
     instance = client.instances.start(
         snapshot_id=args.source_snapshot,
-        ttl_seconds=args.ttl,
-        ttl_action="stop",
+        ttl_seconds=requested_ttl,
+        ttl_action="pause",
     )
     global current_instance
     current_instance = instance

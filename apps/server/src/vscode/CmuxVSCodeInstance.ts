@@ -49,7 +49,7 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
       client: getWwwClient(),
       body: {
         teamSlugOrId: this.teamSlugOrId,
-        ttlSeconds: 60 * 60,
+        ttlSeconds: 60 * 30,
         metadata: {
           instance: `cmux-${this.taskRunId}`,
           agentName: this.config.agentName || "",

@@ -11,7 +11,11 @@ client = MorphCloudClient()
 snapshot_id = "snapshot_ojixukjb"
 # snapshot_id = "snapshot_2lj87jj7"
 
-instance = client.instances.start(snapshot_id=snapshot_id)
+instance = client.instances.start(
+    snapshot_id=snapshot_id,
+    ttl_seconds=60 * 30,
+    ttl_action="pause",
+)
 print(f"Created instance: {instance.id}")
 
 instance.expose_http_service("openvscode", 39378)

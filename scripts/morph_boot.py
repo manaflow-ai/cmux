@@ -8,7 +8,11 @@ def main() -> None:
     client = MorphCloudClient()
 
     print("booting instance...")
-    instance = client.instances.start(snapshot_id=SNAPSHOT_ID)
+    instance = client.instances.start(
+        snapshot_id=SNAPSHOT_ID,
+        ttl_seconds=60 * 30,
+        ttl_action="pause",
+    )
     print(f"Created instance: {instance.id}")
 
     print("waiting for instance to be ready...")

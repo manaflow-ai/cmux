@@ -18,6 +18,9 @@ import {
 
 export const morphRouter = new OpenAPIHono();
 
+const DEFAULT_TTL_SECONDS = 60 * 30;
+const MAX_TTL_SECONDS = 60 * 60 * 12;
+
 const morphSnapshotIds = MORPH_SNAPSHOT_PRESETS.map(
   (preset) => preset.id
 ) as MorphSnapshotId[];
@@ -31,7 +34,13 @@ const SetupInstanceBody = z
     teamSlugOrId: z.string(),
     instanceId: z.string().optional(), // Existing instance ID to reuse
     selectedRepos: z.array(z.string()).optional(), // Repositories to clone
-    ttlSeconds: z.number().default(60 * 30), // 30 minutes default
+    ttlSeconds: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_TTL_SECONDS)
+      .optional()
+      .default(DEFAULT_TTL_SECONDS), // 30 minutes default
     // TODO: This is a temporary solution to allow both string and enum values since client values are diff from backend values
     snapshotId: z.union([z.string(), SnapshotIdSchema]).optional(),
   })
@@ -89,6 +98,8 @@ morphRouter.openapi(
       ttlSeconds,
       snapshotId,
     } = c.req.valid("json");
+    const requestedTtlSeconds = ttlSeconds ?? DEFAULT_TTL_SECONDS;
+    const effectiveTtlSeconds = Math.min(requestedTtlSeconds, MAX_TTL_SECONDS);
 
     const convex = getConvex({ accessToken });
 
@@ -138,7 +149,7 @@ morphRouter.openapi(
         );
         instance = await client.instances.start({
           snapshotId: selectedSnapshotId,
-          ttlSeconds,
+          ttlSeconds: effectiveTtlSeconds,
           ttlAction: "pause",
           metadata: {
             app: "cmux-dev",

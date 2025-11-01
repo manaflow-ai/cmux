@@ -699,7 +699,7 @@ def main() -> None:
         # then we want to start an instance from the snapshot
         instance = client.instances.start(
             snapshot_id=snapshot.id,
-            ttl_seconds=3600,
+            ttl_seconds=60 * 30,
             ttl_action="pause",
         )
         # track for cleanup
