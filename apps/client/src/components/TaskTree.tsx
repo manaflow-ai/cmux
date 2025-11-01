@@ -23,6 +23,7 @@ import {
   ArchiveRestore as ArchiveRestoreIcon,
   CheckCircle,
   Circle,
+  Clock,
   Copy as CopyIcon,
   Crown,
   EllipsisVertical,
@@ -321,6 +322,73 @@ function TaskTreeInner({
     );
   })();
 
+  const crownStatusIndicator = (() => {
+    const state = task.crownEvaluationError ?? undefined;
+
+    if (state === "in_progress") {
+      return (
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <Loader2 className="w-3 h-3 text-yellow-500 animate-spin" />
+          </TooltipTrigger>
+          <TooltipContent side="right">Crown evaluation in progress</TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    if (state === "pending_evaluation") {
+      return (
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <Clock className="w-3 h-3 text-yellow-500" />
+          </TooltipTrigger>
+          <TooltipContent side="right">Crown evaluation pending</TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    if (state) {
+      return (
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <AlertTriangle className="w-3 h-3 text-red-500" />
+          </TooltipTrigger>
+          <TooltipContent
+            side="right"
+            className="max-w-xs whitespace-pre-wrap break-words"
+          >
+            {state}
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return null;
+  })();
+
+  const metaIcons: ReactNode[] = [];
+  if (taskLeadingIcon) {
+    metaIcons.push(taskLeadingIcon);
+  }
+  if (crownStatusIndicator) {
+    metaIcons.push(crownStatusIndicator);
+  }
+
+  const metaContent =
+    metaIcons.length === 0
+      ? undefined
+      : metaIcons.length === 1
+        ? metaIcons[0]
+        : (
+            <div className="flex items-center gap-1">
+              {metaIcons.map((icon, index) => (
+                <span key={index} className="flex-shrink-0">
+                  {icon}
+                </span>
+              ))}
+            </div>
+          );
+
   return (
     <TaskRunExpansionContext.Provider value={expansionContextValue}>
       <div className="select-none flex flex-col">
@@ -357,7 +425,7 @@ function TaskTreeInner({
                 title={task.pullRequestTitle || task.text}
                 titleClassName="text-[13px] text-neutral-900 dark:text-neutral-100"
                 secondary={taskSecondary || undefined}
-                meta={taskLeadingIcon || undefined}
+                meta={metaContent}
               />
             </Link>
           </ContextMenu.Trigger>
