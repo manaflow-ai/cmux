@@ -68,6 +68,9 @@ export async function spawnAgent(
   },
   teamSlugOrId: string
 ): Promise<AgentSpawnResult> {
+  // Declare taskRunId outside try block so it's accessible in catch
+  let taskRunId: Id<"taskRuns"> | string = "";
+
   try {
     // Capture the current auth token and header JSON from AsyncLocalStorage so we can
     // re-enter the auth context inside async event handlers later.
@@ -84,7 +87,7 @@ export async function spawnAgent(
     );
 
     // Create a task run for this specific agent
-    const { taskRunId, jwt: taskRunJwt } = await getConvex().mutation(
+    const taskRunResult = await getConvex().mutation(
       api.taskRuns.create,
       {
         teamSlugOrId,
@@ -95,6 +98,8 @@ export async function spawnAgent(
         environmentId: options.environmentId,
       }
     );
+    taskRunId = taskRunResult.taskRunId;
+    const taskRunJwt = taskRunResult.jwt;
 
     // Fetch the task to get image storage IDs
     const task = await getConvex().query(api.tasks.getById, {
@@ -445,14 +450,31 @@ export async function spawnAgent(
 
     if (options.isCloudMode && vscodeInstance instanceof CmuxVSCodeInstance) {
       console.log("[AgentSpawner] [isCloudMode] Setting up devcontainer");
+      // Run devcontainer setup in background but log errors prominently
       void vscodeInstance
         .setupDevcontainer()
-        .catch((err) =>
+        .catch(async (err) => {
           serverLogger.error(
-            "[AgentSpawner] setupDevcontainer encountered an error",
+            `[AgentSpawner] setupDevcontainer failed for agent ${agent.name}. This may cause networking issues.`,
             err
-          )
-        );
+          );
+          // Update taskRun with a warning about devcontainer setup failure
+          try {
+            await getConvex().mutation(api.taskRuns.updateStatus, {
+              teamSlugOrId,
+              id: taskRunId as Id<"taskRuns">,
+              status: "running",
+              metadata: {
+                warning: "Devcontainer setup failed - networking may be affected",
+              },
+            });
+          } catch (convexError) {
+            serverLogger.error(
+              "Failed to update taskRun with devcontainer warning:",
+              convexError
+            );
+          }
+        });
     }
 
     // Start file watching for real-time diff updates
@@ -922,14 +944,33 @@ exit $EXIT_CODE
       success: true,
     };
   } catch (error) {
-    serverLogger.error("Error spawning agent", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    serverLogger.error(`Error spawning agent ${agent.name}:`, error);
+
+    // If taskRunId was created before the error, mark it as failed in Convex
+    if (taskRunId) {
+      try {
+        await getConvex().mutation(api.taskRuns.fail, {
+          teamSlugOrId,
+          id: taskRunId as Id<"taskRuns">,
+          error: errorMessage,
+        });
+        serverLogger.info(`Marked taskRun ${taskRunId} as failed in Convex`);
+      } catch (convexError) {
+        serverLogger.error(
+          `Failed to mark taskRun ${taskRunId} as failed in Convex:`,
+          convexError
+        );
+      }
+    }
+
     return {
       agentName: agent.name,
       terminalId: "",
-      taskRunId: "",
+      taskRunId: taskRunId as string,
       worktreePath: "",
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: errorMessage,
     };
   }
 }

@@ -322,11 +322,31 @@ sandboxesRouter.openapi(
             taskRunJwt: body.taskRunJwt || undefined,
             isCloudWorkspace,
           });
-        })().catch((error) => {
+        })().catch(async (error) => {
           console.error(
             "[sandboxes.start] Background script execution failed:",
             error,
           );
+          // If we have a taskRunJwt, try to report this failure to Convex
+          if (body.taskRunJwt && body.taskRunId) {
+            try {
+              await getConvex().mutation(api.taskRuns.updateStatus, {
+                teamSlugOrId: body.teamSlugOrId,
+                id: body.taskRunId,
+                status: "running",
+                metadata: {
+                  warning: `Background script execution failed: ${
+                    error instanceof Error ? error.message : "Unknown error"
+                  }`,
+                },
+              });
+            } catch (convexError) {
+              console.error(
+                "[sandboxes.start] Failed to report script failure to Convex:",
+                convexError,
+              );
+            }
+          }
         });
       }
 

@@ -479,6 +479,7 @@ export function setupSocketHandlers(
                 `[Server] Failed generating/saving early PR title:`,
                 e
               );
+              // Non-fatal - continue with agent spawning
             }
 
             // Spawn all agents in parallel (each will create its own taskRun)
@@ -511,6 +512,23 @@ export function setupSocketHandlers(
                 `Failed to spawn any agents for task ${taskId}:`,
                 errors
               );
+
+              // Mark all failed taskRuns in Convex
+              for (const result of agentResults.filter(r => !r.success && r.taskRunId)) {
+                try {
+                  await getConvex().mutation(api.taskRuns.fail, {
+                    teamSlugOrId: safeTeam,
+                    id: result.taskRunId,
+                    error: result.error || "Failed to spawn agent",
+                  });
+                } catch (convexError) {
+                  serverLogger.error(
+                    `Failed to mark taskRun ${result.taskRunId} as failed in Convex:`,
+                    convexError
+                  );
+                }
+              }
+
               rt.emit("task-failed", {
                 taskId,
                 error: errors || "Failed to spawn any agents",
