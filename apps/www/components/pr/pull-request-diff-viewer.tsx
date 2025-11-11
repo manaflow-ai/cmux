@@ -2871,6 +2871,7 @@ const FileDiffCard = memo(function FileDiffCardComponent({
                   <span className="cmux-heatmap-char-wrapper">{rendered}</span>
                 </TooltipTrigger>
                 <TooltipContent
+                  interactive
                   side="bottom"
                   align="start"
                   sideOffset={0}
@@ -3250,8 +3251,10 @@ function HeatmapGutterTooltip({
   isAutoOpen: boolean;
 }) {
   const [isManuallyOpen, setIsManuallyOpen] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
+  const [isHoveringTrigger, setIsHoveringTrigger] = useState(false);
+  const [isHoveringTooltip, setIsHoveringTooltip] = useState(false);
   const wasAutoOpenRef = useRef(isAutoOpen);
+  const isHovering = isHoveringTrigger || isHoveringTooltip;
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setIsManuallyOpen(nextOpen);
@@ -3266,15 +3269,24 @@ function HeatmapGutterTooltip({
     wasAutoOpenRef.current = isAutoOpen;
   }, [isAutoOpen, isHovering]);
 
-  const handlePointerEnter = useCallback(() => {
-    setIsHovering(true);
+  const handleTriggerPointerEnter = useCallback(() => {
+    setIsHoveringTrigger(true);
   }, []);
 
-  const handlePointerLeave = useCallback(() => {
-    setIsHovering(false);
+  const handleTriggerPointerLeave = useCallback(() => {
+    setIsHoveringTrigger(false);
   }, []);
 
-  const isOpen = isAutoOpen || isManuallyOpen;
+  const handleTooltipPointerEnter = useCallback(() => {
+    setIsHoveringTooltip(true);
+  }, []);
+
+  const handleTooltipPointerLeave = useCallback(() => {
+    setIsHoveringTooltip(false);
+  }, []);
+
+  const isOpen =
+    isAutoOpen || isManuallyOpen || isHoveringTrigger || isHoveringTooltip;
   const theme = getHeatmapTooltipTheme(tooltipMeta.score);
 
   return (
@@ -3282,13 +3294,17 @@ function HeatmapGutterTooltip({
       <TooltipTrigger asChild>
         <span
           className="cmux-heatmap-gutter"
-          onPointerEnter={handlePointerEnter}
-          onPointerLeave={handlePointerLeave}
+          onPointerEnter={handleTriggerPointerEnter}
+          onPointerLeave={handleTriggerPointerLeave}
         >
           {children}
         </span>
       </TooltipTrigger>
       <TooltipContent
+        interactive
+        sideOffset={0}
+        onPointerEnter={handleTooltipPointerEnter}
+        onPointerLeave={handleTooltipPointerLeave}
         side="left"
         align="start"
         className={cn(
@@ -3313,11 +3329,47 @@ function HeatmapTooltipBody({
   reason: string | null;
 }) {
   const theme = getHeatmapTooltipTheme(score);
+  const { copy, copied } = useClipboard({ timeout: 1500 });
+  const trimmedReason = reason?.trim() ?? "";
+  const canCopyReason = trimmedReason.length > 0;
+
+  const handleCopyReason = useCallback(() => {
+    if (!canCopyReason) {
+      return;
+    }
+    copy(trimmedReason);
+  }, [canCopyReason, copy, trimmedReason]);
+
   return (
-    <div className="text-left text-xs leading-relaxed">
-      {reason ? (
-        <p className={cn("text-xs", theme.reasonClass)}>{reason}</p>
-      ) : null}
+    <div className="flex items-start gap-2 text-left text-xs leading-relaxed">
+      <div className="min-w-0 flex-1 break-words text-left">
+        {reason ? (
+          <p className={cn("text-xs", theme.reasonClass)}>{reason}</p>
+        ) : (
+          <p className="text-xs text-neutral-500">No review reasoning yet.</p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={handleCopyReason}
+        disabled={!canCopyReason}
+        aria-disabled={!canCopyReason}
+        aria-label={copied ? "Copied tooltip message" : "Copy tooltip message"}
+        className={cn(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-500 transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
+          canCopyReason
+            ? copied
+              ? "text-emerald-600"
+              : "hover:text-neutral-800"
+            : "cursor-not-allowed opacity-40"
+        )}
+      >
+        {copied ? (
+          <Check className="h-3 w-3" aria-hidden />
+        ) : (
+          <Copy className="h-3 w-3" aria-hidden />
+        )}
+      </button>
     </div>
   );
 }
