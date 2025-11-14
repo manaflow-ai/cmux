@@ -51,6 +51,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       console.warn("[Socket] No auth token yet; delaying connect");
       return;
     }
+    console.log("[Socket] Connecting with fresh auth token");
     let disposed = false;
     let createdSocket: MainServerSocket | null = null;
     (async () => {
@@ -99,6 +100,16 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
             ? (err as Error).message
             : String(err);
         console.error("[Socket] connect_error", errorMessage);
+
+        // Check if this is a token expiration error
+        if (
+          errorMessage.includes("Token expired") ||
+          errorMessage.includes("InvalidAuthHeader")
+        ) {
+          console.log(
+            "[Socket] Token expired, will reconnect with fresh token on next auth refresh"
+          );
+        }
       });
 
       newSocket.on("available-editors", (data: AvailableEditors) => {
