@@ -930,7 +930,6 @@ async def task_install_base_packages(ctx: TaskContext) -> None:
             python3-websockify websockify \
             xvfb \
             x11-xserver-utils xterm novnc \
-            x11vnc \
             tmux \
             gh \
             zsh \
@@ -1568,7 +1567,7 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
         install -Dm0644 {repo}/configs/systemd/cmux-dockerd.service /usr/lib/systemd/system/cmux-dockerd.service
         install -Dm0644 {repo}/configs/systemd/cmux-devtools.service /usr/lib/systemd/system/cmux-devtools.service
         install -Dm0644 {repo}/configs/systemd/cmux-xvfb.service /usr/lib/systemd/system/cmux-xvfb.service
-        install -Dm0644 {repo}/configs/systemd/cmux-x11vnc.service /usr/lib/systemd/system/cmux-x11vnc.service
+        install -Dm0644 {repo}/configs/systemd/cmux-tigervnc.service /usr/lib/systemd/system/cmux-tigervnc.service
         install -Dm0644 {repo}/configs/systemd/cmux-websockify.service /usr/lib/systemd/system/cmux-websockify.service
         install -Dm0644 {repo}/configs/systemd/cmux-cdp-proxy.service /usr/lib/systemd/system/cmux-cdp-proxy.service
         install -Dm0644 {repo}/configs/systemd/cmux-xterm.service /usr/lib/systemd/system/cmux-xterm.service
@@ -1587,7 +1586,7 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
         ln -sf /usr/lib/systemd/system/cmux-dockerd.service /etc/systemd/system/cmux.target.wants/cmux-dockerd.service
         ln -sf /usr/lib/systemd/system/cmux-devtools.service /etc/systemd/system/cmux.target.wants/cmux-devtools.service
         ln -sf /usr/lib/systemd/system/cmux-xvfb.service /etc/systemd/system/cmux.target.wants/cmux-xvfb.service
-        ln -sf /usr/lib/systemd/system/cmux-x11vnc.service /etc/systemd/system/cmux.target.wants/cmux-x11vnc.service
+        ln -sf /usr/lib/systemd/system/cmux-tigervnc.service /etc/systemd/system/cmux.target.wants/cmux-tigervnc.service
         ln -sf /usr/lib/systemd/system/cmux-websockify.service /etc/systemd/system/cmux.target.wants/cmux-websockify.service
         ln -sf /usr/lib/systemd/system/cmux-cdp-proxy.service /etc/systemd/system/cmux.target.wants/cmux-cdp-proxy.service
         ln -sf /usr/lib/systemd/system/cmux-xterm.service /etc/systemd/system/cmux.target.wants/cmux-xterm.service
@@ -2086,12 +2085,12 @@ async def task_check_vnc(ctx: TaskContext) -> None:
         done
         echo "ERROR: VNC endpoint not reachable after 30s" >&2
         systemctl status cmux-xvfb.service --no-pager || true
-        systemctl status cmux-x11vnc.service --no-pager || true
+        systemctl status cmux-tigervnc.service --no-pager || true
         systemctl status cmux-websockify.service --no-pager || true
         systemctl status cmux-devtools.service --no-pager || true
         tail -n 60 /var/log/cmux/xvfb.log || true
         tail -n 40 /var/log/cmux/chrome.log || true
-        tail -n 40 /var/log/cmux/x11vnc.log || true
+        tail -n 40 /var/log/cmux/tigervnc.log || true
         tail -n 40 /var/log/cmux/websockify.log || true
         exit 1
         """
@@ -2125,7 +2124,7 @@ async def task_check_devtools(ctx: TaskContext) -> None:
         systemctl status cmux-cdp-proxy.service --no-pager || true
         ss -ltnp | grep 3938 || true
         tail -n 100 /var/log/cmux/chrome.log || true
-        tail -n 40 /var/log/cmux/x11vnc.log || true
+        tail -n 40 /var/log/cmux/tigervnc.log || true
         exit 1
         """
     )

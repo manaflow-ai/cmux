@@ -1,7 +1,7 @@
 [Unit]
 Description=Cmux websockify proxy
-After=cmux-x11vnc.service
-Requires=cmux-x11vnc.service
+After=cmux-tigervnc.service
+Requires=cmux-tigervnc.service
 
 [Service]
 Type=simple

@@ -1,0 +1,17 @@
+[Unit]
+Description=Cmux TigerVNC bridge
+After=cmux-xvfb.service
+Requires=cmux-xvfb.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:1
+ExecStartPre=/bin/mkdir -p /var/log/cmux
+ExecStart=/usr/bin/x0vncserver -display :1 -rfbport 5901 -localhost -SecurityTypes None -AlwaysShared -DisconnectClients=0
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/cmux/tigervnc.log
+StandardError=append:/var/log/cmux/tigervnc.log
+
+[Install]
+WantedBy=cmux.target

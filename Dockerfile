@@ -484,8 +484,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   dbus \
   kmod \
   util-linux \
+  tigervnc-standalone-server \
+  tigervnc-common \
   xvfb \
-  x11vnc \
   fluxbox \
   websockify \
   novnc \
@@ -829,7 +830,7 @@ COPY configs/systemd/cmux-proxy.service /usr/lib/systemd/system/cmux-proxy.servi
 COPY configs/systemd/cmux-dockerd.service /usr/lib/systemd/system/cmux-dockerd.service
 COPY configs/systemd/cmux-devtools.service /usr/lib/systemd/system/cmux-devtools.service
 COPY configs/systemd/cmux-xvfb.service /usr/lib/systemd/system/cmux-xvfb.service
-COPY configs/systemd/cmux-x11vnc.service /usr/lib/systemd/system/cmux-x11vnc.service
+COPY configs/systemd/cmux-tigervnc.service /usr/lib/systemd/system/cmux-tigervnc.service
 COPY configs/systemd/cmux-websockify.service /usr/lib/systemd/system/cmux-websockify.service
 COPY configs/systemd/cmux-cdp-proxy.service /usr/lib/systemd/system/cmux-cdp-proxy.service
 COPY configs/systemd/cmux-xterm.service /usr/lib/systemd/system/cmux-xterm.service
@@ -855,7 +856,7 @@ RUN chmod +x /usr/local/lib/cmux/configure-openvscode /usr/local/lib/cmux/cmux-s
   ln -sf /usr/lib/systemd/system/cmux-dockerd.service /etc/systemd/system/cmux.target.wants/cmux-dockerd.service && \
   ln -sf /usr/lib/systemd/system/cmux-devtools.service /etc/systemd/system/cmux.target.wants/cmux-devtools.service && \
   ln -sf /usr/lib/systemd/system/cmux-xvfb.service /etc/systemd/system/cmux.target.wants/cmux-xvfb.service && \
-  ln -sf /usr/lib/systemd/system/cmux-x11vnc.service /etc/systemd/system/cmux.target.wants/cmux-x11vnc.service && \
+  ln -sf /usr/lib/systemd/system/cmux-tigervnc.service /etc/systemd/system/cmux.target.wants/cmux-tigervnc.service && \
   ln -sf /usr/lib/systemd/system/cmux-websockify.service /etc/systemd/system/cmux.target.wants/cmux-websockify.service && \
   ln -sf /usr/lib/systemd/system/cmux-cdp-proxy.service /etc/systemd/system/cmux.target.wants/cmux-cdp-proxy.service && \
   ln -sf /usr/lib/systemd/system/cmux-xterm.service /etc/systemd/system/cmux.target.wants/cmux-xterm.service && \
