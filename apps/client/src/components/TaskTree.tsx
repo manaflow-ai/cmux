@@ -73,6 +73,7 @@ import { SidebarListItem } from "./sidebar/SidebarListItem";
 import { annotateAgentOrdinals } from "./task-tree/annotateAgentOrdinals";
 
 type PreviewService = NonNullable<TaskRunWithChildren["networking"]>[number];
+type TaskRunStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
 type TaskWithGeneratedBranch = Doc<"tasks"> & {
   generatedBranchName?: string | null;
@@ -1191,12 +1192,14 @@ function TaskRunTreeInner({
   const isLocalWorkspaceRunEntry = run.isLocalWorkspace;
   const isCloudWorkspaceRunEntry = run.isCloudWorkspace;
 
-  const statusIcon = {
+  const statusIcons: Record<TaskRunStatus, ReactElement> = {
     pending: <Circle className="w-3 h-3 text-neutral-400" />,
     running: <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />,
     completed: <CheckCircle className="w-3 h-3 text-green-500" />,
     failed: <XCircle className="w-3 h-3 text-red-500" />,
-  }[run.status];
+    skipped: <AlertTriangle className="w-3 h-3 text-amber-500" />,
+  };
+  const statusIcon = statusIcons[run.status as TaskRunStatus];
 
   const shouldHideStatusIcon =
     (isLocalWorkspaceRunEntry || isCloudWorkspaceRunEntry) &&

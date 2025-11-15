@@ -1158,6 +1158,96 @@ export const toggleKeepAlive = authMutation({
   },
 });
 
+export const updateVSCodeMetadataInternal = internalMutation({
+  args: {
+    taskRunId: v.id("taskRuns"),
+    vscode: v.optional(
+      v.object({
+        provider: v.optional(
+          v.union(
+            v.literal("docker"),
+            v.literal("morph"),
+            v.literal("daytona"),
+            v.literal("other"),
+          ),
+        ),
+        containerName: v.optional(v.string()),
+        status: v.optional(
+          v.union(v.literal("starting"), v.literal("running"), v.literal("stopped")),
+        ),
+        ports: v.optional(
+          v.object({
+            vscode: v.string(),
+            worker: v.string(),
+            extension: v.optional(v.string()),
+            proxy: v.optional(v.string()),
+            vnc: v.optional(v.string()),
+          }),
+        ),
+        url: v.optional(v.string()),
+        workspaceUrl: v.optional(v.string()),
+        startedAt: v.optional(v.number()),
+        stoppedAt: v.optional(v.number()),
+        lastAccessedAt: v.optional(v.number()),
+        keepAlive: v.optional(v.boolean()),
+        scheduledStopAt: v.optional(v.number()),
+      }),
+    ),
+    networking: v.optional(
+      v.array(
+        v.object({
+          status: v.union(
+            v.literal("starting"),
+            v.literal("running"),
+            v.literal("stopped"),
+          ),
+          port: v.number(),
+          url: v.string(),
+        }),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.taskRunId);
+    if (!run) {
+      throw new Error("Task run not found");
+    }
+
+    const patch: Partial<Doc<"taskRuns">> = {
+      updatedAt: Date.now(),
+    };
+
+    if (args.vscode) {
+      const existing = run.vscode;
+      const ensureField = <T>(value: T | undefined, existingValue: T | undefined, field: string): T => {
+        if (value !== undefined) {
+          return value;
+        }
+        if (existingValue !== undefined) {
+          return existingValue;
+        }
+        throw new Error(`Missing required VSCode field: ${field}`);
+      };
+
+      const provider = ensureField(args.vscode.provider, existing?.provider, "provider");
+      const status = ensureField(args.vscode.status, existing?.status, "status");
+
+      patch.vscode = {
+        ...existing,
+        ...args.vscode,
+        provider,
+        status,
+      };
+    }
+
+    if (args.networking !== undefined) {
+      patch.networking = args.networking;
+    }
+
+    await ctx.db.patch(args.taskRunId, patch);
+  },
+});
+
 export const updateScheduledStopInternal = internalMutation({
   args: {
     taskRunId: v.id("taskRuns"),
@@ -1631,5 +1721,51 @@ export const getRunningContainersByCleanupPriority = authQuery({
       ],
       protectedCount: containersToKeepIds.size,
     };
+  },
+});
+
+export const createForPreview = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    teamId: v.string(),
+    userId: v.string(),
+    prUrl: v.string(),
+    environmentId: v.optional(v.id("environments")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const task = await ctx.db.get(args.taskId);
+    if (!task) {
+      throw new Error("Task not found");
+    }
+
+    const taskRunId = await ctx.db.insert("taskRuns", {
+      taskId: args.taskId,
+      parentRunId: undefined,
+      prompt: `Capture UI screenshots for ${args.prUrl}`,
+      agentName: "screenshot-collector",
+      newBranch: undefined,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      userId: args.userId,
+      teamId: args.teamId,
+      environmentId: args.environmentId,
+      isLocalWorkspace: task.isLocalWorkspace,
+      isCloudWorkspace: task.isCloudWorkspace,
+      isPreviewJob: true,
+    });
+
+    const jwt = await new SignJWT({
+      taskRunId,
+      teamId: args.teamId,
+      userId: args.userId,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("12h")
+      .sign(new TextEncoder().encode(env.CMUX_TASK_RUN_JWT_SECRET));
+
+    return { taskRunId, jwt };
   },
 });

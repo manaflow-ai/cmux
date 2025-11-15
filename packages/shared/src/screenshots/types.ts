@@ -56,3 +56,36 @@ export const ScreenshotUploadUrlResponseSchema = z.object({
 export type ScreenshotUploadUrlResponse = z.infer<
   typeof ScreenshotUploadUrlResponseSchema
 >;
+
+// Preview screenshot schemas
+export const PreviewScreenshotStoredImageSchema = z.object({
+  storageId: z.string(),
+  mimeType: z.string(),
+  fileName: z.string().optional(),
+  commitSha: z.string(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+});
+export type PreviewScreenshotStoredImage = z.infer<
+  typeof PreviewScreenshotStoredImageSchema
+>;
+
+export const PreviewScreenshotUploadPayloadSchema = z.object({
+  previewRunId: typedZid("previewRuns"),
+  status: z.enum(["completed", "failed", "skipped"]),
+  images: z.array(PreviewScreenshotStoredImageSchema).optional(),
+  error: z.string().optional(),
+  commitSha: z.string(),
+});
+export type PreviewScreenshotUploadPayload = z.infer<
+  typeof PreviewScreenshotUploadPayloadSchema
+>;
+
+export const PreviewScreenshotUploadResponseSchema = z.object({
+  ok: z.literal(true),
+  storageIds: z.array(z.string()).optional(),
+  screenshotSetId: typedZid("previewScreenshotSets").optional(),
+});
+export type PreviewScreenshotUploadResponse = z.infer<
+  typeof PreviewScreenshotUploadResponseSchema
+>;

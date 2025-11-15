@@ -437,6 +437,7 @@ async function handleInfoRequest(
       teamId: taskRun.teamId,
       newBranch: taskRun.newBranch ?? null,
       agentName: taskRun.agentName ?? null,
+      isPreviewJob: Boolean(taskRun.isPreviewJob),
     },
     task: task
       ? {
