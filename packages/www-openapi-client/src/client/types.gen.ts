@@ -486,6 +486,16 @@ export type StartSandboxBody = {
     branch?: string;
     newBranch?: string;
     depth?: number;
+    editorSettings?: {
+        authFiles: Array<{
+            destinationPath: string;
+            contentBase64: string;
+            mode?: string;
+        }>;
+        startupCommands: Array<string>;
+        sourceEditor: 'vscode' | 'cursor' | 'windsurf';
+        settingsPath?: string;
+    };
 };
 
 export type UpdateSandboxEnvResponse = {
