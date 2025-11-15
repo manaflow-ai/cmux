@@ -1361,6 +1361,9 @@ function TaskRunTreeInner({
     worktreePath: run.worktreePath,
     branch: run.newBranch,
     networking: run.networking,
+    taskRunId: run._id,
+    environmentId: run.environment?._id || null,
+    repoFullName: null,  // This would need to come from the task, not the run
   });
 
   const shouldRenderDiffLink = true;

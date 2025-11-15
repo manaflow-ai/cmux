@@ -220,6 +220,15 @@ export const OpenInEditorSchema = z.object({
     "xcode",
   ]),
   path: z.string(),
+  // Optional context for better path resolution in cloud environments
+  context: z
+    .object({
+      branch: z.string().nullable().optional(),
+      taskRunId: z.string().optional(),
+      environmentId: z.string().optional(),
+      repoFullName: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const AvailableEditorsSchema = z.object({

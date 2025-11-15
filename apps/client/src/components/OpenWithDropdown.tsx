@@ -9,6 +9,9 @@ interface OpenWithDropdownProps {
   worktreePath?: string | null;
   branch?: string | null;
   networking?: Parameters<typeof useOpenWithActions>[0]["networking"];
+  taskRunId?: string | null;
+  environmentId?: string | null;
+  repoFullName?: string | null;
   className?: string;
   iconClassName?: string;
 }
@@ -18,6 +21,9 @@ export function OpenWithDropdown({
   worktreePath,
   branch,
   networking,
+  taskRunId,
+  environmentId,
+  repoFullName,
   className,
   iconClassName = "w-3.5 h-3.5",
 }: OpenWithDropdownProps) {
@@ -32,6 +38,9 @@ export function OpenWithDropdown({
     worktreePath,
     branch,
     networking,
+    taskRunId,
+    environmentId,
+    repoFullName,
   });
 
   return (
