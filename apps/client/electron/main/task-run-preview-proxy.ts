@@ -1,18 +1,33 @@
 import http, {
   type IncomingHttpHeaders,
   type IncomingMessage,
+  type Server as HttpServer,
   type ServerResponse,
 } from "node:http";
 import https from "node:https";
+import http2, {
+  type ClientHttp2Session,
+  type Http2Server,
+  type IncomingHttpHeaders as Http2IncomingHttpHeaders,
+  type OutgoingHttpHeaders as Http2OutgoingHttpHeaders,
+  type ServerHttp2Stream,
+  type ServerOptions as Http2ServerOptions,
+} from "node:http2";
 import net, { type Socket } from "node:net";
 import tls, { type TLSSocket } from "node:tls";
 import { randomBytes, createHash } from "node:crypto";
 import { URL } from "node:url";
+import { pipeline as pipelineStream } from "node:stream/promises";
 import type { Session, WebContents } from "electron";
 import { isLoopbackHostname } from "@cmux/shared";
 import type { Logger } from "./chrome-camouflage";
 
-type ProxyServer = http.Server;
+type CombinedIncomingHeaders = IncomingHttpHeaders | Http2IncomingHttpHeaders;
+
+type ProxyServer = Http2Server & HttpServer;
+type Http2ServerOptionsWithAllow = Http2ServerOptions & {
+  allowHTTP1?: boolean;
+};
 
 const TASK_RUN_PREVIEW_PREFIX = "task-run-preview:";
 const DEFAULT_PROXY_LOGGING_ENABLED = false;
@@ -46,6 +61,35 @@ interface ProxyTarget {
   connectPort: number;
 }
 
+type DownstreamDestination =
+  | { kind: "http1"; res: ServerResponse }
+  | { kind: "http2"; stream: ServerHttp2Stream };
+
+interface ProxyClientRequest {
+  method: string;
+  headers: CombinedIncomingHeaders;
+  body: NodeJS.ReadableStream;
+  onAbort: (handler: () => void) => void;
+}
+
+interface ProxyUpstreamRequestOptions {
+  target: ProxyTarget;
+  method: string;
+  headers: Record<string, string>;
+  body: NodeJS.ReadableStream;
+  destination: DownstreamDestination;
+  preferHttp2: boolean;
+  onAbort: (handler: () => void) => void;
+  context: ProxyContext;
+}
+
+class Http2RequestAlreadyStartedError extends Error {
+  constructor(message?: string) {
+    super(message ?? "HTTP/2 upstream request already started");
+    this.name = "Http2RequestAlreadyStartedError";
+  }
+}
+
 interface ConfigureOptions {
   webContents: WebContents;
   initialUrl: string;
@@ -58,6 +102,16 @@ let proxyPort: number | null = null;
 let proxyLogger: Logger | null = null;
 let startingProxy: Promise<number> | null = null;
 let proxyLoggingEnabled = DEFAULT_PROXY_LOGGING_ENABLED;
+const hopByHopHeaders = new Set([
+  "connection",
+  "proxy-connection",
+  "keep-alive",
+  "upgrade",
+  "transfer-encoding",
+  "te",
+  "trailer",
+]);
+const http2Sessions = new Map<string, ClientHttp2Session>();
 
 export function setPreviewProxyLoggingEnabled(enabled: boolean): void {
   proxyLoggingEnabled = Boolean(enabled);
@@ -215,7 +269,9 @@ async function startProxyServer(logger: Logger): Promise<number> {
   const maxAttempts = 50;
   for (let i = 0; i < maxAttempts; i += 1) {
     const candidatePort = startPort + i;
-    const server = http.createServer();
+    const server = http2.createServer(
+      { allowHTTP1: true } as Http2ServerOptionsWithAllow
+    ) as ProxyServer;
     attachServerHandlers(server);
     try {
       await listen(server, candidatePort);
@@ -259,9 +315,13 @@ function listen(server: ProxyServer, port: number): Promise<void> {
 }
 
 function attachServerHandlers(server: ProxyServer) {
+  server.on("stream", handleHttp2Stream);
   server.on("request", handleHttpRequest);
   server.on("connect", handleConnect);
   server.on("upgrade", handleUpgrade);
+  server.on("sessionError", (error) => {
+    proxyLogger?.warn("Proxy HTTP/2 session error", { error });
+  });
   server.on("clientError", (error, socket) => {
     proxyLogger?.warn("Proxy client error", { error });
     socket.end();
@@ -295,7 +355,137 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     rewrittenPort: rewritten.connectPort,
     persistKey: context.persistKey,
   });
-  forwardHttpRequest(req, res, rewritten, context);
+  const client: ProxyClientRequest = {
+    method: req.method ?? "GET",
+    headers: req.headers,
+    body: req,
+    onAbort: (handler) => {
+      let called = false;
+      const invoke = () => {
+        if (called) return;
+        called = true;
+        handler();
+      };
+      req.once("aborted", invoke);
+      req.once("close", invoke);
+      req.once("error", invoke);
+    },
+  };
+  forwardHttpRequest(client, { kind: "http1", res }, rewritten, context);
+}
+
+function handleHttp2Stream(
+  stream: ServerHttp2Stream,
+  headers: Http2IncomingHttpHeaders
+) {
+  const context = authenticateRequest(headers);
+  if (!context) {
+    respondProxyAuthRequiredHttp2(stream);
+    return;
+  }
+
+  const parsedMethod = headers[":method"];
+  const method =
+    typeof parsedMethod === "string" && parsedMethod.length > 0
+      ? parsedMethod
+      : "GET";
+  if (method.toUpperCase() === "CONNECT") {
+    handleHttp2Connect(stream, headers, context);
+    return;
+  }
+
+  const target = parseHttp2RequestTarget(headers);
+  if (!target) {
+    proxyWarn("http2-target-parse-failed", {
+      authority: headers[":authority"],
+      path: headers[":path"],
+    });
+    respondHttp2Error(stream, 400, "Bad Request");
+    return;
+  }
+
+  const rewritten = rewriteTarget(target, context);
+  proxyLog("http2-request", {
+    username: context.username,
+    requestedHost: target.hostname,
+    requestedPort: target.port,
+    rewrittenHost: rewritten.url.hostname,
+    rewrittenPort: rewritten.connectPort,
+    persistKey: context.persistKey,
+  });
+
+  const client: ProxyClientRequest = {
+    method,
+    headers,
+    body: stream,
+    onAbort: (handler) => {
+      let called = false;
+      const invoke = () => {
+        if (called) return;
+        called = true;
+        handler();
+      };
+      stream.once("aborted", invoke);
+      stream.once("close", invoke);
+      stream.once("error", invoke);
+    },
+  };
+
+  forwardHttpRequest(client, { kind: "http2", stream }, rewritten, context);
+}
+
+function handleHttp2Connect(
+  stream: ServerHttp2Stream,
+  headers: Http2IncomingHttpHeaders,
+  context: ProxyContext
+) {
+  const authority = headers[":authority"];
+  if (typeof authority !== "string" || authority.length === 0) {
+    respondHttp2Error(stream, 400, "Bad Request");
+    return;
+  }
+  const target = parseConnectTarget(authority);
+  if (!target) {
+    proxyWarn("http2-connect-target-parse-failed", {
+      authority,
+    });
+    respondHttp2Error(stream, 400, "Bad Request");
+    return;
+  }
+
+  const targetUrl = new URL(`https://${target.hostname}`);
+  targetUrl.port = String(target.port);
+  const rewritten = rewriteTarget(targetUrl, context);
+  proxyLog("http2-connect-request", {
+    username: context.username,
+    requestedHost: target.hostname,
+    requestedPort: target.port,
+    rewrittenHost: rewritten.url.hostname,
+    rewrittenPort: rewritten.connectPort,
+    persistKey: context.persistKey,
+  });
+
+  const upstream = net.connect(
+    rewritten.connectPort,
+    rewritten.url.hostname,
+    () => {
+      stream.respond({ ":status": 200 });
+      stream.pipe(upstream);
+      upstream.pipe(stream);
+    }
+  );
+
+  upstream.on("error", (error) => {
+    proxyLogger?.warn("HTTP/2 CONNECT upstream error", { error });
+    respondHttp2Error(stream, 502, "Bad Gateway");
+  });
+
+  stream.on("error", () => {
+    upstream.destroy();
+  });
+  stream.on("close", () => {
+    upstream.destroy();
+  });
 }
 
 function handleConnect(req: IncomingMessage, socket: Socket, head: Buffer) {
@@ -378,7 +568,7 @@ function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer) {
 }
 
 function authenticateRequest(
-  headers: IncomingHttpHeaders
+  headers: CombinedIncomingHeaders
 ): ProxyContext | null {
   const raw = headers["proxy-authorization"];
   if (typeof raw !== "string") {
@@ -412,6 +602,33 @@ function respondProxyAuthRequiredSocket(socket: Socket) {
   socket.end();
 }
 
+function respondProxyAuthRequiredHttp2(stream: ServerHttp2Stream) {
+  if (stream.headersSent) {
+    stream.close(http2.constants.NGHTTP2_REFUSED_STREAM);
+    return;
+  }
+  stream.respond({
+    ":status": 407,
+    "proxy-authenticate": 'Basic realm="Cmux Preview Proxy"',
+  });
+  stream.end("Proxy Authentication Required");
+}
+
+function respondHttp2Error(
+  stream: ServerHttp2Stream,
+  statusCode: number,
+  body: string
+) {
+  if (stream.headersSent) {
+    stream.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
+    return;
+  }
+  stream.respond({
+    ":status": statusCode,
+  });
+  stream.end(body);
+}
+
 function parseProxyRequestTarget(req: IncomingMessage): URL | null {
   try {
     if (req.url && /^[a-z]+:\/\//i.test(req.url)) {
@@ -427,6 +644,25 @@ function parseProxyRequestTarget(req: IncomingMessage): URL | null {
     return new URL(`http://${host}${req.url}`);
   } catch (error) {
     console.error("Failed to parse proxy request target", error);
+    return null;
+  }
+}
+
+function parseHttp2RequestTarget(
+  headers: Http2IncomingHttpHeaders
+): URL | null {
+  try {
+    const authority = headers[":authority"];
+    const scheme = headers[":scheme"] ?? "https";
+    const path = headers[":path"] ?? "/";
+    if (typeof authority !== "string" || authority.length === 0) {
+      return null;
+    }
+    const normalizedPath =
+      typeof path === "string" && path.length > 0 ? path : "/";
+    return new URL(`${scheme}://${authority}${normalizedPath}`);
+  } catch (error) {
+    console.error("Failed to parse HTTP/2 proxy request target", error);
     return null;
   }
 }
@@ -488,60 +724,31 @@ function buildCmuxHost(route: ProxyRoute, port: number): string {
 }
 
 function forwardHttpRequest(
-  clientReq: IncomingMessage,
-  clientRes: ServerResponse,
+  client: ProxyClientRequest,
+  destination: DownstreamDestination,
   target: ProxyTarget,
   context: ProxyContext
 ) {
-  const { url, secure, connectPort } = target;
-  const requestHeaders: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(clientReq.headers)) {
-    if (!value) continue;
-    if (key.toLowerCase() === "proxy-authorization") continue;
-    if (Array.isArray(value)) {
-      requestHeaders[key] = value.join(", ");
-    } else {
-      requestHeaders[key] = value;
-    }
-  }
-  requestHeaders.host = url.host;
-
-  const requestOptions = {
-    protocol: secure ? "https:" : "http:",
-    hostname: url.hostname,
-    port: connectPort,
-    method: clientReq.method,
-    path: url.pathname + url.search,
+  const requestHeaders = buildForwardHeaders(client.headers, target.url);
+  const method = client.method ?? "GET";
+  void proxyRequestUpstream({
+    target,
+    method,
     headers: requestHeaders,
-  };
-
-  const httpModule = secure ? https : http;
-  const proxyReq = httpModule.request(requestOptions, (proxyRes) => {
-    clientRes.writeHead(
-      proxyRes.statusCode ?? 500,
-      proxyRes.statusMessage ?? "",
-      proxyRes.headers
-    );
-    proxyRes.pipe(clientRes);
-  });
-
-  proxyReq.on("error", (error) => {
-    proxyWarn("http-upstream-error", {
+    body: client.body,
+    destination,
+    preferHttp2: target.secure,
+    onAbort: client.onAbort,
+    context,
+  }).catch((error) => {
+    proxyWarn("http-forward-failed", {
       error,
       persistKey: context.persistKey,
       username: context.username,
-      host: url.hostname,
+      host: target.url.hostname,
+      port: target.connectPort,
     });
-    if (!clientRes.headersSent) {
-      clientRes.writeHead(502);
-    }
-    clientRes.end("Bad Gateway");
-  });
-
-  clientReq.pipe(proxyReq);
-  clientReq.on("aborted", () => {
-    proxyReq.destroy();
+    sendDownstreamFailure(destination, 502, "Bad Gateway");
   });
 }
 
@@ -604,6 +811,357 @@ function forwardUpgradeRequest(
   socket.on("error", () => {
     upstream.destroy();
   });
+}
+
+function buildForwardHeaders(
+  headers: CombinedIncomingHeaders,
+  url: URL
+): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(headers)) {
+    if (!rawValue) continue;
+    if (rawKey.startsWith(":")) continue;
+    const key = rawKey.toLowerCase();
+    if (key === "proxy-authorization") continue;
+    if (hopByHopHeaders.has(key)) continue;
+    if (Array.isArray(rawValue)) {
+      normalized[key] = rawValue.join(", ");
+    } else {
+      normalized[key] = String(rawValue);
+    }
+  }
+  normalized.host = url.host;
+  return normalized;
+}
+
+function sanitizeUpstreamHeaders(
+  headers: IncomingHttpHeaders | Http2IncomingHttpHeaders
+): Record<string, string | string[]> {
+  const sanitized: Record<string, string | string[]> = {};
+  for (const [rawKey, rawValue] of Object.entries(headers)) {
+    if (!rawValue) continue;
+    if (rawKey.startsWith(":")) continue;
+    const key = rawKey.toLowerCase();
+    if (hopByHopHeaders.has(key)) continue;
+    if (Array.isArray(rawValue)) {
+      sanitized[key] = rawValue.map((value) => String(value));
+    } else {
+      sanitized[key] = String(rawValue);
+    }
+  }
+  return sanitized;
+}
+
+function downstreamHeadersSent(destination: DownstreamDestination): boolean {
+  return destination.kind === "http1"
+    ? destination.res.headersSent
+    : destination.stream.headersSent;
+}
+
+function getDownstreamWritable(
+  destination: DownstreamDestination
+): NodeJS.WritableStream {
+  return destination.kind === "http1" ? destination.res : destination.stream;
+}
+
+function writeDownstreamResponse(
+  destination: DownstreamDestination,
+  statusCode: number,
+  statusMessage: string,
+  headers: Record<string, string | string[]>
+) {
+  if (downstreamHeadersSent(destination)) {
+    return;
+  }
+  if (destination.kind === "http1") {
+    if (statusMessage && statusMessage.length > 0) {
+      destination.res.writeHead(statusCode, statusMessage, headers);
+    } else {
+      destination.res.writeHead(statusCode, headers);
+    }
+    return;
+  }
+  const responseHeaders: Http2OutgoingHttpHeaders = {
+    ":status": statusCode,
+  };
+  for (const [key, value] of Object.entries(headers)) {
+    const normalizedKey = key.toLowerCase();
+    if (hopByHopHeaders.has(normalizedKey)) continue;
+    if (Array.isArray(value)) {
+      responseHeaders[normalizedKey] =
+        normalizedKey === "set-cookie" ? value : value.join(", ");
+    } else {
+      responseHeaders[normalizedKey] = value;
+    }
+  }
+  destination.stream.respond(responseHeaders);
+}
+
+function sendDownstreamFailure(
+  destination: DownstreamDestination,
+  statusCode: number,
+  message: string
+) {
+  if (downstreamHeadersSent(destination)) {
+    if (destination.kind === "http2") {
+      destination.stream.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
+    } else {
+      destination.res.end();
+    }
+    return;
+  }
+  if (destination.kind === "http1") {
+    destination.res.writeHead(statusCode);
+    destination.res.end(message);
+  } else {
+    destination.stream.respond({ ":status": statusCode });
+    destination.stream.end(message);
+  }
+}
+
+function buildHttpPath(url: URL): string {
+  const path = `${url.pathname ?? ""}${url.search ?? ""}`;
+  return path.length > 0 ? path : "/";
+}
+
+async function proxyRequestUpstream(
+  options: ProxyUpstreamRequestOptions
+): Promise<void> {
+  if (options.preferHttp2 && options.target.secure) {
+    try {
+      const session = await ensureHttp2Session(options.target);
+      try {
+        await sendViaHttp2(session, options);
+        return;
+      } catch (error) {
+        if (error instanceof Http2RequestAlreadyStartedError) {
+          throw error;
+        }
+        proxyWarn("http2-request-error", {
+          error,
+          host: options.target.url.hostname,
+          port: options.target.connectPort,
+        });
+      }
+    } catch (error) {
+      proxyWarn("http2-session-init-failed", {
+        error,
+        host: options.target.url.hostname,
+        port: options.target.connectPort,
+      });
+    }
+  }
+  await sendViaHttp1(options);
+}
+
+async function sendViaHttp1(
+  options: ProxyUpstreamRequestOptions
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const safeResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const safeReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const httpModule = options.target.secure ? https : http;
+    const requestOptions = {
+      protocol: options.target.secure ? "https:" : "http:",
+      hostname: options.target.url.hostname,
+      port: options.target.connectPort,
+      method: options.method,
+      path: buildHttpPath(options.target.url),
+      headers: options.headers,
+    };
+    const proxyReq = httpModule.request(requestOptions, (proxyRes) => {
+      const sanitizedHeaders = sanitizeUpstreamHeaders(proxyRes.headers);
+      writeDownstreamResponse(
+        options.destination,
+        proxyRes.statusCode ?? 500,
+        proxyRes.statusMessage ?? "",
+        sanitizedHeaders
+      );
+      pipelineStream(proxyRes, getDownstreamWritable(options.destination))
+        .then(safeResolve)
+        .catch((error) => safeReject(error as Error));
+    });
+
+    proxyReq.on("error", (error) => {
+      if (!downstreamHeadersSent(options.destination)) {
+        sendDownstreamFailure(options.destination, 502, "Bad Gateway");
+      }
+      safeReject(error as Error);
+    });
+
+    options.onAbort(() => {
+      proxyReq.destroy();
+    });
+
+    pipelineStream(options.body, proxyReq).catch((error) => {
+      proxyReq.destroy(error as Error);
+    });
+  });
+}
+
+async function sendViaHttp2(
+  session: ClientHttp2Session,
+  options: ProxyUpstreamRequestOptions
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let responded = false;
+    let requestStarted = false;
+    const safeResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const safeReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    const headers: Http2OutgoingHttpHeaders = {
+      ":method": options.method,
+      ":path": buildHttpPath(options.target.url),
+      ":scheme": options.target.secure ? "https" : "http",
+      ":authority": options.target.url.host,
+    };
+    for (const [key, value] of Object.entries(options.headers)) {
+      const normalizedKey = key.toLowerCase();
+      if (normalizedKey === "host") continue;
+      if (hopByHopHeaders.has(normalizedKey)) continue;
+      headers[normalizedKey] = value;
+    }
+
+    const proxyReq = session.request(headers, { endStream: false });
+
+    proxyReq.on("response", (responseHeaders) => {
+      responded = true;
+      const rawStatus = responseHeaders[":status"];
+      const statusCode =
+        typeof rawStatus === "number"
+          ? rawStatus
+          : Number(rawStatus ?? 502);
+      const sanitizedHeaders = sanitizeUpstreamHeaders(responseHeaders);
+      writeDownstreamResponse(
+        options.destination,
+        Number.isNaN(statusCode) ? 502 : statusCode,
+        "",
+        sanitizedHeaders
+      );
+      pipelineStream(proxyReq, getDownstreamWritable(options.destination))
+        .then(safeResolve)
+        .catch((error) => safeReject(error as Error));
+    });
+
+    proxyReq.on("error", (error) => {
+      if (!downstreamHeadersSent(options.destination)) {
+        sendDownstreamFailure(options.destination, 502, "Bad Gateway");
+      }
+      safeReject(
+        requestStarted
+          ? new Http2RequestAlreadyStartedError(error.message)
+          : (error as Error)
+      );
+    });
+
+    proxyReq.on("close", () => {
+      if (!responded && !downstreamHeadersSent(options.destination)) {
+        sendDownstreamFailure(options.destination, 502, "Bad Gateway");
+        safeReject(
+          new Http2RequestAlreadyStartedError(
+            "HTTP/2 upstream closed before response"
+          )
+        );
+      }
+    });
+
+    options.onAbort(() => {
+      proxyReq.close(http2.constants.NGHTTP2_CANCEL);
+    });
+
+    requestStarted = true;
+    pipelineStream(options.body, proxyReq).catch((error) => {
+      proxyReq.destroy(error as Error);
+    });
+  });
+}
+
+function getHttp2SessionKey(target: ProxyTarget): string {
+  return `${target.url.hostname}:${target.connectPort}`;
+}
+
+async function ensureHttp2Session(
+  target: ProxyTarget
+): Promise<ClientHttp2Session> {
+  const key = getHttp2SessionKey(target);
+  const existing = http2Sessions.get(key);
+  if (existing && !existing.closed && !existing.destroyed) {
+    return existing;
+  }
+  if (existing) {
+    http2Sessions.delete(key);
+    try {
+      existing.close();
+    } catch {
+      // ignore
+    }
+  }
+  return createHttp2Session(target, key);
+}
+
+function createHttp2Session(
+  target: ProxyTarget,
+  key: string
+): Promise<ClientHttp2Session> {
+  return new Promise((resolve, reject) => {
+    const authority = `https://${target.url.hostname}:${target.connectPort}`;
+    const session = http2.connect(authority, {
+      servername: target.url.hostname,
+    });
+    const cleanup = () => {
+      session.off("connect", handleConnect);
+      session.off("error", handleError);
+    };
+    const handleError = (error: Error) => {
+      cleanup();
+      try {
+        session.close();
+      } catch {
+        // ignore
+      }
+      reject(error);
+    };
+    const handleConnect = () => {
+      cleanup();
+      registerHttp2SessionLifecycle(session, key);
+      http2Sessions.set(key, session);
+      resolve(session);
+    };
+    session.once("error", handleError);
+    session.once("connect", handleConnect);
+  });
+}
+
+function registerHttp2SessionLifecycle(
+  session: ClientHttp2Session,
+  key: string
+) {
+  const teardown = () => {
+    if (http2Sessions.get(key) === session) {
+      http2Sessions.delete(key);
+    }
+  };
+  session.once("close", teardown);
+  session.once("error", teardown);
+  session.once("goaway", teardown);
 }
 
 function deriveRoute(url: string): ProxyRoute | null {
