@@ -328,7 +328,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         if (!createOptions.HostConfig?.Binds) {
           createOptions.HostConfig!.Binds = binds;
         }
-        binds.push(`${this.config.workspacePath}:/root/workspace`);
+        binds.push(`${this.config.workspacePath}:${this.containerWorkspacePath}`);
         // Mount the origin directory at the same absolute path to preserve git references
         binds.push(`${originPath}:${originPath}:rw`); // Read-write mount for git operations
 
@@ -387,7 +387,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         if (!createOptions.HostConfig?.Binds) {
           createOptions.HostConfig!.Binds = binds;
         }
-        binds.push(`${this.config.workspacePath}:/root/workspace`);
+        binds.push(`${this.config.workspacePath}:${this.containerWorkspacePath}`);
 
         // Mount SSH directory for git authentication
         const sshDir = path.join(homeDir, ".ssh");
@@ -880,7 +880,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
   }
 
   // Detect and start devcontainer tooling inside the running OpenVSCode container
-  // Runs in background and writes output to /root/workspace/.cmux/devcontainer.log
+  // Runs in background and writes output to <workspace>/.cmux/devcontainer.log
   private async bootstrapDevcontainerIfPresent(): Promise<void> {
     try {
       if (!this.container) {
@@ -918,20 +918,22 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         `Devcontainer detected. Bootstrapping inside ${this.containerName} (non-blocking)...`
       );
 
+      const workspaceMountPath = this.containerWorkspacePath;
+
       // Prepare background command inside the container
       const bootstrapCmd = [
         "bash",
         "-lc",
         [
           "set -euo pipefail",
-          "mkdir -p /root/workspace/.cmux",
+          `mkdir -p ${workspaceMountPath}/.cmux`,
           // Only run if devcontainer file exists in container mount as well
-          "if [ -f /root/workspace/.devcontainer/devcontainer.json ]; then",
+          `if [ -f ${workspaceMountPath}/.devcontainer/devcontainer.json ]; then`,
           // Run in background; redirect output to a log inside workspace
-          "  (cd /root/workspace && nohup bunx @devcontainers/cli up --workspace-folder . >> /root/workspace/.cmux/devcontainer.log 2>&1 &)",
-          "  echo 'devcontainer up triggered in background' >> /root/workspace/.cmux/devcontainer.log",
+          `  (cd ${workspaceMountPath} && nohup bunx @devcontainers/cli up --workspace-folder . >> ${workspaceMountPath}/.cmux/devcontainer.log 2>&1 &)`,
+          `  echo 'devcontainer up triggered in background' >> ${workspaceMountPath}/.cmux/devcontainer.log`,
           "else",
-          "  echo 'devcontainer.json not found in container' >> /root/workspace/.cmux/devcontainer.log",
+          `  echo 'devcontainer.json not found in container' >> ${workspaceMountPath}/.cmux/devcontainer.log`,
           "fi",
         ].join(" && "),
       ];

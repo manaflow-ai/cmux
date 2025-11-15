@@ -3,6 +3,8 @@ import { connectToWorkerManagement } from "@cmux/shared/socket";
 import { EventEmitter } from "node:events";
 import { dockerLogger } from "../utils/fileLogger";
 
+const DEFAULT_CONTAINER_WORKSPACE = "/root/workspace";
+
 export interface VSCodeInstanceConfig {
   workspacePath?: string;
   initialCommand?: string;
@@ -19,6 +21,8 @@ export interface VSCodeInstanceConfig {
   environmentId?: Id<"environments"> | string;
   // Optional: JWT token for crown workflow authentication
   taskRunJwt?: string;
+  // Optional: override for commands executed inside the container
+  containerWorkspacePath?: string;
 }
 
 export interface VSCodeInstanceInfo {
@@ -41,6 +45,7 @@ export abstract class VSCodeInstance extends EventEmitter {
     null;
   protected workerConnected: boolean = false;
   protected teamSlugOrId: string;
+  protected readonly containerWorkspacePath: string;
 
   constructor(config: VSCodeInstanceConfig) {
     super();
@@ -48,6 +53,8 @@ export abstract class VSCodeInstance extends EventEmitter {
     this.taskRunId = config.taskRunId;
     this.taskId = config.taskId;
     this.teamSlugOrId = config.teamSlugOrId;
+    this.containerWorkspacePath =
+      config.containerWorkspacePath ?? DEFAULT_CONTAINER_WORKSPACE;
     // Use taskRunId as instanceId for backward compatibility
     this.instanceId = config.taskRunId;
 
@@ -193,7 +200,7 @@ export abstract class VSCodeInstance extends EventEmitter {
   startFileWatch(worktreePath: string): void {
     if (this.workerSocket && this.workerConnected) {
       // Always watch the container workspace path; host paths are not valid inside the container
-      const containerWorkspace = "/root/workspace";
+      const containerWorkspace = this.containerWorkspacePath;
       dockerLogger.info(
         `[VSCodeInstance ${this.instanceId}] Starting file watch for ${worktreePath} -> ${containerWorkspace}`
       );
@@ -229,8 +236,14 @@ export abstract class VSCodeInstance extends EventEmitter {
 
   abstract getName(): string;
 
+  getContainerWorkspacePath(): string {
+    return this.containerWorkspacePath;
+  }
+
   protected getWorkspaceUrl(baseUrl: string): string {
-    return `${baseUrl}/?folder=/root/workspace`;
+    const workspaceUrl = new URL(baseUrl);
+    workspaceUrl.searchParams.set("folder", this.containerWorkspacePath);
+    return workspaceUrl.toString();
   }
 
   protected async disconnectFromWorker(): Promise<void> {

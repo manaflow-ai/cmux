@@ -358,6 +358,7 @@ export async function spawnAgent(
 
     let vscodeInstance: VSCodeInstance;
     let worktreePath: string;
+    let containerWorkspacePath = "/root/workspace";
 
     console.log("[AgentSpawner] [isCloudMode]", options.isCloudMode);
 
@@ -407,12 +408,14 @@ export async function spawnAgent(
       }
 
       worktreePath = workspaceResult.worktreePath;
+      containerWorkspacePath = worktreePath;
 
       serverLogger.info(
         `[AgentSpawner] Creating DockerVSCodeInstance for ${agent.name}`
       );
       vscodeInstance = new DockerVSCodeInstance({
         workspacePath: worktreePath,
+        containerWorkspacePath,
         agentName: agent.name,
         taskRunId,
         taskId,
@@ -640,7 +643,7 @@ export async function spawnAgent(
           "-s",
           tmuxSessionName,
           "-c",
-          "/root/workspace",
+          containerWorkspacePath,
           actualCommand,
           ...actualArgs.map((arg) => {
             // Replace $CMUX_PROMPT with actual prompt value
@@ -676,7 +679,7 @@ export async function spawnAgent(
       agentModel: agent.name,
       authFiles,
       startupCommands,
-      cwd: "/root/workspace",
+      cwd: containerWorkspacePath,
     };
 
     const switchBranch = async () => {
@@ -696,9 +699,10 @@ exit $EXIT_CODE
         workerSocket,
         command: "bash",
         args: ["-lc", command],
-        cwd: "/root/workspace",
+        cwd: containerWorkspacePath,
         env: {
           CMUX_BRANCH_NAME: newBranch,
+          CMUX_WORKSPACE_DIR: containerWorkspacePath,
         },
         timeout: 60000,
       });

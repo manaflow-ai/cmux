@@ -5,7 +5,7 @@ import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
 
-const workspaceDir = "/root/workspace";
+const workspaceDir = process.env.CMUX_WORKSPACE_DIR ?? "/root/workspace";
 const branchName = process.env.CMUX_BRANCH_NAME;
 
 const logPrefix = "[cmux switch-branch]";

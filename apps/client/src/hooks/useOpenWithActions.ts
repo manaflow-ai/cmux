@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { rewriteLocalWorkspaceUrlIfNeeded } from "@/lib/toProxyWorkspaceUrl";
 import { useLocalVSCodeServeWebQuery } from "@/queries/local-vscode-serve-web";
 
+const DEFAULT_CONTAINER_WORKSPACE = "/root/workspace";
+
 type NetworkingInfo = Doc<"taskRuns">["networking"];
 
 type OpenWithAction = {
@@ -58,8 +60,21 @@ export function useOpenWithActions({
             vscodeUrl,
             localServeWebOrigin,
           );
-          const vscodeUrlWithWorkspace = `${normalizedUrl}?folder=/root/workspace`;
-          window.open(vscodeUrlWithWorkspace, "_blank", "noopener,noreferrer");
+          let targetUrl = normalizedUrl;
+          try {
+            const parsed = new URL(normalizedUrl);
+            if (!parsed.searchParams.has("folder")) {
+              parsed.searchParams.set("folder", DEFAULT_CONTAINER_WORKSPACE);
+            }
+            targetUrl = parsed.toString();
+          } catch {
+            if (!normalizedUrl.includes("?folder=")) {
+              targetUrl = `${normalizedUrl}?folder=${encodeURIComponent(
+                DEFAULT_CONTAINER_WORKSPACE,
+              )}`;
+            }
+          }
+          window.open(targetUrl, "_blank", "noopener,noreferrer");
           resolve();
         } else if (
           socket &&
