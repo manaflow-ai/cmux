@@ -1,6 +1,5 @@
 import { api } from "@cmux/convex/api";
 import type { Id } from "@cmux/convex/dataModel";
-import type { WorkspaceConfigResponse } from "@cmux/www-openapi-client";
 import {
   ArchiveTaskSchema,
   GitFullDiffRequestSchema,
@@ -23,6 +22,7 @@ import {
   LOCAL_VSCODE_PLACEHOLDER_ORIGIN,
   type IframePreflightResult,
 } from "@cmux/shared";
+import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import {
   type PullRequestActionResult,
   type StoredPullRequestInfo,
@@ -151,6 +151,11 @@ function buildLoginShellArgs(
   // PATH the same way users expect in their terminals.
   return ["-l", "-i", "-c", command];
 }
+
+type WorkspaceSetupConfig = {
+  maintenanceScript?: string;
+  envVarsContent?: string;
+};
 
 function isExecError(error: unknown): error is ExecError {
   return (
@@ -728,7 +733,7 @@ export function setupSocketHandlers(
 
         const {
           teamSlugOrId: requestedTeamSlugOrId,
-          projectFullName,
+          projectFullName: inputProjectFullName,
           repoUrl: explicitRepoUrl,
           branch: requestedBranch,
           taskId: providedTaskId,
@@ -738,7 +743,7 @@ export function setupSocketHandlers(
         } = parsed.data;
         const teamSlugOrId = requestedTeamSlugOrId || safeTeam;
 
-        if (projectFullName && projectFullName.startsWith("env:")) {
+        if (inputProjectFullName && inputProjectFullName.startsWith("env:")) {
           callback({
             success: false,
             error: "Local workspaces cannot be created from environments.",
@@ -746,9 +751,19 @@ export function setupSocketHandlers(
           return;
         }
 
+        const repoUrl =
+          explicitRepoUrl ??
+          (inputProjectFullName
+            ? `https://github.com/${inputProjectFullName}.git`
+            : undefined);
+        const branch = requestedBranch?.trim();
+        const parsedRepo = repoUrl ? parseGithubRepoUrl(repoUrl) : null;
+        const targetProjectFullName =
+          inputProjectFullName ?? parsedRepo?.fullName ?? null;
+
         if (
-          projectFullName &&
-          !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(projectFullName)
+          targetProjectFullName &&
+          !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(targetProjectFullName)
         ) {
           callback({
             success: false,
@@ -757,34 +772,58 @@ export function setupSocketHandlers(
           return;
         }
 
-        const repoUrl =
-          explicitRepoUrl ??
-          (projectFullName
-            ? `https://github.com/${projectFullName}.git`
-            : undefined);
-        const branch = requestedBranch?.trim();
+        const convex = getConvex();
 
-        let workspaceConfig: WorkspaceConfigResponse | null = null;
-        if (projectFullName) {
+        let workspaceConfig: WorkspaceSetupConfig | null = null;
+        if (targetProjectFullName) {
+          let maintenanceScript: string | undefined;
           try {
-            const { getApiWorkspaceConfigs } =
-              await getWwwOpenApiModule();
+            const config = await convex.query(api.workspaceConfigs.get, {
+              teamSlugOrId,
+              projectFullName: targetProjectFullName,
+            });
+            maintenanceScript = config?.maintenanceScript ?? undefined;
+          } catch (error) {
+            serverLogger.warn(
+              "[create-local-workspace] Failed to load workspace config from Convex",
+              {
+                projectFullName: targetProjectFullName,
+                error,
+              }
+            );
+          }
+
+          let envVarsContent: string | undefined;
+          try {
+            const { getApiWorkspaceConfigs } = await getWwwOpenApiModule();
             const response = await getApiWorkspaceConfigs({
               client: getWwwClient(),
               query: {
                 teamSlugOrId,
-                projectFullName,
+                projectFullName: targetProjectFullName,
               },
             });
-            workspaceConfig = response.data ?? null;
+            const data = response.data;
+            if (data) {
+              envVarsContent = data.envVarsContent ?? undefined;
+              maintenanceScript =
+                data.maintenanceScript ?? maintenanceScript;
+            }
           } catch (error) {
             serverLogger.warn(
               "[create-local-workspace] Failed to load saved workspace config",
               {
-                projectFullName,
+                projectFullName: targetProjectFullName,
                 error,
               }
             );
+          }
+
+          if (maintenanceScript || envVarsContent) {
+            workspaceConfig = {
+              maintenanceScript,
+              envVarsContent,
+            };
           }
         }
 
@@ -798,15 +837,13 @@ export function setupSocketHandlers(
         let cleanupWorkspace: (() => Promise<void>) | null = null;
         let responded = false;
 
-        const convex = getConvex();
-
         try {
           if (!taskId || !taskRunId || !workspaceName) {
             const reservation = await convex.mutation(
               api.localWorkspaces.reserve,
               {
                 teamSlugOrId,
-                projectFullName: projectFullName ?? undefined,
+                projectFullName: targetProjectFullName ?? undefined,
                 repoUrl,
                 branch,
               }
@@ -822,8 +859,8 @@ export function setupSocketHandlers(
           }
 
           if (!descriptor) {
-            const descriptorBase = projectFullName
-              ? `Local workspace ${workspaceName} (${projectFullName})`
+            const descriptorBase = targetProjectFullName
+              ? `Local workspace ${workspaceName} (${targetProjectFullName})`
               : `Local workspace ${workspaceName}`;
             descriptor =
               branch && branch.length > 0
@@ -865,7 +902,7 @@ export function setupSocketHandlers(
                 serverLogger.warn(
                   "[create-local-workspace] Failed to parse saved env vars for local workspace config",
                   {
-                    projectFullName,
+                    projectFullName: targetProjectFullName ?? undefined,
                     error,
                   }
                 );
@@ -885,7 +922,7 @@ export function setupSocketHandlers(
                 serverLogger.warn(
                   "[create-local-workspace] Failed to write saved env vars to disk",
                   {
-                    projectFullName,
+                    projectFullName: targetProjectFullName ?? undefined,
                     error,
                   }
                 );
