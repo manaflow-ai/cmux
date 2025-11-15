@@ -31,6 +31,7 @@ export const CloseTerminalSchema = z.object({
 
 export const StartTaskSchema = z.object({
   repoUrl: z.string().optional(),
+  localRepoPath: z.string().optional(),
   branch: z.string().optional(),
   taskDescription: z.string(),
   projectFullName: z.string(),
@@ -48,6 +49,25 @@ export const StartTaskSchema = z.object({
     .optional(),
   theme: z.enum(["dark", "light", "system"]).optional(),
   environmentId: typedZid("environments").optional(),
+});
+
+export const LocalRepoSuggestRequestSchema = z.object({
+  query: z.string(),
+  limit: z.number().int().positive().max(50).optional(),
+});
+
+export const LocalRepoSuggestionSchema = z.object({
+  path: z.string(),
+  displayPath: z.string(),
+  name: z.string(),
+  hasGit: z.boolean(),
+});
+
+export const LocalRepoSuggestResponseSchema = z.object({
+  success: z.boolean(),
+  suggestions: z.array(LocalRepoSuggestionSchema),
+  homeDir: z.string().optional(),
+  error: z.string().optional(),
 });
 
 export const CreateLocalWorkspaceSchema = z.object({
@@ -237,6 +257,11 @@ export const AvailableEditorsSchema = z.object({
 export const OpenInEditorErrorSchema = z.object({
   error: z.string(),
 });
+
+export type LocalRepoSuggestion = z.infer<typeof LocalRepoSuggestionSchema>;
+export type LocalRepoSuggestResponse = z.infer<
+  typeof LocalRepoSuggestResponseSchema
+>;
 
 export const OpenInEditorResponseSchema = z.object({
   success: z.boolean(),

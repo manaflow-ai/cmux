@@ -17,7 +17,10 @@ import {
   fetchGitIdentityInputs,
 } from "./sandboxes/git";
 import type { HydrateRepoConfig } from "./sandboxes/hydration";
-import { hydrateWorkspace } from "./sandboxes/hydration";
+import {
+  hydrateWorkspace,
+  hydrateWorkspaceFromArchive,
+} from "./sandboxes/hydration";
 import { resolveTeamAndSnapshot } from "./sandboxes/snapshot";
 import {
   allocateScriptIdentifiers,
@@ -48,6 +51,9 @@ const StartSandboxBody = z
     branch: z.string().optional(),
     newBranch: z.string().optional(),
     depth: z.number().optional().default(1),
+    repoArchiveBase64: z.string().optional(),
+    repoArchiveBranch: z.string().optional(),
+    repoArchiveName: z.string().optional(),
   })
   .openapi("StartSandboxBody");
 
@@ -168,10 +174,17 @@ sandboxesRouter.openapi(
 
       // Parse repo URL once if provided
       const parsedRepoUrl = body.repoUrl ? parseGithubRepoUrl(body.repoUrl) : null;
+      const archiveHydration = body.repoArchiveBase64
+        ? {
+          archiveBase64: body.repoArchiveBase64,
+          branch: body.repoArchiveBranch,
+          repoName: body.repoArchiveName,
+        }
+        : null;
 
       // Load workspace config if we're in cloud mode with a repository (not an environment)
       let workspaceConfig: { maintenanceScript?: string; envVarsContent?: string } | null = null;
-      if (parsedRepoUrl && !body.environmentId) {
+      if (!archiveHydration && parsedRepoUrl && !body.environmentId) {
         try {
           const config = await convex.query(api.workspaceConfigs.get, {
             teamSlugOrId: body.teamSlugOrId,
@@ -307,7 +320,7 @@ sandboxesRouter.openapi(
       await configureGithubAccess(instance, githubAccessToken);
 
       let repoConfig: HydrateRepoConfig | undefined;
-      if (body.repoUrl) {
+      if (!archiveHydration && body.repoUrl) {
         console.log(`[sandboxes.start] Hydrating repo for ${instance.id}`);
         if (!parsedRepoUrl) {
           return c.text("Unsupported repo URL; expected GitHub URL", 400);
@@ -327,10 +340,19 @@ sandboxesRouter.openapi(
       }
 
       try {
-        await hydrateWorkspace({
-          instance,
-          repo: repoConfig,
-        });
+        if (archiveHydration) {
+          await hydrateWorkspaceFromArchive({
+            instance,
+            archiveBase64: archiveHydration.archiveBase64,
+            branchName: archiveHydration.branch ?? "main",
+            repoName: archiveHydration.repoName ?? "local-repo",
+          });
+        } else {
+          await hydrateWorkspace({
+            instance,
+            repo: repoConfig,
+          });
+        }
       } catch (error) {
         console.error(`[sandboxes.start] Hydration failed:`, error);
         await instance.stop().catch(() => { });
