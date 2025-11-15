@@ -797,11 +797,36 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
   // Bootstrap container environment including GitHub auth and devcontainer
   private async bootstrapContainerEnvironment(): Promise<void> {
-    // First, set up GitHub authentication
-    await this.bootstrapGitHubAuth();
+    try {
+      // First, set up GitHub authentication
+      await this.bootstrapGitHubAuth();
 
-    // Then, bootstrap devcontainer if present
-    await this.bootstrapDevcontainerIfPresent();
+      // Then, bootstrap devcontainer if present
+      await this.bootstrapDevcontainerIfPresent();
+
+      // Create readiness marker file to signal bootstrap completion
+      if (this.container) {
+        const cmd = [
+          "bash",
+          "-c",
+          "mkdir -p /root/.cmux && echo 'ready' > /root/.cmux/bootstrap-complete"
+        ];
+        const exec = await this.container.exec({
+          Cmd: cmd,
+          AttachStdout: true,
+          AttachStderr: true,
+        });
+        await new Promise<void>((resolve) => {
+          exec.start({}, () => {
+            dockerLogger.info(`Bootstrap completion marker created for ${this.containerName}`);
+            resolve();
+          });
+        });
+      }
+    } catch (error) {
+      dockerLogger.error(`Bootstrap error for ${this.containerName}:`, error);
+      throw error;
+    }
   }
 
   // Authenticate GitHub CLI using token from host
