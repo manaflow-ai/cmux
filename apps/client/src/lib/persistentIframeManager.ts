@@ -181,6 +181,7 @@ class PersistentIframeManager {
       background: white;
       display: block;
     `;
+    iframe.tabIndex = -1;
 
     // Apply permissions if provided
     if (options?.allow) {
@@ -323,6 +324,27 @@ class PersistentIframeManager {
       });
       window.removeEventListener("resize", scrollHandler);
     };
+  }
+
+  /**
+   * Attempt to focus the iframe associated with the provided key
+   */
+  focusIframe(key: string): boolean {
+    const entry = this.iframes.get(key);
+    if (!entry) {
+      return false;
+    }
+
+    try {
+      entry.iframe.focus();
+      entry.iframe.contentWindow?.focus();
+      return true;
+    } catch (error) {
+      if (this.debugMode) {
+        console.warn(`[Focus] Failed to focus iframe ${key}`, error);
+      }
+      return false;
+    }
   }
 
   /**
