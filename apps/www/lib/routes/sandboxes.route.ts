@@ -300,7 +300,15 @@ sandboxesRouter.openapi(
         console.error(
           `[sandboxes.start] GitHub access token error: ${githubAccessTokenError}`,
         );
-        return c.text("Failed to resolve GitHub credentials", 401);
+        return c.json(
+          {
+            error: "GitHub connection required to start a sandbox",
+            detail: githubAccessTokenError,
+            code: "github_token_missing",
+            requiresGithubConnection: true,
+          },
+          401,
+        );
       }
 
       // Sandboxes run as the requesting user, so prefer their OAuth scope over GitHub App installation tokens.

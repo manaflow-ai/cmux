@@ -24,6 +24,7 @@ import {
   getAuthToken,
   runWithAuth,
 } from "./utils/requestContext";
+import { GithubConnectionRequiredError } from "./errors/GithubConnectionRequiredError";
 import { getEditorSettingsUpload } from "./utils/editorSettings";
 import { env } from "./utils/server-env";
 import { getWwwClient } from "./utils/wwwClient";
@@ -47,6 +48,7 @@ export interface AgentSpawnResult {
   vscodeUrl?: string;
   success: boolean;
   error?: string;
+  errorCode?: string;
 }
 
 export async function spawnAgent(
@@ -930,6 +932,8 @@ exit $EXIT_CODE
       worktreePath: "",
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
+      errorCode:
+        error instanceof GithubConnectionRequiredError ? error.code : undefined,
     };
   }
 }
