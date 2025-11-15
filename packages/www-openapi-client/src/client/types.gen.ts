@@ -362,7 +362,7 @@ export type SetupInstanceBody = {
     instanceId?: string;
     selectedRepos?: Array<string>;
     ttlSeconds?: number;
-    snapshotId?: string | ('snapshot_pmo7bxv7' | 'snapshot_qbpom27i');
+    snapshotId?: string | ('snapshot_cj0nsc2j' | 'snapshot_qbpom27i');
 };
 
 export type CreateEnvironmentResponse = {

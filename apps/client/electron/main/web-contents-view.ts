@@ -432,10 +432,6 @@ function sendEventToOwner(
   payload: ElectronWebContentsEvent,
   logger: Logger
 ) {
-  logger.log("Forwarding WebContentsView event", {
-    id: entry.id,
-    payload,
-  });
   const sender = entry.ownerSender;
   if (!sender || sender.isDestroyed()) {
     return;
@@ -822,7 +818,9 @@ function destroyConflictingEntries(
 
 function toBounds(bounds: Rectangle | undefined, zoomFactor = 1): Rectangle {
   const zoom =
-    typeof zoomFactor === "number" && Number.isFinite(zoomFactor) && zoomFactor > 0
+    typeof zoomFactor === "number" &&
+    Number.isFinite(zoomFactor) &&
+    zoomFactor > 0
       ? zoomFactor
       : 1;
   if (!bounds) return { x: 0, y: 0, width: 0, height: 0 };

@@ -6,6 +6,7 @@
   },
   "include": [
     "**/*.ts",
+    "**/*.d.ts",
     "../electron-vite.config.ts",
     "../src",
     "../src/lib/electron-logs/**/*.ts"
