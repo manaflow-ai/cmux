@@ -1,4 +1,4 @@
-import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken";
+import { getGitHubToken } from "./utils/getGitHubToken";
 
 interface GitHubApiError extends Error {
   status?: number;
@@ -8,7 +8,7 @@ interface GitHubApiError extends Error {
 export const ghApi = {
   // Fetch with GitHub authentication
   async fetchGitHub(path: string, options: RequestInit = {}): Promise<Response> {
-    const token = await getGitHubTokenFromKeychain();
+    const token = await getGitHubToken();
     
     if (!token) {
       const error = new Error("No GitHub authentication found") as GitHubApiError;

@@ -610,10 +610,36 @@ export class RepositoryManager {
       `Cloning repository ${repoUrl} with depth ${this.config.fetchDepth}...`
     );
     try {
+      // Get GitHub token for authentication (if available)
+      const { getGitHubToken } = await import("./utils/getGitHubToken.js");
+      const githubToken = await getGitHubToken();
+
+      // Inject token into GitHub HTTPS URLs for authentication
+      let authenticatedUrl = repoUrl;
+      if (githubToken && repoUrl.includes("github.com")) {
+        // Convert https://github.com/owner/repo.git to https://TOKEN@github.com/owner/repo.git
+        authenticatedUrl = repoUrl.replace(
+          /^https:\/\/github\.com\//,
+          `https://${githubToken}@github.com/`
+        );
+      }
+
       await this.executeGitCommand(
-        `git clone --depth ${this.config.fetchDepth} "${repoUrl}" "${originPath}"`
+        `git clone --depth ${this.config.fetchDepth} "${authenticatedUrl}" "${originPath}"`
       );
       serverLogger.info(`Successfully cloned ${repoUrl}`);
+
+      // After cloning, remove the token from the remote URL for security
+      if (githubToken && repoUrl.includes("github.com")) {
+        try {
+          await this.executeGitCommand(
+            `git remote set-url origin "${repoUrl}"`,
+            { cwd: originPath }
+          );
+        } catch (error) {
+          serverLogger.warn("Failed to update remote URL after clone:", error);
+        }
+      }
 
       // Set the remote HEAD reference explicitly
       try {

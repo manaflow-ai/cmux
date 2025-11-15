@@ -122,5 +122,26 @@ export async function listRemoteBranches(opts: {
       "Native gitListRemoteBranches not available; rebuild @cmux/native-core"
     );
   }
-  return mod.gitListRemoteBranches(opts);
+
+  // Inject GitHub token for authentication
+  let authenticatedOpts = { ...opts };
+  if (opts.repoUrl) {
+    const { getGitHubToken } = await import("../utils/getGitHubToken.js");
+    const githubToken = await getGitHubToken();
+    if (githubToken && opts.repoUrl.includes("github.com")) {
+      authenticatedOpts.repoUrl = opts.repoUrl.replace(
+        /^https:\/\/github\.com\//,
+        `https://${githubToken}@github.com/`
+      );
+    }
+  } else if (opts.repoFullName) {
+    // If only repoFullName is provided, construct authenticated URL
+    const { getGitHubToken } = await import("../utils/getGitHubToken.js");
+    const githubToken = await getGitHubToken();
+    if (githubToken) {
+      authenticatedOpts.repoUrl = `https://${githubToken}@github.com/${opts.repoFullName}.git`;
+    }
+  }
+
+  return mod.gitListRemoteBranches(authenticatedOpts);
 }

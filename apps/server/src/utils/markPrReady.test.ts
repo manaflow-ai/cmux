@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getGitHubTokenFromKeychain } from "./getGitHubToken";
+import { getGitHubToken } from "./getGitHubToken";
 import { markPrReady } from "./markPrReady";
 import { getOctokit } from "./octokit";
 
@@ -15,7 +15,7 @@ describe.skip("markPrReady E2E Tests", () => {
 
   beforeAll(async () => {
     // Get GitHub token
-    githubToken = (await getGitHubTokenFromKeychain()) || "";
+    githubToken = (await getGitHubToken()) || "";
     if (!githubToken) {
       throw new Error("GitHub token not found. Please configure it first.");
     }

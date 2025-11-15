@@ -49,7 +49,13 @@ import { getPRTitleFromTaskDescription } from "./utils/branchNameGenerator";
 import { getConvex } from "./utils/convexClient";
 import { ensureRunWorktreeAndBranch } from "./utils/ensureRunWorktree";
 import { serverLogger } from "./utils/fileLogger";
-import { getGitHubTokenFromKeychain } from "./utils/getGitHubToken";
+import { getGitHubToken } from "./utils/getGitHubToken";
+import {
+  hasValidToken,
+  startGitHubDeviceFlow,
+  pollGitHubDeviceFlow,
+  clearCachedGitHubToken,
+} from "./utils/githubAuth";
 import { createDraftPr, fetchPrDetail } from "./utils/githubPr";
 import { getOctokit } from "./utils/octokit";
 import { checkAllProvidersStatus } from "./utils/providerStatus";
@@ -1419,7 +1425,7 @@ export function setupSocketHandlers(
           return;
         }
 
-        const githubToken = await getGitHubTokenFromKeychain();
+        const githubToken = await getGitHubToken();
         if (!githubToken) {
           callback({
             success: false,
@@ -1532,7 +1538,7 @@ export function setupSocketHandlers(
         const { run, task, branchName, baseBranch } =
           await ensureRunWorktreeAndBranch(taskRunId, safeTeam);
 
-        const githubToken = await getGitHubTokenFromKeychain();
+        const githubToken = await getGitHubToken();
         if (!githubToken) {
           return callback({
             success: false,
@@ -1950,23 +1956,24 @@ export function setupSocketHandlers(
 
     socket.on("github-test-auth", async (callback) => {
       try {
-        // Run all commands in parallel
-        const [authStatus, whoami, home, ghConfig] = await Promise.all([
-          execWithEnv("gh auth status")
-            .then((r) => r.stdout)
-            .catch((e) => e.message),
-          execWithEnv("whoami").then((r) => r.stdout),
-          execWithEnv("echo $HOME").then((r) => r.stdout),
-          execWithEnv('ls -la ~/.config/gh/ || echo "No gh config"').then(
-            (r) => r.stdout
-          ),
+        // Check GitHub token using new auth system (no keychain access!)
+        const token = await getGitHubToken();
+        const hasToken = hasValidToken();
+
+        const authStatus = token
+          ? `GitHub token available (source: ${hasToken ? "session" : "environment"})`
+          : "No GitHub token configured";
+
+        const [whoami, home] = await Promise.all([
+          execWithEnv("whoami").then((r) => r.stdout).catch(() => "unknown"),
+          execWithEnv("echo $HOME").then((r) => r.stdout).catch(() => "unknown"),
         ]);
 
         callback({
           authStatus,
           whoami,
           home,
-          ghConfig,
+          ghConfig: "Using in-memory token (no gh CLI needed)",
           processEnv: {
             HOME: process.env.HOME,
             USER: process.env.USER,
@@ -2217,7 +2224,7 @@ Please address the issue mentioned in the comment above.`;
           return;
         }
 
-        const githubToken = await getGitHubTokenFromKeychain();
+        const githubToken = await getGitHubToken();
         if (!githubToken) {
           callback({
             success: false,
@@ -2355,6 +2362,98 @@ ${title}`;
         callback({ success: true, ...status });
       } catch (error) {
         serverLogger.error("Error checking provider status:", error);
+        callback({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    // GitHub Authentication - Check status
+    socket.on("github-auth-status", async (callback) => {
+      try {
+        const hasToken = hasValidToken();
+        const token = await getGitHubToken();
+        callback({
+          success: true,
+          authenticated: hasToken || !!token,
+          source: hasToken ? "session" : token ? "gh-cli" : "none",
+        });
+      } catch (error) {
+        callback({
+          success: false,
+          authenticated: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    // GitHub Authentication - Start device flow
+    socket.on("github-auth-start", async (callback) => {
+      try {
+        const deviceFlow = await startGitHubDeviceFlow();
+        if (!deviceFlow) {
+          callback({
+            success: false,
+            error: "Failed to start GitHub device flow",
+          });
+          return;
+        }
+
+        callback({
+          success: true,
+          userCode: deviceFlow.userCode,
+          verificationUrl: deviceFlow.verificationUrl,
+          deviceCode: deviceFlow.deviceCode,
+          expiresIn: deviceFlow.expiresIn,
+          interval: deviceFlow.interval,
+        });
+      } catch (error) {
+        serverLogger.error("Error starting GitHub auth:", error);
+        callback({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    // GitHub Authentication - Poll for completion
+    socket.on("github-auth-poll", async (data, callback) => {
+      try {
+        const { deviceCode, interval, expiresIn } = data;
+        const token = await pollGitHubDeviceFlow(
+          deviceCode,
+          interval,
+          expiresIn
+        );
+
+        if (token) {
+          callback({ success: true, authenticated: true });
+        } else {
+          callback({
+            success: false,
+            authenticated: false,
+            error: "Authentication failed or timed out",
+          });
+        }
+      } catch (error) {
+        serverLogger.error("Error polling GitHub auth:", error);
+        callback({
+          success: false,
+          authenticated: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    });
+
+    // GitHub Authentication - Logout
+    socket.on("github-auth-logout", async (callback) => {
+      try {
+        clearCachedGitHubToken();
+        serverLogger.info("Cleared GitHub session token");
+        callback({ success: true });
+      } catch (error) {
+        serverLogger.error("Error logging out:", error);
         callback({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error",

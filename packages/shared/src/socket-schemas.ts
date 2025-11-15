@@ -590,6 +590,41 @@ export interface ClientToServerEvents {
       error?: string;
     }) => void
   ) => void;
+  // GitHub authentication (session-based, no keychain prompts)
+  "github-auth-status": (
+    callback: (response: {
+      success: boolean;
+      authenticated: boolean;
+      source?: "session" | "gh-cli" | "none";
+      error?: string;
+    }) => void
+  ) => void;
+  "github-auth-start": (
+    callback: (response: {
+      success: boolean;
+      userCode?: string;
+      verificationUrl?: string;
+      deviceCode?: string;
+      expiresIn?: number;
+      interval?: number;
+      error?: string;
+    }) => void
+  ) => void;
+  "github-auth-poll": (
+    data: {
+      deviceCode: string;
+      interval: number;
+      expiresIn: number;
+    },
+    callback: (response: {
+      success: boolean;
+      authenticated: boolean;
+      error?: string;
+    }) => void
+  ) => void;
+  "github-auth-logout": (
+    callback: (response: { success: boolean; error?: string }) => void
+  ) => void;
 }
 
 export interface ServerToClientEvents {

@@ -8,7 +8,7 @@ import { getDockerSocketCandidates } from "@cmux/shared/providers/common/check-d
 import { getConvex } from "../utils/convexClient";
 import { cleanupGitCredentials } from "../utils/dockerGitSetup";
 import { dockerLogger } from "../utils/fileLogger";
-import { getGitHubTokenFromKeychain } from "../utils/getGitHubToken";
+import { getGitHubToken } from "../utils/getGitHubToken";
 import { getAuthToken, runWithAuthToken } from "../utils/requestContext";
 import {
   VSCodeInstance,
@@ -815,10 +815,10 @@ export class DockerVSCodeInstance extends VSCodeInstance {
       }
 
       // Get GitHub token from host
-      const githubToken = await getGitHubTokenFromKeychain();
+      const githubToken = await getGitHubToken();
       if (!githubToken) {
         dockerLogger.info(
-          "No GitHub token found on host (Convex, gh, or keychain) - skipping gh auth setup"
+          "No GitHub token available on host - skipping gh auth setup"
         );
         return;
       }
@@ -1069,7 +1069,7 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
     try {
       // Get GitHub token from host
-      const githubToken = await getGitHubTokenFromKeychain();
+      const githubToken = await getGitHubToken();
 
       // Read SSH keys if available
       const homeDir = os.homedir();
