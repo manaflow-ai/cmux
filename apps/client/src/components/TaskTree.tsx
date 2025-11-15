@@ -10,6 +10,8 @@ import { useOpenWithActions } from "@/hooks/useOpenWithActions";
 import { useTaskRename } from "@/hooks/useTaskRename";
 import { isElectron } from "@/lib/electron";
 import { isFakeConvexId } from "@/lib/fakeConvexId";
+import { rewriteLocalWorkspaceUrlIfNeeded } from "@/lib/toProxyWorkspaceUrl";
+import { useLocalVSCodeServeWebQuery } from "@/queries/local-vscode-serve-web";
 import type { AnnotatedTaskRun, TaskRunWithChildren } from "@/types/task";
 import { ContextMenu } from "@base-ui-components/react/context-menu";
 import { api } from "@cmux/convex/api";
@@ -640,6 +642,17 @@ function TaskTreeInner({
   const isLocalWorkspace = task.isLocalWorkspace;
   const isCloudWorkspace = task.isCloudWorkspace;
 
+  // For local workspaces, get the first active run's VS Code URL
+  const localWorkspaceVSCodeUrl = useMemo(() => {
+    if (!isLocalWorkspace) return null;
+    const firstActiveRun = activeRunsFlat[0];
+    return firstActiveRun?.vscode?.url || null;
+  }, [isLocalWorkspace, activeRunsFlat]);
+
+  // Get local VS Code serve web origin for URL rewriting
+  const localServeWeb = useLocalVSCodeServeWebQuery();
+  const localServeWebOrigin = localServeWeb.data?.baseUrl ?? null;
+
   const taskLeadingIcon = (() => {
     if (isCrownEvaluating) {
       return (
@@ -780,6 +793,19 @@ function TaskTreeInner({
                   event.preventDefault();
                   return;
                 }
+
+                // For local workspaces, open VS Code directly instead of navigating to task page
+                if (isLocalWorkspace && localWorkspaceVSCodeUrl) {
+                  event.preventDefault();
+                  const normalizedUrl = rewriteLocalWorkspaceUrlIfNeeded(
+                    localWorkspaceVSCodeUrl,
+                    localServeWebOrigin
+                  );
+                  const vscodeUrlWithWorkspace = `${normalizedUrl}?folder=/root/workspace`;
+                  window.open(vscodeUrlWithWorkspace, "_blank", "noopener,noreferrer");
+                  return;
+                }
+
                 handleToggle(event);
               }}
             >
