@@ -562,6 +562,12 @@ function DashboardComponent() {
       console.log("Task created:", taskId);
     } catch (error) {
       console.error("Error starting task:", error);
+      // Surface error to user instead of silently failing
+      toast.error(
+        `Failed to start task: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }, [
     selectedProject,

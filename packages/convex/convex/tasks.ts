@@ -717,14 +717,19 @@ export const checkAndEvaluateCrown = authMutation({
     if (taskRuns.length === 1) {
       console.log(`[CheckCrown] Single agent scenario - marking task complete`);
 
-      // Mark the task as completed
+      const singleRun = taskRuns[0];
+
+      // Mark the task as completed (success or failure)
       await ctx.db.patch(args.taskId, {
         isCompleted: true,
+        crownEvaluationStatus:
+          singleRun.status === "failed" ? "skipped" : undefined,
+        crownEvaluationError:
+          singleRun.status === "failed" ? "Single task run failed" : undefined,
         updatedAt: Date.now(),
       });
 
       // If the single run was successful, return it as the "winner" for potential auto-PR
-      const singleRun = taskRuns[0];
       if (singleRun.status === "completed") {
         console.log(
           `[CheckCrown] Single agent completed successfully: ${singleRun._id}`,
@@ -732,6 +737,7 @@ export const checkAndEvaluateCrown = authMutation({
         return singleRun._id;
       }
 
+      console.log(`[CheckCrown] Single agent failed: ${singleRun._id}`);
       return null;
     }
 
@@ -773,11 +779,44 @@ export const checkAndEvaluateCrown = authMutation({
     );
 
     // Only evaluate if we have at least 2 completed runs
+    // But also check if all runs failed - in that case mark task as complete without crown
     const completedRuns = taskRuns.filter((run) => run.status === "completed");
+    const failedRuns = taskRuns.filter((run) => run.status === "failed");
+
     if (completedRuns.length < 2) {
       console.log(
         `[CheckCrown] Not enough completed runs (${completedRuns.length} < 2)`,
       );
+
+      // If all runs are done (completed or failed), mark task as completed
+      if (completedRuns.length === 0 && failedRuns.length === taskRuns.length) {
+        // All runs failed
+        console.log(
+          `[CheckCrown] All ${failedRuns.length} runs failed - marking task as completed without crown`,
+        );
+        await ctx.db.patch(args.taskId, {
+          isCompleted: true,
+          crownEvaluationStatus: "skipped",
+          crownEvaluationError: "All task runs failed",
+          updatedAt: Date.now(),
+        });
+      } else if (completedRuns.length === 1 && taskRuns.length >= 2) {
+        // Only 1 completed, rest failed - crown the single successful one
+        console.log(
+          `[CheckCrown] Only 1 completed run out of ${taskRuns.length} - crowning the successful one`,
+        );
+        await ctx.db.patch(completedRuns[0]._id, {
+          isCrowned: true,
+          crownReason: "Only one model successfully completed the task",
+        });
+        await ctx.db.patch(args.taskId, {
+          isCompleted: true,
+          crownEvaluationStatus: "completed",
+          updatedAt: Date.now(),
+        });
+        return completedRuns[0]._id;
+      }
+
       return null;
     }
 
