@@ -24,6 +24,9 @@ type UseOpenWithActionsArgs = {
   worktreePath?: string | null;
   branch?: string | null;
   networking?: NetworkingInfo;
+  taskRunId?: string | null;
+  environmentId?: string | null;
+  repoFullName?: string | null;
 };
 
 export function useOpenWithActions({
@@ -31,6 +34,9 @@ export function useOpenWithActions({
   worktreePath,
   branch,
   networking,
+  taskRunId,
+  environmentId,
+  repoFullName,
 }: UseOpenWithActionsArgs) {
   const { socket, availableEditors } = useSocket();
   const localServeWeb = useLocalVSCodeServeWebQuery();
@@ -58,7 +64,15 @@ export function useOpenWithActions({
             vscodeUrl,
             localServeWebOrigin,
           );
-          const vscodeUrlWithWorkspace = `${normalizedUrl}?folder=/root/workspace`;
+          // For environments with multiple repos, open the base workspace
+          // Otherwise open the specific repo directory
+          let folder = "/root/workspace";
+          if (repoFullName && !environmentId) {
+            // Single repo - open the specific repo directory
+            const repoName = repoFullName.split("/").pop() || repoFullName;
+            folder = `/root/workspace/${repoName}`;
+          }
+          const vscodeUrlWithWorkspace = `${normalizedUrl}?folder=${encodeURIComponent(folder)}`;
           window.open(vscodeUrlWithWorkspace, "_blank", "noopener,noreferrer");
           resolve();
         } else if (
@@ -90,6 +104,13 @@ export function useOpenWithActions({
                 | "alacritty"
                 | "xcode",
               path: worktreePath,
+              // Add context for better path resolution
+              context: {
+                branch,
+                taskRunId: taskRunId || undefined,
+                environmentId: environmentId || undefined,
+                repoFullName: repoFullName || undefined,
+              },
             },
             (response) => {
               if (response.success) {
@@ -104,7 +125,7 @@ export function useOpenWithActions({
         }
       });
     },
-    [socket, worktreePath, vscodeUrl, localServeWebOrigin]
+    [socket, worktreePath, vscodeUrl, localServeWebOrigin, repoFullName, environmentId, branch, taskRunId]
   );
 
   const handleCopyBranch = useCallback(() => {
