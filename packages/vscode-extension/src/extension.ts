@@ -273,6 +273,73 @@ async function waitForTmuxSessions(maxAttempts: number = 20, delayMs: number = 1
   return false;
 }
 
+async function checkBootstrapComplete(): Promise<boolean> {
+  try {
+    const fs = await import("node:fs/promises");
+    await fs.access("/root/.cmux/bootstrap-complete");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForVSCodeReady(maxAttempts: number = 30, delayMs: number = 1000): Promise<boolean> {
+  log("Waiting for VSCode to be fully initialized (themes, extensions, etc.)...");
+
+  // Add initial delay to allow bootstrap processes to start
+  // This gives the container's bootstrapContainerEnvironment() time to begin
+  log("Initial 2-second delay to allow bootstrap processes to start...");
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // First check if bootstrap is complete on the container side
+    const bootstrapComplete = await checkBootstrapComplete();
+
+    // Check if the color theme is loaded (this indicates UI is ready)
+    const currentTheme = vscode.workspace.getConfiguration("workbench").get("colorTheme");
+
+    // Check if the environment variable for theme was set and if it matches current theme
+    const expectedTheme = process.env.VSCODE_THEME;
+
+    // Determine if we're ready based on both bootstrap and theme
+    let ready = false;
+    let reason = "";
+
+    if (expectedTheme) {
+      // If a theme was requested, wait until it's applied AND bootstrap is complete
+      if (currentTheme === expectedTheme && bootstrapComplete) {
+        ready = true;
+        reason = `Theme "${expectedTheme}" loaded and bootstrap complete`;
+      } else if (!bootstrapComplete) {
+        reason = `Waiting for bootstrap to complete (theme: ${currentTheme})`;
+      } else {
+        reason = `Waiting for theme "${expectedTheme}" to load, current: "${currentTheme}"`;
+      }
+    } else {
+      // If no specific theme, ensure theme config is accessible and bootstrap is complete
+      if (currentTheme !== undefined && bootstrapComplete) {
+        ready = true;
+        reason = "Theme configuration loaded and bootstrap complete";
+      } else if (!bootstrapComplete) {
+        reason = "Waiting for bootstrap to complete";
+      } else {
+        reason = "Waiting for VSCode to initialize";
+      }
+    }
+
+    if (ready) {
+      log(`VSCode ready: ${reason} (attempt ${attempt + 1})`);
+      return true;
+    }
+
+    log(`${reason} (attempt ${attempt + 1}/${maxAttempts})`);
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+
+  log("VSCode readiness check timed out, proceeding anyway");
+  return false;
+}
+
 async function setupDefaultTerminal() {
   log("Setting up default terminal");
 
@@ -282,12 +349,20 @@ async function setupDefaultTerminal() {
     return;
   }
 
+  // CRITICAL: Wait for VSCode to be fully initialized before creating terminal UI
+  // This prevents the race condition where terminal is created before themes are loaded
+  log("Step 1/3: Waiting for VSCode to be fully initialized...");
+  await waitForVSCodeReady(30, 1000);
+  log("VSCode initialization check complete");
+
   // Wait for tmux sessions to exist (they may be created by orchestrator for cloud workspaces)
+  log("Step 2/3: Waiting for tmux sessions...");
   const hasSessions = await waitForTmuxSessions(20, 1000);
   if (!hasSessions) {
     log("No tmux sessions found after waiting; skipping terminal setup and attach");
     return;
   }
+  log("Tmux sessions detected");
 
   // if an existing editor is called "bash", early return
   const activeEditors = vscode.window.visibleTextEditors;
@@ -301,6 +376,7 @@ async function setupDefaultTerminal() {
   isSetupComplete = true; // Set this BEFORE creating UI elements to prevent race conditions
 
   // Open Source Control view
+  log("Step 3/3: Setting up UI...");
   log("Opening SCM view...");
   await vscode.commands.executeCommand("workbench.view.scm");
 
@@ -309,7 +385,7 @@ async function setupDefaultTerminal() {
   await openMultiDiffEditor();
 
   // Create terminal for default tmux session
-  log("Creating terminal for default tmux session");
+  log("Creating terminal for default tmux session (VSCode is ready, themes loaded)");
 
   const terminal = vscode.window.createTerminal({
     name: `Default Session`,
