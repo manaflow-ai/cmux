@@ -239,7 +239,7 @@ async function runMaintenanceScript(): Promise<MaintenanceResult> {
     console.log("[MAINTENANCE] Starting maintenance script...");
 
     await runCommand(
-      `tmux send-keys -t cmux:${config.maintenanceWindowName} "zsh '${config.maintenanceScriptPath}' 2>&1 | tee '${config.maintenanceErrorLogPath}'; echo \\\${pipestatus[1]} > '${config.maintenanceExitCodePath}'; exec zsh" C-m`,
+      `tmux send-keys -t cmux:${config.maintenanceWindowName} "cd '${config.workspaceRoot}' && { zsh '${config.maintenanceScriptPath}' 2>&1 | tee '${config.maintenanceErrorLogPath}'; echo \\\${pipestatus[1]} > '${config.maintenanceExitCodePath}'; exec zsh; }" C-m`,
     );
 
     await delay(2000);
@@ -307,7 +307,7 @@ async function startDevScript(): Promise<DevResult> {
     console.log("[DEV] Starting dev script...");
 
     await runCommand(
-      `tmux send-keys -t cmux:${config.devWindowName} "zsh '${config.devScriptPath}' 2>&1 | tee '${config.devErrorLogPath}'; echo \\\${pipestatus[1]} > '${config.devExitCodePath}'" C-m`,
+      `tmux send-keys -t cmux:${config.devWindowName} "cd '${config.workspaceRoot}' && { zsh '${config.devScriptPath}' 2>&1 | tee '${config.devErrorLogPath}'; echo \\\${pipestatus[1]} > '${config.devExitCodePath}'; }" C-m`,
     );
 
     await delay(2000);
