@@ -10,6 +10,9 @@ import {
   GitHubMergeBranchSchema,
   GitHubSyncPrStateSchema,
   ListFilesRequestSchema,
+  type LocalRepoSuggestResponse,
+  LocalRepoSuggestRequestSchema,
+  LocalRepoSuggestionSchema,
   OpenInEditorSchema,
   SpawnFromCommentSchema,
   StartTaskSchema,
@@ -55,6 +58,12 @@ import { getOctokit } from "./utils/octokit";
 import { checkAllProvidersStatus } from "./utils/providerStatus";
 import { refreshGitHubData } from "./utils/refreshGitHubData";
 import { runWithAuth, runWithAuthToken } from "./utils/requestContext";
+import {
+  cleanupLocalRepoArchive,
+  createLocalRepoArchive,
+  extractArchiveToWorkspace,
+  type LocalRepoArchiveInfo,
+} from "./utils/localRepoArchive";
 import { getWwwClient } from "./utils/wwwClient";
 import { getWwwOpenApiModule } from "./utils/wwwOpenApiModule";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
@@ -159,6 +168,114 @@ function isExecError(error: unknown): error is ExecError {
     ("stderr" in error || "stdout" in error)
   );
 }
+
+const MAX_LOCAL_REPO_SUGGESTIONS = 20;
+
+async function findLocalRepoSuggestions(
+  query: string,
+  limitInput?: number
+) {
+  const trimmed = query?.trim() ?? "";
+  const expanded = expandHomePath(trimmed.length > 0 ? trimmed : os.homedir());
+  const resolved = path.resolve(expanded);
+  const limit = Math.min(
+    Math.max(limitInput ?? MAX_LOCAL_REPO_SUGGESTIONS, 1),
+    50
+  );
+  const suggestions: Array<z.infer<typeof LocalRepoSuggestionSchema>> = [];
+  const seen = new Set<string>();
+
+  const pushSuggestion = async (candidate: string) => {
+    const normalized = path.resolve(candidate);
+    if (seen.has(normalized)) return;
+    let stats: fs.Stats | null = null;
+    try {
+      stats = await fs.stat(normalized);
+    } catch {
+      return;
+    }
+    if (!stats.isDirectory()) return;
+    const hasGit = await pathHasGitRepo(normalized);
+    suggestions.push({
+      path: normalized,
+      displayPath: formatLocalDisplayPath(normalized),
+      name: path.basename(normalized) || normalized,
+      hasGit,
+    });
+    seen.add(normalized);
+  };
+
+  let targetStats: fs.Stats | null = null;
+  try {
+    targetStats = await fs.stat(resolved);
+  } catch {
+    targetStats = null;
+  }
+
+  let searchDir = resolved;
+  let partialName = "";
+
+  if (targetStats?.isDirectory()) {
+    await pushSuggestion(resolved);
+  } else {
+    searchDir = path.dirname(resolved);
+    partialName = path.basename(resolved);
+  }
+
+  let dirEntries: fs.Dirent[] = [];
+  try {
+    dirEntries = await fs.readdir(searchDir, { withFileTypes: true });
+  } catch (error) {
+    serverLogger.warn(
+      `[localRepoSuggest] Failed to list directory ${searchDir}:`,
+      error
+    );
+    return suggestions.slice(0, limit);
+  }
+
+  const normalizedPartial = partialName.toLowerCase();
+
+  for (const entry of dirEntries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === ".git") continue;
+    if (
+      normalizedPartial &&
+      !entry.name.toLowerCase().startsWith(normalizedPartial)
+    ) {
+      continue;
+    }
+    const candidatePath = path.join(searchDir, entry.name);
+    await pushSuggestion(candidatePath);
+    if (suggestions.length >= limit) {
+      break;
+    }
+  }
+
+  return suggestions.slice(0, limit);
+}
+
+const expandHomePath = (input: string): string => {
+  if (input.startsWith("~")) {
+    return path.join(os.homedir(), input.slice(1));
+  }
+  return input;
+};
+
+const formatLocalDisplayPath = (input: string): string => {
+  const home = os.homedir();
+  return input.startsWith(home)
+    ? `~${input.slice(home.length)}`
+    : input;
+};
+
+const pathHasGitRepo = async (dirPath: string): Promise<boolean> => {
+  try {
+    await fs.access(path.join(dirPath, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const GitSocketDiffRequestSchema = z.object({
   headRef: z.string(),
@@ -451,6 +568,45 @@ export function setupSocketHandlers(
       }
     });
 
+    socket.on(
+      "suggest-local-repos",
+      async (
+        rawData,
+        callback?: (response: LocalRepoSuggestResponse) => void
+      ) => {
+        const parsed = LocalRepoSuggestRequestSchema.safeParse(rawData ?? {});
+        if (!parsed.success) {
+          callback?.({
+            success: false,
+            suggestions: [],
+            error: "Invalid request",
+          });
+          return;
+        }
+        try {
+          const suggestions = await findLocalRepoSuggestions(
+            parsed.data.query,
+            parsed.data.limit
+          );
+          callback?.({
+            success: true,
+            suggestions,
+            homeDir: os.homedir(),
+          });
+        } catch (error) {
+          serverLogger.error("Error suggesting local repos:", error);
+          callback?.({
+            success: false,
+            suggestions: [],
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to list directories",
+          });
+        }
+      }
+    );
+
     void (async () => {
       const commandExists = async (cmd: string) => {
         try {
@@ -524,6 +680,25 @@ export function setupSocketHandlers(
       const taskData = taskDataParseResult.data;
       serverLogger.info("starting task!", taskData);
       const taskId = taskData.taskId;
+      const localRepoPath = taskData.localRepoPath?.trim();
+      let localArchiveInfo: LocalRepoArchiveInfo | null = null;
+      if (localRepoPath) {
+        try {
+          localArchiveInfo = await createLocalRepoArchive(localRepoPath, {
+            includeBase64: Boolean(taskData.isCloudMode),
+          });
+        } catch (error) {
+          serverLogger.error("Failed to prepare local repository:", error);
+          callback({
+            taskId,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to prepare local repository",
+          });
+          return;
+        }
+      }
       try {
         // For local mode, ensure Docker is running before attempting to spawn
         if (!taskData.isCloudMode) {
@@ -587,7 +762,8 @@ export function setupSocketHandlers(
             const agentResults = await spawnAllAgents(
               taskId,
               {
-                repoUrl: taskData.repoUrl,
+                repoUrl: localArchiveInfo ? undefined : taskData.repoUrl,
+                localRepoArchive: localArchiveInfo ?? undefined,
                 branch: taskData.branch,
                 taskDescription: taskData.taskDescription,
                 prTitle: generatedTitle ?? undefined,
@@ -686,6 +862,17 @@ export function setupSocketHandlers(
               taskId,
               error: error instanceof Error ? error.message : "Unknown error",
             });
+          } finally {
+            if (localArchiveInfo) {
+              await cleanupLocalRepoArchive(localArchiveInfo).catch(
+                (cleanupError) => {
+                  serverLogger.warn(
+                    "Failed to clean up local repo archive:",
+                    cleanupError
+                  );
+                }
+              );
+            }
           }
         })();
       } catch (error) {

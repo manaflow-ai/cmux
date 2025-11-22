@@ -21,6 +21,10 @@ import {
 import { useExpandTasks } from "@/contexts/expand-tasks/ExpandTasksContext";
 import { useSocket } from "@/contexts/socket/use-socket";
 import { createFakeConvexId } from "@/lib/fakeConvexId";
+import {
+  isLikelyLocalPath,
+  type LocalRepoSuggestResponse,
+} from "@/lib/local-repo-path";
 import { attachTaskLifecycleListeners } from "@/lib/socket/taskLifecycleListeners";
 import { branchesQueryOptions } from "@/queries/branches";
 import { convexQueryClient } from "@/contexts/convex/convex-query-client";
@@ -33,6 +37,11 @@ import type {
   TaskStarted,
 } from "@cmux/shared";
 import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
+import {
+  decodeLocalRepoValue,
+  encodeLocalRepoValue,
+  isLocalRepoValue,
+} from "@cmux/shared/localRepo";
 import { convexQuery } from "@convex-dev/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -194,13 +203,18 @@ function DashboardComponent() {
     () => (selectedProject[0] || "").startsWith("env:"),
     [selectedProject]
   );
+  const selectedLocalRepoPath = useMemo(
+    () => decodeLocalRepoValue(selectedProject[0] ?? null),
+    [selectedProject]
+  );
+  const isLocalProject = Boolean(selectedLocalRepoPath);
 
   const branchesQuery = useQuery({
     ...branchesQueryOptions({
       teamSlugOrId,
       repoFullName: selectedProject[0] || "",
     }),
-    enabled: !!selectedProject[0] && !isEnvSelected,
+    enabled: !!selectedProject[0] && !isEnvSelected && !isLocalProject,
   });
   const branchSummary = useMemo(() => {
     const data = branchesQuery.data;
@@ -454,6 +468,7 @@ function DashboardComponent() {
     const environmentId = envSelected
       ? (projectFullName.replace(/^env:/, "") as Id<"environments">)
       : undefined;
+    const localRepoPath = selectedLocalRepoPath;
 
     try {
       // Extract content including images from the editor
@@ -517,9 +532,10 @@ function DashboardComponent() {
       // Hint the sidebar to auto-expand this task once it appears
       addTaskToExpand(taskId);
 
-      const repoUrl = envSelected
-        ? undefined
-        : `https://github.com/${projectFullName}.git`;
+      const repoUrl =
+        envSelected || localRepoPath
+          ? undefined
+          : `https://github.com/${projectFullName}.git`;
 
       // For socket.io, we need to send the content text (which includes image references) and the images
       const handleStartTaskAck = (
@@ -546,6 +562,7 @@ function DashboardComponent() {
         "start-task",
         {
           ...(repoUrl ? { repoUrl } : {}),
+          ...(localRepoPath ? { localRepoPath } : {}),
           ...(envSelected ? {} : { branch }),
           taskDescription: content?.text || taskDescription, // Use content.text which includes image references
           projectFullName,
@@ -575,6 +592,7 @@ function DashboardComponent() {
     selectedAgents,
     isCloudMode,
     isEnvSelected,
+    selectedLocalRepoPath,
     theme,
     generateUploadUrl,
   ]);
@@ -685,11 +703,12 @@ function DashboardComponent() {
   }, [reposByOrg, environmentsQuery.data]);
 
   const selectedRepoFullName = useMemo(() => {
-    if (!selectedProject[0] || isEnvSelected) return null;
+    if (!selectedProject[0] || isEnvSelected || isLocalProject) return null;
     return selectedProject[0];
-  }, [selectedProject, isEnvSelected]);
+  }, [selectedProject, isEnvSelected, isLocalProject]);
 
-  const shouldShowWorkspaceSetup = !!selectedRepoFullName && !isEnvSelected;
+  const shouldShowWorkspaceSetup =
+    !!selectedRepoFullName && !isEnvSelected && !isLocalProject;
 
   // const shouldShowCloudRepoOnboarding =
   //   !!selectedRepoFullName && isCloudMode && !isEnvSelected && !hasDismissedCloudRepoOnboarding;
@@ -720,13 +739,64 @@ function DashboardComponent() {
     localStorage.setItem("isCloudMode", JSON.stringify(newMode));
   }, [isCloudMode, isEnvSelected]);
 
+  const selectLocalRepoFromInput = useCallback(
+    async (rawValue: string): Promise<boolean> => {
+      if (!socket) return false;
+      const trimmedValue = rawValue.trim();
+      if (!trimmedValue || !isLikelyLocalPath(trimmedValue)) {
+        return false;
+      }
+      try {
+        const response = await new Promise<LocalRepoSuggestResponse | null>(
+          (resolve) => {
+            socket.emit(
+              "suggest-local-repos",
+              { query: trimmedValue },
+              (result: LocalRepoSuggestResponse) => resolve(result ?? null)
+            );
+          }
+        );
+        if (!response?.success || response.suggestions.length === 0) {
+          return false;
+        }
+        const exact = response.suggestions.find(
+          (suggestion) =>
+            suggestion.displayPath === trimmedValue ||
+            suggestion.path === trimmedValue
+        );
+        const resolvedPath = exact?.path ?? response.suggestions[0]?.path;
+        if (!resolvedPath) {
+          return false;
+        }
+        const encoded = encodeLocalRepoValue(resolvedPath);
+        setSelectedProject([encoded]);
+        localStorage.setItem(
+          `selectedProject-${teamSlugOrId}`,
+          JSON.stringify([encoded])
+        );
+        return true;
+      } catch (error) {
+        console.error("Failed to resolve local repo path:", error);
+        return false;
+      }
+    },
+    [socket, teamSlugOrId]
+  );
+
   // Handle paste of GitHub repo URL in the project search field
   const handleProjectSearchPaste = useCallback(
     async (input: string) => {
+      if (await selectLocalRepoFromInput(input)) {
+        return true;
+      }
+      const trimmed = input.trim();
+      if (!trimmed) {
+        return false;
+      }
       try {
         const result = await addManualRepo({
           teamSlugOrId,
-          repoUrl: input,
+          repoUrl: trimmed,
         });
 
         if (result.success) {
@@ -758,7 +828,7 @@ function DashboardComponent() {
         return false; // Don't close dropdown if it's not a valid GitHub URL
       }
     },
-    [addManualRepo, teamSlugOrId, reposByOrgQuery]
+    [addManualRepo, teamSlugOrId, reposByOrgQuery, selectLocalRepoFromInput]
   );
 
   // Listen for VSCode spawned events
@@ -899,9 +969,9 @@ function DashboardComponent() {
 
   const lexicalRepoUrl = useMemo(() => {
     if (!selectedProject[0]) return undefined;
-    if (isEnvSelected) return undefined;
+    if (isEnvSelected || isLocalProject) return undefined;
     return `https://github.com/${selectedProject[0]}.git`;
-  }, [selectedProject, isEnvSelected]);
+  }, [selectedProject, isEnvSelected, isLocalProject]);
 
   const lexicalBranch = useMemo(
     () => effectiveSelectedBranch[0],
@@ -912,13 +982,14 @@ function DashboardComponent() {
     if (!selectedProject[0]) return false;
     if (!taskDescription.trim()) return false;
     if (selectedAgents.length === 0) return false;
-    if (isEnvSelected) return true; // no branch required when environment selected
+    if (isEnvSelected || isLocalProject) return true; // no branch required
     return !!effectiveSelectedBranch[0];
   }, [
     selectedProject,
     taskDescription,
     selectedAgents,
     isEnvSelected,
+    isLocalProject,
     effectiveSelectedBranch,
   ]);
 
@@ -957,7 +1028,9 @@ function DashboardComponent() {
               isLoadingBranches={branchesQuery.isPending}
               teamSlugOrId={teamSlugOrId}
               cloudToggleDisabled={isEnvSelected}
-              branchDisabled={isEnvSelected || !selectedProject[0]}
+              branchDisabled={
+                isEnvSelected || isLocalProject || !selectedProject[0]
+              }
               providerStatus={providerStatus}
               canSubmit={canSubmit}
               onStartTask={handleStartTask}

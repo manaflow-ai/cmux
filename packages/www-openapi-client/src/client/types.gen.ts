@@ -502,6 +502,9 @@ export type StartSandboxBody = {
     branch?: string;
     newBranch?: string;
     depth?: number;
+    repoArchiveBase64?: string;
+    repoArchiveBranch?: string;
+    repoArchiveName?: string;
 };
 
 export type UpdateSandboxEnvResponse = {

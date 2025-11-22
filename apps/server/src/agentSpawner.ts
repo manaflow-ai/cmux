@@ -10,6 +10,9 @@ import type {
   WorkerTerminalFailed,
 } from "@cmux/shared/worker-schemas";
 import { parse as parseDotenv } from "dotenv";
+import { promises as fs } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { sanitizeTmuxSessionName } from "./sanitizeTmuxSessionName";
 import {
   generateNewBranchName,
@@ -34,10 +37,19 @@ import { VSCodeInstance } from "./vscode/VSCodeInstance";
 import { getWorktreePath, setupProjectWorkspace } from "./workspace";
 import { workerExec } from "./utils/workerExec";
 import rawSwitchBranchScript from "./utils/switch-branch.ts?raw";
+import {
+  extractArchiveToWorkspace,
+  type LocalRepoArchiveInfo,
+} from "./utils/localRepoArchive";
 
 const SWITCH_BRANCH_BUN_SCRIPT = rawSwitchBranchScript;
 
 const { getApiEnvironmentsByIdVars } = await getWwwOpenApiModule();
+
+const sanitizeWorkspaceFolder = (value: string): string => {
+  const sanitized = value.replace(/[^a-zA-Z0-9-_]/g, "-");
+  return sanitized.slice(0, 48) || "workspace";
+};
 
 export interface AgentSpawnResult {
   agentName: string;
@@ -65,6 +77,7 @@ export async function spawnAgent(
     }>;
     theme?: "dark" | "light" | "system";
     newBranch?: string; // Optional pre-generated branch name
+    localRepoArchive?: LocalRepoArchiveInfo;
   },
   teamSlugOrId: string
 ): Promise<AgentSpawnResult> {
@@ -361,7 +374,14 @@ export async function spawnAgent(
 
     console.log("[AgentSpawner] [isCloudMode]", options.isCloudMode);
 
+    const hasLocalArchive = Boolean(options.localRepoArchive);
+
     if (options.isCloudMode) {
+      if (hasLocalArchive && !options.localRepoArchive?.base64Data) {
+        throw new Error(
+          "Local repository archive payload missing for cloud mode"
+        );
+      }
       // For remote sandboxes (Morph-backed via www API)
       vscodeInstance = new CmuxVSCodeInstance({
         agentName: agent.name,
@@ -369,19 +389,56 @@ export async function spawnAgent(
         taskId,
         theme: options.theme,
         teamSlugOrId,
-        repoUrl: options.repoUrl,
+        repoUrl: hasLocalArchive ? undefined : options.repoUrl,
         branch: options.branch,
         newBranch,
         environmentId: options.environmentId,
         taskRunJwt,
+        localArchiveBase64: options.localRepoArchive?.base64Data,
+        localArchiveBranch: options.localRepoArchive?.branchName,
+        localArchiveRepoName: options.localRepoArchive?.repoName,
       });
 
       worktreePath = "/root/workspace";
+    } else if (hasLocalArchive && options.localRepoArchive) {
+      const workspaceRoot = path.join(
+        os.tmpdir(),
+        "cmux-local-workspaces",
+        String(taskRunId)
+      );
+      await fs.mkdir(workspaceRoot, { recursive: true });
+      const agentFolder = sanitizeWorkspaceFolder(agent.name);
+      const workspacePath = path.join(workspaceRoot, agentFolder);
+      const baseBranch =
+        options.branch?.trim() ||
+        options.localRepoArchive.branchName ||
+        "main";
+      await extractArchiveToWorkspace(
+        options.localRepoArchive.archivePath,
+        workspacePath,
+        baseBranch
+      );
+      worktreePath = workspacePath;
+
+      serverLogger.info(
+        `[AgentSpawner] Prepared local archive workspace at ${workspacePath}`
+      );
+      vscodeInstance = new DockerVSCodeInstance({
+        workspacePath: worktreePath,
+        agentName: agent.name,
+        taskRunId,
+        taskId,
+        theme: options.theme,
+        teamSlugOrId,
+      });
     } else {
+      if (!options.repoUrl) {
+        throw new Error("repoUrl is required when no local archive is provided");
+      }
       // For Docker, set up worktree as before
       const worktreeInfo = await getWorktreePath(
         {
-          repoUrl: options.repoUrl!,
+          repoUrl: options.repoUrl,
           branch: newBranch,
         },
         teamSlugOrId
@@ -389,7 +446,7 @@ export async function spawnAgent(
 
       // Setup workspace
       const workspaceResult = await setupProjectWorkspace({
-        repoUrl: options.repoUrl!,
+        repoUrl: options.repoUrl,
         // If not provided, setupProjectWorkspace detects default from origin
         branch: options.branch,
         worktreeInfo,
@@ -950,6 +1007,7 @@ export async function spawnAllAgents(
       altText: string;
     }>;
     theme?: "dark" | "light" | "system";
+    localRepoArchive?: LocalRepoArchiveInfo;
   },
   teamSlugOrId: string
 ): Promise<AgentSpawnResult[]> {

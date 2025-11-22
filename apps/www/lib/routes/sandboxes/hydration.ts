@@ -93,3 +93,40 @@ exit $EXIT_CODE
     throw new Error(`Hydration failed with exit code ${hydrateRes.exit_code}`);
   }
 };
+
+export const hydrateWorkspaceFromArchive = async ({
+  instance,
+  archiveBase64,
+  branchName,
+  repoName,
+}: {
+  instance: MorphInstance;
+  archiveBase64: string;
+  branchName?: string;
+  repoName?: string;
+}): Promise<void> => {
+  const archivePath = `/tmp/cmux-archive-${Date.now()}.tar`;
+  const commitLabel = repoName ? ` from ${repoName}` : "";
+  const command = `
+set -e
+cat <<'CMUX_ARCHIVE_EOF' | base64 -d > ${archivePath}
+${archiveBase64}
+CMUX_ARCHIVE_EOF
+mkdir -p ${MORPH_WORKSPACE_PATH}
+tar -xf ${archivePath} -C ${MORPH_WORKSPACE_PATH}
+cd ${MORPH_WORKSPACE_PATH}
+git init
+git checkout -b ${branchName || "main"}
+git config user.name "cmux-local"
+git config user.email "local@cmux.dev"
+git add --all
+git commit --allow-empty -m "Initial snapshot${commitLabel}"
+rm -f ${archivePath}
+`;
+  const hydrateRes = await instance.exec(
+    `bash -lc ${singleQuote(command)}`
+  );
+  if (hydrateRes.exit_code !== 0) {
+    throw new Error(`Archive hydration failed with exit code ${hydrateRes.exit_code}`);
+  }
+};

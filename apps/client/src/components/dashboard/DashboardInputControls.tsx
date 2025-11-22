@@ -13,14 +13,35 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { isElectron } from "@/lib/electron";
+import {
+  formatLocalDisplayLabel,
+  isLikelyLocalPath,
+  type LocalRepoSuggestResponse,
+  type LocalRepoSuggestion,
+} from "@/lib/local-repo-path";
+import { useSocket } from "@/contexts/socket/use-socket";
 import { api } from "@cmux/convex/api";
 import type { ProviderStatus, ProviderStatusResponse } from "@cmux/shared";
 import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
 import { parseGithubRepoUrl } from "@cmux/shared";
+import {
+  decodeLocalRepoValue,
+  encodeLocalRepoValue,
+  isLocalRepoValue,
+} from "@cmux/shared/localRepo";
 import { Link, useRouter } from "@tanstack/react-router";
 import clsx from "clsx";
 import { useAction, useMutation } from "convex/react";
-import { Check, GitBranch, Image, Link2, Mic, Server, X } from "lucide-react";
+import {
+  Check,
+  FolderOpen,
+  GitBranch,
+  Image,
+  Link2,
+  Mic,
+  Server,
+  X,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentCommandItem, MAX_AGENT_COMMAND_COUNT } from "./AgentCommandItem";
@@ -52,6 +73,8 @@ type AgentSelectionInstance = {
   id: string;
 };
 
+const LOCAL_REPO_HEADING_VALUE = "__heading-local";
+
 export const DashboardInputControls = memo(function DashboardInputControls({
   projectOptions,
   selectedProject,
@@ -73,8 +96,16 @@ export const DashboardInputControls = memo(function DashboardInputControls({
 }: DashboardInputControlsProps) {
   const router = useRouter();
   const agentSelectRef = useRef<SearchableSelectHandle | null>(null);
+  const { socket } = useSocket();
   const mintState = useMutation(api.github_app.mintInstallState);
   const addManualRepo = useAction(api.github_http.addManualRepo);
+  const [projectSearchValue, setProjectSearchValue] = useState("");
+  const [localRepoSuggestions, setLocalRepoSuggestions] = useState<
+    LocalRepoSuggestion[]
+  >([]);
+  const [localSuggestionsLoading, setLocalSuggestionsLoading] = useState(false);
+  const [homeDirectory, setHomeDirectory] = useState<string | null>(null);
+  const localSuggestRequestRef = useRef(0);
   const providerStatusMap = useMemo(() => {
     const map = new Map<string, ProviderStatus>();
     providerStatus?.providers?.forEach((provider) => {
@@ -82,6 +113,74 @@ export const DashboardInputControls = memo(function DashboardInputControls({
     });
     return map;
   }, [providerStatus?.providers]);
+  const selectedLocalRepoPath = useMemo(
+    () => decodeLocalRepoValue(selectedProject[0] ?? null),
+    [selectedProject]
+  );
+  const shouldShowLocalOptions = useMemo(
+    () =>
+      isLikelyLocalPath(projectSearchValue) || Boolean(selectedLocalRepoPath),
+    [projectSearchValue, selectedLocalRepoPath]
+  );
+  const localOptionSection = useMemo<SelectOption[]>(() => {
+    if (!shouldShowLocalOptions && !selectedLocalRepoPath) {
+      return [];
+    }
+    const options: SelectOption[] = [];
+    let headingAdded = false;
+    const seen = new Set<string>();
+    const addHeading = (): void => {
+      if (headingAdded) return;
+      options.push({
+        label: "Local repositories",
+        value: LOCAL_REPO_HEADING_VALUE,
+        heading: true,
+      });
+      headingAdded = true;
+    };
+    if (shouldShowLocalOptions) {
+      for (const suggestion of localRepoSuggestions) {
+        if (!suggestion.path || seen.has(suggestion.path)) continue;
+        seen.add(suggestion.path);
+        addHeading();
+        options.push({
+          label: suggestion.displayPath || suggestion.path,
+          value: encodeLocalRepoValue(suggestion.path),
+          icon: suggestion.hasGit ? (
+            <GitBranch className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
+          ) : (
+            <FolderOpen className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
+          ),
+          iconKey: suggestion.hasGit ? "local-git" : "local-folder",
+        });
+      }
+    }
+    if (selectedLocalRepoPath && !seen.has(selectedLocalRepoPath)) {
+      addHeading();
+      options.push({
+        label: formatLocalDisplayLabel(selectedLocalRepoPath, homeDirectory),
+        value: encodeLocalRepoValue(selectedLocalRepoPath),
+        icon: (
+          <FolderOpen className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
+        ),
+        iconKey: "local-folder",
+      });
+    }
+    return options;
+  }, [
+    shouldShowLocalOptions,
+    selectedLocalRepoPath,
+    localRepoSuggestions,
+    homeDirectory,
+  ]);
+  const combinedProjectOptions = useMemo(
+    () =>
+      localOptionSection.length > 0
+        ? [...projectOptions, ...localOptionSection]
+        : projectOptions,
+    [projectOptions, localOptionSection]
+  );
+  const projectSelectLoading = isLoadingProjects || localSuggestionsLoading;
   const handleOpenSettings = useCallback(() => {
     void router.navigate({
       to: "/$teamSlugOrId/settings",
@@ -233,6 +332,40 @@ export const DashboardInputControls = memo(function DashboardInputControls({
   const [isAddingRepo, setIsAddingRepo] = useState(false);
 
   useEffect(() => {
+    const trimmed = projectSearchValue.trim();
+    if (!socket || !isLikelyLocalPath(trimmed)) {
+      setLocalSuggestionsLoading(false);
+      setLocalRepoSuggestions((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    setLocalSuggestionsLoading(true);
+    const requestId = ++localSuggestRequestRef.current;
+    const timeout = window.setTimeout(() => {
+      socket.emit(
+        "suggest-local-repos",
+        { query: trimmed },
+        (response: LocalRepoSuggestResponse | undefined) => {
+          if (localSuggestRequestRef.current !== requestId) {
+            return;
+          }
+          setLocalSuggestionsLoading(false);
+          if (!response?.success) {
+            setLocalRepoSuggestions([]);
+            return;
+          }
+          setLocalRepoSuggestions(response.suggestions ?? []);
+          if (response.homeDir) {
+            setHomeDirectory(response.homeDir);
+          }
+        }
+      );
+    }, 150);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [projectSearchValue, socket]);
+
+  useEffect(() => {
     const node = pillboxScrollRef.current;
     if (!node) {
       setShowPillboxFade(false);
@@ -293,6 +426,10 @@ export const DashboardInputControls = memo(function DashboardInputControls({
     },
     [instanceIndexMap, onAgentChange, selectedAgents],
   );
+
+  const handleProjectSearchChange = useCallback((nextValue: string) => {
+    setProjectSearchValue(nextValue);
+  }, []);
 
   const handleFocusAgentOption = useCallback((agent: string) => {
     agentSelectRef.current?.open({ focusValue: agent });
@@ -490,14 +627,15 @@ export const DashboardInputControls = memo(function DashboardInputControls({
     <div className="flex items-end gap-1 grow">
       <div className="flex items-end gap-1">
         <SearchableSelect
-          options={projectOptions}
+          options={combinedProjectOptions}
           value={selectedProject}
           onChange={onProjectChange}
           onSearchPaste={onProjectSearchPaste}
+          onSearchChange={handleProjectSearchChange}
           placeholder="Select project"
           singleSelect={true}
           className="rounded-2xl"
-          loading={isLoadingProjects}
+          loading={projectSelectLoading}
           maxTagCount={1}
           showSearch
           footer={

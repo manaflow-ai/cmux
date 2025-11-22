@@ -24,6 +24,9 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
   private newBranch?: string;
   private environmentId?: string;
   private taskRunJwt?: string;
+  private repoArchiveBase64?: string;
+  private repoArchiveBranch?: string;
+  private repoArchiveName?: string;
 
   constructor(config: VSCodeInstanceConfig) {
     super(config);
@@ -33,12 +36,18 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
       newBranch?: string;
       environmentId?: string;
       taskRunJwt?: string;
+      localArchiveBase64?: string;
+      localArchiveBranch?: string;
+      localArchiveRepoName?: string;
     };
     this.repoUrl = cfg.repoUrl;
     this.branch = cfg.branch;
     this.newBranch = cfg.newBranch;
     this.environmentId = cfg.environmentId;
     this.taskRunJwt = cfg.taskRunJwt;
+    this.repoArchiveBase64 = cfg.localArchiveBase64;
+    this.repoArchiveBranch = cfg.localArchiveBranch;
+    this.repoArchiveName = cfg.localArchiveRepoName;
   }
 
   async start(): Promise<VSCodeInstanceInfo> {
@@ -58,14 +67,20 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
         taskRunJwt: this.taskRunJwt || "",
         isCloudWorkspace: this.config.agentName === "cloud-workspace",
         ...(this.environmentId ? { environmentId: this.environmentId } : {}),
-        ...(this.repoUrl
+        ...(this.repoArchiveBase64
           ? {
-            repoUrl: this.repoUrl,
-            branch: this.branch,
-            newBranch: this.newBranch,
-            depth: 1,
+            repoArchiveBase64: this.repoArchiveBase64,
+            repoArchiveBranch: this.repoArchiveBranch,
+            repoArchiveName: this.repoArchiveName,
           }
-          : {}),
+          : this.repoUrl
+            ? {
+              repoUrl: this.repoUrl,
+              branch: this.branch,
+              newBranch: this.newBranch,
+              depth: 1,
+            }
+            : {}),
       },
     });
     const data = startRes.data;
