@@ -1,3 +1,4 @@
+import type { EditorSettingsUpload } from "@cmux/shared/editor-settings";
 import type { AuthFile } from "@cmux/shared/worker-schemas";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -31,13 +32,6 @@ interface EditorExport {
   snippets: FileExport[];
   extensions?: string[];
   settingsMtimeMs?: number;
-}
-
-export interface EditorSettingsUpload {
-  authFiles: AuthFile[];
-  startupCommands: string[];
-  sourceEditor: EditorId;
-  settingsPath?: string;
 }
 
 const homeDir = os.homedir();

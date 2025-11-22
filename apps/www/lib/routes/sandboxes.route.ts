@@ -5,6 +5,7 @@ import { stackServerAppJs } from "@/lib/utils/stack";
 import { verifyTeamAccess } from "@/lib/utils/team-verification";
 import { env } from "@/lib/utils/www-env";
 import { api } from "@cmux/convex/api";
+import { EditorSettingsUploadSchema } from "@cmux/shared/editor-settings";
 import { RESERVED_CMUX_PORT_SET } from "@cmux/shared/utils/reserved-cmux-ports";
 import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
@@ -27,6 +28,7 @@ import {
   encodeEnvContentForEnvctl,
   envctlLoadCommand,
 } from "./utils/ensure-env-vars";
+import { applyEditorSettingsToInstance } from "./sandboxes/editorSettings";
 
 export const sandboxesRouter = new OpenAPIHono();
 
@@ -48,6 +50,7 @@ const StartSandboxBody = z
     branch: z.string().optional(),
     newBranch: z.string().optional(),
     depth: z.number().optional().default(1),
+    editorSettings: EditorSettingsUploadSchema.optional(),
   })
   .openapi("StartSandboxBody");
 
@@ -336,8 +339,22 @@ sandboxesRouter.openapi(
         });
       } catch (error) {
         console.error(`[sandboxes.start] Hydration failed:`, error);
-        await instance.stop().catch(() => { });
+        await instance.stop().catch(() => {});
         return c.text("Failed to hydrate sandbox", 500);
+      }
+
+      if (body.editorSettings) {
+        try {
+          await applyEditorSettingsToInstance({
+            instance,
+            editorSettings: body.editorSettings,
+          });
+        } catch (error) {
+          console.error(
+            "[sandboxes.start] Failed to apply editor settings",
+            error,
+          );
+        }
       }
 
       if (maintenanceScript || devScript) {

@@ -27,3 +27,4 @@ export * from "./pull-request-state";
 export * from "./iframe-preflight";
 export * from "./morph-snapshots";
 export * from "./screenshots/types";
+export * from "./editor-settings";

@@ -90,6 +90,10 @@
       "import": "./src/pull-request-state.ts",
       "types": "./src/pull-request-state.ts"
     },
+    "./editor-settings": {
+      "import": "./src/editor-settings.ts",
+      "types": "./src/editor-settings.ts"
+    },
     "./codeReview/callback-schemas": {
       "import": "./src/codeReview/callback-schemas.ts",
       "types": "./src/codeReview/callback-schemas.ts"
