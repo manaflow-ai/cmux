@@ -118,6 +118,47 @@ async function resolveMergeBase(
 // Track the current multi-diff editor URI
 let _currentMultiDiffUri: string | null = null;
 
+async function waitForGitExtension(
+  maxAttempts: number = 30,
+  delayMs: number = 500
+): Promise<{ git: any; api: any } | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const gitExtension = vscode.extensions.getExtension("vscode.git");
+
+    if (gitExtension) {
+      // Activate the extension if not already active
+      if (!gitExtension.isActive) {
+        try {
+          log(`Git extension found but not active, activating... (attempt ${attempt + 1}/${maxAttempts})`);
+          await gitExtension.activate();
+        } catch (error) {
+          log(`Failed to activate git extension:`, error);
+        }
+      }
+
+      if (gitExtension.isActive) {
+        const git = gitExtension.exports;
+        const api = git.getAPI(1);
+
+        // Wait for repositories to be detected
+        if (api.repositories && api.repositories.length > 0) {
+          log(`Git extension ready with ${api.repositories.length} repository(ies) after ${attempt + 1} attempt(s)`);
+          return { git, api };
+        }
+
+        log(`Git extension active but no repositories yet (attempt ${attempt + 1}/${maxAttempts}), waiting ${delayMs}ms...`);
+      }
+    } else {
+      log(`Git extension not found yet (attempt ${attempt + 1}/${maxAttempts}), waiting ${delayMs}ms...`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+
+  log(`Git extension or repositories not available after ${maxAttempts} attempts`);
+  return null;
+}
+
 async function openMultiDiffEditor(
   baseRef?: string,
   useMergeBase: boolean = true
@@ -126,15 +167,14 @@ async function openMultiDiffEditor(
   log("baseRef:", baseRef);
   log("useMergeBase:", useMergeBase);
 
-  // Get the Git extension
-  const gitExtension = vscode.extensions.getExtension("vscode.git");
-  if (!gitExtension) {
-    vscode.window.showErrorMessage("Git extension not found");
+  // Wait for the Git extension to be ready with repositories
+  const gitResult = await waitForGitExtension();
+  if (!gitResult) {
+    vscode.window.showErrorMessage("Git extension or repository not available");
     return;
   }
 
-  const git = gitExtension.exports;
-  const api = git.getAPI(1);
+  const { api } = gitResult;
 
   // Get the first repository (or you can select a specific one)
   const repository = api.repositories[0];
@@ -300,13 +340,20 @@ async function setupDefaultTerminal() {
 
   isSetupComplete = true; // Set this BEFORE creating UI elements to prevent race conditions
 
-  // Open Source Control view
-  log("Opening SCM view...");
-  await vscode.commands.executeCommand("workbench.view.scm");
+  // Wait for git extension to be ready before opening SCM view
+  log("Waiting for git extension to be ready...");
+  const gitResult = await waitForGitExtension();
+  if (gitResult) {
+    // Open Source Control view
+    log("Opening SCM view...");
+    await vscode.commands.executeCommand("workbench.view.scm");
 
-  // Open git changes view
-  log("Opening git changes view...");
-  await openMultiDiffEditor();
+    // Open git changes view
+    log("Opening git changes view...");
+    await openMultiDiffEditor();
+  } else {
+    log("Git extension not ready, skipping SCM setup");
+  }
 
   // Create terminal for default tmux session
   log("Creating terminal for default tmux session");
@@ -524,10 +571,9 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Set up file watcher for auto-refresh if not already set up
       if (!fileWatcher && vscode.workspace.workspaceFolders) {
-        const gitExtension = vscode.extensions.getExtension("vscode.git");
-        if (gitExtension) {
-          const git = gitExtension.exports;
-          const api = git.getAPI(1);
+        const gitResult = await waitForGitExtension();
+        if (gitResult) {
+          const { api } = gitResult;
           const repository = api.repositories[0];
 
           if (repository) {
