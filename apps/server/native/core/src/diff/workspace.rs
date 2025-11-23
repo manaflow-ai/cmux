@@ -99,7 +99,10 @@ fn scan_workdir(root: &Path) -> Vec<String> {
       for ent in entries.flatten() {
         let p = ent.path();
         if p.file_name().map(|s| s == ".git").unwrap_or(false) { continue; }
-        let rel = p.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
+        let rel = match p.strip_prefix(base) {
+          Ok(r) => r.to_string_lossy().replace('\\', "/"),
+          Err(_) => continue,
+        };
         if should_ignore(base, &rel) { continue; }
         if p.is_dir() { rec(&p, base, out); } else if p.is_file() { out.push(rel); }
       }
@@ -192,7 +195,13 @@ pub fn diff_workspace(opts: GitDiffWorkspaceOptions) -> Result<Vec<DiffEntry>> {
       let old_str = String::from_utf8_lossy(&old_data).into_owned();
       let old_sz = old_str.as_bytes().len();
       e.oldSize = Some(old_sz as i32);
-      if old_sz <= max_bytes { e.oldContent = Some(old_str); e.newContent = Some(String::new()); e.contentOmitted = Some(false); e.deletions = e.oldContent.as_ref().unwrap().lines().count() as i32; } else { e.contentOmitted = Some(true) }
+      if old_sz <= max_bytes {
+        let deletions = old_str.lines().count() as i32;
+        e.oldContent = Some(old_str);
+        e.newContent = Some(String::new());
+        e.contentOmitted = Some(false);
+        e.deletions = deletions;
+      } else { e.contentOmitted = Some(true) }
     } else { e.contentOmitted = Some(false) }
     out.push(e);
   }
