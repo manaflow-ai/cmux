@@ -157,9 +157,10 @@ export default async function LandingPage() {
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
       >
-        <div className="absolute inset-x-[-20%] top-[-30%] h-[40rem] rounded-full bg-gradient-to-br from-blue-600/30 via-sky-500/20 to-purple-600/10 blur-3xl" />
-        <div className="absolute inset-x-[30%] top-[20%] h-[30rem] rounded-full bg-gradient-to-br from-cyan-400/20 via-sky-500/20 to-transparent blur-[160px]" />
-        <div className="absolute inset-x-[10%] bottom-[-20%] h-[32rem] rounded-full bg-gradient-to-tr from-indigo-500/20 via-blue-700/10 to-transparent blur-[200px]" />
+        <div className="absolute inset-x-[-20%] top-[-30%] h-[40rem] rounded-full bg-gradient-to-br from-red-500/30 via-orange-500/25 to-yellow-500/20 blur-3xl" />
+        <div className="absolute inset-x-[20%] top-[-10%] h-[35rem] rounded-full bg-gradient-to-br from-yellow-400/25 via-green-400/20 to-emerald-500/15 blur-[160px]" />
+        <div className="absolute inset-x-[30%] top-[20%] h-[30rem] rounded-full bg-gradient-to-br from-cyan-400/20 via-blue-500/20 to-indigo-500/15 blur-[160px]" />
+        <div className="absolute inset-x-[10%] bottom-[-20%] h-[32rem] rounded-full bg-gradient-to-tr from-indigo-600/25 via-purple-600/20 to-pink-500/15 blur-[200px]" />
       </div>
 
       <SiteHeader
