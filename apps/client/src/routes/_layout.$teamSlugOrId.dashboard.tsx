@@ -928,13 +928,6 @@ function DashboardComponent() {
         {/* Main content area */}
         <div className="flex-1 flex flex-col pt-32 pb-0">
           <div className="w-full max-w-4xl min-w-0 mx-auto px-4">
-            {/* Workspace Creation Buttons */}
-            <WorkspaceCreationButtons
-              teamSlugOrId={teamSlugOrId}
-              selectedProject={selectedProject}
-              isEnvSelected={isEnvSelected}
-            />
-
             <DashboardMainCard
               editorApiRef={editorApiRef}
               onTaskDescriptionChange={handleTaskDescriptionChange}
@@ -962,6 +955,14 @@ function DashboardComponent() {
               canSubmit={canSubmit}
               onStartTask={handleStartTask}
             />
+
+            {/* Workspace Creation Buttons */}
+            <WorkspaceCreationButtons
+              teamSlugOrId={teamSlugOrId}
+              selectedProject={selectedProject}
+              isEnvSelected={isEnvSelected}
+            />
+
             {shouldShowWorkspaceSetup ? (
               <WorkspaceSetupPanel
                 teamSlugOrId={teamSlugOrId}

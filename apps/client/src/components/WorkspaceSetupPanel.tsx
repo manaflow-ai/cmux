@@ -273,12 +273,17 @@ export function WorkspaceSetupPanel({
                 <span className="inline-flex animate-in fade-in-0 duration-300">
                   <AlertTriangle
                     className="w-3.5 h-3.5 text-orange-600 dark:text-orange-500"
-                    aria-label="Workspace setup incomplete"
+                    aria-label="Workspace setup recommended"
                   />
                 </span>
               </TooltipTrigger>
               <TooltipContent sideOffset={6}>
-                Configure maintenance scripts and environment variables for this workspace.
+                <div className="text-xs">
+                  <p className="font-medium mb-0.5">Configuration recommended but optional</p>
+                  <p className="text-neutral-500 dark:text-neutral-400">
+                    Set up maintenance scripts and environment variables for faster workspace startup.
+                  </p>
+                </div>
               </TooltipContent>
             </Tooltip>
           ) : null}
