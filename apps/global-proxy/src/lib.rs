@@ -197,10 +197,16 @@ async fn handle_request(state: Arc<AppState>, req: Request<Body>) -> Response<Bo
                 }
 
                 if route.port == 39_378 && *req.method() == Method::OPTIONS {
-                    return Response::builder()
+                    return match Response::builder()
                         .status(StatusCode::NO_CONTENT)
                         .body(Body::empty())
-                        .unwrap();
+                    {
+                        Ok(resp) => resp,
+                        Err(err) => {
+                            error!(%err, "failed to build response");
+                            text_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response")
+                        }
+                    };
                 }
 
                 let target = if let Some(suffix) = state.morph_domain_suffix.clone() {
@@ -244,10 +250,16 @@ async fn handle_request(state: Arc<AppState>, req: Request<Body>) -> Response<Bo
 
                 if *req.method() == Method::OPTIONS {
                     if is_vscode_route {
-                        return Response::builder()
+                        return match Response::builder()
                             .status(StatusCode::NO_CONTENT)
                             .body(Body::empty())
-                            .unwrap();
+                        {
+                            Ok(resp) => resp,
+                            Err(err) => {
+                                error!(%err, "failed to build response");
+                                text_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response")
+                            }
+                        };
                     }
                     return cors_response(StatusCode::NO_CONTENT);
                 }
@@ -419,14 +431,11 @@ async fn forward_request(
             response.status(),
             StatusCode::METHOD_NOT_ALLOWED | StatusCode::NOT_IMPLEMENTED
         )
+        && let Some(context) = head_fallback_context
+        && let Some(fallback) =
+            handle_head_method_not_allowed(state, context, behavior.clone()).await
     {
-        if let Some(context) = head_fallback_context {
-            if let Some(fallback) =
-                handle_head_method_not_allowed(state, context, behavior.clone()).await
-            {
-                return fallback;
-            }
-        }
+        return fallback;
     }
 
     transform_response(response, behavior).await
@@ -456,10 +465,7 @@ async fn handle_head_method_not_allowed(
     get_request.headers_mut().remove(header::CONTENT_LENGTH);
 
     match state.client.request(get_request).await {
-        Ok(resp) => match transform_head_response_from_get(resp, behavior).await {
-            Ok(head_response) => Some(head_response),
-            Err(_) => None,
-        },
+        Ok(resp) => (transform_head_response_from_get(resp, behavior).await).ok(),
         Err(_) => None,
     }
 }
@@ -511,21 +517,25 @@ fn build_head_response(
     if force_cors_headers && !behavior.strip_cors_headers {
         add_cors_headers(&mut new_headers);
     }
-    if let Some(frame_ancestors) = behavior.frame_ancestors {
-        if let Ok(value) = HeaderValue::from_str(frame_ancestors) {
-            new_headers.insert("content-security-policy", value);
+    if let Some(frame_ancestors) = behavior.frame_ancestors
+        && let Ok(value) = HeaderValue::from_str(frame_ancestors)
+    {
+        new_headers.insert("content-security-policy", value);
+    }
+    if let Some(len) = body_len
+        && let Ok(value) = HeaderValue::from_str(&len.to_string())
+    {
+        new_headers.insert(header::CONTENT_LENGTH, value);
+    }
+    if let Some(headers_mut) = builder.headers_mut() {
+        for (name, value) in new_headers.iter() {
+            headers_mut.insert(name, value.clone());
         }
     }
-    if let Some(len) = body_len {
-        if let Ok(value) = HeaderValue::from_str(&len.to_string()) {
-            new_headers.insert(header::CONTENT_LENGTH, value);
-        }
-    }
-    let headers_mut = builder.headers_mut().unwrap();
-    for (name, value) in new_headers.iter() {
-        headers_mut.insert(name, value.clone());
-    }
-    builder.body(Body::empty()).unwrap()
+    builder.body(Body::empty()).unwrap_or_else(|err| {
+        error!(%err, "failed to build HEAD response body");
+        Response::new(Body::empty())
+    })
 }
 
 async fn handle_websocket(
@@ -626,19 +636,19 @@ fn collect_forward_headers(
         http::HeaderMap::new()
     };
     headers.remove(header::HOST);
-    if let Some(port) = &behavior.port_header {
-        if let Ok(value) = HeaderValue::from_str(port) {
-            headers.insert("X-Cmux-Port-Internal", value);
-        }
+    if let Some(port) = &behavior.port_header
+        && let Ok(value) = HeaderValue::from_str(port)
+    {
+        headers.insert("X-Cmux-Port-Internal", value);
     }
-    if let Some(workspace) = behavior.workspace_header.as_ref() {
-        if let Ok(value) = HeaderValue::from_str(workspace) {
-            headers.insert("X-Cmux-Workspace-Internal", value);
-        }
-    } else if let Some(workspace) = derive_workspace_scope_from_headers(original) {
-        if let Ok(value) = HeaderValue::from_str(&workspace) {
-            headers.insert("X-Cmux-Workspace-Internal", value);
-        }
+    if let Some(workspace) = behavior.workspace_header.as_ref()
+        && let Ok(value) = HeaderValue::from_str(workspace)
+    {
+        headers.insert("X-Cmux-Workspace-Internal", value);
+    } else if let Some(workspace) = derive_workspace_scope_from_headers(original)
+        && let Ok(value) = HeaderValue::from_str(&workspace)
+    {
+        headers.insert("X-Cmux-Workspace-Internal", value);
     }
     headers.insert("X-Cmux-Proxied", HeaderValue::from_static("true"));
 
@@ -672,9 +682,7 @@ fn scope_from_cmux_subdomain(subdomain: &str) -> Option<String> {
     }
 
     let port_segment = segments.last()?;
-    if port_segment.parse::<u16>().ok().is_none() {
-        return None;
-    }
+    port_segment.parse::<u16>().ok()?;
 
     let scope_segments = &segments[1..segments.len() - 1];
     if scope_segments.is_empty()
@@ -708,7 +716,7 @@ async fn connect_upstream_websocket(
         error!(%err, "upstream websocket request error");
         text_response(
             StatusCode::BAD_GATEWAY,
-            "Failed to connect to websocket backend".into(),
+            "Failed to connect to websocket backend",
         )
     })?;
 
@@ -721,7 +729,10 @@ async fn connect_upstream_websocket(
             Response::builder()
                 .status(status)
                 .body(Body::from(body_bytes))
-                .unwrap(),
+                .unwrap_or_else(|err| {
+                    error!(%err, "failed to build websocket error response");
+                    Response::new(Body::empty())
+                }),
         );
     }
 
@@ -732,7 +743,7 @@ async fn connect_upstream_websocket(
             error!(%err, "upstream websocket upgrade failed");
             Err(text_response(
                 StatusCode::BAD_GATEWAY,
-                "Failed to upgrade websocket backend".into(),
+                "Failed to upgrade websocket backend",
             ))
         }
     }
@@ -754,7 +765,10 @@ fn build_websocket_response(headers: &HeaderMap) -> Response<Body> {
         }
     }
 
-    builder.body(Body::empty()).unwrap()
+    builder.body(Body::empty()).unwrap_or_else(|err| {
+        error!(%err, "failed to build websocket response");
+        Response::new(Body::empty())
+    })
 }
 
 async fn tunnel_upgraded(
@@ -809,20 +823,23 @@ async fn transform_response(response: Response<Body>, behavior: ProxyBehavior) -
                         } else if behavior.add_cors {
                             add_cors_headers(&mut new_headers);
                         }
-                        if let Some(frame_ancestors) = behavior.frame_ancestors {
-                            if let Ok(value) = HeaderValue::from_str(frame_ancestors) {
-                                new_headers.insert("content-security-policy", value);
+                        if let Some(frame_ancestors) = behavior.frame_ancestors
+                            && let Ok(value) = HeaderValue::from_str(frame_ancestors)
+                        {
+                            new_headers.insert("content-security-policy", value);
+                        }
+                        if let Ok(value) = HeaderValue::from_str(&body.len().to_string()) {
+                            new_headers.insert(header::CONTENT_LENGTH, value);
+                        }
+                        if let Some(headers_mut) = builder.headers_mut() {
+                            for (name, value) in new_headers.iter() {
+                                headers_mut.insert(name, value.clone());
                             }
                         }
-                        new_headers.insert(
-                            header::CONTENT_LENGTH,
-                            HeaderValue::from_str(&body.len().to_string()).unwrap(),
-                        );
-                        let headers_mut = builder.headers_mut().unwrap();
-                        for (name, value) in new_headers.iter() {
-                            headers_mut.insert(name, value.clone());
-                        }
-                        builder.body(Body::from(body)).unwrap()
+                        builder.body(Body::from(body)).unwrap_or_else(|err| {
+                            error!(%err, "failed to build HTML response body");
+                            Response::new(Body::empty())
+                        })
                     }
                     Err(_) => text_response(StatusCode::INTERNAL_SERVER_ERROR, "HTML rewrite failed"),
                 }
@@ -857,16 +874,20 @@ fn forward_response_with_body(
     } else if behavior.add_cors {
         add_cors_headers(&mut new_headers);
     }
-    if let Some(frame_ancestors) = behavior.frame_ancestors {
-        if let Ok(value) = HeaderValue::from_str(frame_ancestors) {
-            new_headers.insert("content-security-policy", value);
+    if let Some(frame_ancestors) = behavior.frame_ancestors
+        && let Ok(value) = HeaderValue::from_str(frame_ancestors)
+    {
+        new_headers.insert("content-security-policy", value);
+    }
+    if let Some(headers_mut) = builder.headers_mut() {
+        for (name, value) in new_headers.iter() {
+            headers_mut.insert(name, value.clone());
         }
     }
-    let headers_mut = builder.headers_mut().unwrap();
-    for (name, value) in new_headers.iter() {
-        headers_mut.insert(name, value.clone());
-    }
-    builder.body(body).unwrap()
+    builder.body(body).unwrap_or_else(|err| {
+        error!(%err, "failed to build forwarded response body");
+        Response::new(Body::empty())
+    })
 }
 
 fn decode_body_with_encoding(bytes: &[u8], encoding: Option<&str>) -> io::Result<Vec<u8>> {
@@ -1032,10 +1053,10 @@ fn rewrite_html(
                     Ok(())
                 }),
                 element!("meta", |el| {
-                    if let Some(value) = el.get_attribute("http-equiv") {
-                        if value.eq_ignore_ascii_case("content-security-policy") {
-                            el.remove();
-                        }
+                    if let Some(value) = el.get_attribute("http-equiv")
+                        && value.eq_ignore_ascii_case("content-security-policy")
+                    {
+                        el.remove();
                     }
                     Ok(())
                 }),
@@ -1255,10 +1276,10 @@ fn extract_host(req: &Request<Body>) -> Option<String> {
 
 fn normalize_host(value: &str) -> String {
     let mut host = value.to_ascii_lowercase();
-    if let Some(idx) = host.rfind(':') {
-        if host[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
-            host.truncate(idx);
-        }
+    if let Some(idx) = host.rfind(':')
+        && host[idx + 1..].chars().all(|c| c.is_ascii_digit())
+    {
+        host.truncate(idx);
     }
     host
 }
