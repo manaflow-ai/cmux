@@ -1,3 +1,8 @@
+import {
+  GithubConnectionRequiredError,
+  getGithubCredentialErrorMessage,
+  isGithubCredentialErrorPayload,
+} from "../errors/GithubConnectionRequiredError";
 import { dockerLogger } from "../utils/fileLogger";
 import { getWwwClient } from "../utils/wwwClient";
 import { getWwwOpenApiModule } from "../utils/wwwOpenApiModule";
@@ -68,9 +73,23 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
           : {}),
       },
     });
-    const data = startRes.data;
+    const { data, error, response } = startRes;
     if (!data) {
-      throw new Error("Failed to start sandbox");
+      if (response?.status === 401 && isGithubCredentialErrorPayload(error)) {
+        throw new GithubConnectionRequiredError(
+          getGithubCredentialErrorMessage(error),
+        );
+      }
+      const fallbackMessage =
+        typeof error === "string"
+          ? error
+          : (error &&
+              typeof error === "object" &&
+              "error" in error &&
+              typeof (error as { error?: unknown }).error === "string" &&
+              ((error as { error?: string }).error as string)) ||
+            "Failed to start sandbox";
+      throw new Error(fallbackMessage);
     }
 
     this.sandboxId = data.instanceId;

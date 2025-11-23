@@ -1,3 +1,4 @@
+import { env as clientEnv } from "@/client-env";
 import {
   DashboardInput,
   type EditorApi,
@@ -79,6 +80,11 @@ const AGENT_SELECTION_SCHEMA = z.array(z.string());
 const filterKnownAgents = (agents: string[]): string[] =>
   agents.filter((agent) => KNOWN_AGENT_NAMES.has(agent));
 
+type PendingPromptSnapshot = {
+  text: string;
+  imageCount: number;
+};
+
 const parseStoredAgentSelection = (stored: string | null): string[] => {
   if (!stored) {
     return [];
@@ -150,6 +156,9 @@ function DashboardComponent() {
 
   // Ref to access editor API
   const editorApiRef = useRef<EditorApi | null>(null);
+  const pendingPromptSnapshotsRef = useRef<
+    Map<Id<"tasks">, PendingPromptSnapshot>
+  >(new Map());
 
   const persistAgentSelection = useCallback((agents: string[]) => {
     try {
@@ -188,6 +197,38 @@ function DashboardComponent() {
   const handleTaskDescriptionChange = useCallback((value: string) => {
     setTaskDescription(value);
   }, []);
+
+  const applyPromptSnapshot = useCallback(
+    (snapshot: PendingPromptSnapshot) => {
+      if (!snapshot.text) {
+        return;
+      }
+      requestAnimationFrame(() => {
+        editorApiRef.current?.clear?.();
+        editorApiRef.current?.insertText?.(snapshot.text);
+        setTaskDescription(snapshot.text);
+        editorApiRef.current?.focus?.();
+      });
+      if (snapshot.imageCount > 0) {
+        toast.info(
+          `Reattach the ${snapshot.imageCount} image${snapshot.imageCount > 1 ? "s" : ""} you included before retrying.`,
+        );
+      }
+    },
+    [setTaskDescription],
+  );
+
+  const restorePromptFromPending = useCallback(
+    (taskId: Id<"tasks">) => {
+      const pendingSnapshot = pendingPromptSnapshotsRef.current.get(taskId);
+      if (!pendingSnapshot) {
+        return;
+      }
+      pendingPromptSnapshotsRef.current.delete(taskId);
+      applyPromptSnapshot(pendingSnapshot);
+    },
+    [applyPromptSnapshot],
+  );
 
   // Fetch branches for selected repo from Convex
   const isEnvSelected = useMemo(
@@ -388,6 +429,57 @@ function DashboardComponent() {
   );
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
   const addManualRepo = useAction(api.github_http.addManualRepo);
+  const mintGithubInstallState = useMutation(
+    api.github_app.mintInstallState,
+  );
+
+  const openGithubInstall = useCallback(async () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!clientEnv.NEXT_PUBLIC_GITHUB_APP_SLUG) {
+      toast.info("Ask a team admin to connect the GitHub app in Settings.");
+      return;
+    }
+    try {
+      const { state } = await mintGithubInstallState({ teamSlugOrId });
+      const baseUrl = `https://github.com/apps/${clientEnv.NEXT_PUBLIC_GITHUB_APP_SLUG}/installations/new`;
+      const sep = baseUrl.includes("?") ? "&" : "?";
+      const targetUrl = `${baseUrl}${sep}state=${encodeURIComponent(state)}`;
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Failed to open GitHub install page", error);
+      toast.error(
+        "Failed to open the GitHub install page. Try again from Settings.",
+      );
+    }
+  }, [mintGithubInstallState, teamSlugOrId]);
+
+  const handleTaskFailure = useCallback(
+    (taskId: Id<"tasks">, message: string, code?: string) => {
+      const normalizedMessage =
+        message || "Task failed to start. Please try again.";
+      if (code === "GITHUB_TOKEN_MISSING") {
+        restorePromptFromPending(taskId);
+        toast.error(normalizedMessage, {
+          description:
+            "Connect your GitHub account so cmux can access your repositories.",
+          action: clientEnv.NEXT_PUBLIC_GITHUB_APP_SLUG
+            ? {
+                label: "Connect GitHub",
+                onClick: () => {
+                  void openGithubInstall();
+                },
+              }
+            : undefined,
+        });
+        return;
+      }
+      pendingPromptSnapshotsRef.current.delete(taskId);
+      toast.error(`Task failed to start: ${normalizedMessage}`);
+    },
+    [openGithubInstall, restorePromptFromPending],
+  );
 
   const effectiveSelectedBranch = useMemo(() => {
     if (selectedBranch.length > 0) {
@@ -454,15 +546,23 @@ function DashboardComponent() {
     const environmentId = envSelected
       ? (projectFullName.replace(/^env:/, "") as Id<"environments">)
       : undefined;
+    const content = editorApiRef.current?.getContent();
+    const promptImages = content?.images || [];
+    const promptTextFromEditor = content?.text ?? "";
+    const promptText =
+      promptTextFromEditor.trim().length > 0
+        ? promptTextFromEditor
+        : taskDescription;
+    const promptSnapshot: PendingPromptSnapshot = {
+      text: promptText,
+      imageCount: promptImages.length,
+    };
+    let createdTaskId: Id<"tasks"> | null = null;
 
     try {
-      // Extract content including images from the editor
-      const content = editorApiRef.current?.getContent();
-      const images = content?.images || [];
-
       // Upload images to Convex storage first
       const uploadedImages = await Promise.all(
-        images.map(
+        promptImages.map(
           async (image: {
             src: string;
             fileName?: string;
@@ -507,12 +607,20 @@ function DashboardComponent() {
       // Create task in Convex with storage IDs
       const taskId = await createTask({
         teamSlugOrId,
-        text: content?.text || taskDescription, // Use content.text which includes image references
+        text: promptText, // Use content text which includes image references
         projectFullName: envSelected ? undefined : projectFullName,
         baseBranch: envSelected ? undefined : branch,
         images: uploadedImages.length > 0 ? uploadedImages : undefined,
         environmentId,
       });
+      createdTaskId = taskId;
+
+      if (
+        promptSnapshot.text.trim().length > 0 ||
+        promptSnapshot.imageCount > 0
+      ) {
+        pendingPromptSnapshotsRef.current.set(taskId, promptSnapshot);
+      }
 
       // Hint the sidebar to auto-expand this task once it appears
       addTaskToExpand(taskId);
@@ -527,16 +635,17 @@ function DashboardComponent() {
       ) => {
         if ("error" in response) {
           console.error("Task start error:", response.error);
-          toast.error(`Task start error: ${JSON.stringify(response.error)}`);
+          handleTaskFailure(response.taskId, response.error, response.code);
           return;
         }
 
         attachTaskLifecycleListeners(socket, response.taskId, {
           onStarted: (payload) => {
             console.log("Task started:", payload);
+            pendingPromptSnapshotsRef.current.delete(payload.taskId);
           },
           onFailed: (payload) => {
-            toast.error(`Task failed to start: ${payload.error}`);
+            handleTaskFailure(payload.taskId, payload.error, payload.code);
           },
         });
         console.log("Task acknowledged:", response);
@@ -547,14 +656,14 @@ function DashboardComponent() {
         {
           ...(repoUrl ? { repoUrl } : {}),
           ...(envSelected ? {} : { branch }),
-          taskDescription: content?.text || taskDescription, // Use content.text which includes image references
+          taskDescription: promptText, // Use content text which includes image references
           projectFullName,
           taskId,
           selectedAgents:
             selectedAgents.length > 0 ? selectedAgents : undefined,
           isCloudMode: envSelected ? true : isCloudMode,
           ...(environmentId ? { environmentId } : {}),
-          images: images.length > 0 ? images : undefined,
+          images: promptImages.length > 0 ? promptImages : undefined,
           theme,
         },
         handleStartTaskAck
@@ -562,6 +671,9 @@ function DashboardComponent() {
       console.log("Task created:", taskId);
     } catch (error) {
       console.error("Error starting task:", error);
+      if (!createdTaskId) {
+        applyPromptSnapshot(promptSnapshot);
+      }
     }
   }, [
     selectedProject,
@@ -577,6 +689,8 @@ function DashboardComponent() {
     isEnvSelected,
     theme,
     generateUploadUrl,
+    handleTaskFailure,
+    applyPromptSnapshot,
   ]);
 
   // Fetch repos on mount if none exist

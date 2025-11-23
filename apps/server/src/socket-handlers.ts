@@ -57,6 +57,11 @@ import { refreshGitHubData } from "./utils/refreshGitHubData";
 import { runWithAuth, runWithAuthToken } from "./utils/requestContext";
 import { getWwwClient } from "./utils/wwwClient";
 import { getWwwOpenApiModule } from "./utils/wwwOpenApiModule";
+import {
+  GithubConnectionRequiredError,
+  getGithubCredentialErrorMessage,
+  isGithubCredentialErrorPayload,
+} from "./errors/GithubConnectionRequiredError";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
 import {
   getVSCodeServeWebBaseUrl,
@@ -613,9 +618,13 @@ export function setupSocketHandlers(
                 `Failed to spawn any agents for task ${taskId}:`,
                 errors
               );
+              const codedError = agentResults.find(
+                (result) => !result.success && result.errorCode,
+              );
               rt.emit("task-failed", {
                 taskId,
-                error: errors || "Failed to spawn any agents",
+                error: codedError?.error || errors || "Failed to spawn any agents",
+                code: codedError?.errorCode,
               });
               return;
             }
@@ -685,6 +694,10 @@ export function setupSocketHandlers(
             rt.emit("task-failed", {
               taskId,
               error: error instanceof Error ? error.message : "Unknown error",
+              code:
+                error instanceof GithubConnectionRequiredError
+                  ? error.code
+                  : undefined,
             });
           }
         })();
@@ -693,6 +706,9 @@ export function setupSocketHandlers(
         callback({
           taskId,
           error: error instanceof Error ? error.message : "Unknown error",
+          ...(error instanceof GithubConnectionRequiredError
+            ? { code: error.code }
+            : {}),
         });
       }
     });
@@ -1302,9 +1318,23 @@ export function setupSocketHandlers(
             },
           });
 
-          const data = startRes.data;
+          const { data, error, response } = startRes;
           if (!data) {
-            throw new Error("Failed to start sandbox");
+            if (response?.status === 401 && isGithubCredentialErrorPayload(error)) {
+              throw new GithubConnectionRequiredError(
+                getGithubCredentialErrorMessage(error),
+              );
+            }
+            const fallbackMessage =
+              typeof error === "string"
+                ? error
+                : (error &&
+                    typeof error === "object" &&
+                    "error" in error &&
+                    typeof (error as { error?: unknown }).error === "string" &&
+                    ((error as { error?: string }).error as string)) ||
+                  "Failed to start sandbox";
+            throw new Error(fallbackMessage);
           }
 
           const sandboxId = data.instanceId;
