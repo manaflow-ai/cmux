@@ -174,11 +174,13 @@ const convexSchema = defineSchema({
       v.literal("pending"),
       v.literal("running"),
       v.literal("completed"),
-      v.literal("failed")
+      v.literal("failed"),
+      v.literal("skipped")
     ),
     isArchived: v.optional(v.boolean()), // Whether this run is hidden from default views
     isLocalWorkspace: v.optional(v.boolean()),
     isCloudWorkspace: v.optional(v.boolean()),
+    isPreviewJob: v.optional(v.boolean()), // Whether this is a preview job that should auto-run screenshots
     // Optional log retained for backward compatibility; no longer written to.
     log: v.optional(v.string()), // CLI output log (deprecated)
     worktreePath: v.optional(v.string()), // Path to the git worktree for this run
@@ -543,6 +545,89 @@ const convexSchema = defineSchema({
     userId: v.string(),
     teamId: v.string(),
   }).index("by_team_user_repo", ["teamId", "userId", "projectFullName"]),
+  previewConfigs: defineTable({
+    teamId: v.string(),
+    createdByUserId: v.string(),
+    repoFullName: v.string(),
+    repoProvider: v.optional(v.literal("github")),
+    repoInstallationId: v.optional(v.number()),
+    repoDefaultBranch: v.optional(v.string()),
+    environmentId: v.optional(v.id("environments")),
+    status: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("paused"),
+        v.literal("disabled"),
+      ),
+    ),
+    lastRunAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_team_repo", ["teamId", "repoFullName"])
+    .index("by_team", ["teamId", "updatedAt"])
+    .index("by_team_status", ["teamId", "status", "updatedAt"])
+    .index("by_environment", ["environmentId"]),
+  previewRuns: defineTable({
+    previewConfigId: v.id("previewConfigs"),
+    teamId: v.string(),
+    repoFullName: v.string(),
+    repoInstallationId: v.optional(v.number()),
+    prNumber: v.number(),
+    prUrl: v.string(),
+    headSha: v.string(),
+    baseSha: v.optional(v.string()),
+    headRef: v.optional(v.string()), // Branch name in head repo
+    headRepoFullName: v.optional(v.string()), // Fork repo full name (if from fork)
+    headRepoCloneUrl: v.optional(v.string()), // Fork repo clone URL (if from fork)
+    taskRunId: v.optional(v.id("taskRuns")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    stateReason: v.optional(v.string()),
+    dispatchedAt: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    screenshotSetId: v.optional(v.id("previewScreenshotSets")),
+    githubCommentUrl: v.optional(v.string()),
+    githubCommentId: v.optional(v.number()),
+    morphInstanceId: v.optional(v.string()),
+    morphInstanceStoppedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_config_status", ["previewConfigId", "status", "createdAt"])
+    .index("by_config_head", ["previewConfigId", "headSha"])
+    .index("by_config_pr", ["previewConfigId", "prNumber", "createdAt"])
+    .index("by_team_created", ["teamId", "createdAt"]),
+  previewScreenshotSets: defineTable({
+    previewRunId: v.id("previewRuns"),
+    status: v.union(
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    commitSha: v.string(),
+    capturedAt: v.number(),
+    error: v.optional(v.string()),
+    images: v.array(
+      v.object({
+        storageId: v.id("_storage"),
+        mimeType: v.string(),
+        fileName: v.optional(v.string()),
+        commitSha: v.optional(v.string()),
+        width: v.optional(v.number()),
+        height: v.optional(v.number()),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_run", ["previewRunId", "capturedAt"]),
   crownEvaluations: defineTable({
     taskId: v.id("tasks"),
     evaluatedAt: v.number(),

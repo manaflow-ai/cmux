@@ -18,6 +18,8 @@ import { useMemo } from "react";
 import CmuxLogoMark from "./logo/cmux-logo-mark";
 import { TaskMessage } from "./task-message";
 
+type TaskRunStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+
 interface TimelineEvent {
   id: string;
   type:
@@ -25,11 +27,12 @@ interface TimelineEvent {
     | "run_started"
     | "run_completed"
     | "run_failed"
+    | "run_skipped"
     | "crown_evaluation";
   timestamp: number;
   runId?: Id<"taskRuns">;
   agentName?: string;
-  status?: "pending" | "running" | "completed" | "failed";
+  status?: TaskRunStatus;
   exitCode?: number;
   isCrowned?: boolean;
   crownReason?: string;
@@ -107,9 +110,16 @@ export function TaskTimeline({
 
       // Run completed/failed event
       if (run.completedAt) {
+        const endEventType: TimelineEvent["type"] =
+          run.status === "failed"
+            ? "run_failed"
+            : run.status === "skipped"
+              ? "run_skipped"
+              : "run_completed";
+
         timelineEvents.push({
           id: `${run._id}-end`,
-          type: run.status === "failed" ? "run_failed" : "run_completed",
+          type: endEventType,
           timestamp: run.completedAt,
           runId: run._id,
           agentName: run.agentName,
@@ -331,6 +341,53 @@ export function TaskTimeline({
               <div className="mt-1 text-xs text-red-600 dark:text-red-400">
                 Exit code: {event.exitCode}
               </div>
+            )}
+          </>
+        );
+        break;
+      case "run_skipped":
+        icon = (
+          <div className="size-4 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+            <AlertCircle className="size-2.5 text-amber-600 dark:text-amber-400" />
+          </div>
+        );
+        content = (
+          <>
+            {event.runId ? (
+              <Link
+                to="/$teamSlugOrId/task/$taskId/run/$runId"
+                params={{
+                  teamSlugOrId: params.teamSlugOrId,
+                  taskId: params.taskId,
+                  runId: event.runId,
+                  taskRunId: event.runId,
+                }}
+                className="hover:underline inline"
+              >
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                  {agentName}
+                </span>
+                <span className="text-neutral-600 dark:text-neutral-400">
+                  {" "}
+                  skipped execution
+                </span>
+                <span className="text-neutral-500 dark:text-neutral-500 ml-1">
+                  {formatDistanceToNow(event.timestamp, { addSuffix: true })}
+                </span>
+              </Link>
+            ) : (
+              <>
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                  {agentName}
+                </span>
+                <span className="text-neutral-600 dark:text-neutral-400">
+                  {" "}
+                  skipped execution
+                </span>
+                <span className="text-neutral-500 dark:text-neutral-500 ml-1">
+                  {formatDistanceToNow(event.timestamp, { addSuffix: true })}
+                </span>
+              </>
             )}
           </>
         );

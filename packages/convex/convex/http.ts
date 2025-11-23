@@ -8,6 +8,10 @@ import {
 } from "./crown_http";
 import { createScreenshotUploadUrl, uploadScreenshot } from "./screenshots_http";
 import {
+  createPreviewScreenshotUploadUrl,
+  uploadPreviewScreenshot,
+} from "./preview_screenshots_http";
+import {
   codeReviewFileCallback,
   codeReviewJobCallback,
 } from "./codeReview_http";
@@ -15,6 +19,12 @@ import { githubSetup } from "./github_setup";
 import { githubWebhook } from "./github_webhook";
 import { reportEnvironmentError } from "./taskRuns_http";
 import { stackWebhook } from "./stack_webhook";
+import {
+  updatePreviewStatus,
+  createScreenshotSet,
+  dispatchPreviewJob,
+  completePreviewJob,
+} from "./preview_jobs_http";
 
 const http = httpRouter();
 
@@ -73,6 +83,18 @@ http.route({
 });
 
 http.route({
+  path: "/api/screenshots/preview/upload",
+  method: "POST",
+  handler: uploadPreviewScreenshot,
+});
+
+http.route({
+  path: "/api/screenshots/preview/upload-url",
+  method: "POST",
+  handler: createPreviewScreenshotUploadUrl,
+});
+
+http.route({
   path: "/api/code-review/callback",
   method: "POST",
   handler: codeReviewJobCallback,
@@ -94,6 +116,30 @@ http.route({
   path: "/api/task-runs/report-environment-error",
   method: "POST",
   handler: reportEnvironmentError,
+});
+
+http.route({
+  path: "/api/preview/jobs/dispatch",
+  method: "POST",
+  handler: dispatchPreviewJob,
+});
+
+http.route({
+  path: "/api/preview/update-status",
+  method: "POST",
+  handler: updatePreviewStatus,
+});
+
+http.route({
+  path: "/api/preview/create-screenshot-set",
+  method: "POST",
+  handler: createScreenshotSet,
+});
+
+http.route({
+  path: "/api/preview/complete",
+  method: "POST",
+  handler: completePreviewJob,
 });
 
 export default http;

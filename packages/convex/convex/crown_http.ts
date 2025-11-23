@@ -394,10 +394,28 @@ export const crownWorkerCheck = httpAction(async (ctx, req) => {
   }
 
   const requestType = validation.data.checkType ?? "crown";
-  const { taskRunId, taskId } = validation.data;
+  let { taskRunId, taskId } = validation.data;
 
-  if (requestType === "info" && taskRunId) {
-    return handleInfoRequest(ctx, workerAuth, taskRunId);
+  if (requestType === "info") {
+    const resolvedTaskRunId =
+      taskRunId ?? (workerAuth.payload.taskRunId as Id<"taskRuns"> | undefined);
+
+    if (resolvedTaskRunId) {
+      console.log("[convex.crown] Worker info request", {
+        taskRunId: resolvedTaskRunId,
+        providedTaskRunId: Boolean(taskRunId),
+        resolvedFromToken: !taskRunId,
+        workerTeamId: workerAuth.payload.teamId,
+        workerUserId: workerAuth.payload.userId,
+      });
+      return handleInfoRequest(ctx, workerAuth, resolvedTaskRunId);
+    }
+
+    console.warn("[convex.crown] Missing taskRunId for worker info request", {
+      requestHasTaskRunId: Boolean(taskRunId),
+      tokenHasTaskRunId: Boolean(workerAuth.payload.taskRunId),
+    });
+    return jsonResponse({ code: 400, message: "Task run not specified" }, 400);
   }
 
   if (requestType === "all-complete" && taskId) {
@@ -412,16 +430,34 @@ async function handleInfoRequest(
   workerAuth: WorkerAuthContext,
   taskRunId: Id<"taskRuns">
 ): Promise<Response> {
+  console.log("[convex.crown] Handling worker taskRun info request", {
+    taskRunId,
+    workerTeamId: workerAuth.payload.teamId,
+    workerUserId: workerAuth.payload.userId,
+  });
   const taskRun = await ctx.runQuery(internal.taskRuns.getById, {
     id: taskRunId,
   });
   if (!taskRun) {
+    console.warn("[convex.crown] Task run not found for worker info request", {
+      taskRunId,
+    });
     return jsonResponse({ code: 404, message: "Task run not found" }, 404);
   }
   if (
     taskRun.teamId !== workerAuth.payload.teamId ||
     taskRun.userId !== workerAuth.payload.userId
   ) {
+    console.warn(
+      "[convex.crown] Worker attempted to access unauthorized task run",
+      {
+        taskRunId,
+        workerTeamId: workerAuth.payload.teamId,
+        taskRunTeamId: taskRun.teamId,
+        workerUserId: workerAuth.payload.userId,
+        taskRunUserId: taskRun.userId,
+      }
+    );
     return jsonResponse({ code: 401, message: "Unauthorized" }, 401);
   }
 
@@ -437,6 +473,7 @@ async function handleInfoRequest(
       teamId: taskRun.teamId,
       newBranch: taskRun.newBranch ?? null,
       agentName: taskRun.agentName ?? null,
+      isPreviewJob: Boolean(taskRun.isPreviewJob),
     },
     task: task
       ? {

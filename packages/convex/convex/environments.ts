@@ -2,6 +2,7 @@ import { validateExposedPorts } from "@cmux/shared/convex-safe";
 import { v } from "convex/values";
 import { resolveTeamIdLoose } from "../_shared/team";
 import { authMutation, authQuery } from "./users/utils";
+import { internalQuery } from "./_generated/server";
 
 const normalizeExposedPorts = (
   ports: readonly number[] | undefined
@@ -214,6 +215,15 @@ export const remove = authMutation({
     }
 
     await ctx.db.delete(args.id);
+  },
+});
+
+export const getByIdInternal = internalQuery({
+  args: {
+    id: v.id("environments"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
   },
 });
 

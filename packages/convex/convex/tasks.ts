@@ -824,3 +824,35 @@ export const getByIdInternal = internalQuery({
     return await ctx.db.get(args.id);
   },
 });
+
+export const createForPreview = internalMutation({
+  args: {
+    teamId: v.string(),
+    userId: v.string(),
+    previewRunId: v.id("previewRuns"),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    prUrl: v.string(),
+    headSha: v.string(),
+    baseBranch: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const taskId = await ctx.db.insert("tasks", {
+      text: `Preview screenshots for PR #${args.prNumber}`,
+      description: `Capture UI screenshots for ${args.prUrl}`,
+      projectFullName: args.repoFullName,
+      baseBranch: args.baseBranch,
+      worktreePath: undefined,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now,
+      images: undefined,
+      userId: args.userId,
+      teamId: args.teamId,
+      environmentId: undefined,
+      isCloudWorkspace: undefined,
+    });
+    return taskId;
+  },
+});

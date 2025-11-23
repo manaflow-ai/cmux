@@ -55,6 +55,7 @@ export const WorkerTaskRunContextSchema = z.object({
   taskRunToken: z.string(),
   prompt: z.string(),
   convexUrl: z.string(),
+  isPreviewJob: z.boolean().optional(),
 });
 
 // Terminal operation schemas for server<>worker communication
@@ -187,6 +188,12 @@ export const WorkerStartScreenshotCollectionSchema = z.object({
   outputPath: z.string().optional(),
 });
 
+export const WorkerRunTaskScreenshotsSchema = z.object({
+  token: z.string(),
+  anthropicApiKey: z.string().optional(),
+  convexUrl: z.string().min(1).optional(),
+});
+
 // Server to Worker Events
 export const ServerToWorkerCommandSchema = z.object({
   command: z.enum(["create-terminal", "destroy-terminal", "execute-command"]),
@@ -218,6 +225,9 @@ export type WorkerExec = z.infer<typeof WorkerExecSchema>;
 export type WorkerExecResult = z.infer<typeof WorkerExecResultSchema>;
 export type WorkerStartScreenshotCollection = z.infer<
   typeof WorkerStartScreenshotCollectionSchema
+>;
+export type WorkerRunTaskScreenshots = z.infer<
+  typeof WorkerRunTaskScreenshotsSchema
 >;
 
 // Socket.io event maps for Server <-> Worker communication
@@ -259,6 +269,10 @@ export interface ServerToWorkerEvents {
   "worker:stop-file-watch": (data: { taskRunId: Id<"taskRuns"> }) => void;
   "worker:start-screenshot-collection": (
     data: WorkerStartScreenshotCollection | undefined
+  ) => void;
+  "worker:run-task-screenshots": (
+    data: WorkerRunTaskScreenshots,
+    callback: (result: ErrorOr<{ success: true }>) => void
   ) => void;
 
   // Management events

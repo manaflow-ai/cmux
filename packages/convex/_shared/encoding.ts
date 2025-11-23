@@ -48,3 +48,40 @@ export function bytesToHex(buf: ArrayBuffer | Uint8Array): string {
     .join("");
 }
 
+const BASE64_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+export function base64FromBytes(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let out = "";
+  let i = 0;
+
+  for (; i + 2 < bytes.length; i += 3) {
+    const x = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
+    out += BASE64_ALPHABET[(x >> 18) & 63]!;
+    out += BASE64_ALPHABET[(x >> 12) & 63]!;
+    out += BASE64_ALPHABET[(x >> 6) & 63]!;
+    out += BASE64_ALPHABET[x & 63]!;
+  }
+
+  const remaining = bytes.length - i;
+  if (remaining === 1) {
+    const x = bytes[i]! << 16;
+    out += BASE64_ALPHABET[(x >> 18) & 63]!;
+    out += BASE64_ALPHABET[(x >> 12) & 63]!;
+    out += "==";
+  } else if (remaining === 2) {
+    const x = (bytes[i]! << 16) | (bytes[i + 1]! << 8);
+    out += BASE64_ALPHABET[(x >> 18) & 63]!;
+    out += BASE64_ALPHABET[(x >> 12) & 63]!;
+    out += BASE64_ALPHABET[(x >> 6) & 63]!;
+    out += "=";
+  }
+
+  return out;
+}
+
+export function stringToBase64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  return base64FromBytes(bytes);
+}

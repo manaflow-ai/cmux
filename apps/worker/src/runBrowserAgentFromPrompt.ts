@@ -108,12 +108,36 @@ async function resolveCdpWebSocketUrl(
   );
 }
 
+async function refreshPageBeforeScreenshot(
+  agent: BrowserAgent
+): Promise<void> {
+  console.log(
+    "[runBrowserAgentFromPrompt] Refreshing page before screenshot capture"
+  );
+  try {
+    await agent.page.reload({ waitUntil: "networkidle" });
+    console.log(
+      "[runBrowserAgentFromPrompt] Page refresh completed. Proceeding to capture screenshot."
+    );
+  } catch (refreshError) {
+    const reason =
+      refreshError instanceof Error
+        ? refreshError.message
+        : String(refreshError ?? "unknown refresh error");
+    console.error(
+      `[runBrowserAgentFromPrompt] Failed to refresh page before screenshot: ${reason}`
+    );
+  }
+}
+
 async function captureScreenshotIfRequested(
   agent: BrowserAgent
 ): Promise<void> {
   if (!REQUESTED_SCREENSHOT_PATH) {
     return;
   }
+
+  await refreshPageBeforeScreenshot(agent);
 
   try {
     await agent.page.screenshot({

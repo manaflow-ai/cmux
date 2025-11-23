@@ -22,7 +22,7 @@ const DEBUG_FLAGS = {
 };
 
 const FEATURE_FLAGS = {
-  githubEyesReactionOnPrOpen: false,
+  githubEyesReactionOnPrOpen: true,
 };
 
 async function verifySignature(
@@ -522,6 +522,130 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
                 repoFullName,
                 prNumber,
                 content: "eyes",
+              });
+            }
+          }
+
+          const action = prPayload.action ?? "";
+          if (
+            ["opened", "reopened", "synchronize", "ready_for_review"].includes(
+              action,
+            )
+          ) {
+            const previewConfig = await _ctx.runQuery(
+              internal.previewConfigs.getByTeamAndRepo,
+              { teamId, repoFullName },
+            );
+
+            if (previewConfig) {
+              const prNumber = Number(prPayload.pull_request?.number ?? 0);
+              const prUrl = prPayload.pull_request?.html_url ?? null;
+              const headSha = prPayload.pull_request?.head?.sha ?? null;
+              const baseSha = prPayload.pull_request?.base?.sha ?? undefined;
+              const headRef = prPayload.pull_request?.head?.ref ?? undefined;
+              const headRepoFullName = prPayload.pull_request?.head?.repo?.full_name ?? undefined;
+              const headRepoCloneUrl = prPayload.pull_request?.head?.repo?.clone_url ?? undefined;
+
+              console.log("[preview-jobs] Preview config found for PR", {
+                repoFullName,
+                prNumber,
+                prUrl,
+                headSha: headSha?.slice(0, 7),
+                headRef,
+                headRepoFullName,
+                isFromFork: headRepoFullName && headRepoFullName !== repoFullName,
+                previewConfigId: previewConfig._id,
+              });
+
+              if (prNumber && prUrl && headSha) {
+                try {
+                  const runId = await _ctx.runMutation(
+                    internal.previewRuns.enqueueFromWebhook,
+                    {
+                      previewConfigId: previewConfig._id,
+                      teamId,
+                      repoFullName,
+                      repoInstallationId: installation,
+                      prNumber,
+                      prUrl,
+                      headSha,
+                      baseSha,
+                      headRef,
+                      headRepoFullName,
+                      headRepoCloneUrl,
+                    },
+                  );
+
+                  console.log("[preview-jobs] Preview run enqueued", {
+                    runId,
+                    repoFullName,
+                    prNumber,
+                    prUrl,
+                  });
+
+                  // Create task and taskRun for screenshot collection
+                  // The existing worker infrastructure will pick this up and process it
+                  const taskId = await _ctx.runMutation(
+                    internal.tasks.createForPreview,
+                    {
+                      teamId,
+                      userId: previewConfig.createdByUserId,
+                      previewRunId: runId,
+                      repoFullName,
+                      prNumber,
+                      prUrl,
+                      headSha,
+                      baseBranch: previewConfig.repoDefaultBranch,
+                    },
+                  );
+
+                  const { taskRunId } = await _ctx.runMutation(
+                    internal.taskRuns.createForPreview,
+                    {
+                      taskId,
+                      teamId,
+                      userId: previewConfig.createdByUserId,
+                      prUrl,
+                      environmentId: previewConfig.environmentId,
+                    },
+                  );
+
+                  // Link the taskRun to the preview run
+                  await _ctx.runMutation(internal.previewRuns.linkTaskRun, {
+                    previewRunId: runId,
+                    taskRunId,
+                  });
+
+                  console.log("[preview-jobs] Task and taskRun created", {
+                    runId,
+                    taskId,
+                    taskRunId,
+                    repoFullName,
+                    prNumber,
+                  });
+
+                  // Trigger the preview job dispatch
+                  await _ctx.scheduler.runAfter(
+                    0,
+                    internal.preview_jobs.requestDispatch,
+                    { previewRunId: runId },
+                  );
+
+                  console.log("[preview-jobs] Preview job dispatch scheduled", {
+                    runId,
+                  });
+                } catch (error) {
+                  console.error("[preview-jobs] Failed to enqueue preview run", {
+                    repoFullName,
+                    prNumber,
+                    error,
+                  });
+                }
+              }
+            } else {
+              console.log("[preview-jobs] No preview config found for repo", {
+                repoFullName,
+                teamId,
               });
             }
           }

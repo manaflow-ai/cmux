@@ -72,6 +72,7 @@ export const WorkerTaskRunDescriptorSchema = z.object({
   teamId: z.string(),
   newBranch: z.string().nullable(),
   agentName: z.string().nullable(),
+  isPreviewJob: z.boolean().optional(),
 });
 export type WorkerTaskRunDescriptor = z.infer<
   typeof WorkerTaskRunDescriptorSchema

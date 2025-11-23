@@ -43,8 +43,19 @@ import { runWorkerExec } from "./execRunner";
 import { FileWatcher, computeGitDiff, getFileWithDiff } from "./fileWatcher";
 import { log } from "./logger";
 import { startScreenshotCollection } from "./screenshotCollector/startScreenshotCollection";
+import { runTaskScreenshots } from "./screenshotCollector/runTaskScreenshots";
+import { convexRequest } from "./crown/convex";
+import type { WorkerTaskRunResponse } from "@cmux/shared/convex-safe";
 
 const execAsync = promisify(exec);
+
+const resolveConvexUrl = (provided?: string): string | undefined => {
+  if (provided) return provided.replace(/\/$/, "");
+  const fromEnv =
+    process.env.CONVEX_SITE_URL || process.env.CONVEX_URL || process.env.CONVEX_CLOUD_URL;
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  return undefined;
+};
 
 const Terminal = xtermHeadless.Terminal;
 
@@ -123,6 +134,150 @@ app.post("/upload-image", upload.single("image"), async (req, res) => {
     log("ERROR", "Failed to upload image", error);
     res.status(500).json({
       error: error instanceof Error ? error.message : "Upload failed",
+    });
+  }
+});
+
+// HTTP endpoint for running task screenshots (replaces Socket.IO)
+app.use(express.json());
+app.post("/api/run-task-screenshots", async (req, res) => {
+  try {
+    const data = req.body;
+
+    log("INFO", "[/api/run-task-screenshots] Received request", {
+      workerId: WORKER_ID,
+      hasToken: Boolean(data?.token),
+      hasAnthropicKey: Boolean(data?.anthropicApiKey),
+    });
+
+    if (!data?.token) {
+      return res.status(400).json({
+        error: "Missing required field: token",
+      });
+    }
+
+    const convexUrl = resolveConvexUrl(data.convexUrl);
+
+    log("INFO", "[/api/run-task-screenshots] Resolving task metadata", {
+      workerId: WORKER_ID,
+      convexUrl,
+      hasConvexUrl: Boolean(convexUrl),
+    });
+
+    if (!convexUrl) {
+      log("ERROR", "[/api/run-task-screenshots] Missing convex URL for crown check", {
+        workerId: WORKER_ID,
+      });
+      return res.status(400).json({
+        error: "Convex URL is not configured for screenshot workflow",
+      });
+    }
+
+    // Extract taskRunId and taskId from JWT by calling /api/crown/check
+    // The JWT contains taskRunId, and the check endpoint returns both taskRunId and taskId
+    const info = await convexRequest<WorkerTaskRunResponse>(
+      "/api/crown/check",
+      data.token,
+      {
+        checkType: "info",
+      },
+      convexUrl,
+    );
+
+    log("INFO", "[/api/run-task-screenshots] Crown check response received", {
+      workerId: WORKER_ID,
+      hasInfo: Boolean(info),
+      ok: info?.ok ?? null,
+      hasTaskRun: Boolean(info?.taskRun),
+      taskRunId: info?.taskRun?.id,
+      taskId: info?.taskRun?.taskId,
+      isPreviewJob: info?.taskRun?.isPreviewJob,
+    });
+
+    if (!info?.ok || !info.taskRun) {
+      log("ERROR", "[/api/run-task-screenshots] Failed to load task run metadata", {
+        hasInfo: Boolean(info),
+        ok: info?.ok ?? null,
+        taskRunId: info?.taskRun?.id,
+        taskId: info?.taskRun?.taskId,
+      });
+      return res.status(400).json({
+        error: "Unable to load task run metadata for screenshot workflow",
+      });
+    }
+
+    const taskRunId = info.taskRun.id as Id<"taskRuns">;
+    const taskId = info.taskRun.taskId as Id<"tasks">;
+
+    if (!info.taskRun.isPreviewJob) {
+      log("ERROR", "[/api/run-task-screenshots] Task run is not a preview job", {
+        taskRunId,
+      });
+      return res.status(400).json({
+        error: "Task run is not marked as a preview job",
+      });
+    }
+
+    log("INFO", "[/api/run-task-screenshots] Verified preview job metadata", {
+      taskRunId,
+      taskId,
+    });
+
+    // Respond immediately to acknowledge receipt
+    res.json({
+      success: true,
+    });
+
+    // Run screenshot collection in background
+    (async () => {
+      try {
+        await runTaskScreenshots({
+          taskId,
+          taskRunId,
+          token: data.token,
+          convexUrl,
+          anthropicApiKey: data.anthropicApiKey,
+          taskRunJwt: data.token,
+        });
+
+        log("INFO", "[/api/run-task-screenshots] Screenshots completed, calling /api/preview/complete", {
+          taskRunId,
+        });
+
+        const completeUrl = `${convexUrl}/api/preview/complete`;
+        const response = await fetch(completeUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-cmux-token": data.token,
+          },
+          body: JSON.stringify({
+            taskRunId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          log("ERROR", "[/api/run-task-screenshots] Failed to complete preview job", {
+            status: response.status,
+            error: errorText,
+          });
+        } else {
+          const result = await response.json();
+          log("INFO", "[/api/run-task-screenshots] Preview job completed successfully", {
+            result,
+          });
+        }
+      } catch (error) {
+        log("ERROR", "[/api/run-task-screenshots] Failed", error);
+      }
+    })().catch((error) => {
+      log("ERROR", "[/api/run-task-screenshots] Background task failed", error);
+    });
+  } catch (error) {
+    log("ERROR", "[/api/run-task-screenshots] Request handling failed", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Internal server error",
     });
   }
 });
@@ -409,6 +564,7 @@ managementIO.on("connection", (socket) => {
         env: validated.env,
         command: validated.command,
         args: validated.args,
+        taskId: validated.taskId,
         taskRunId: validated.taskRunId,
         agentModel: validated.agentModel,
         startupCommands: validated.startupCommands,
@@ -516,6 +672,127 @@ managementIO.on("connection", (socket) => {
       }
     }
   );
+
+  socket.on("worker:run-task-screenshots", async (data, callback) => {
+    log("INFO", "[worker:run-task-screenshots] Received request", {
+      workerId: WORKER_ID,
+      hasToken: Boolean(data?.token),
+      hasAnthropicKey: Boolean(data?.anthropicApiKey),
+    });
+
+    try {
+      if (!data?.token) {
+        throw new Error("Missing required field: token");
+      }
+
+      // Use environment variable for convexUrl
+      const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+      log("INFO", "[worker:run-task-screenshots] Resolving task metadata", {
+        workerId: WORKER_ID,
+        convexUrl,
+        hasConvexUrl: Boolean(convexUrl),
+      });
+
+      // Extract taskRunId and taskId from JWT by calling /api/crown/check
+      const info = await convexRequest<WorkerTaskRunResponse>(
+        "/api/crown/check",
+        data.token,
+        {
+          checkType: "info",
+        },
+        convexUrl,
+      );
+
+      log("INFO", "[worker:run-task-screenshots] Crown check response received", {
+        workerId: WORKER_ID,
+        hasInfo: Boolean(info),
+        ok: info?.ok ?? null,
+        hasTaskRun: Boolean(info?.taskRun),
+        taskRunId: info?.taskRun?.id,
+        taskId: info?.taskRun?.taskId,
+        isPreviewJob: info?.taskRun?.isPreviewJob,
+      });
+
+      if (!info?.ok || !info.taskRun) {
+        log("ERROR", "[worker:run-task-screenshots] Failed to load task run metadata", {
+          hasInfo: Boolean(info),
+          ok: info?.ok ?? null,
+          taskRunId: info?.taskRun?.id,
+          taskId: info?.taskRun?.taskId,
+        });
+        throw new Error("Unable to load task run metadata for screenshot workflow");
+      }
+
+      const taskRunId = info.taskRun.id as Id<"taskRuns">;
+      const taskId = info.taskRun.taskId as Id<"tasks">;
+
+      if (!info.taskRun.isPreviewJob) {
+        log("ERROR", "[worker:run-task-screenshots] Task run is not a preview job", {
+          taskRunId,
+        });
+        throw new Error("Task run is not marked as a preview job");
+      }
+
+      log("INFO", "[worker:run-task-screenshots] Verified preview job metadata", {
+        taskRunId,
+        taskId,
+      });
+
+      callback({
+        error: null,
+        data: { success: true },
+      });
+
+      try {
+        await runTaskScreenshots({
+          taskId,
+          taskRunId,
+          token: data.token,
+          convexUrl,
+          anthropicApiKey: data.anthropicApiKey,
+          taskRunJwt: data.token,
+        });
+
+        log("INFO", "[worker:run-task-screenshots] Screenshots completed, calling /api/preview/complete", {
+          taskRunId,
+        });
+
+        const completeUrl = `${convexUrl}/api/preview/complete`;
+        const response = await fetch(completeUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-cmux-token": data.token,
+          },
+          body: JSON.stringify({
+            taskRunId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          log("ERROR", "[worker:run-task-screenshots] Failed to complete preview job", {
+            status: response.status,
+            error: errorText,
+          });
+        } else {
+          const result = await response.json();
+          log("INFO", "[worker:run-task-screenshots] Preview job completed successfully", {
+            result,
+          });
+        }
+      } catch (error) {
+        log("ERROR", "[worker:run-task-screenshots] Failed", error);
+      }
+    } catch (error) {
+      log("ERROR", "[worker:run-task-screenshots] Validation failed", error);
+      callback({
+        error: error instanceof Error ? error : new Error(String(error)),
+        data: null,
+      });
+    }
+  });
 
   socket.on("worker:configure-git", async (data) => {
     try {
@@ -938,6 +1215,7 @@ async function createTerminal(
     env?: Record<string, string>;
     command?: string;
     args?: string[];
+    taskId?: Id<"tasks">;
     taskRunId?: Id<"taskRuns">;
     agentModel?: string;
     startupCommands?: string[];
