@@ -1285,8 +1285,16 @@ impl SandboxService for BubblewrapService {
             let (tx_out, mut rx_out) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
             let tx_err = tx_out.clone();
 
+            // Clone tx_in for DSR response injection
+            let tx_in_for_dsr = tx_in.clone();
+
             tokio::spawn(async move {
                 let mut buf = [0u8; 1024];
+                // DSR cursor position query: ESC [ 6 n
+                const DSR_QUERY: &[u8] = b"\x1b[6n";
+                // DSR status query: ESC [ 5 n
+                const DSR_STATUS_QUERY: &[u8] = b"\x1b[5n";
+
                 loop {
                     match stdout.read(&mut buf).await {
                         Ok(0) => {
@@ -1294,8 +1302,26 @@ impl SandboxService for BubblewrapService {
                             break;
                         }
                         Ok(n) => {
-                            info!("Read from stdout: {:?}", String::from_utf8_lossy(&buf[..n]));
-                            if tx_out.send(buf[..n].to_vec()).await.is_err() {
+                            let data = &buf[..n];
+                            info!("Read from stdout: {:?}", String::from_utf8_lossy(data));
+
+                            // Check for DSR cursor position query and respond immediately
+                            if data.windows(DSR_QUERY.len()).any(|w| w == DSR_QUERY) {
+                                // Respond with cursor at position 1,1 (standard response)
+                                let response = b"\x1b[1;1R".to_vec();
+                                info!("Detected DSR query, injecting cursor position response");
+                                let _ = tx_in_for_dsr.send(response).await;
+                            }
+
+                            // Check for DSR status query and respond
+                            if data.windows(DSR_STATUS_QUERY.len()).any(|w| w == DSR_STATUS_QUERY) {
+                                // Respond with "OK" status
+                                let response = b"\x1b[0n".to_vec();
+                                info!("Detected DSR status query, injecting OK response");
+                                let _ = tx_in_for_dsr.send(response).await;
+                            }
+
+                            if tx_out.send(data.to_vec()).await.is_err() {
                                 break;
                             }
                         }
