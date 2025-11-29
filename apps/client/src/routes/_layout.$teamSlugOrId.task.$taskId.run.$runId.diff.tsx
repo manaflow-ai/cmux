@@ -22,11 +22,11 @@ import { AGENT_CONFIGS } from "@cmux/shared/agentConfig";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import { convexQuery } from "@convex-dev/react-query";
 import { Switch } from "@heroui/react";
-import { useQuery as useRQ } from "@tanstack/react-query";
+import { useQuery as useRQ, useMutation as useTanstackMutation } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { Command } from "lucide-react";
-import {
+import React, {
   Suspense,
   memo,
   useCallback,
@@ -42,6 +42,12 @@ import type { EditorApi } from "@/components/dashboard/DashboardInput";
 import LexicalEditor from "@/components/lexical/LexicalEditor";
 import { useCombinedWorkflowData, WorkflowRunsSection } from "@/components/WorkflowRunsSection";
 import { convexQueryClient } from "@/contexts/convex/convex-query-client";
+import { MergeButton, type MergeMethod } from "@/components/ui/merge-button";
+import { postApiIntegrationsGithubPrsMergeSimpleMutation } from "@cmux/www-openapi-client/react-query";
+import type { PostApiIntegrationsGithubPrsMergeSimpleData, PostApiIntegrationsGithubPrsMergeSimpleResponse, Options } from "@cmux/www-openapi-client";
+
+const RUN_PENDING_STATUSES = new Set(["in_progress", "queued", "waiting", "pending"]);
+const RUN_PASSING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
 const paramsSchema = z.object({
   taskId: typedZid("tasks"),
@@ -451,6 +457,7 @@ function WorkflowRunsWrapper({
   headSha,
   checksExpandedByRepo,
   setChecksExpandedByRepo,
+  onWorkflowDataChange,
 }: {
   teamSlugOrId: string;
   repoFullName: string;
@@ -458,6 +465,7 @@ function WorkflowRunsWrapper({
   headSha?: string;
   checksExpandedByRepo: Record<string, boolean | null>;
   setChecksExpandedByRepo: React.Dispatch<React.SetStateAction<Record<string, boolean | null>>>;
+  onWorkflowDataChange?: (repoFullName: string, data: { allRuns: any[]; isLoading: boolean }) => void;
 }) {
   const workflowData = useCombinedWorkflowData({
     teamSlugOrId,
@@ -465,6 +473,11 @@ function WorkflowRunsWrapper({
     prNumber,
     headSha,
   });
+
+  // Notify parent component of workflow data changes
+  React.useEffect(() => {
+    onWorkflowDataChange?.(repoFullName, workflowData);
+  }, [repoFullName, workflowData, onWorkflowDataChange]);
 
   // Auto-expand if there are failures (only on initial load)
   const hasAnyFailure = useMemo(() => {
@@ -648,6 +661,133 @@ function RunDiffPage() {
 
   // Track expanded state for each PR's checks
   const [checksExpandedByRepo, setChecksExpandedByRepo] = useState<Record<string, boolean | null>>({});
+
+  // Track workflow data for each repo to determine merge button state
+  const [workflowDataByRepo, setWorkflowDataByRepo] = useState<Record<string, { allRuns: any[]; isLoading: boolean }>>({});
+
+  const handleWorkflowDataChange = useCallback((repoFullName: string, data: { allRuns: any[]; isLoading: boolean }) => {
+    setWorkflowDataByRepo((prev) => ({
+      ...prev,
+      [repoFullName]: data,
+    }));
+  }, []);
+
+  // Merge PR mutation
+  const mergePrMutation = useTanstackMutation<
+    PostApiIntegrationsGithubPrsMergeSimpleResponse,
+    Error,
+    Options<PostApiIntegrationsGithubPrsMergeSimpleData>
+  >({
+    ...postApiIntegrationsGithubPrsMergeSimpleMutation(),
+    onSuccess: (data) => {
+      toast.success(data.message || "PR merged successfully");
+    },
+    onError: (error) => {
+      toast.error(`Failed to merge PR: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  // Calculate merge button state based on all workflow data
+  const { checksAllowMerge, checksDisabledReason } = useMemo(() => {
+    // If we have no PRs, we can't merge
+    if (!pullRequests || pullRequests.length === 0) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "No pull requests available",
+      } as const;
+    }
+
+    // Check if we have workflow data for at least one PR
+    const hasWorkflowData = pullRequests.some((pr) => workflowDataByRepo[pr.repoFullName]);
+    if (!hasWorkflowData) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "Loading check status...",
+      } as const;
+    }
+
+    // Check if any workflow data is still loading
+    const anyLoading = pullRequests.some((pr) => {
+      const data = workflowDataByRepo[pr.repoFullName];
+      return data?.isLoading;
+    });
+
+    if (anyLoading) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "Loading check status...",
+      } as const;
+    }
+
+    // Get all runs from all PRs
+    const allRuns = pullRequests.flatMap((pr) => {
+      const data = workflowDataByRepo[pr.repoFullName];
+      return data?.allRuns ?? [];
+    });
+
+    if (allRuns.length === 0) {
+      return {
+        checksAllowMerge: true,
+        checksDisabledReason: undefined,
+      } as const;
+    }
+
+    const hasPending = allRuns.some((run) => {
+      const status = run.status;
+      return typeof status === "string" && RUN_PENDING_STATUSES.has(status);
+    });
+
+    if (hasPending) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "Tests are still running. Wait for all required checks to finish before merging.",
+      } as const;
+    }
+
+    const allPassing = allRuns.every((run) => {
+      const conclusion = run.conclusion;
+      return typeof conclusion === "string" && RUN_PASSING_CONCLUSIONS.has(conclusion);
+    });
+
+    if (!allPassing) {
+      return {
+        checksAllowMerge: false,
+        checksDisabledReason: "Some tests have not passed yet. Fix the failing checks before merging.",
+      } as const;
+    }
+
+    return {
+      checksAllowMerge: true,
+      checksDisabledReason: undefined,
+    } as const;
+  }, [pullRequests, workflowDataByRepo]);
+
+  const handleMergePR = useCallback((method: MergeMethod) => {
+    // Only merge the first PR for now (can be extended to merge all PRs)
+    const firstPR = pullRequests?.[0];
+    if (!firstPR || !checksAllowMerge) {
+      return;
+    }
+
+    const [owner, repo] = firstPR.repoFullName.split("/");
+    if (!owner || !repo) {
+      toast.error("Invalid repository information");
+      return;
+    }
+
+    mergePrMutation.mutate({
+      body: {
+        teamSlugOrId,
+        owner,
+        repo,
+        number: firstPR.number,
+        method,
+      },
+    });
+  }, [pullRequests, checksAllowMerge, mergePrMutation, teamSlugOrId]);
+
+  const mergeDisabled = mergePrMutation.isPending || !checksAllowMerge;
+  const mergeDisabledReason = !checksAllowMerge ? checksDisabledReason : undefined;
 
   const expandAllChecks = useCallback(() => {
     if (!pullRequests) return;
@@ -848,19 +988,31 @@ function RunDiffPage() {
           )}
           <div className="bg-white dark:bg-neutral-900 flex-1 min-h-0 flex flex-col">
             {pullRequests && pullRequests.length > 0 && (
-              <Suspense fallback={null}>
-                {pullRequests.map((pr) => (
-                  <WorkflowRunsWrapper
-                    key={pr.repoFullName}
-                    teamSlugOrId={teamSlugOrId}
-                    repoFullName={pr.repoFullName}
-                    prNumber={pr.number}
-                    headSha={undefined}
-                    checksExpandedByRepo={checksExpandedByRepo}
-                    setChecksExpandedByRepo={setChecksExpandedByRepo}
+              <>
+                <Suspense fallback={null}>
+                  {pullRequests.map((pr) => (
+                    <WorkflowRunsWrapper
+                      key={pr.repoFullName}
+                      teamSlugOrId={teamSlugOrId}
+                      repoFullName={pr.repoFullName}
+                      prNumber={pr.number}
+                      headSha={undefined}
+                      checksExpandedByRepo={checksExpandedByRepo}
+                      setChecksExpandedByRepo={setChecksExpandedByRepo}
+                      onWorkflowDataChange={handleWorkflowDataChange}
+                    />
+                  ))}
+                </Suspense>
+                <div className="border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2 flex items-center justify-end">
+                  <MergeButton
+                    onMerge={handleMergePR}
+                    isOpen={true}
+                    disabled={mergeDisabled}
+                    isLoading={mergePrMutation.isPending}
+                    disabledReason={mergeDisabledReason}
                   />
-                ))}
-              </Suspense>
+                </div>
+              </>
             )}
             {screenshotSetsLoading ? (
               <div className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-950/40 px-3.5 py-3 text-sm text-neutral-500 dark:text-neutral-400">
