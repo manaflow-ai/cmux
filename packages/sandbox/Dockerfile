@@ -178,6 +178,23 @@ RUN curl -fsSL https://bun.sh/install | bash && \
   install -m 0755 /root/.bun/bin/bunx /usr/local/bin/bunx && \
   rm -rf /root/.bun /root/.cache/bun
 
+# Install git-delta for better diffs
+RUN arch="$(uname -m)"; \
+  case "$arch" in \
+    x86_64) delta_arch="x86_64-unknown-linux-gnu" ;; \
+    aarch64) delta_arch="aarch64-unknown-linux-gnu" ;; \
+    *) echo "Unsupported architecture: ${arch}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-${delta_arch}.tar.gz" | tar -xz -C /tmp && \
+  install -m 0755 /tmp/delta-0.18.2-${delta_arch}/delta /usr/local/bin/delta && \
+  rm -rf /tmp/delta-*
+
+# Configure git-delta as the default pager globally
+RUN git config --global core.pager delta && \
+  git config --global interactive.diffFilter 'delta --color-only' && \
+  git config --global delta.navigate true && \
+  git config --global merge.conflictStyle zdiff3
+
 ENV BUN_INSTALL_GLOBAL_DIR=/usr/local/lib/bun
 ENV BUN_INSTALL_BIN=/usr/local/bin
 
