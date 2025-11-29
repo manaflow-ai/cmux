@@ -27,7 +27,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "monaco-editor": "^0.53.0",
-    "convex": "1.29.3"
+    "convex": "1.29.3",
+    "esbuild": "0.25.4"
   },
   "private": true,
   "scripts": {
