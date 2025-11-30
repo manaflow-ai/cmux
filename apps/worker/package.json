@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.27",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.54",
     "@cmux/convex": "workspace:*",
     "@cmux/shared": "workspace:*",
     "@openai/codex-sdk": "^0.47.0",
@@ -25,8 +25,7 @@
     "multer": "^1.4.5-lts.1",
     "socket.io": "^4.8.0",
     "undici": "^6.21.3",
-    "zod": "^4.1.12",
-    "zod-to-json-schema": "^3.24.6"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

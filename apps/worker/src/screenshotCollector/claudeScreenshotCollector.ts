@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
+import { z } from "zod";
 
 import { log } from "../logger";
 import { logToScreenshotCollector } from "./logger";
@@ -13,6 +14,42 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 function isScreenshotFile(fileName: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
 }
+
+const screenshotOutputSchema = z.object({
+  hasUiChanges: z.boolean(),
+  images: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        description: z.string().min(1),
+      })
+    )
+    .default([]),
+});
+
+type ScreenshotStructuredOutput = z.infer<typeof screenshotOutputSchema>;
+
+const screenshotOutputJsonSchema = {
+  $schema: "http://json-schema.org/draft-07/schema#",
+  type: "object",
+  additionalProperties: false,
+  required: ["hasUiChanges", "images"],
+  properties: {
+    hasUiChanges: { type: "boolean" },
+    images: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "description"],
+        properties: {
+          path: { type: "string" },
+          description: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
 
 async function collectScreenshotFiles(
   directory: string
@@ -70,7 +107,8 @@ export type CaptureScreenshotsOptions =
 
 export interface ScreenshotResult {
   status: "completed" | "failed" | "skipped";
-  screenshotPaths?: string[];
+  screenshots?: { path: string; description?: string }[];
+  hasUiChanges?: boolean;
   error?: string;
   reason?: string;
 }
@@ -87,7 +125,10 @@ function isTaskRunJwtAuth(
 
 export async function captureScreenshotsForBranch(
   options: BranchCaptureOptions
-): Promise<string[]> {
+): Promise<{
+  screenshots: { path: string; description?: string }[];
+  hasUiChanges?: boolean;
+}> {
   const {
     workspaceDir,
     changedFiles,
@@ -123,6 +164,7 @@ Please:
 
 <IMPORTANT>
 Focus on capturing visual changes. If no UI changes are present, just let me know.
+When providing structured_output, set hasUiChanges to true if you saw UI changes and false otherwise. Include every screenshot you saved with the absolute file path (or a path relative to ${outputDir}) and a short description of what the screenshot shows. The paths must match the files you saved.
 Do not close the browser after you're done, since I will want to click around the final page you navigated to.
 Do not create summary documents.
 If you can't install dependencies/start the dev server, just let me know. Do not create fake html mocks. We must take screenshots of the actual ground truth UI.
@@ -133,6 +175,7 @@ If you can't install dependencies/start the dev server, just let me know. Do not
   );
 
   const screenshotPaths: string[] = [];
+  let structuredOutput: ScreenshotStructuredOutput | null = null;
 
   try {
     const hadOriginalApiKey = Object.prototype.hasOwnProperty.call(
@@ -180,24 +223,28 @@ If you can't install dependencies/start the dev server, just let me know. Do not
           //     ],
           //   },
           // },
-          mcpServers: {
-            chrome: {
-              command: "bunx",
-              args: [
-                "chrome-devtools-mcp",
-                "--browserUrl",
-                "http://0.0.0.0:39382",
-              ],
-            },
+        mcpServers: {
+          chrome: {
+            command: "bunx",
+            args: [
+              "chrome-devtools-mcp",
+              "--browserUrl",
+              "http://0.0.0.0:39382",
+            ],
           },
-          allowDangerouslySkipPermissions: true,
-          permissionMode: "bypassPermissions",
-          cwd: workspaceDir,
-          pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
-          env: {
-            ...process.env,
-            IS_SANDBOX: "1",
-            CLAUDE_CODE_ENABLE_TELEMETRY: "0",
+        },
+        allowDangerouslySkipPermissions: true,
+        permissionMode: "bypassPermissions",
+        cwd: workspaceDir,
+        pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+        outputFormat: {
+          type: "json_schema",
+          schema: screenshotOutputJsonSchema,
+        },
+        env: {
+          ...process.env,
+          IS_SANDBOX: "1",
+          CLAUDE_CODE_ENABLE_TELEMETRY: "0",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
             ...(useTaskRunJwt
               ? {
@@ -215,6 +262,25 @@ If you can't install dependencies/start the dev server, just let me know. Do not
         const formatted = formatClaudeMessage(message);
         if (formatted) {
           await logToScreenshotCollector(formatted);
+        }
+
+        if (
+          message.type === "result" &&
+          Object.prototype.hasOwnProperty.call(message, "structured_output")
+        ) {
+          const parsed = screenshotOutputSchema.safeParse(
+            (message as { structured_output?: unknown }).structured_output
+          );
+          if (parsed.success) {
+            structuredOutput = parsed.data;
+            await logToScreenshotCollector(
+              `Structured output captured (hasUiChanges=${parsed.data.hasUiChanges}, images=${parsed.data.images.length})`
+            );
+          } else {
+            await logToScreenshotCollector(
+              `Structured output validation failed: ${parsed.error.message}`
+            );
+          }
         }
       }
     } catch (error) {
@@ -260,7 +326,39 @@ If you can't install dependencies/start the dev server, just let me know. Do not
       });
     }
 
-    return screenshotPaths;
+    const descriptionByPath = new Map<string, string>();
+    const resolvedOutputDir = path.resolve(outputDir);
+    if (structuredOutput) {
+      for (const image of structuredOutput.images) {
+        const absolutePath = path.isAbsolute(image.path)
+          ? path.normalize(image.path)
+          : path.normalize(path.resolve(resolvedOutputDir, image.path));
+        descriptionByPath.set(absolutePath, image.description);
+      }
+    }
+
+    const screenshotsWithDescriptions = screenshotPaths.map((absolutePath) => {
+      const normalized = path.normalize(absolutePath);
+      return {
+        path: absolutePath,
+        description: descriptionByPath.get(normalized),
+      };
+    });
+
+    if (
+      structuredOutput &&
+      structuredOutput.images.length > 0 &&
+      descriptionByPath.size === 0
+    ) {
+      await logToScreenshotCollector(
+        "Structured output provided image descriptions, but none matched saved files; ensure paths are absolute or relative to the output directory."
+      );
+    }
+
+    return {
+      screenshots: screenshotsWithDescriptions,
+      hasUiChanges: structuredOutput?.hasUiChanges,
+    };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error ?? "unknown error");
@@ -324,7 +422,8 @@ export async function claudeCodeCapturePRScreenshots(
 
     await fs.mkdir(outputDir, { recursive: true });
 
-    const allScreenshots: string[] = [];
+    const allScreenshots: { path: string; description?: string }[] = [];
+    let hasUiChanges: boolean | undefined;
 
     const CAPTURE_BEFORE = false;
 
@@ -356,9 +455,12 @@ export async function claudeCodeCapturePRScreenshots(
               pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
             }
       );
-      allScreenshots.push(...beforeScreenshots);
+      allScreenshots.push(...beforeScreenshots.screenshots);
+      if (beforeScreenshots.hasUiChanges !== undefined) {
+        hasUiChanges = beforeScreenshots.hasUiChanges;
+      }
       await logToScreenshotCollector(
-        `Captured ${beforeScreenshots.length} 'before' screenshots`
+        `Captured ${beforeScreenshots.screenshots.length} 'before' screenshots`
       );
     }
 
@@ -389,9 +491,12 @@ export async function claudeCodeCapturePRScreenshots(
             pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
           }
     );
-    allScreenshots.push(...afterScreenshots);
+    allScreenshots.push(...afterScreenshots.screenshots);
+    if (afterScreenshots.hasUiChanges !== undefined) {
+      hasUiChanges = afterScreenshots.hasUiChanges;
+    }
     await logToScreenshotCollector(
-      `Captured ${afterScreenshots.length} 'after' screenshots`
+      `Captured ${afterScreenshots.screenshots.length} 'after' screenshots`
     );
 
     await logToScreenshotCollector(
@@ -404,7 +509,8 @@ export async function claudeCodeCapturePRScreenshots(
 
     return {
       status: "completed",
-      screenshotPaths: allScreenshots,
+      screenshots: allScreenshots,
+      hasUiChanges,
     };
   } catch (error) {
     const message =

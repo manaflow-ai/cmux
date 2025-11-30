@@ -17,6 +17,7 @@ export const ScreenshotStoredImageSchema = z.object({
   mimeType: z.string(),
   fileName: z.string().optional(),
   commitSha: z.string(),
+  description: z.string().optional(),
 });
 export type ScreenshotStoredImage = z.infer<
   typeof ScreenshotStoredImageSchema
@@ -28,6 +29,7 @@ export const ScreenshotUploadPayloadSchema = z.object({
   status: z.enum(["completed", "failed", "skipped"]),
   images: z.array(ScreenshotStoredImageSchema).optional(),
   error: z.string().optional(),
+  hasUiChanges: z.boolean().optional(),
 });
 export type ScreenshotUploadPayload = z.infer<
   typeof ScreenshotUploadPayloadSchema

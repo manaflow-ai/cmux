@@ -276,7 +276,7 @@
     "apps/worker": {
       "name": "@cmux/worker",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.1.27",
+        "@anthropic-ai/claude-agent-sdk": "^0.1.54",
         "@cmux/convex": "workspace:*",
         "@cmux/shared": "workspace:*",
         "@openai/codex-sdk": "^0.47.0",
@@ -291,7 +291,6 @@
         "socket.io": "^4.8.0",
         "undici": "^6.21.3",
         "zod": "^4.1.12",
-        "zod-to-json-schema": "^3.24.6",
       },
       "devDependencies": {
         "@types/express": "^4.17.21",
@@ -562,7 +561,7 @@
 
     "@ant-design/react-slick": ["@ant-design/react-slick@1.1.2", "", { "dependencies": { "@babel/runtime": "^7.10.4", "classnames": "^2.2.5", "json2mq": "^0.2.0", "resize-observer-polyfill": "^1.5.1", "throttle-debounce": "^5.0.0" }, "peerDependencies": { "react": ">=16.9.0" } }, "sha512-EzlvzE6xQUBrZuuhSAFTdsr4P2bBBHGZwKFemEfq8gIGyIQCxalYfZW/T2ORbtQx5rU69o+WycP3exY/7T1hGA=="],
 
-    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.1.27", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.33.5", "@img/sharp-darwin-x64": "^0.33.5", "@img/sharp-linux-arm": "^0.33.5", "@img/sharp-linux-arm64": "^0.33.5", "@img/sharp-linux-x64": "^0.33.5", "@img/sharp-win32-x64": "^0.33.5" }, "peerDependencies": { "zod": "^3.24.1" } }, "sha512-HuMPW6spj2q8FODiP/WBCqUZAYGwDPoI1EpicP9KUXvuYk+2MZQYSaD7oiN6iNPupR2T5oJ2HY/D9OzjyCD2Mw=="],
+    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.1.54", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.33.5", "@img/sharp-darwin-x64": "^0.33.5", "@img/sharp-linux-arm": "^0.33.5", "@img/sharp-linux-arm64": "^0.33.5", "@img/sharp-linux-x64": "^0.33.5", "@img/sharp-linuxmusl-arm64": "^0.33.5", "@img/sharp-linuxmusl-x64": "^0.33.5", "@img/sharp-win32-x64": "^0.33.5" }, "peerDependencies": { "zod": "^3.24.1" } }, "sha512-NVdtI63qu+ukIVHvB2Gx4weSlZS8R4l7PiogKg59TlpmzhBI9oZr1hy9MTKf1ujtKwM0m8cqT0odvPVyGuf/+Q=="],
 
     "@apm-js-collab/code-transformer": ["@apm-js-collab/code-transformer@0.8.2", "", {}, "sha512-YRjJjNq5KFSjDUoqu5pFUWrrsvGOxl6c3bu+uMFc9HNNptZ2rNU/TI2nLw4jnhQNtka972Ee2m3uqbvDQtPeCA=="],
 

@@ -8,10 +8,6 @@ import {
 } from "./crown_http";
 import { createScreenshotUploadUrl, uploadScreenshot } from "./screenshots_http";
 import {
-  createPreviewScreenshotUploadUrl,
-  uploadPreviewScreenshot,
-} from "./preview_screenshots_http";
-import {
   codeReviewFileCallback,
   codeReviewJobCallback,
 } from "./codeReview_http";
@@ -80,18 +76,6 @@ http.route({
   path: "/api/screenshots/upload-url",
   method: "POST",
   handler: createScreenshotUploadUrl,
-});
-
-http.route({
-  path: "/api/screenshots/preview/upload",
-  method: "POST",
-  handler: uploadPreviewScreenshot,
-});
-
-http.route({
-  path: "/api/screenshots/preview/upload-url",
-  method: "POST",
-  handler: createPreviewScreenshotUploadUrl,
 });
 
 http.route({

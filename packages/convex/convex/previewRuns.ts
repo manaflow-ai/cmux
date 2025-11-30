@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { resolveTeamIdLoose } from "../_shared/team";
-import { authQuery } from "./users/utils";
+import { authMutation, authQuery } from "./users/utils";
 import { internalMutation, internalQuery } from "./_generated/server";
 
 function normalizeRepoFullName(value: string): string {
@@ -272,5 +272,84 @@ export const listByConfig = authQuery({
       .order("desc")
       .take(take);
     return runs;
+  },
+});
+
+/**
+ * Create a preview run manually (for local preview scripts).
+ * Requires an existing previewConfig for the repo.
+ */
+export const createManual = authMutation({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    prUrl: v.string(),
+    headSha: v.string(),
+    baseSha: v.optional(v.string()),
+    headRef: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const repoFullName = normalizeRepoFullName(args.repoFullName);
+
+    // Find the preview config for this repo
+    const config = await ctx.db
+      .query("previewConfigs")
+      .withIndex("by_team_repo", (q) =>
+        q.eq("teamId", teamId).eq("repoFullName", repoFullName),
+      )
+      .first();
+
+    if (!config) {
+      throw new Error(
+        `No preview configuration found for ${repoFullName}. ` +
+        `Please create one first via the cmux UI.`,
+      );
+    }
+
+    // Check for existing run with same commit
+    const existing = await ctx.db
+      .query("previewRuns")
+      .withIndex("by_config_head", (q) =>
+        q.eq("previewConfigId", config._id).eq("headSha", args.headSha),
+      )
+      .order("desc")
+      .first();
+
+    if (existing && (existing.status === "pending" || existing.status === "running")) {
+      return { previewRunId: existing._id, reused: true };
+    }
+
+    const now = Date.now();
+    const runId = await ctx.db.insert("previewRuns", {
+      previewConfigId: config._id,
+      teamId,
+      repoFullName,
+      repoInstallationId: config.repoInstallationId,
+      prNumber: args.prNumber,
+      prUrl: args.prUrl,
+      headSha: args.headSha,
+      baseSha: args.baseSha,
+      headRef: args.headRef,
+      headRepoFullName: undefined,
+      headRepoCloneUrl: undefined,
+      status: "running", // Start as running since we're doing local capture
+      stateReason: "Manual local preview",
+      dispatchedAt: now,
+      startedAt: now,
+      completedAt: undefined,
+      screenshotSetId: undefined,
+      githubCommentUrl: undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(config._id, {
+      lastRunAt: now,
+      updatedAt: now,
+    });
+
+    return { previewRunId: runId, reused: false };
   },
 });

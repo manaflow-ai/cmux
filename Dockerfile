@@ -714,7 +714,7 @@ ENV PATH="/usr/local/bin:$PATH"
 ENV BUN_INSTALL_CACHE_DIR=/cmux/node_modules/.bun
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-  bun add -g @openai/codex@0.50.0 @anthropic-ai/claude-code@2.0.27 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
+  bun add -g @openai/codex@0.50.0 @anthropic-ai/claude-code@2.0.54 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
 
 # Install cursor cli
 RUN curl https://cursor.com/install -fsS | bash

@@ -33,8 +33,16 @@ async function uploadScreenshotFile(params: {
   commitSha: string;
   token: string;
   convexUrl?: string;
+  description?: string;
 }): Promise<NonNullable<ScreenshotUploadPayload["images"]>[number]> {
-  const { screenshotPath, fileName, commitSha, token, convexUrl } = params;
+  const {
+    screenshotPath,
+    fileName,
+    commitSha,
+    token,
+    convexUrl,
+    description,
+  } = params;
   const resolvedFileName = fileName ?? path.basename(screenshotPath);
   const contentType = resolveContentType(screenshotPath);
 
@@ -72,6 +80,7 @@ async function uploadScreenshotFile(params: {
     mimeType: contentType,
     fileName: resolvedFileName,
     commitSha,
+    description,
   };
 }
 
@@ -93,16 +102,19 @@ export async function runTaskScreenshots(
   });
 
   let images: ScreenshotUploadPayload["images"];
+  let hasUiChanges: boolean | undefined;
   let status: ScreenshotUploadPayload["status"] = "failed";
   let error: string | undefined;
 
   if (result.status === "completed") {
     const capturedScreens = result.screenshots ?? [];
+    hasUiChanges = result.hasUiChanges;
     if (capturedScreens.length === 0) {
       status = "failed";
       error = "Claude collector returned no screenshots";
       log("ERROR", error, { taskRunId });
     } else {
+      hasUiChanges = result.hasUiChanges;
       const uploadPromises = capturedScreens.map((screenshot) =>
         uploadScreenshotFile({
           screenshotPath: screenshot.path,
@@ -110,6 +122,7 @@ export async function runTaskScreenshots(
           commitSha: result.commitSha,
           token,
           convexUrl,
+          description: screenshot.description,
         })
       );
 
@@ -173,7 +186,6 @@ export async function runTaskScreenshots(
       result,
     });
   }
-
   await uploadScreenshot({
     token,
     baseUrlOverride: convexUrl,
@@ -183,6 +195,7 @@ export async function runTaskScreenshots(
       status,
       images,
       error,
+      hasUiChanges,
     },
   });
 }

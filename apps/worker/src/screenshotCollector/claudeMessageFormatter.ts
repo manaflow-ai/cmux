@@ -71,12 +71,31 @@ export function formatClaudeMessage(message: SDKMessage): string {
           return `📦 Compacted (${message.compact_metadata.trigger}, ${message.compact_metadata.pre_tokens} tokens)`;
         case "hook_response":
           return `🪝 Hook: ${message.hook_name} (${message.hook_event}) - exit ${message.exit_code ?? "N/A"}`;
+        case "status": {
+          const status = message.status ?? "idle";
+          return `🔄 Status: ${status}`;
+        }
         default: {
           // Type assertion for exhaustiveness check
           const _exhaustive: never = message;
           return `🔧 System: unknown`;
         }
       }
+    }
+
+    case "tool_progress": {
+      const parent =
+        message.parent_tool_use_id === null
+          ? ""
+          : ` (child of ${message.parent_tool_use_id})`;
+      return `⏳ Tool progress: ${message.tool_name} ${parent} after ${message.elapsed_time_seconds.toFixed(1)}s`;
+    }
+
+    case "auth_status": {
+      const output =
+        message.output.length > 0 ? ` output="${message.output.join(" | ")}"` : "";
+      const error = message.error ? ` error="${message.error}"` : "";
+      return `🔐 Auth status: ${message.isAuthenticating ? "authenticating" : "idle"}${output}${error}`;
     }
 
     case "stream_event": {

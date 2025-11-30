@@ -26,7 +26,7 @@ RUN curl -fsSL https://bun.sh/install | bash && \
   ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 # Install Claude Code globally
-RUN bun add -g @anthropic-ai/claude-code@2.0.27
+RUN bun add -g @anthropic-ai/claude-code@2.0.54
 
 WORKDIR /root/workspace
 

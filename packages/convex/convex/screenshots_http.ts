@@ -81,6 +81,7 @@ export const uploadScreenshot = httpAction(async (ctx, req) => {
     mimeType: image.mimeType,
     fileName: image.fileName,
     commitSha: image.commitSha,
+    description: image.description,
   }));
 
   if (payload.status === "completed") {
@@ -98,6 +99,7 @@ export const uploadScreenshot = httpAction(async (ctx, req) => {
       taskId: run.taskId,
       runId: payload.runId,
       status: payload.status,
+      hasUiChanges: payload.hasUiChanges,
       screenshots: storedScreens,
       error: payload.error,
     }

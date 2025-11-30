@@ -271,17 +271,18 @@ async function main() {
         headBranch: prInfo.headBranch,
         outputDir,
         auth: { anthropicApiKey: apiKey },
-      });
+    });
 
-      if (result.status === "completed") {
-        console.log("✓ Screenshots captured successfully");
-        console.log(`  Screenshots: ${result.screenshotPaths?.length || 0}`);
-        const firstScreenshot = result.screenshotPaths?.[0];
-        if (firstScreenshot) {
-          console.log(`  Location: ${path.dirname(firstScreenshot)}`);
-        }
-        process.exit(0);
-      } else if (result.status === "skipped") {
+    if (result.status === "completed") {
+      console.log("✓ Screenshots captured successfully");
+      const screenshots = result.screenshots ?? [];
+      console.log(`  Screenshots: ${screenshots.length}`);
+      const firstScreenshot = screenshots[0]?.path;
+      if (firstScreenshot) {
+        console.log(`  Location: ${path.dirname(firstScreenshot)}`);
+      }
+      process.exit(0);
+    } else if (result.status === "skipped") {
         console.log(`⊘ Skipped: ${result.reason}`);
         process.exit(0);
       } else {

@@ -32,6 +32,7 @@ export interface StartScreenshotCollectionOptions {
 interface CapturedScreenshot {
   path: string;
   fileName: string;
+  description?: string;
 }
 
 export type ScreenshotCollectionResult =
@@ -39,6 +40,7 @@ export type ScreenshotCollectionResult =
       status: "completed";
       screenshots: CapturedScreenshot[];
       commitSha: string;
+      hasUiChanges?: boolean;
     }
   | { status: "skipped"; reason: string }
   | { status: "failed"; error: string };
@@ -457,25 +459,31 @@ export async function startScreenshotCollection(
     });
 
     if (claudeResult.status === "completed") {
-      const screenshotPaths = claudeResult.screenshotPaths ?? [];
-      if (screenshotPaths.length === 0) {
+      const collectedScreenshots = claudeResult.screenshots ?? [];
+      if (collectedScreenshots.length === 0) {
         const error = "Claude collector reported success but returned no files";
         await logToScreenshotCollector(error);
         log("ERROR", error, { headBranch, outputDir });
         return { status: "failed", error };
       }
 
-      const screenshotEntries: CapturedScreenshot[] = screenshotPaths.map(
-        (absolutePath) => ({
-          path: absolutePath,
-          fileName: path.basename(absolutePath),
-        })
-      );
+      const screenshotEntries: CapturedScreenshot[] =
+        collectedScreenshots.map((screenshot) => ({
+          path: screenshot.path,
+          fileName: path.basename(screenshot.path),
+          description: screenshot.description,
+        }));
 
       if (screenshotEntries.length === 0) {
         const error = "Claude collector produced no screenshot entries";
         await logToScreenshotCollector(error);
-        log("ERROR", error, { headBranch, outputDir, screenshotPaths });
+        log("ERROR", error, {
+          headBranch,
+          outputDir,
+          screenshotPaths: collectedScreenshots.map(
+            (screenshot) => screenshot.path
+          ),
+        });
         return { status: "failed", error };
       }
 
@@ -483,7 +491,13 @@ export async function startScreenshotCollection(
       if (!initialPrimary) {
         const error = "Unable to determine primary screenshot entry";
         await logToScreenshotCollector(error);
-        log("ERROR", error, { headBranch, outputDir, screenshotPaths });
+        log("ERROR", error, {
+          headBranch,
+          outputDir,
+          screenshotPaths: collectedScreenshots.map(
+            (screenshot) => screenshot.path
+          ),
+        });
         return { status: "failed", error };
       }
       let primaryScreenshot: CapturedScreenshot = initialPrimary;
@@ -495,6 +509,7 @@ export async function startScreenshotCollection(
           const updatedScreenshot: CapturedScreenshot = {
             path: copyTarget,
             fileName: path.basename(copyTarget),
+            description: primaryScreenshot.description,
           };
           screenshotEntries[0] = updatedScreenshot;
           primaryScreenshot = updatedScreenshot;
@@ -539,6 +554,7 @@ export async function startScreenshotCollection(
         status: "completed",
         screenshots: screenshotEntries,
         commitSha,
+        hasUiChanges: claudeResult.hasUiChanges,
       };
     }
 

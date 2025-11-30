@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { fetchInstallationAccessToken } from "../_shared/githubApp";
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import {
   internalAction,
   type ActionCtx,
@@ -37,99 +37,9 @@ const parseRepoFullName = (
   return { owner, repo };
 };
 
-type PreviewRunDoc = Doc<"previewRuns">;
-type ScreenshotSetDoc = Doc<"previewScreenshotSets">;
-
 const COLLAPSE_MARKER = "<!-- cmux-preview-collapsed -->";
 const COLLAPSE_SUMMARY = "Older cmux preview screenshots (latest comment is above)";
 const MAX_COMMENTS_TO_COLLAPSE = 20;
-const MAX_PREVIOUS_SCREENSHOT_SETS = 5;
-const NON_UI_CHANGE_PATTERNS = [
-  /no changes detected/i,
-  /all changed files are binary/i,
-];
-const STATUS_SUMMARY_LABEL: Record<ScreenshotSetDoc["status"], string> = {
-  completed: "✅ Screenshots",
-  failed: "❌ Failed",
-  skipped: "⚠️ Skipped",
-};
-
-const formatTimestamp = (value?: number | null): string => {
-  if (!value) {
-    return "unknown time";
-  }
-  return new Date(value).toISOString().replace("T", " ").replace("Z", " UTC");
-};
-
-const formatCommitLabel = (set: ScreenshotSetDoc): string =>
-  set.commitSha ? `\`${set.commitSha.slice(0, 7)}\`` : "latest commit";
-
-const isNonUiChangeReason = (reason?: string | null): boolean => {
-  if (!reason) {
-    return false;
-  }
-  return NON_UI_CHANGE_PATTERNS.some((pattern) => pattern.test(reason));
-};
-
-const formatSkippedMessage = (reason?: string | null): string => {
-  if (isNonUiChangeReason(reason)) {
-    return [
-      "No UI-impacting changes were detected, so screenshots were skipped.",
-      reason ? `> ${reason}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-  if (reason) {
-    return `Screenshot capture was skipped.\n\n> ${reason}`;
-  }
-  return "Screenshot capture was skipped.";
-};
-
-const summarizeSet = (
-  set: ScreenshotSetDoc,
-  run?: PreviewRunDoc,
-): string => {
-  const prefix = STATUS_SUMMARY_LABEL[set.status] ?? "ℹ️ Preview";
-  const commit = set.commitSha ? set.commitSha.slice(0, 7) : "unknown";
-  const timestamp = formatTimestamp(set.capturedAt ?? run?.createdAt);
-  return `${prefix} – commit ${commit} (${timestamp})`;
-};
-
-async function renderScreenshotSetMarkdown(
-  ctx: ActionCtx,
-  set: ScreenshotSetDoc,
-  heading: string,
-): Promise<string> {
-  const commitLabel = formatCommitLabel(set);
-  const timestamp = formatTimestamp(set.capturedAt);
-  const lines: string[] = [heading, ""];
-
-  if (set.status === "completed" && set.images.length > 0) {
-    const count = set.images.length;
-    const intro = `Captured ${count} screenshot${count === 1 ? "" : "s"} for commit ${commitLabel} (${timestamp}).`;
-    lines.push(intro, "");
-    for (const image of set.images) {
-      const storageUrl = await ctx.storage.getUrl(image.storageId);
-      if (!storageUrl) continue;
-      const fileName = image.fileName || "screenshot";
-      lines.push(`![${fileName}](${storageUrl})`, "");
-    }
-  } else if (set.status === "failed") {
-    lines.push(
-      `Failed to capture screenshots for commit ${commitLabel}.`,
-      "",
-      set.error ? `> ${set.error}` : "> Unknown error",
-      "",
-    );
-  } else if (set.status === "skipped") {
-    lines.push(formatSkippedMessage(set.error), "");
-  } else {
-    lines.push("Screenshot status is unknown for this run.", "");
-  }
-
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
-}
 
 const collapseCommentBody = (body: string): string => {
   const trimmed = body.trim();
@@ -155,13 +65,11 @@ async function collapseOlderPreviewComments({
   owner,
   repo,
   prNumber,
-  latestCommentId,
 }: {
   octokit: Octokit;
   owner: string;
   repo: string;
   prNumber: number;
-  latestCommentId: number;
 }): Promise<void> {
   let collapsedCount = 0;
   const iterator = octokit.paginate.iterator(
@@ -174,14 +82,13 @@ async function collapseOlderPreviewComments({
     },
   );
 
-      for await (const { data } of iterator) {
+  for await (const { data } of iterator) {
     for (const comment of data) {
       if (collapsedCount >= MAX_COMMENTS_TO_COLLAPSE) {
         return;
       }
       const { body } = comment;
       if (!body) continue;
-      if (comment.id === latestCommentId) continue;
       const hasSignature = COMMENT_SIGNATURE_MATCHERS.some((signature) =>
         body.includes(signature),
       );
@@ -265,176 +172,6 @@ export const addPrReaction = internalAction({
     } catch (error) {
       console.error(
         "[github_pr_comments] Unexpected error adding reaction",
-        {
-          installationId,
-          repoFullName,
-          prNumber,
-          error,
-        },
-      );
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  },
-});
-
-export const postPreviewComment = internalAction({
-  args: {
-    installationId: v.number(),
-    repoFullName: v.string(),
-    prNumber: v.number(),
-    screenshotSetId: v.id("previewScreenshotSets"),
-    previewRunId: v.id("previewRuns"),
-  },
-  handler: async (ctx, args) => {
-    const { installationId, repoFullName, prNumber, screenshotSetId } = args;
-
-    try {
-      const accessToken = await fetchInstallationAccessToken(installationId);
-      if (!accessToken) {
-        console.error(
-          "[github_pr_comments] Failed to get access token for preview comment",
-          { installationId },
-        );
-        return { ok: false, error: "Failed to get access token" };
-      }
-
-      const repo = parseRepoFullName(repoFullName);
-      if (!repo) {
-        console.error("[github_pr_comments] Invalid repo full name", {
-          repoFullName,
-        });
-        return { ok: false, error: "Invalid repository name" };
-      }
-
-      const octokit = createOctokit(accessToken);
-
-      const previewRunPayload = await ctx.runQuery(
-        internal.previewRuns.getRunWithConfig,
-        { previewRunId: args.previewRunId },
-      );
-      const previewRun = previewRunPayload?.run;
-      if (!previewRun) {
-        console.error("[github_pr_comments] Preview run not found", {
-          previewRunId: args.previewRunId,
-        });
-        return { ok: false, error: "Preview run not found" };
-      }
-
-      // Get screenshot set
-      const screenshotSet = await ctx.runQuery(
-        internal.previewScreenshots.getScreenshotSet,
-        { screenshotSetId },
-      );
-
-      if (!screenshotSet) {
-        console.error("[github_pr_comments] Screenshot set not found", {
-          screenshotSetId,
-        });
-        return { ok: false, error: "Screenshot set not found" };
-      }
-
-      // Collect previous screenshot sets for this PR so we can collapse them
-      const previousRuns =
-        (await ctx.runQuery(internal.previewRuns.listByConfigAndPr, {
-          previewConfigId: previewRun.previewConfigId,
-          prNumber: previewRun.prNumber,
-          limit: MAX_PREVIOUS_SCREENSHOT_SETS + 1,
-        })) ?? [];
-
-      const previousSetEntries: Array<{
-        run: PreviewRunDoc;
-        set: ScreenshotSetDoc;
-      }> = [];
-      for (const run of previousRuns) {
-        if (run._id === previewRun._id) continue;
-        if (!run.screenshotSetId) continue;
-        const priorSet = await ctx.runQuery(
-          internal.previewScreenshots.getScreenshotSet,
-          { screenshotSetId: run.screenshotSetId },
-        );
-        if (!priorSet) continue;
-        previousSetEntries.push({ run, set: priorSet });
-        if (previousSetEntries.length >= MAX_PREVIOUS_SCREENSHOT_SETS) {
-          break;
-        }
-      }
-
-      // Build comment body
-      const latestHeading = `### Latest commit ${formatCommitLabel(screenshotSet)}`;
-      const latestSection = await renderScreenshotSetMarkdown(
-        ctx,
-        screenshotSet,
-        latestHeading,
-      );
-
-      const commentSections: string[] = ["## Preview Screenshots", latestSection];
-
-      if (previousSetEntries.length > 0) {
-        const collapsedSections: string[] = [];
-        for (const entry of previousSetEntries) {
-          const sectionHeading = `#### ${summarizeSet(entry.set, entry.run)}`;
-          collapsedSections.push(
-            await renderScreenshotSetMarkdown(ctx, entry.set, sectionHeading),
-          );
-        }
-
-        const previousBlock = [
-          "<details>",
-          `<summary>Previous preview runs (${previousSetEntries.length})</summary>`,
-          "",
-          collapsedSections.join("\n\n---\n\n"),
-          "",
-          "</details>",
-        ].join("\n");
-
-        commentSections.push(previousBlock);
-      }
-
-      commentSections.push("---", COMMENT_SIGNATURE);
-      const commentBody = commentSections.join("\n\n");
-
-      // Post comment to GitHub
-      const { data } = await octokit.rest.issues.createComment({
-        owner: repo.owner,
-        repo: repo.repo,
-        issue_number: prNumber,
-        body: commentBody,
-      });
-
-      console.log("[github_pr_comments] Successfully posted preview comment", {
-        installationId,
-        repoFullName,
-        prNumber,
-        commentId: data.id,
-        commentUrl: data.html_url,
-      });
-
-      // Update preview run with comment URL
-      if (data.html_url) {
-        await ctx.runMutation(internal.previewRuns.updateStatus, {
-          previewRunId: args.previewRunId,
-          status: "completed",
-          screenshotSetId,
-          githubCommentUrl: data.html_url,
-          githubCommentId: data.id,
-        });
-      }
-
-      await collapseOlderPreviewComments({
-        octokit,
-        owner: repo.owner,
-        repo: repo.repo,
-        prNumber,
-        latestCommentId: data.id,
-      });
-
-      return { ok: true, commentId: data.id, commentUrl: data.html_url };
-    } catch (error) {
-      console.error(
-        "[github_pr_comments] Unexpected error posting preview comment",
         {
           installationId,
           repoFullName,
@@ -674,38 +411,58 @@ export const postPreviewCommentWithTaskScreenshots = internalAction({
       }
 
       // Build comment body
-      let commentBody: string = `[Open Workspace](${workspaceUrl}) (expires in 30m) • [Open in GitHub](https://github.com/${repoFullName}/pull/${prNumber})\n\n`;
-      commentBody += "## Preview Screenshots\n\n";
+      const commentLines: string[] = [
+        `[Open Workspace](${workspaceUrl}) (expires in 30m) • [Open in GitHub](https://github.com/${repoFullName}/pull/${prNumber})`,
+        "",
+        "## Preview Screenshots",
+        "",
+      ];
 
       if (screenshotSet.status === "completed" && screenshotSet.images.length > 0) {
-        commentBody += `Successfully captured ${screenshotSet.images.length} screenshot(s) for commit \`${(screenshotSet.commitSha || "").slice(0, 7)}\`:\n\n`;
+        const commitShaShort = (screenshotSet.commitSha || "").slice(0, 7);
+        commentLines.push(
+          `Successfully captured ${screenshotSet.images.length} screenshot(s) for commit \`${commitShaShort}\`:`,
+          "",
+        );
 
         for (const image of screenshotSet.images) {
-          // Get storage URL for the image
           const storageUrl = await ctx.storage.getUrl(image.storageId);
           if (storageUrl) {
             const fileName = image.fileName || "screenshot";
-            commentBody += `### ${fileName}\n`;
-            commentBody += `![${fileName}](${storageUrl})\n\n`;
+            commentLines.push(`### ${fileName}`, `![${fileName}](${storageUrl})`, "");
           }
         }
-
-        commentBody += `\n---\n${PREVIEW_SIGNATURE}`;
       } else if (screenshotSet.status === "failed") {
-        commentBody += `Failed to capture screenshots: ${screenshotSet.error || "Unknown error"}\n\n`;
-        commentBody += `\n---\n${PREVIEW_SIGNATURE}`;
+        commentLines.push(
+          `Failed to capture screenshots: ${screenshotSet.error || "Unknown error"}`,
+          "",
+        );
       } else if (screenshotSet.status === "skipped") {
-        commentBody += `Screenshot capture was skipped: ${screenshotSet.error || "No preview configured"}\n\n`;
-        commentBody += `\n---\n${PREVIEW_SIGNATURE}`;
+        commentLines.push(
+          `Screenshot capture was skipped: ${screenshotSet.error || "No preview configured"}`,
+          "",
+        );
       }
 
-      // Post comment to GitHub
-      const { data } = await octokit.rest.issues.createComment({
-        owner: repo.owner,
-        repo: repo.repo,
-        issue_number: prNumber,
-        body: commentBody,
-      });
+      commentLines.push("---", PREVIEW_SIGNATURE);
+      const commentBody = commentLines.join("\n");
+
+      // Collapse older comments and post new comment in parallel
+      const [, { data }] = await Promise.all([
+        collapseOlderPreviewComments({
+          octokit,
+          owner: repo.owner,
+          repo: repo.repo,
+          prNumber,
+        }),
+        octokit.rest.issues.createComment({
+          owner: repo.owner,
+          repo: repo.repo,
+          issue_number: prNumber,
+          body: commentBody,
+        }),
+      ]);
+
       console.log("[github_pr_comments] Successfully posted preview comment", {
         installationId,
         repoFullName,
@@ -738,6 +495,7 @@ export const postPreviewCommentWithTaskScreenshots = internalAction({
           stateReason: screenshotSet.error,
           screenshotSetId: previewScreenshotSetId,
           githubCommentUrl: data.html_url,
+          githubCommentId: data.id,
         });
       }
 
@@ -750,6 +508,143 @@ export const postPreviewCommentWithTaskScreenshots = internalAction({
           repoFullName,
           prNumber,
           taskRunId,
+          error,
+        },
+      );
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
+/**
+ * Post a preview comment directly using previewScreenshotSets.
+ * Used by local preview script when not using the full task flow.
+ */
+export const postPreviewCommentDirect = internalAction({
+  args: {
+    installationId: v.number(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    previewRunId: v.id("previewRuns"),
+    screenshotSetId: v.id("previewScreenshotSets"),
+  },
+  handler: async (ctx, args): Promise<{ ok: true; commentId?: number; commentUrl?: string } | { ok: false; error: string }> => {
+    const { installationId, repoFullName, prNumber, previewRunId, screenshotSetId } = args;
+
+    try {
+      const accessToken = await fetchInstallationAccessToken(installationId);
+      if (!accessToken) {
+        console.error(
+          "[github_pr_comments] Failed to get access token for preview comment",
+          { installationId },
+        );
+        return { ok: false, error: "Failed to get access token" };
+      }
+
+      const repo = parseRepoFullName(repoFullName);
+      if (!repo) {
+        console.error("[github_pr_comments] Invalid repo full name", {
+          repoFullName,
+        });
+        return { ok: false, error: "Invalid repository name" };
+      }
+
+      const octokit = createOctokit(accessToken);
+
+      // Get screenshot set
+      const screenshotSet = await ctx.runQuery(
+        internal.previewScreenshots.getScreenshotSet,
+        { screenshotSetId },
+      );
+
+      if (!screenshotSet) {
+        console.error("[github_pr_comments] Screenshot set not found", {
+          screenshotSetId,
+        });
+        return { ok: false, error: "Screenshot set not found" };
+      }
+
+      // Build comment body (no workspace URL for local preview)
+      const commentLines: string[] = [
+        "## Preview Screenshots",
+        "",
+      ];
+
+      if (screenshotSet.status === "completed" && screenshotSet.images.length > 0) {
+        const commitShaShort = (screenshotSet.commitSha || "").slice(0, 7);
+        commentLines.push(
+          `Successfully captured ${screenshotSet.images.length} screenshot(s) for commit \`${commitShaShort}\`:`,
+          "",
+        );
+
+        for (const image of screenshotSet.images) {
+          const storageUrl = await ctx.storage.getUrl(image.storageId);
+          if (storageUrl) {
+            const fileName = image.fileName || "screenshot";
+            commentLines.push(`### ${fileName}`, `![${fileName}](${storageUrl})`, "");
+          }
+        }
+      } else if (screenshotSet.status === "failed") {
+        commentLines.push(
+          `Failed to capture screenshots: ${screenshotSet.error || "Unknown error"}`,
+          "",
+        );
+      } else if (screenshotSet.status === "skipped") {
+        commentLines.push(
+          `Screenshot capture was skipped: ${screenshotSet.error || "No preview configured"}`,
+          "",
+        );
+      }
+
+      commentLines.push("---", PREVIEW_SIGNATURE);
+      const commentBody = commentLines.join("\n");
+
+      // Collapse older comments and post new comment in parallel
+      const [, { data }] = await Promise.all([
+        collapseOlderPreviewComments({
+          octokit,
+          owner: repo.owner,
+          repo: repo.repo,
+          prNumber,
+        }),
+        octokit.rest.issues.createComment({
+          owner: repo.owner,
+          repo: repo.repo,
+          issue_number: prNumber,
+          body: commentBody,
+        }),
+      ]);
+
+      console.log("[github_pr_comments] Successfully posted preview comment", {
+        installationId,
+        repoFullName,
+        prNumber,
+        commentId: data.id,
+        commentUrl: data.html_url,
+      });
+
+      // Update preview run with comment URL
+      if (data.html_url) {
+        await ctx.runMutation(internal.previewRuns.updateStatus, {
+          previewRunId,
+          status: screenshotSet.status,
+          screenshotSetId,
+          githubCommentUrl: data.html_url,
+          githubCommentId: data.id,
+        });
+      }
+
+      return { ok: true, commentId: data.id, commentUrl: data.html_url };
+    } catch (error) {
+      console.error(
+        "[github_pr_comments] Unexpected error posting preview comment",
+        {
+          installationId,
+          repoFullName,
+          prNumber,
           error,
         },
       );

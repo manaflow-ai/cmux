@@ -9,6 +9,9 @@ POLLING_BASE="http://localhost:${WORKER_PORT}/socket.io/?EIO=4&transport=polling
 PR_URL=""
 EXEC_COMMAND=""
 NON_INTERACTIVE=false
+HOST_OUTPUT_ROOT="$(pwd)/tmp"
+HOST_OUTPUT_TGZ="$HOST_OUTPUT_ROOT/cmux-screenshots-latest.tgz"
+HOST_OUTPUT_DIR="$HOST_OUTPUT_ROOT/cmux-screenshots-latest"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -278,6 +281,78 @@ elif [ "$NON_INTERACTIVE" = false ]; then
   echo "Non-interactive shell detected; keeping the container alive for 5 minutes before cleanup."
   sleep 300
 fi
+
+fetch_screenshots() {
+  if ! docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER_NAME"; then
+    echo "Container is not running; skipping automatic screenshot download."
+    return
+  fi
+
+  echo "Waiting for screenshots to appear in the container..."
+  local latest=""
+  for _ in {1..36}; do
+    latest=$(docker exec "$CONTAINER_NAME" bash -lc 'ls -1t /root/screenshots 2>/dev/null | head -1 || true')
+    if [ -n "$latest" ]; then
+      has_files=$(docker exec "$CONTAINER_NAME" bash -lc 'ls -A "/root/screenshots/'"$latest"'" 2>/dev/null | head -1 || true')
+      if [ -n "$has_files" ]; then
+        break
+      fi
+    fi
+    sleep 10
+  done
+
+  if [ -z "$latest" ]; then
+    echo "No screenshots were found in the container after waiting."
+    return
+  fi
+
+  echo "Found screenshots in /root/screenshots/$latest. Copying to host..."
+  docker exec "$CONTAINER_NAME" bash -lc 'tar -czf /tmp/cmux-screenshots.tgz -C /root/screenshots '"$latest"'' || {
+    echo "Failed to create screenshots archive inside container."
+    return
+  }
+
+  mkdir -p "$HOST_OUTPUT_ROOT"
+  rm -rf "$HOST_OUTPUT_DIR" "$HOST_OUTPUT_TGZ"
+  docker cp "$CONTAINER_NAME:/tmp/cmux-screenshots.tgz" "$HOST_OUTPUT_TGZ" || {
+    echo "Failed to copy screenshots archive from container."
+    return
+  }
+
+  mkdir -p "$HOST_OUTPUT_DIR"
+  tar -xzf "$HOST_OUTPUT_TGZ" -C "$HOST_OUTPUT_DIR"
+  local extracted_dir="$HOST_OUTPUT_DIR/$latest"
+
+  # Write a simple structured output JSON alongside the images using host paths
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<PY
+import json, os, glob
+latest = "${latest}"
+base_dir = os.path.join("${HOST_OUTPUT_DIR}", latest)
+images = sorted(glob.glob(os.path.join(base_dir, "*.*")))
+payload = {
+    "hasUiChanges": bool(images),
+    "images": [
+        {
+            "path": os.path.abspath(path),
+            "description": f"Screenshot {os.path.basename(path)}"
+        }
+        for path in images
+    ],
+}
+out_path = os.path.join("${HOST_OUTPUT_ROOT}", "cmux-screenshots-latest.json")
+with open(out_path, "w") as f:
+    json.dump(payload, f, indent=2)
+print(f"Wrote JSON manifest: {out_path}")
+PY
+  else
+    echo "python3 not available; skipping JSON manifest generation."
+  fi
+
+  echo "Screenshots extracted to: $extracted_dir"
+}
+
+fetch_screenshots
 
 # Drain any pending poll so server can close cleanly once we're done
 curl -s "${POLLING_BASE}&sid=${SID}&t=$(date +%s%3N)" >/dev/null || true
