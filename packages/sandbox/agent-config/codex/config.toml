@@ -1,0 +1,9 @@
+# Codex CLI configuration for cmux sandbox
+# Notification hook calls cmux-bridge to forward notifications to the UI
+# The notify command receives JSON payload as first argument; we extract last-assistant-message
+notify = [
+  "sh",
+  "-c",
+  "echo \"$1\" | jq -r '.[\"last-assistant-message\"] // \"Awaiting input\"' | xargs -I{} cmux-bridge notify \"Codex: {}\"",
+  "--",
+]

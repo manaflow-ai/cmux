@@ -1,0 +1,13 @@
+[Unit]
+Description=Docker Daemon (cmux sandbox)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/cmux-docker
+ExecStart=/usr/local/bin/docker-mode.sh dockerd
+Restart=on-failure
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

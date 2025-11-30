@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.message // \"Awaiting input\"' | xargs -I{} cmux-bridge notify \"Claude Code: {}\" 2>>/tmp/claude-hook-error.log"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmux-bridge notify \"Claude Code: Finished\" 2>>/tmp/claude-hook-error.log"
+          }
+        ]
+      }
+    ]
+  }
+}
