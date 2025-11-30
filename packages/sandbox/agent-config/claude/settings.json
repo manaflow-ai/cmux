@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.message // \"Awaiting input\"' | xargs -I{} cmux-bridge notify \"Claude Code: {}\""
+          }
+        ]
+      }
+    ]
+  }
+}

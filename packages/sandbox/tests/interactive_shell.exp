@@ -1,0 +1,45 @@
+spawn cmux new
+set timeout 10
+
+expect {
+    "Connected to sandbox shell" {
+        send "pwd\r"
+        expect {
+            "nsenter: cannot open /workspace" {
+                puts "Reproduced nsenter error"
+                exit 1
+            }
+            "shell-init: error retrieving current directory" {
+                puts "Reproduced shell-init error"
+                exit 1
+            }
+            "/workspace" {
+                puts "Success: In workspace. Now testing clean exit..."
+                send "exit\r"
+                expect {
+                    eof {
+                        puts "Success: Process exited cleanly"
+                        exit 0
+                    }
+                    timeout {
+                        puts "Failure: Process hung after exit"
+                        exit 1
+                    }
+                }
+            }
+            timeout {
+                puts "Timeout waiting for pwd output"
+                exit 1
+            }
+        }
+    }
+    timeout {
+        puts "Timeout waiting for connection"
+        exit 1
+    }
+    eof {
+        puts "Process exited unexpectedly"
+        exit 1
+    }
+}
+

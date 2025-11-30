@@ -1,0 +1,83 @@
+[package]
+name = "cmux-sandbox"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "Sandbox sidecar with bubblewrap-backed sandboxes and an HTTP API"
+
+[lib]
+name = "cmux_sandbox"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cmux-sandboxd"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "cmux"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "dmux"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "cmux-bridge"
+path = "src/bin/cmux-bridge.rs"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros", "json", "http1", "http2", "ws"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures = "0.3"
+ignore = "0.4.25"
+portable-pty = "0.8"
+rcgen = "0.11"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "http2", "stream"] }
+rustls = { version = "0.23.35", features = ["ring"] }
+rustls-pki-types = "1.13.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tar = "0.4.44"
+thiserror = "1.0"
+tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "signal", "process", "fs", "net", "time", "io-std"] }
+tokio-rustls = "0.26.4"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+utoipa = { version = "5.4", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+which = "6.0"
+ratatui = "0.29"
+tui-textarea = "0.7"
+tui-markdown = { version = "0.3.6" }
+two-face = { version = "0.4", default-features = false, features = ["syntect-onig"] }
+syntect = "5"
+pulldown-cmark = "0.12"
+agent-client-protocol = { version = "0.7.0", features = ["unstable"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+url = "2.5"
+terminal-light = "1.4"
+vte = "0.15"
+base64 = "0.22.1"
+unicode-width = "0.2"
+open = "5"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+serde_json = "1.0"
+tempfile = "3.13"
+tokio = { version = "1.41", features = ["macros", "rt", "time"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+tower = { version = "0.5", features = ["util"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "terminal_perf"
+harness = false

@@ -1,0 +1,45 @@
+name: Sandbox (Rust)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/sandbox/**
+      - .github/workflows/sandbox.yml
+  pull_request:
+    paths:
+      - packages/sandbox/**
+      - .github/workflows/sandbox.yml
+  workflow_dispatch:
+
+jobs:
+  sandbox:
+    name: packages/sandbox checks
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry + build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/sandbox
+
+      - name: Format
+        run: cargo fmt --all -- --check
+        working-directory: packages/sandbox
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: packages/sandbox
+
+      - name: Tests
+        run: cargo test --all-features --locked
+        working-directory: packages/sandbox
