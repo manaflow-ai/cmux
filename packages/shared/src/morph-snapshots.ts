@@ -78,7 +78,7 @@ const toPresetWithLatest = (
   preset: MorphSnapshotPreset,
 ): MorphSnapshotPresetWithLatest => {
   const sortedVersions = sortVersions(preset.versions);
-  const latestVersion = sortedVersions.at(-1);
+  const latestVersion = sortedVersions.length > 0 ? sortedVersions[sortedVersions.length - 1] : undefined;
   if (!latestVersion) {
     throw new Error(`Preset "${preset.presetId}" does not contain versions`);
   }

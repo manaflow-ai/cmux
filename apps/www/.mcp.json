@@ -1,7 +1,8 @@
 {
   "mcpServers": {
-    "Sentry": {
-      "url": "https://mcp.sentry.dev/mcp/manaflow/cmux-www"
+    "next-devtools": {
+      "command": "bunx",
+      "args": ["next-devtools-mcp@latest"]
     }
   }
 }

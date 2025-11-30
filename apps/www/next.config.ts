@@ -7,17 +7,6 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/": ["./scripts/pr-review/pr-review-inject.bundle.js"],
   },
-  webpack: (config, { isServer }) => {
-    if (isServer) {
-      const externals = ["morphcloud", "ssh2", "node-ssh", "cpu-features"];
-      config.externals = Array.isArray(config.externals)
-        ? [...config.externals, ...externals]
-        : config.externals
-        ? [config.externals, ...externals]
-        : externals;
-    }
-    return config;
-  },
   transpilePackages: [
     "@cmux/server",
     "@cmux/shared",

@@ -15,8 +15,8 @@ import type * as codeReviewActions from "../codeReviewActions.js";
 import type * as codeReview_http from "../codeReview_http.js";
 import type * as comments from "../comments.js";
 import type * as containerSettings from "../containerSettings.js";
-import type * as crown from "../crown.js";
 import type * as crown_actions from "../crown/actions.js";
+import type * as crown from "../crown.js";
 import type * as crown_http from "../crown_http.js";
 import type * as environmentSnapshots from "../environmentSnapshots.js";
 import type * as environments from "../environments.js";
@@ -55,9 +55,9 @@ import type * as taskRuns from "../taskRuns.js";
 import type * as taskRuns_http from "../taskRuns_http.js";
 import type * as tasks from "../tasks.js";
 import type * as teams from "../teams.js";
-import type * as users from "../users.js";
 import type * as users_utils_getWorkerAuth from "../users/utils/getWorkerAuth.js";
 import type * as users_utils_index from "../users/utils/index.js";
+import type * as users from "../users.js";
 import type * as workspaceConfigs from "../workspaceConfigs.js";
 import type * as workspaceSettings from "../workspaceSettings.js";
 
@@ -67,6 +67,14 @@ import type {
   FunctionReference,
 } from "convex/server";
 
+/**
+ * A utility for referencing Convex functions in your app's API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
 declare const fullApi: ApiFromModules<{
   apiKeys: typeof apiKeys;
   backfill: typeof backfill;
@@ -75,8 +83,8 @@ declare const fullApi: ApiFromModules<{
   codeReview_http: typeof codeReview_http;
   comments: typeof comments;
   containerSettings: typeof containerSettings;
-  crown: typeof crown;
   "crown/actions": typeof crown_actions;
+  crown: typeof crown;
   crown_http: typeof crown_http;
   environmentSnapshots: typeof environmentSnapshots;
   environments: typeof environments;
@@ -115,36 +123,20 @@ declare const fullApi: ApiFromModules<{
   taskRuns_http: typeof taskRuns_http;
   tasks: typeof tasks;
   teams: typeof teams;
-  users: typeof users;
   "users/utils/getWorkerAuth": typeof users_utils_getWorkerAuth;
   "users/utils/index": typeof users_utils_index;
+  users: typeof users;
   workspaceConfigs: typeof workspaceConfigs;
   workspaceSettings: typeof workspaceSettings;
 }>;
+declare const fullApiWithMounts: typeof fullApi;
 
-/**
- * A utility for referencing Convex functions in your app's public API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = api.myModule.myFunction;
- * ```
- */
 export declare const api: FilterApi<
-  typeof fullApi,
+  typeof fullApiWithMounts,
   FunctionReference<any, "public">
 >;
-
-/**
- * A utility for referencing Convex functions in your app's internal API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = internal.myModule.myFunction;
- * ```
- */
 export declare const internal: FilterApi<
-  typeof fullApi,
+  typeof fullApiWithMounts,
   FunctionReference<any, "internal">
 >;
 
