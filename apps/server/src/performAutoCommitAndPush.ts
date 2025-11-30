@@ -88,6 +88,7 @@ export default async function performAutoCommitAndPush(
       return;
     }
 
+    const containerWorkspacePath = vscodeInstance.getContainerWorkspacePath();
     const autoCommitScript = buildAutoCommitPushCommand();
     serverLogger.info(`[AgentSpawner] Executing auto-commit script...`);
 
@@ -109,10 +110,11 @@ exit $EXIT_CODE
         workerSocket,
         command: "bash",
         args: ["-c", combinedCommand],
-        cwd: "/root/workspace",
+        cwd: containerWorkspacePath,
         env: {
           CMUX_COMMIT_MESSAGE: commitMessage,
           CMUX_BRANCH_NAME: branchName,
+          CMUX_WORKSPACE_DIR: containerWorkspacePath,
         },
         timeout: 60000,
       });
@@ -224,8 +226,8 @@ ${taskRun.crownReason || "This implementation was selected as the best solution.
               workerSocket,
               command: "/bin/bash",
               args: ["-c", prScript],
-              cwd: "/root/workspace",
-              env: {},
+              cwd: containerWorkspacePath,
+              env: { CMUX_WORKSPACE_DIR: containerWorkspacePath },
               timeout: 30000,
             });
             prCreateOutput = stdout;
