@@ -39,6 +39,20 @@ const parseRepoFullName = (
 
 type PreviewRunDoc = Doc<"previewRuns">;
 type ScreenshotSetDoc = Doc<"previewScreenshotSets">;
+type RenderableScreenshotSet = {
+  status: ScreenshotSetDoc["status"];
+  commitSha?: string | null;
+  capturedAt?: number | null;
+  error?: string | null;
+  images: Array<{
+    storageId: Id<"_storage">;
+    mimeType: string;
+    fileName?: string;
+    commitSha?: string;
+    width?: number;
+    height?: number;
+  }>;
+};
 
 const COLLAPSE_MARKER = "<!-- cmux-preview-collapsed -->";
 const COLLAPSE_SUMMARY = "Older cmux preview screenshots (latest comment is above)";
@@ -61,8 +75,29 @@ const formatTimestamp = (value?: number | null): string => {
   return new Date(value).toISOString().replace("T", " ").replace("Z", " UTC");
 };
 
-const formatCommitLabel = (set: ScreenshotSetDoc): string =>
+const formatCommitLabel = (set: RenderableScreenshotSet): string =>
   set.commitSha ? `\`${set.commitSha.slice(0, 7)}\`` : "latest commit";
+
+const formatReviewLinks = ({
+  prUrl,
+  workspaceUrl,
+  workspaceLabel = "Open Workspace",
+  prLabel = "Open in GitHub",
+}: {
+  prUrl?: string | null;
+  workspaceUrl?: string | null;
+  workspaceLabel?: string;
+  prLabel?: string;
+}): string | null => {
+  const links: string[] = [];
+  if (workspaceUrl) {
+    links.push(`[${workspaceLabel}](${workspaceUrl})`);
+  }
+  if (prUrl) {
+    links.push(`[${prLabel}](${prUrl})`);
+  }
+  return links.length > 0 ? links.join(" • ") : null;
+};
 
 const isNonUiChangeReason = (reason?: string | null): boolean => {
   if (!reason) {
@@ -98,22 +133,63 @@ const summarizeSet = (
 
 async function renderScreenshotSetMarkdown(
   ctx: ActionCtx,
-  set: ScreenshotSetDoc,
+  set: RenderableScreenshotSet,
   heading: string,
+  options?: {
+    prUrl?: string | null;
+    workspaceUrl?: string | null;
+    compact?: boolean;
+    includeLinksRow?: boolean;
+  },
 ): Promise<string> {
   const commitLabel = formatCommitLabel(set);
   const timestamp = formatTimestamp(set.capturedAt);
   const lines: string[] = [heading, ""];
+  const linkRow = options?.includeLinksRow
+    ? formatReviewLinks({
+        prUrl: options.prUrl,
+        workspaceUrl: options.workspaceUrl,
+      })
+    : null;
+
+  if (linkRow) {
+    lines.push(linkRow, "");
+  }
 
   if (set.status === "completed" && set.images.length > 0) {
     const count = set.images.length;
     const intro = `Captured ${count} screenshot${count === 1 ? "" : "s"} for commit ${commitLabel} (${timestamp}).`;
     lines.push(intro, "");
-    for (const image of set.images) {
+
+    if (!options?.compact) {
+      lines.push(
+        "**Review story**",
+        "- Screenshots double as evidence; follow them in order to understand the PR's UI flow.",
+        "- Cross-check the intent against the PR description" +
+          (options?.prUrl ? ` ([GitHub PR](${options.prUrl}))` : ""),
+      );
+      if (options?.workspaceUrl) {
+        lines.push("- Use the workspace link to poke at the same surfaces if something looks off.");
+      }
+      lines.push(
+        "",
+        "**What to review**",
+        "- Visual regressions (layout, spacing, copy) and state transitions shown below.",
+        "- Accessibility or empty/error states implied by the flow.",
+      );
+      if (options?.workspaceUrl) {
+        lines.push("- Re-run the flow in the workspace to validate interactions beyond the static shots.");
+      }
+      lines.push("", `**Evidence (${count})**`, "");
+    } else {
+      lines.push(`**Evidence (${count})**`, "");
+    }
+
+    for (const [index, image] of set.images.entries()) {
       const storageUrl = await ctx.storage.getUrl(image.storageId);
       if (!storageUrl) continue;
-      const fileName = image.fileName || "screenshot";
-      lines.push(`![${fileName}](${storageUrl})`, "");
+      const altText = `Screenshot ${index + 1} for ${commitLabel}`;
+      lines.push(`![${altText}](${storageUrl})`, "");
     }
   } else if (set.status === "failed") {
     lines.push(
@@ -323,6 +399,26 @@ export const postPreviewComment = internalAction({
         return { ok: false, error: "Preview run not found" };
       }
 
+      const prUrl =
+        previewRun.prUrl ||
+        `https://github.com/${repoFullName}/pull/${prNumber}`;
+      let workspaceUrl: string | null = null;
+
+      if (previewRun.taskRunId) {
+        const taskRun = await ctx.runQuery(internal.taskRuns.getById, {
+          id: previewRun.taskRunId as Id<"taskRuns">,
+        });
+
+        if (taskRun) {
+          const team = await ctx.runQuery(
+            internal.teams.getByTeamIdInternal,
+            { teamId: taskRun.teamId },
+          );
+          const teamSlug = team?.slug ?? taskRun.teamId;
+          workspaceUrl = `${CMUX_BASE_URL}/${teamSlug}/task/${taskRun.taskId}`;
+        }
+      }
+
       // Get screenshot set
       const screenshotSet = await ctx.runQuery(
         internal.previewScreenshots.getScreenshotSet,
@@ -368,16 +464,33 @@ export const postPreviewComment = internalAction({
         ctx,
         screenshotSet,
         latestHeading,
+        { prUrl, workspaceUrl },
       );
 
-      const commentSections: string[] = ["## Preview Screenshots", latestSection];
+      const linksLine = formatReviewLinks({
+        prUrl,
+        workspaceUrl,
+        workspaceLabel: "Open Workspace (expires in 30m)",
+      });
+
+      const commentSections: string[] = [];
+
+      if (linksLine) {
+        commentSections.push(linksLine);
+      }
+
+      commentSections.push("## Preview Screenshots", latestSection);
 
       if (previousSetEntries.length > 0) {
         const collapsedSections: string[] = [];
         for (const entry of previousSetEntries) {
           const sectionHeading = `#### ${summarizeSet(entry.set, entry.run)}`;
           collapsedSections.push(
-            await renderScreenshotSetMarkdown(ctx, entry.set, sectionHeading),
+            await renderScreenshotSetMarkdown(ctx, entry.set, sectionHeading, {
+              prUrl,
+              workspaceUrl,
+              compact: true,
+            }),
           );
         }
 
@@ -673,31 +786,22 @@ export const postPreviewCommentWithTaskScreenshots = internalAction({
         return { ok: false, error: "Screenshot set not found" };
       }
 
-      // Build comment body
-      let commentBody: string = `[Open Workspace](${workspaceUrl}) (expires in 30m) • [Open in GitHub](https://github.com/${repoFullName}/pull/${prNumber})\n\n`;
-      commentBody += "## Preview Screenshots\n\n";
+      const prUrl = `https://github.com/${repoFullName}/pull/${prNumber}`;
+      const linksLine = formatReviewLinks({
+        prUrl,
+        workspaceUrl,
+        workspaceLabel: "Open Workspace (expires in 30m)",
+      });
+      const reviewSection = await renderScreenshotSetMarkdown(
+        ctx,
+        screenshotSet,
+        "## Preview Story",
+        { prUrl, workspaceUrl },
+      );
 
-      if (screenshotSet.status === "completed" && screenshotSet.images.length > 0) {
-        commentBody += `Successfully captured ${screenshotSet.images.length} screenshot(s) for commit \`${(screenshotSet.commitSha || "").slice(0, 7)}\`:\n\n`;
-
-        for (const image of screenshotSet.images) {
-          // Get storage URL for the image
-          const storageUrl = await ctx.storage.getUrl(image.storageId);
-          if (storageUrl) {
-            const fileName = image.fileName || "screenshot";
-            commentBody += `### ${fileName}\n`;
-            commentBody += `![${fileName}](${storageUrl})\n\n`;
-          }
-        }
-
-        commentBody += `\n---\n${PREVIEW_SIGNATURE}`;
-      } else if (screenshotSet.status === "failed") {
-        commentBody += `Failed to capture screenshots: ${screenshotSet.error || "Unknown error"}\n\n`;
-        commentBody += `\n---\n${PREVIEW_SIGNATURE}`;
-      } else if (screenshotSet.status === "skipped") {
-        commentBody += `Screenshot capture was skipped: ${screenshotSet.error || "No preview configured"}\n\n`;
-        commentBody += `\n---\n${PREVIEW_SIGNATURE}`;
-      }
+      const commentBody = [linksLine, reviewSection, "---", PREVIEW_SIGNATURE]
+        .filter(Boolean)
+        .join("\n\n");
 
       // Post comment to GitHub
       const { data } = await octokit.rest.issues.createComment({
