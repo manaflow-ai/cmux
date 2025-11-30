@@ -12,12 +12,14 @@ use napi_derive::napi;
 use types::{BranchInfo, DiffEntry, GitDiffOptions, GitListRemoteBranchesOptions};
 
 #[napi]
-pub async fn get_time() -> String {
+pub async fn get_time() -> Result<String> {
   use std::time::{SystemTime, UNIX_EPOCH};
   #[cfg(debug_assertions)]
   println!("[cmux_native_core] get_time invoked");
-  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-  now.as_millis().to_string()
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_err(|e| Error::from_reason(format!("System time error: {e}")))?;
+  Ok(now.as_millis().to_string())
 }
 
 #[napi]

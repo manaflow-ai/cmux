@@ -365,12 +365,12 @@ pub fn diff_refs(opts: GitDiffOptions) -> Result<Vec<DiffEntry>> {
     if let Some(news) = id_to_new.get_mut(oid) {
       let n = std::cmp::min(olds.len(), news.len());
       for _ in 0..n {
-        let old_p = olds.pop().unwrap();
-        let new_p = news.pop().unwrap();
-        renamed_pairs.push((old_p.clone(), new_p.clone(), *oid));
-        // Remove matched from base_only/head_only
-        base_only.remove(&old_p);
-        head_only.remove(&new_p);
+        if let (Some(old_p), Some(new_p)) = (olds.pop(), news.pop()) {
+          renamed_pairs.push((old_p.clone(), new_p.clone(), *oid));
+          // Remove matched from base_only/head_only
+          base_only.remove(&old_p);
+          head_only.remove(&new_p);
+        }
       }
     }
   }
@@ -411,34 +411,36 @@ pub fn diff_refs(opts: GitDiffOptions) -> Result<Vec<DiffEntry>> {
       };
       let mut e = DiffEntry{ filePath: path.clone(), status: "modified".into(), additions: 0, deletions: 0, isBinary: bin, ..Default::default() };
       if include && !bin {
-        let old_str = String::from_utf8_lossy(old_data.as_ref().unwrap()).into_owned();
-        let new_str = String::from_utf8_lossy(new_data.as_ref().unwrap()).into_owned();
-        let old_sz = old_str.as_bytes().len();
-        let new_sz = new_str.as_bytes().len();
-        e.oldSize = Some(old_sz as i32);
-        e.newSize = Some(new_sz as i32);
-        if old_sz + new_sz <= max_bytes {
-          let t_diff = Instant::now();
-          // Use changes grouped by operations; count per-line inserts/deletes only.
-          let diff = TextDiff::from_lines(&old_str, &new_str);
-          let mut adds = 0i32; let mut dels = 0i32;
-          for op in diff.ops() {
-            for change in diff.iter_changes(op) {
-              match change.tag() {
-                similar::ChangeTag::Insert => adds += 1,
-                similar::ChangeTag::Delete => dels += 1,
-                _ => {}
+        if let (Some(old_bytes), Some(new_bytes)) = (&old_data, &new_data) {
+          let old_str = String::from_utf8_lossy(old_bytes).into_owned();
+          let new_str = String::from_utf8_lossy(new_bytes).into_owned();
+          let old_sz = old_str.as_bytes().len();
+          let new_sz = new_str.as_bytes().len();
+          e.oldSize = Some(old_sz as i32);
+          e.newSize = Some(new_sz as i32);
+          if old_sz + new_sz <= max_bytes {
+            let t_diff = Instant::now();
+            // Use changes grouped by operations; count per-line inserts/deletes only.
+            let diff = TextDiff::from_lines(&old_str, &new_str);
+            let mut adds = 0i32; let mut dels = 0i32;
+            for op in diff.ops() {
+              for change in diff.iter_changes(op) {
+                match change.tag() {
+                  similar::ChangeTag::Insert => adds += 1,
+                  similar::ChangeTag::Delete => dels += 1,
+                  _ => {}
+                }
               }
             }
-          }
-          let d_diff = t_diff.elapsed().as_nanos();
-          _textdiff_ns += d_diff; _textdiff_count += 1; _total_scanned_bytes += old_sz + new_sz;
-          if d_diff > _max_diff_ns { _max_diff_ns = d_diff; _max_diff_path = Some(path.clone()); }
-          e.additions = adds; e.deletions = dels;
-          e.oldContent = Some(old_str);
-          e.newContent = Some(new_str);
-          e.contentOmitted = Some(false);
-        } else { e.contentOmitted = Some(true); }
+            let d_diff = t_diff.elapsed().as_nanos();
+            _textdiff_ns += d_diff; _textdiff_count += 1; _total_scanned_bytes += old_sz + new_sz;
+            if d_diff > _max_diff_ns { _max_diff_ns = d_diff; _max_diff_path = Some(path.clone()); }
+            e.additions = adds; e.deletions = dels;
+            e.oldContent = Some(old_str);
+            e.newContent = Some(new_str);
+            e.contentOmitted = Some(false);
+          } else { e.contentOmitted = Some(true); }
+        }
       } else { e.contentOmitted = Some(false); }
       // Do not filter out zero-line modifications: mode changes or metadata changes should still show up.
       out.push(e);
@@ -459,16 +461,18 @@ pub fn diff_refs(opts: GitDiffOptions) -> Result<Vec<DiffEntry>> {
     };
     let mut e = DiffEntry{ filePath: path.clone(), status: "added".into(), additions: 0, deletions: 0, isBinary: bin, ..Default::default() };
     if include && !bin {
-      let new_str = String::from_utf8_lossy(new_data.as_ref().unwrap()).into_owned();
-      e.newSize = Some(new_sz as i32);
-      e.oldSize = Some(0);
-      if new_sz <= max_bytes {
-        e.oldContent = Some(String::new());
-        e.newContent = Some(new_str.clone());
-        e.contentOmitted = Some(false);
-        e.additions = new_str.lines().count() as i32;
-        _total_scanned_bytes += new_sz;
-      } else { e.contentOmitted = Some(true); }
+      if let Some(new_bytes) = &new_data {
+        let new_str = String::from_utf8_lossy(new_bytes).into_owned();
+        e.newSize = Some(new_sz as i32);
+        e.oldSize = Some(0);
+        if new_sz <= max_bytes {
+          e.oldContent = Some(String::new());
+          e.newContent = Some(new_str.clone());
+          e.contentOmitted = Some(false);
+          e.additions = new_str.lines().count() as i32;
+          _total_scanned_bytes += new_sz;
+        } else { e.contentOmitted = Some(true); }
+      }
     } else { e.contentOmitted = Some(false); }
     out.push(e);
     _num_added += 1;
@@ -487,15 +491,18 @@ pub fn diff_refs(opts: GitDiffOptions) -> Result<Vec<DiffEntry>> {
     };
     let mut e = DiffEntry{ filePath: path.clone(), status: "deleted".into(), additions: 0, deletions: 0, isBinary: bin, ..Default::default() };
     if include && !bin {
-      let old_str = String::from_utf8_lossy(old_data.as_ref().unwrap()).into_owned();
-      e.oldSize = Some(old_sz as i32);
-      if old_sz <= max_bytes {
-        e.oldContent = Some(old_str);
-        e.newContent = Some(String::new());
-        e.contentOmitted = Some(false);
-        e.deletions = e.oldContent.as_ref().unwrap().lines().count() as i32;
-        _total_scanned_bytes += old_sz;
-      } else { e.contentOmitted = Some(true); }
+      if let Some(old_bytes) = &old_data {
+        let old_str = String::from_utf8_lossy(old_bytes).into_owned();
+        e.oldSize = Some(old_sz as i32);
+        if old_sz <= max_bytes {
+          let deletions = old_str.lines().count() as i32;
+          e.oldContent = Some(old_str);
+          e.newContent = Some(String::new());
+          e.contentOmitted = Some(false);
+          e.deletions = deletions;
+          _total_scanned_bytes += old_sz;
+        } else { e.contentOmitted = Some(true); }
+      }
     } else { e.contentOmitted = Some(false); }
     out.push(e);
     _num_deleted += 1;

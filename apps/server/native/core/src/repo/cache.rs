@@ -54,9 +54,12 @@ pub fn ensure_repo(url: &str) -> Result<PathBuf> {
   }
   if !path.exists() {
     fs::create_dir_all(&path)?;
+    let dirname = path.file_name()
+      .and_then(|n| n.to_str())
+      .ok_or_else(|| anyhow!("Invalid path: unable to extract directory name"))?;
     run_git(
       root.to_string_lossy().as_ref(),
-      &["clone", "--no-single-branch", url, path.file_name().unwrap().to_str().unwrap()]
+      &["clone", "--no-single-branch", url, dirname]
     )?;
     let _ = update_cache_index_with(&root, &path, Some(now_ms()));
   } else {
@@ -104,7 +107,7 @@ fn update_cache_index(root: &PathBuf, repo_path: &PathBuf) -> Result<()> {
     .to_string();
   let now = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
-    .unwrap()
+    .map_err(|e| anyhow!("System time error: {}", e))?
     .as_millis();
 
   if let Some(e) = idx.entries.iter_mut().find(|e| e.slug == slug) {
@@ -127,8 +130,8 @@ fn update_cache_index(root: &PathBuf, repo_path: &PathBuf) -> Result<()> {
 fn now_ms() -> u128 {
   std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
-    .unwrap()
-    .as_millis()
+    .map(|d| d.as_millis())
+    .unwrap_or(0)
 }
 
 fn update_cache_index_with(root: &PathBuf, repo_path: &PathBuf, last_fetch_ms: Option<u128>) -> Result<()> {
