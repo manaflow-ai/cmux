@@ -21,11 +21,12 @@ export async function captureGitDiff(
     serverLogger.info(
       `[AgentSpawner] Collecting relevant git diff for ${worktreePath}`
     );
+    const containerWorkspacePath = vscodeInstance.getContainerWorkspacePath();
 
     const repoCwd = await resolveWorkerRepoPath({
       workerSocket,
-      initialCwd: "/root/workspace",
-      fallbackCwd: "/root/workspace",
+      initialCwd: containerWorkspacePath,
+      fallbackCwd: containerWorkspacePath,
     });
     serverLogger.info(`[AgentSpawner] Running diff script from ${repoCwd}`);
 

@@ -193,6 +193,19 @@ function buildPlaceholderWorkspaceUrl(folderPath: string): string {
   return buildServeWebWorkspaceUrl(LOCAL_VSCODE_PLACEHOLDER_ORIGIN, folderPath);
 }
 
+function stripWorkspaceFolderParam(workspaceUrl: string): string {
+  try {
+    const parsed = new URL(workspaceUrl);
+    parsed.searchParams.delete("folder");
+    if (!parsed.searchParams.toString()) {
+      parsed.search = "";
+    }
+    return parsed.toString();
+  } catch {
+    return workspaceUrl.replace(/\?folder=[^&]+/, "");
+  }
+}
+
 export function setupSocketHandlers(
   rt: RealtimeServer,
   gitDiffManager: GitDiffManager,
@@ -684,10 +697,7 @@ export function setupSocketHandlers(
             if (primaryAgent.vscodeUrl) {
               rt.emit("vscode-spawned", {
                 instanceId: primaryAgent.terminalId,
-                url: primaryAgent.vscodeUrl.replace(
-                  "/?folder=/root/workspace",
-                  ""
-                ),
+                url: stripWorkspaceFolderParam(primaryAgent.vscodeUrl),
                 workspaceUrl: primaryAgent.vscodeUrl,
                 provider: taskData.isCloudMode ? "morph" : "docker",
               });
@@ -2204,7 +2214,7 @@ Please address the issue mentioned in the comment above.`;
         if (primaryAgent.vscodeUrl) {
           rt.emit("vscode-spawned", {
             instanceId: primaryAgent.terminalId,
-            url: primaryAgent.vscodeUrl.replace("/?folder=/root/workspace", ""),
+            url: stripWorkspaceFolderParam(primaryAgent.vscodeUrl),
             workspaceUrl: primaryAgent.vscodeUrl,
             provider: "morph", // Since isCloudMode is true
           });
