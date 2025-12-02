@@ -300,7 +300,7 @@ pub struct ProxyConfig {
     pub allow_default_upstream: bool,
 }
 
-pub fn spawn_proxy<S>(cfg: ProxyConfig, mut shutdown: S) -> (SocketAddr, JoinHandle<()>)
+pub fn spawn_proxy<S>(cfg: ProxyConfig, mut shutdown: S) -> Result<(SocketAddr, JoinHandle<()>), BoxError>
 where
     S: Future<Output = ()> + Send + 'static + Unpin,
 {
@@ -312,10 +312,14 @@ where
     let client: Client<HttpConnector, BoxBody> = client_builder.build(connector);
 
     let listen = cfg.listen;
-    let std_listener = StdTcpListener::bind(listen).expect("bind");
-    std_listener.set_nonblocking(true).expect("set nonblocking");
-    let listen_addr = std_listener.local_addr().expect("local addr");
-    let listener = TcpListener::from_std(std_listener).expect("to tokio listener");
+    let std_listener = StdTcpListener::bind(listen)
+        .map_err(|e| -> BoxError { Box::new(e) })?;
+    std_listener.set_nonblocking(true)
+        .map_err(|e| -> BoxError { Box::new(e) })?;
+    let listen_addr = std_listener.local_addr()
+        .map_err(|e| -> BoxError { Box::new(e) })?;
+    let listener = TcpListener::from_std(std_listener)
+        .map_err(|e| -> BoxError { Box::new(e) })?;
 
     let handle = tokio::spawn(async move {
         info!("proxy listening on {}", listen_addr);
@@ -346,7 +350,7 @@ where
         }
     });
     // Return the actual bound address so callers can discover OS-assigned ports
-    (listen_addr, handle)
+    Ok((listen_addr, handle))
 }
 
 /// Start the proxy on multiple addresses. Returns the bound addresses actually used and a handle
@@ -759,7 +763,11 @@ fn response_with(status: StatusCode, msg: String) -> Response<BoxBody> {
         .status(status)
         .header("content-type", "text/plain; charset=utf-8")
         .body(full_body(msg))
-        .unwrap()
+        .unwrap_or_else(|e| {
+            error!("failed to build error response: {}", e);
+            // Fallback to a minimal response if building fails
+            Response::new(full_body("Internal server error"))
+        })
 }
 
 async fn handle(
@@ -855,7 +863,12 @@ async fn handle_http(
 
     let headers = client_resp_builder
         .headers_mut()
-        .expect("headers_mut available");
+        .ok_or_else(|| {
+            response_with(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get response headers".into(),
+            )
+        })?;
     for (name, value) in upstream_resp.headers().iter() {
         headers.insert(name, value.clone());
     }
@@ -948,7 +961,12 @@ async fn handle_upgrade(
         // Return upstream status (probably 4xx/5xx) to client with body
         let status = upstream_resp.status();
         let mut builder = Response::builder().status(status);
-        let headers = builder.headers_mut().unwrap();
+        let headers = builder.headers_mut().ok_or_else(|| {
+            response_with(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get response headers".into(),
+            )
+        })?;
         for (k, v) in upstream_resp.headers() {
             headers.insert(k, v.clone());
         }
@@ -965,7 +983,12 @@ async fn handle_upgrade(
     let mut client_resp_builder = Response::builder().status(StatusCode::SWITCHING_PROTOCOLS);
     let out_headers = client_resp_builder
         .headers_mut()
-        .expect("headers_mut available");
+        .ok_or_else(|| {
+            response_with(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get response headers".into(),
+            )
+        })?;
     for (k, v) in upstream_resp.headers().iter() {
         out_headers.insert(k, v.clone());
     }
