@@ -26,11 +26,23 @@ export function Terminal({ isActive, initialScrollback }: TerminalProps) {
     if (!terminal) return;
 
     const handleResize = () => {
-      if (fitAddon) {
-        fitAddon.fit();
+      if (fitAddon && terminal.element?.isConnected) {
+        try {
+          fitAddon.fit();
+        } catch (error) {
+          console.debug("[Terminal] fitAddon.fit() failed during resize", error);
+        }
       }
     };
-    fitAddon.fit();
+
+    // Guard against calling fit() when terminal is not fully initialized
+    if (terminal.element?.isConnected) {
+      try {
+        fitAddon.fit();
+      } catch (error) {
+        console.debug("[Terminal] fitAddon.fit() failed during mount", error);
+      }
+    }
 
     window.addEventListener("resize", handleResize);
 
@@ -54,8 +66,12 @@ export function Terminal({ isActive, initialScrollback }: TerminalProps) {
   }, [initialScrollback, terminal, hasWrittenInitialScrollback]);
 
   useEffect(() => {
-    if (isActive && terminal) {
-      fitAddon.fit();
+    if (isActive && terminal && terminal.element?.isConnected) {
+      try {
+        fitAddon.fit();
+      } catch (error) {
+        console.debug("[Terminal] fitAddon.fit() failed when becoming active", error);
+      }
       terminal.focus();
     }
   }, [isActive, fitAddon, terminal]);
