@@ -22,15 +22,18 @@ import { fetchGithubRepoStats } from "@/lib/fetch-github-stars";
 const heroHighlights = [
   {
     title: "Run multiple agent CLIs side-by-side",
-    description: "Claude Code, Codex, Gemini CLI, Amp, Opencode, and more on the same task.",
+    description:
+      "Claude Code, Codex, Gemini CLI, Amp, Opencode, and more on the same task.",
   },
   {
     title: "Dedicated VS Code instance per agent",
-    description: "Each task launches an isolated VS Code, terminal, and git diff view ready to inspect.",
+    description:
+      "Each task launches an isolated VS Code, terminal, and git diff view ready to inspect.",
   },
   {
     title: "Preview environments for quick verification",
-    description: "Tasks launches browser previews so you can verify that the code works on dev server.",
+    description:
+      "Tasks launches browser previews so you can verify that the code works on dev server.",
   },
 ];
 
@@ -77,8 +80,7 @@ const workflowSteps = [
   {
     id: "step-workspaces",
     title: "1. Configure run context",
-    copy:
-      "Set up the repo or environment for your task, configure scripts, and pick the agents you want to run.",
+    copy: "Set up the repo or environment for your task, configure scripts, and pick the agents you want to run.",
     checklist: [
       "Configure dev and maintenance scripts on the Environments page or link the repo you need.",
       "Select the branches that apply to the task before launching agents.",
@@ -88,8 +90,7 @@ const workflowSteps = [
   {
     id: "step-agents",
     title: "2. Watch agents execute",
-    copy:
-      "Follow each agent's VS Code instance as they work; completion shows a green check and the crown evaluator picks the best run.",
+    copy: "Follow each agent's VS Code instance as they work; completion shows a green check and the crown evaluator picks the best run.",
     checklist: [
       "Monitor the dedicated VS Code sessions to see agents progress in real time.",
       "Wait for every task card to reach the green check before moving ahead.",
@@ -99,8 +100,7 @@ const workflowSteps = [
   {
     id: "step-review",
     title: "3. Verify diffs and previews",
-    copy:
-      "Open the diff viewer, confirm tests, and use the auto-started preview environments to validate changes.",
+    copy: "Open the diff viewer, confirm tests, and use the auto-started preview environments to validate changes.",
     checklist: [
       "Inspect code updates in the git diff viewer for each agent.",
       "Review test and command output captured during the run.",
@@ -110,8 +110,7 @@ const workflowSteps = [
   {
     id: "step-ship",
     title: "4. Ship directly from cmux",
-    copy:
-      "Create your pull request inside cmux and finish the merge once verification is done.",
+    copy: "Create your pull request inside cmux and finish the merge once verification is done.",
     checklist: [
       "Open a pull request from the cmux review surface when you're ready.",
       "Attach verification notes and confirm required checks before finishing.",
@@ -174,37 +173,38 @@ export default async function LandingPage() {
         <section className="mx-auto max-w-6xl px-4 pb-16 pt-16 sm:px-6 sm:pb-24 sm:pt-12">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div className="space-y-8">
-
               <div className="space-y-6">
                 <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                  Universal AI coding agent manager for 10x engineers
+                  Universal AI coding agent manager for 100x engineers
                 </h1>
                 <div className="space-y-4 text-base text-neutral-300 sm:text-lg">
                   <p>
-                    cmux is a universal AI coding agent manager that supports Claude Code, Codex, Gemini CLI, Amp, Opencode, and other coding CLIs.
+                    cmux is a universal AI coding agent manager that supports
+                    Claude Code, Codex, Gemini CLI, Amp, Opencode, and other
+                    coding CLIs.
                   </p>
                   <p>
-                    Every run spins up an isolated VS Code workspace either in the cloud or in a local Docker container with the git diff view, terminal, and dev server preview ready so parallel agent work stays verifiable, fast, and ready to ship.
+                    Every run spins up an isolated VS Code workspace either in
+                    the cloud or in a local Docker container with the git diff
+                    view, terminal, and dev server preview ready so parallel
+                    agent work stays verifiable, fast, and ready to ship.
                   </p>
                   <p className="text-sm text-neutral-400 sm:text-base">
-                    Learn more about the
-                    {" "}
+                    Learn more about the{" "}
                     <a
                       className="text-sky-400 hover:text-sky-300 underline decoration-dotted underline-offset-4"
                       href="#nav-about"
                     >
                       vision
                     </a>
-                    ,
-                    {" "}
+                    ,{" "}
                     <a
                       className="text-sky-400 hover:text-sky-300 underline decoration-dotted underline-offset-4"
                       href="#nav-features"
                     >
                       how it works today
                     </a>
-                    , or explore the
-                    {" "}
+                    , or explore the{" "}
                     <a
                       className="text-sky-400 hover:text-sky-300 underline decoration-dotted underline-offset-4"
                       href="#nav-roadmap"
@@ -256,11 +256,13 @@ export default async function LandingPage() {
               </div>
               {latestVersion ? (
                 <p className="text-xs text-neutral-400">
-                  Latest release: cmux {latestVersion}. Need another build? Visit the GitHub release page for all downloads.
+                  Latest release: cmux {latestVersion}. Need another build?
+                  Visit the GitHub release page for all downloads.
                 </p>
               ) : (
                 <p className="text-xs text-neutral-400">
-                  Having trouble with the macOS download? Use the fallback build on our release page.
+                  Having trouble with the macOS download? Use the fallback build
+                  on our release page.
                 </p>
               )}
             </div>
@@ -285,7 +287,9 @@ export default async function LandingPage() {
                         <h3 className="text-sm font-semibold text-white">
                           {highlight.title}
                         </h3>
-                        <p className="text-sm text-neutral-300">{highlight.description}</p>
+                        <p className="text-sm text-neutral-300">
+                          {highlight.description}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -307,47 +311,74 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="nav-about" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32">
+        <section
+          id="nav-about"
+          className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32"
+        >
           <div className="space-y-12">
             <div className="space-y-3 text-center">
               <h2 className="text-2xl font-semibold text-white sm:text-3xl">
                 Rethinking the developer interface
               </h2>
               <p className="mx-auto max-w-3xl text-sm text-neutral-400 sm:text-base">
-                Everyone is focusing on making AI agents better at coding but not on making it easier to verify their work. cmux focuses on the verification surface so developers who use multiple agents can ship fast and accurate code.
+                Everyone is focusing on making AI agents better at coding but
+                not on making it easier to verify their work. cmux focuses on
+                the verification surface so developers who use multiple agents
+                can ship fast and accurate code.
               </p>
             </div>
             <div className="space-y-8 text-sm text-neutral-300 sm:text-base">
               <div className="space-y-2">
                 <p>
-                  <span className="text-white font-semibold">The interface is the bottleneck.</span>{" "}
-                  Developers still spend most of their time reviewing and verifying code instead of prompting. cmux removes the window-juggling and diff spelunking that slows teams down.
+                  <span className="text-white font-semibold">
+                    The interface is the bottleneck.
+                  </span>{" "}
+                  Developers still spend most of their time reviewing and
+                  verifying code instead of prompting. cmux removes the
+                  window-juggling and diff spelunking that slows teams down.
                 </p>
                 <blockquote className="border-l-2 border-white/10 pl-4 text-neutral-400">
                   <p>
-                    Running multiple agents at once sounds powerful until it turns into chaos: three or four terminals, each on a different task, and you&apos;re asking, &ldquo;Which one is on auth? Did the database refactor finish?&rdquo;
+                    Running multiple agents at once sounds powerful until it
+                    turns into chaos: three or four terminals, each on a
+                    different task, and you&apos;re asking, &ldquo;Which one is
+                    on auth? Did the database refactor finish?&rdquo;
                   </p>
                 </blockquote>
               </div>
               <div className="space-y-2">
                 <p>
-                  <span className="text-white font-semibold">Isolation enables scale.</span>{" "}
-                  Each agent runs in its own container with its own VS Code instance. Every diff is clean, every terminal output is separate, and every verification stays independent.
+                  <span className="text-white font-semibold">
+                    Isolation enables scale.
+                  </span>{" "}
+                  Each agent runs in its own container with its own VS Code
+                  instance. Every diff is clean, every terminal output is
+                  separate, and every verification stays independent.
                 </p>
                 <blockquote className="border-l-2 border-white/10 pl-4 text-neutral-400">
                   <p>
-                    The issue isn&apos;t that agents aren&apos;t good—they&apos;re getting scary good. It&apos;s that our tools were built for a single developer, not for reviewing five parallel streams of AI-generated changes.
+                    The issue isn&apos;t that agents aren&apos;t
+                    good—they&apos;re getting scary good. It&apos;s that our
+                    tools were built for a single developer, not for reviewing
+                    five parallel streams of AI-generated changes.
                   </p>
                 </blockquote>
               </div>
               <div className="space-y-2">
                 <p>
-                  <span className="text-white font-semibold">Verification is non-negotiable.</span>{" "}
-                  Code diffs are just the start. We need to see running apps, test results, and metrics for every agent without losing context. cmux keeps that verification front and center.
+                  <span className="text-white font-semibold">
+                    Verification is non-negotiable.
+                  </span>{" "}
+                  Code diffs are just the start. We need to see running apps,
+                  test results, and metrics for every agent without losing
+                  context. cmux keeps that verification front and center.
                 </p>
                 <blockquote className="border-l-2 border-white/10 pl-4 text-neutral-400">
                   <p>
-                    cmux gives each agent its own world: separate container in the cloud or Docker, separate VS Code, separate git state. You can see exactly what changed immediately—without losing context.
+                    cmux gives each agent its own world: separate container in
+                    the cloud or Docker, separate VS Code, separate git state.
+                    You can see exactly what changed immediately—without losing
+                    context.
                   </p>
                 </blockquote>
               </div>
@@ -367,14 +398,20 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="nav-features" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32">
+        <section
+          id="nav-features"
+          className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32"
+        >
           <div className="space-y-12">
             <div className="space-y-3 text-center">
               <h2 className="text-2xl font-semibold text-white sm:text-3xl">
                 How cmux works today
               </h2>
               <p className="mx-auto max-w-3xl text-sm text-neutral-400 sm:text-base">
-                The cmux dashboard keeps every agent and workspace organized so you can launch, monitor, and review without alt-tabbing between terminals, keeping track of VS Code windows, and restarting dev servers.
+                The cmux dashboard keeps every agent and workspace organized so
+                you can launch, monitor, and review without alt-tabbing between
+                terminals, keeping track of VS Code windows, and restarting dev
+                servers.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -388,7 +425,9 @@ export default async function LandingPage() {
                       <Icon className="h-5 w-5" aria-hidden />
                     </div>
                     <div className="space-y-2">
-                      <h3 className="text-base font-semibold text-white">{title}</h3>
+                      <h3 className="text-base font-semibold text-white">
+                        {title}
+                      </h3>
                       <p className="text-sm text-neutral-300">{description}</p>
                     </div>
                   </div>
@@ -410,14 +449,18 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="nav-workflow" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32">
+        <section
+          id="nav-workflow"
+          className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32"
+        >
           <div className="flex flex-col gap-16 lg:flex-row">
             <div className="lg:w-1/3">
               <h2 className="text-2xl font-semibold text-white sm:text-3xl">
                 A guided workflow from start to finish
               </h2>
               <p className="mt-4 text-sm text-neutral-400 sm:text-base">
-                Each phase inside cmux is integral to keep the process fast and confidence high while coding agents execute tasks in parallel.
+                Each phase inside cmux is integral to keep the process fast and
+                confidence high while coding agents execute tasks in parallel.
               </p>
             </div>
             <div className="grid flex-1 gap-6 sm:grid-cols-2">
@@ -431,7 +474,9 @@ export default async function LandingPage() {
                       {index + 1}
                     </span>
                     <div className="space-y-2">
-                      <h3 className="text-base font-semibold text-white">{step.title}</h3>
+                      <h3 className="text-base font-semibold text-white">
+                        {step.title}
+                      </h3>
                       <p className="text-sm text-neutral-300">{step.copy}</p>
                     </div>
                     <ul className="space-y-2 text-xs text-neutral-400">
@@ -440,7 +485,10 @@ export default async function LandingPage() {
                           key={item}
                           className="flex items-center gap-2 rounded-lg border border-dashed border-white/10 bg-white/5 px-3 py-2"
                         >
-                          <Settings className="h-3.5 w-3.5 flex-none text-sky-300" aria-hidden />
+                          <Settings
+                            className="h-3.5 w-3.5 flex-none text-sky-300"
+                            aria-hidden
+                          />
                           <span>{item}</span>
                         </li>
                       ))}
@@ -452,14 +500,18 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="nav-verification" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32">
+        <section
+          id="nav-verification"
+          className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 scroll-mt-32"
+        >
           <div className="space-y-10">
             <div className="space-y-3 text-center">
               <h2 className="text-2xl font-semibold text-white sm:text-3xl">
                 Verification views that make scale trustworthy
               </h2>
               <p className="mx-auto max-w-3xl text-sm text-neutral-400 sm:text-base">
-                Diff viewers, dedicated VS Code workspaces, and live preview dev server environments keep human software engineers in the loop.
+                Diff viewers, dedicated VS Code workspaces, and live preview dev
+                server environments keep human software engineers in the loop.
               </p>
             </div>
             <div className="grid gap-10">
@@ -468,11 +520,17 @@ export default async function LandingPage() {
                   key={highlight.title}
                   className="grid gap-8 lg:grid-cols-2 lg:items-center"
                 >
-                  <div className={`space-y-4 ${index % 2 === 1 ? "lg:order-2" : ""}`}>
-                    <h3 className="text-xl font-semibold text-white">{highlight.title}</h3>
+                  <div
+                    className={`space-y-4 ${index % 2 === 1 ? "lg:order-2" : ""}`}
+                  >
+                    <h3 className="text-xl font-semibold text-white">
+                      {highlight.title}
+                    </h3>
                     <div className="space-y-3 text-sm text-neutral-300">
                       {highlight.paragraphs.map((paragraph, paragraphIndex) => (
-                        <p key={`${highlight.title}-${paragraphIndex}`}>{paragraph}</p>
+                        <p key={`${highlight.title}-${paragraphIndex}`}>
+                          {paragraph}
+                        </p>
                       ))}
                     </div>
                   </div>
@@ -494,8 +552,13 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="nav-requirements" className="mx-auto max-w-4xl px-4 pb-20 text-center sm:px-6 scroll-mt-32">
-          <h2 className="text-2xl font-semibold text-white sm:text-3xl">Requirements</h2>
+        <section
+          id="nav-requirements"
+          className="mx-auto max-w-4xl px-4 pb-20 text-center sm:px-6 scroll-mt-32"
+        >
+          <h2 className="text-2xl font-semibold text-white sm:text-3xl">
+            Requirements
+          </h2>
           <p className="mt-4 text-sm text-neutral-400 sm:text-base">
             cmux runs locally on your machine. You&apos;ll need:
           </p>
@@ -509,12 +572,18 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="nav-contact" className="mx-auto max-w-5xl px-4 pb-24 sm:px-6 scroll-mt-32">
+        <section
+          id="nav-contact"
+          className="mx-auto max-w-5xl px-4 pb-24 sm:px-6 scroll-mt-32"
+        >
           <div className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/5 p-8 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-3">
-              <h2 className="text-xl font-semibold text-white sm:text-2xl">Talk to the team</h2>
+              <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                Talk to the team
+              </h2>
               <p className="text-sm text-neutral-300 sm:text-base">
-                Curious how cmux can power your workflow? Book time with us for a demo or deep dive.
+                Curious how cmux can power your workflow? Book time with us for
+                a demo or deep dive.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
