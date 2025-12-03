@@ -613,3 +613,151 @@ export const createManual = authMutation({
     return { previewRunId: runId, reused: false };
   },
 });
+
+/**
+ * Get the most recent preview run for a specific repo and PR number.
+ * Used by the sidebar to show preview status under each PR.
+ */
+export const getMostRecentByRepoPr = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    const repoFullName = normalizeRepoFullName(args.repoFullName);
+
+    // First find the preview config for this repo
+    const config = await ctx.db
+      .query("previewConfigs")
+      .withIndex("by_team_repo", (q) =>
+        q.eq("teamId", teamId).eq("repoFullName", repoFullName),
+      )
+      .first();
+
+    if (!config) {
+      return null;
+    }
+
+    // Get the most recent preview run for this config and PR
+    const run = await ctx.db
+      .query("previewRuns")
+      .withIndex("by_config_pr", (q) =>
+        q.eq("previewConfigId", config._id).eq("prNumber", args.prNumber),
+      )
+      .order("desc")
+      .first();
+
+    if (!run) {
+      return null;
+    }
+
+    // Get taskId if available
+    let taskId = undefined;
+    if (run.taskRunId) {
+      const taskRun = await ctx.db.get(run.taskRunId);
+      if (taskRun) {
+        taskId = taskRun.taskId;
+      }
+    }
+
+    return {
+      ...run,
+      taskId,
+    };
+  },
+});
+
+/**
+ * Get preview runs for multiple PRs at once (batch query for sidebar efficiency).
+ * Returns a map of "repoFullName#prNumber" -> most recent preview run.
+ */
+export const getMostRecentForPrs = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    prs: v.array(
+      v.object({
+        repoFullName: v.string(),
+        prNumber: v.number(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+
+    // Group PRs by repo to minimize config lookups
+    const prsByRepo = new Map<string, number[]>();
+    for (const pr of args.prs) {
+      const repo = normalizeRepoFullName(pr.repoFullName);
+      const existing = prsByRepo.get(repo);
+      if (existing) {
+        existing.push(pr.prNumber);
+      } else {
+        prsByRepo.set(repo, [pr.prNumber]);
+      }
+    }
+
+    // Results map: "repoFullName#prNumber" -> preview run
+    const results: Record<
+      string,
+      {
+        _id: string;
+        status: string;
+        createdAt: number;
+        completedAt?: number;
+        headRef?: string;
+        screenshotSetId?: string;
+        taskId?: string;
+      }
+    > = {};
+
+    for (const [repoFullName, prNumbers] of prsByRepo) {
+      // Find the preview config for this repo
+      const config = await ctx.db
+        .query("previewConfigs")
+        .withIndex("by_team_repo", (q) =>
+          q.eq("teamId", teamId).eq("repoFullName", repoFullName),
+        )
+        .first();
+
+      if (!config) {
+        continue;
+      }
+
+      // Get most recent preview run for each PR
+      for (const prNumber of prNumbers) {
+        const run = await ctx.db
+          .query("previewRuns")
+          .withIndex("by_config_pr", (q) =>
+            q.eq("previewConfigId", config._id).eq("prNumber", prNumber),
+          )
+          .order("desc")
+          .first();
+
+        if (run) {
+          let taskId = undefined;
+          if (run.taskRunId) {
+            const taskRun = await ctx.db.get(run.taskRunId);
+            if (taskRun) {
+              taskId = taskRun.taskId;
+            }
+          }
+
+          const key = `${repoFullName}#${prNumber}`;
+          results[key] = {
+            _id: run._id,
+            status: run.status,
+            createdAt: run.createdAt,
+            completedAt: run.completedAt,
+            headRef: run.headRef,
+            screenshotSetId: run.screenshotSetId,
+            taskId,
+          };
+        }
+      }
+    }
+
+    return results;
+  },
+});
