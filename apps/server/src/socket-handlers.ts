@@ -24,6 +24,7 @@ import {
   LOCAL_VSCODE_PLACEHOLDER_ORIGIN,
   type IframePreflightResult,
 } from "@cmux/shared";
+import { resolveOpenWithPath, cloneMissingRepos } from "./utils/resolveOpenWithPath";
 import {
   type PullRequestActionResult,
   type StoredPullRequestInfo,
@@ -1705,53 +1706,108 @@ export function setupSocketHandlers(
       }
 
       try {
-        const { editor, path } = OpenInEditorSchema.parse(data);
+        const { editor, path, context } = OpenInEditorSchema.parse(data);
+
+        // Get context from the request
+        const taskRunId = context?.taskRunId;
+        const environmentId = context?.environmentId;
+        const repoFullName = context?.repoFullName;
+
+        // Get team from query params
+        const qTeam = socket.handshake.query?.team;
+        const teamSlugOrId = Array.isArray(qTeam)
+          ? qTeam[0]
+          : typeof qTeam === "string"
+            ? qTeam
+            : undefined;
+
+        // Resolve the actual path to open, handling cloud tasks and environments
+        const pathResolution = await resolveOpenWithPath({
+          requestedPath: path,
+          taskRunId,
+          environmentId,
+          repoFullName,
+          teamSlugOrId,
+        });
+
+        // If repos need cloning, attempt to clone them
+        if (pathResolution.needsClone.length > 0) {
+          serverLogger.info(
+            `[open-in-editor] Need to clone repositories: ${pathResolution.needsClone.join(", ")}`
+          );
+
+          const { cloned, failed } = await cloneMissingRepos(
+            pathResolution.needsClone,
+            path || "/root/workspace"
+          );
+
+          if (failed.length > 0) {
+            serverLogger.warn(
+              `[open-in-editor] Failed to clone some repositories: ${failed.join(", ")}`
+            );
+            // Continue anyway - user might have other ways to access
+          }
+
+          if (cloned.length > 0) {
+            serverLogger.info(
+              `[open-in-editor] Successfully cloned: ${cloned.join(", ")}`
+            );
+          }
+        }
+
+        const pathToOpen = pathResolution.resolvedPath;
+        serverLogger.info(
+          `[open-in-editor] Opening ${pathToOpen} in ${editor} (resolved from ${path})`
+        );
 
         let command: string[];
         switch (editor) {
           case "vscode":
-            command = ["code", path];
+            command = ["code", pathToOpen];
             break;
           case "cursor":
-            command = ["cursor", path];
+            command = ["cursor", pathToOpen];
             break;
           case "windsurf":
-            command = ["windsurf", path];
+            command = ["windsurf", pathToOpen];
             break;
           case "finder": {
             if (process.platform !== "darwin") {
               throw new Error("Finder is only supported on macOS");
             }
             // Use macOS 'open' to open the folder in Finder
-            command = ["open", path];
+            command = ["open", pathToOpen];
             break;
           }
           case "iterm":
-            command = ["open", "-a", "iTerm", path];
+            command = ["open", "-a", "iTerm", pathToOpen];
             break;
           case "terminal":
-            command = ["open", "-a", "Terminal", path];
+            command = ["open", "-a", "Terminal", pathToOpen];
             break;
           case "ghostty":
-            command = ["open", "-a", "Ghostty", path];
+            command = ["open", "-a", "Ghostty", pathToOpen];
             break;
           case "alacritty":
-            command = ["alacritty", "--working-directory", path];
+            command = ["alacritty", "--working-directory", pathToOpen];
             break;
           case "xcode":
-            command = ["open", "-a", "Xcode", path];
+            command = ["open", "-a", "Xcode", pathToOpen];
             break;
           default:
             throw new Error(`Unknown editor: ${editor}`);
         }
 
-        console.log("command", command);
+        serverLogger.info(`[open-in-editor] Executing command: ${command.join(" ")}`);
 
-        const childProcess = spawn(command[0], command.slice(1));
+        const childProcess = spawn(command[0], command.slice(1), {
+          detached: true,
+          stdio: "ignore",
+        });
 
         childProcess.on("close", (code) => {
           if (code === 0) {
-            serverLogger.info(`Successfully opened ${path} in ${editor}`);
+            serverLogger.info(`Successfully opened ${pathToOpen} in ${editor}`);
             // Send success callback
             if (callback) {
               callback({ success: true });
@@ -1778,6 +1834,9 @@ export function setupSocketHandlers(
             callback({ success: false, error: errorMessage });
           }
         });
+
+        // Unref the child process to avoid keeping the parent alive
+        childProcess.unref();
       } catch (error) {
         serverLogger.error("Error opening editor:", error);
         const errorMessage =
