@@ -20,6 +20,7 @@ SETTINGS=$(jq -n \
   --arg theme "$color" \
   '{
     "workbench.startupEditor": "none",
+    "workbench.secondarySideBar.visible": false,
     "terminal.integrated.shellIntegration.enabled": false,
     "terminal.integrated.macOptionClickForcesSelection": true,
     "terminal.integrated.shell.linux": "/usr/bin/zsh",
