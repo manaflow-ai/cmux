@@ -96,6 +96,40 @@ const parseStoredAgentSelection = (stored: string | null): string[] => {
   }
 };
 
+const REMOTE_IMAGE_SRC_REGEX = /^(https?:\/\/|blob:)/i;
+
+const convertBase64SourceToBlob = (source: string): Blob => {
+  const commaIndex = source.indexOf(",");
+  const metadata = commaIndex >= 0 ? source.slice(0, commaIndex) : undefined;
+  const base64Data = commaIndex >= 0 ? source.slice(commaIndex + 1) : source;
+  const normalizedBase64 = base64Data.replace(/\s/g, "");
+
+  try {
+    const byteCharacters = atob(normalizedBase64);
+    const byteArray = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i += 1) {
+      byteArray[i] = byteCharacters.charCodeAt(i);
+    }
+    const mimeMatch = metadata?.match(/^data:(.*?)(;base64)?$/i);
+    const mimeType = mimeMatch?.[1] ?? "image/png";
+    return new Blob([byteArray], { type: mimeType });
+  } catch (error) {
+    throw new Error("Failed to decode inline image data.");
+  }
+};
+
+const imageSourceToBlob = async (src: string): Promise<Blob> => {
+  if (src.startsWith("data:") || !REMOTE_IMAGE_SRC_REGEX.test(src)) {
+    return convertBase64SourceToBlob(src);
+  }
+
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image from ${src}: ${response.status} ${response.statusText}`);
+  }
+  return await response.blob();
+};
+
 function DashboardComponent() {
   const { teamSlugOrId } = Route.useParams();
   const searchParams = Route.useSearch() as { environmentId?: string };
@@ -480,21 +514,14 @@ function DashboardComponent() {
             fileName?: string;
             altText: string;
           }) => {
-            // Convert base64 to blob
-            const base64Data = image.src.split(",")[1] || image.src;
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: "image/png" });
+            // Support both inline data URLs and remote image sources
+            const blob = await imageSourceToBlob(image.src);
             const uploadUrl = await generateUploadUrl({
               teamSlugOrId,
             });
             const result = await fetch(uploadUrl, {
               method: "POST",
-              headers: { "Content-Type": blob.type },
+              headers: { "Content-Type": blob.type || "application/octet-stream" },
               body: blob,
             });
             const { storageId } = await result.json();
