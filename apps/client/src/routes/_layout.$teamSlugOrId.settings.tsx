@@ -747,13 +747,15 @@ function SettingsComponent() {
 
                       {/* Group API keys by provider for better organization */}
                       {apiKeys.map((key) => {
-                        const getProviderInfo = (envVar: string) => {
+                        const getProviderInfo = (
+                          envVar: string
+                        ): { url: string | null; instructions?: string } | null => {
                           switch (envVar) {
                             case "CLAUDE_CODE_OAUTH_TOKEN":
                               return {
                                 url: null,
                                 instructions:
-                                  "Run 'claude setup-token' in your terminal and paste the output here. This takes precedence over ANTHROPIC_API_KEY.",
+                                  "Run 'claude setup-token' in your terminal and paste the output here. Takes precedence over ANTHROPIC_API_KEY.",
                               };
                             case "ANTHROPIC_API_KEY":
                               return {
@@ -874,26 +876,15 @@ function SettingsComponent() {
                                     </svg>
                                   </a>
                                 )}
-                                {"instructions" in (providerInfo ?? {}) &&
-                                  (
-                                    providerInfo as {
-                                      instructions?: string;
-                                    }
-                                  )?.instructions && (
-                                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                                      {
-                                        (
-                                          providerInfo as {
-                                            instructions?: string;
-                                          }
-                                        ).instructions
-                                      }
-                                    </p>
-                                  )}
                               </div>
                             </div>
 
                             <div className="md:w-[min(100%,480px)] md:flex-shrink-0 self-start">
+                              {providerInfo?.instructions && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mb-1 pb-1">
+                                  {providerInfo.instructions}
+                                </p>
+                              )}
                               <div className="relative">
                                 <input
                                   type={
