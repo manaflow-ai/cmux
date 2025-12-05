@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../../agentConfig";
-import { ANTHROPIC_API_KEY } from "../../apiKeys";
+import { ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN } from "../../apiKeys";
 import { checkClaudeRequirements } from "./check-requirements";
 import { startClaudeCompletionDetector } from "./completion-detector";
 import {
@@ -24,7 +24,7 @@ export const CLAUDE_SONNET_4_CONFIG: AgentConfig = {
   ],
   environment: getClaudeEnvironment,
   checkRequirements: checkClaudeRequirements,
-  apiKeys: [ANTHROPIC_API_KEY],
+  apiKeys: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
   applyApiKeys: applyClaudeApiKeys,
   completionDetector: startClaudeCompletionDetector,
 };
@@ -42,7 +42,7 @@ export const CLAUDE_OPUS_4_CONFIG: AgentConfig = {
   ],
   environment: getClaudeEnvironment,
   checkRequirements: checkClaudeRequirements,
-  apiKeys: [ANTHROPIC_API_KEY],
+  apiKeys: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
   applyApiKeys: applyClaudeApiKeys,
   completionDetector: startClaudeCompletionDetector,
 };
@@ -60,7 +60,7 @@ export const CLAUDE_OPUS_4_1_CONFIG: AgentConfig = {
   ],
   environment: getClaudeEnvironment,
   checkRequirements: checkClaudeRequirements,
-  apiKeys: [ANTHROPIC_API_KEY],
+  apiKeys: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
   applyApiKeys: applyClaudeApiKeys,
   completionDetector: startClaudeCompletionDetector,
 };
@@ -78,7 +78,7 @@ export const CLAUDE_OPUS_4_5_CONFIG: AgentConfig = {
   ],
   environment: getClaudeEnvironment,
   checkRequirements: checkClaudeRequirements,
-  apiKeys: [ANTHROPIC_API_KEY],
+  apiKeys: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
   applyApiKeys: applyClaudeApiKeys,
   completionDetector: startClaudeCompletionDetector,
 };
@@ -96,7 +96,7 @@ export const CLAUDE_SONNET_4_5_CONFIG: AgentConfig = {
   ],
   environment: getClaudeEnvironment,
   checkRequirements: checkClaudeRequirements,
-  apiKeys: [ANTHROPIC_API_KEY],
+  apiKeys: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
   applyApiKeys: applyClaudeApiKeys,
   completionDetector: startClaudeCompletionDetector,
 };
@@ -114,7 +114,7 @@ export const CLAUDE_HAIKU_4_5_CONFIG: AgentConfig = {
   ],
   environment: getClaudeEnvironment,
   checkRequirements: checkClaudeRequirements,
-  apiKeys: [ANTHROPIC_API_KEY],
+  apiKeys: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
   applyApiKeys: applyClaudeApiKeys,
   completionDetector: startClaudeCompletionDetector,
 };

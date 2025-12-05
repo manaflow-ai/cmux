@@ -8,6 +8,7 @@ export const CLAUDE_KEY_ENV_VARS_TO_UNSET = [
   "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_CUSTOM_HEADERS",
   "CLAUDE_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
 ];
 
 export async function getClaudeEnvironment(
@@ -163,14 +164,16 @@ exit 0`;
     mode: "755",
   });
 
+  // Determine auth strategy:
+  // 1. CLAUDE_CODE_OAUTH_TOKEN takes highest precedence - connect directly to Anthropic
+  // 2. ANTHROPIC_API_KEY - use cmux proxy with user's key
+  // 3. Neither - use cmux hosted key via proxy
+  const oauthToken = ctx.apiKeys?.CLAUDE_CODE_OAUTH_TOKEN;
+  const apiKey = ctx.apiKeys?.ANTHROPIC_API_KEY;
+  const useOAuthToken = Boolean(oauthToken);
+
   // Create settings.json with hooks configuration
   const settingsConfig: Record<string, unknown> = {
-    // Use the Anthropic API key from cmux settings.json instead of env vars
-    // This ensures Claude Code always uses the key from cmux, bypassing any
-    // ANTHROPIC_API_KEY environment variables in the repo
-    ...(ctx.apiKeys?.ANTHROPIC_API_KEY
-      ? { anthropicApiKey: ctx.apiKeys.ANTHROPIC_API_KEY }
-      : {}),
     // Configure helper to avoid env-var based prompting
     apiKeyHelper: claudeApiKeyHelperPath,
     hooks: {
@@ -187,9 +190,23 @@ exit 0`;
     },
     env: {
       CLAUDE_CODE_ENABLE_TELEMETRY: 0,
-      ANTHROPIC_BASE_URL: "https://www.cmux.dev/api/anthropic",
-      ANTHROPIC_CUSTOM_HEADERS: `x-cmux-token:${ctx.taskRunJwt}`,
+      // When using OAuth token, connect directly to Anthropic (no proxy)
+      // Otherwise, use cmux proxy for API key auth or hosted key
+      ...(useOAuthToken
+        ? {
+            // OAuth token is passed via environment variable, not settings
+            // No ANTHROPIC_BASE_URL means it uses default Anthropic API
+            CLAUDE_CODE_OAUTH_TOKEN: oauthToken,
+          }
+        : {
+            // Use cmux proxy for API key auth or hosted key fallback
+            ANTHROPIC_BASE_URL: "https://www.cmux.dev/api/anthropic",
+            ANTHROPIC_CUSTOM_HEADERS: `x-cmux-token:${ctx.taskRunJwt}`,
+          }),
     },
+    // Only set anthropicApiKey in settings if using API key (not OAuth token)
+    // and the user provided one
+    ...(apiKey && !useOAuthToken ? { anthropicApiKey: apiKey } : {}),
   };
 
   // Add settings.json to files array as well

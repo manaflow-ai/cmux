@@ -41,3 +41,10 @@ export const MODEL_STUDIO_API_KEY: AgentConfigApiKey = {
   displayName: "Alibaba Cloud ModelStudio API Key",
   description: "Alibaba Cloud ModelStudio (DashScope Intl) API key for Qwen",
 };
+
+export const CLAUDE_CODE_OAUTH_TOKEN: AgentConfigApiKey = {
+  envVar: "CLAUDE_CODE_OAUTH_TOKEN",
+  displayName: "Claude Code OAuth Token",
+  description:
+    "OAuth token from 'claude setup-token'. Takes precedence over ANTHROPIC_API_KEY.",
+};
