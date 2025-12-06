@@ -1,6 +1,6 @@
 {
   "name": "@cmux/client",
-  "version": "1.0.188",
+  "version": "1.0.189",
   "description": "cmux client application",
   "author": "cmux",
   "type": "module",
