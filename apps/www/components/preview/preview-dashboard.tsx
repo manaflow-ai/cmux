@@ -1504,18 +1504,18 @@ function MockGitHubPRBrowser() {
                   {/* Chrome browser inside */}
                   <div className="flex-1 flex flex-col bg-[#202124] overflow-hidden" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
                     {/* Chrome tab bar */}
-                    <div className="flex items-end bg-[#35363a] h-[28px] px-2 shrink-0">
-                      <div className="flex items-center gap-1 bg-[#202124] rounded-t-lg px-2 py-1 max-w-[160px] mt-auto">
+                    <div className="flex items-end bg-[#202124] h-[32px] pt-1.5 px-2 shrink-0">
+                      <div className="flex items-center gap-1.5 bg-[#292a2d] rounded-t-lg px-3 py-1.5 min-w-[140px] mt-auto">
                         <TabFavicon />
-                        <span className="text-[10px] text-[#e8eaed] truncate">cmux.dev</span>
-                        <button className="p-0.5 hover:bg-[#35363a] rounded">
-                          <X className="h-2.5 w-2.5 text-[#9aa0a6]" />
-                        </button>
+                        <span className="text-[10px] text-[#e8eaed] truncate flex-1">cmux.dev</span>
+                        <svg className="h-3 w-3 shrink-0 text-neutral-500 hover:text-white ml-auto" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+                        </svg>
                       </div>
                     </div>
                     {/* Chrome toolbar */}
-                    <div className="flex items-center gap-2 px-2 py-1 bg-[#202124] shrink-0">
-                      <div className="flex-1 flex items-center gap-2 px-2 py-0.5 bg-[#35363a] rounded-full text-[10px]">
+                    <div className="flex items-center gap-2 px-2 py-1 bg-[#292a2d] border-b border-neutral-700 shrink-0">
+                      <div className="flex-1 flex items-center gap-2 px-2 py-0.5 bg-[#202124] rounded-full text-[10px]">
                         <svg className="h-2.5 w-2.5 text-[#9aa0a6]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -1524,7 +1524,7 @@ function MockGitHubPRBrowser() {
                       </div>
                     </div>
                     {/* Browser content - cmux.dev landing page */}
-                    <div className="flex-1 bg-[#030712] overflow-y-auto">
+                    <div className="flex-1 bg-[#030712] overflow-y-auto min-h-0">
                       {/* Gradient background */}
                       <div className="relative">
                         <div className="absolute inset-0 overflow-hidden">
@@ -1862,19 +1862,19 @@ function MockGitHubPRBrowser() {
                   {/* Chrome browser inside */}
                   <div className="flex-1 flex flex-col bg-[#202124] overflow-hidden" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
                     {/* Chrome tab bar */}
-                    <div className="flex items-end bg-[#35363a] h-[32px] px-2 shrink-0">
-                      <div className="flex items-center gap-1 bg-[#202124] rounded-t-lg px-3 py-1.5 max-w-[200px] mt-auto">
+                    <div className="flex items-end bg-[#202124] h-10 pt-2 px-2 shrink-0">
+                      <div className="flex items-center gap-2 bg-[#292a2d] rounded-t-lg px-4 py-2 min-w-[160px] mt-auto">
                         <TabFavicon />
-                        <span className="text-[11px] text-[#e8eaed] truncate">cmux.dev</span>
-                        <button className="p-0.5 hover:bg-[#35363a] rounded">
-                          <X className="h-3 w-3 text-[#9aa0a6]" />
-                        </button>
+                        <span className="text-xs text-[#e8eaed] truncate flex-1">cmux.dev</span>
+                        <svg className="h-3.5 w-3.5 shrink-0 text-neutral-500 hover:text-white ml-auto" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+                        </svg>
                       </div>
                     </div>
                     {/* Chrome toolbar */}
-                    <div className="flex items-center gap-2 px-2 py-1.5 bg-[#202124] shrink-0">
-                      <div className="flex-1 flex items-center gap-2 px-3 py-1 bg-[#35363a] rounded-full text-[11px]">
-                        <svg className="h-3 w-3 text-[#9aa0a6]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#292a2d] border-b border-neutral-700 shrink-0">
+                      <div className="flex-1 flex items-center gap-2 px-3 py-1 bg-[#202124] rounded-full text-sm">
+                        <svg className="h-3.5 w-3.5 text-[#9aa0a6]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                         </svg>
@@ -1882,7 +1882,7 @@ function MockGitHubPRBrowser() {
                       </div>
                     </div>
                     {/* Browser content - cmux.dev landing page */}
-                    <div className="flex-1 bg-[#030712] overflow-y-auto">
+                    <div className="flex-1 bg-[#030712] overflow-y-auto min-h-0">
                       {/* Gradient background */}
                       <div className="relative">
                         <div className="absolute inset-0 overflow-hidden">
