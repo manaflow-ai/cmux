@@ -538,6 +538,320 @@ export const postPreviewComment = internalAction({
   },
 });
 
+/**
+ * Posts an initial "in progress" comment to a GitHub PR with workspace/dev browser links.
+ * This comment is posted as soon as the workspace is ready, before screenshots are captured.
+ * The comment will be updated later with screenshots via updatePreviewComment.
+ */
+export const postInitialPreviewComment = internalAction({
+  args: {
+    installationId: v.number(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    previewRunId: v.id("previewRuns"),
+    workspaceUrl: v.optional(v.string()),
+    devServerUrl: v.optional(v.string()),
+    headSha: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ ok: true; commentId: number; commentUrl: string } | { ok: false; error: string }> => {
+    const {
+      installationId,
+      repoFullName,
+      prNumber,
+      previewRunId,
+      workspaceUrl,
+      devServerUrl,
+      headSha,
+    } = args;
+
+    try {
+      const accessToken = await fetchInstallationAccessToken(installationId);
+      if (!accessToken) {
+        console.error(
+          "[github_pr_comments] Failed to get access token for initial preview comment",
+          { installationId },
+        );
+        return { ok: false, error: "Failed to get access token" };
+      }
+
+      const repo = parseRepoFullName(repoFullName);
+      if (!repo) {
+        console.error("[github_pr_comments] Invalid repo full name", {
+          repoFullName,
+        });
+        return { ok: false, error: "Invalid repository name" };
+      }
+
+      const octokit = createOctokit(accessToken);
+
+      // Build the initial comment with links and "in progress" status
+      const commentSections: string[] = ["## Preview Screenshots"];
+
+      // Build links row
+      const linkParts: string[] = [];
+      if (workspaceUrl) {
+        linkParts.push(`[Open Workspace (1 hr expiry)](${workspaceUrl}?${UTM_PARAMS}&utm_content=workspace)`);
+      }
+      if (devServerUrl) {
+        linkParts.push(`[Open Dev Browser (1 hr expiry)](${devServerUrl}?${UTM_PARAMS}&utm_content=dev_browser)`);
+      }
+      linkParts.push(`[Open Diff Heatmap](https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap)`);
+
+      if (linkParts.length > 0) {
+        commentSections.push(linkParts.join(" · "));
+      }
+
+      // Add "in progress" status
+      const commitLabel = headSha ? `\`${headSha.slice(0, 7)}\`` : "latest commit";
+      commentSections.push(
+        `### Capturing screenshots for ${commitLabel}...`,
+        "",
+        "> Screenshot capture is in progress. This comment will be updated with screenshots once complete.",
+      );
+
+      commentSections.push("---", PREVIEW_SIGNATURE);
+      const commentBody = commentSections.join("\n\n");
+
+      const { data } = await octokit.rest.issues.createComment({
+        owner: repo.owner,
+        repo: repo.repo,
+        issue_number: prNumber,
+        body: commentBody,
+      });
+
+      console.log("[github_pr_comments] Successfully posted initial preview comment", {
+        installationId,
+        repoFullName,
+        prNumber,
+        commentId: data.id,
+        commentUrl: data.html_url,
+      });
+
+      // Update the preview run with the comment info
+      await ctx.runMutation(internal.previewRuns.updateStatus, {
+        previewRunId,
+        status: "running",
+        githubCommentUrl: data.html_url,
+        githubCommentId: data.id,
+      });
+
+      return { ok: true, commentId: data.id, commentUrl: data.html_url };
+    } catch (error) {
+      console.error(
+        "[github_pr_comments] Unexpected error posting initial preview comment",
+        {
+          installationId,
+          repoFullName,
+          prNumber,
+          error,
+        },
+      );
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
+/**
+ * Updates an existing preview comment with full screenshot content.
+ * Used after screenshots are captured to replace the "in progress" content.
+ */
+export const updatePreviewComment = internalAction({
+  args: {
+    installationId: v.number(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    commentId: v.number(),
+    screenshotSetId: v.id("taskRunScreenshotSets"),
+    previewRunId: v.id("previewRuns"),
+    workspaceUrl: v.optional(v.string()),
+    devServerUrl: v.optional(v.string()),
+    includePreviousRuns: v.optional(v.boolean()),
+    previewConfigId: v.optional(v.id("previewConfigs")),
+  },
+  handler: async (ctx, args): Promise<{ ok: true; commentUrl?: string } | { ok: false; error: string }> => {
+    const {
+      installationId,
+      repoFullName,
+      prNumber,
+      commentId,
+      screenshotSetId,
+      previewRunId,
+      workspaceUrl,
+      devServerUrl,
+      includePreviousRuns = false,
+      previewConfigId,
+    } = args;
+
+    try {
+      const accessToken = await fetchInstallationAccessToken(installationId);
+      if (!accessToken) {
+        console.error(
+          "[github_pr_comments] Failed to get access token for update preview comment",
+          { installationId },
+        );
+        return { ok: false, error: "Failed to get access token" };
+      }
+
+      const repo = parseRepoFullName(repoFullName);
+      if (!repo) {
+        console.error("[github_pr_comments] Invalid repo full name", {
+          repoFullName,
+        });
+        return { ok: false, error: "Invalid repository name" };
+      }
+
+      const octokit = createOctokit(accessToken);
+
+      const screenshotSet = await ctx.runQuery(
+        internal.previewScreenshots.getScreenshotSet,
+        { screenshotSetId },
+      );
+
+      if (!screenshotSet) {
+        console.error("[github_pr_comments] Screenshot set not found", {
+          screenshotSetId,
+        });
+        return { ok: false, error: "Screenshot set not found" };
+      }
+
+      // Build comment sections (same as postPreviewComment)
+      const commentSections: string[] = ["## Preview Screenshots"];
+
+      // Build links row
+      const linkParts: string[] = [];
+      if (workspaceUrl) {
+        linkParts.push(`[Open Workspace (1 hr expiry)](${workspaceUrl}?${UTM_PARAMS}&utm_content=workspace)`);
+      }
+      if (devServerUrl) {
+        linkParts.push(`[Open Dev Browser (1 hr expiry)](${devServerUrl}?${UTM_PARAMS}&utm_content=dev_browser)`);
+      }
+      linkParts.push(`[Open Diff Heatmap](https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap)`);
+
+      if (linkParts.length > 0) {
+        commentSections.push(linkParts.join(" · "));
+      }
+
+      // Render the main screenshot section
+      const latestHeading = includePreviousRuns
+        ? `### Latest commit ${formatCommitLabel(screenshotSet)}`
+        : "";
+      const latestSection = await renderScreenshotSetMarkdown(
+        ctx,
+        screenshotSet,
+        latestHeading,
+      );
+
+      commentSections.push(latestSection);
+
+      // Fetch and render previous runs if requested
+      if (includePreviousRuns && previewConfigId) {
+        const previousRuns =
+          (await ctx.runQuery(internal.previewRuns.listByConfigAndPr, {
+            previewConfigId,
+            prNumber,
+            limit: MAX_PREVIOUS_SCREENSHOT_SETS + 1,
+          })) ?? [];
+
+        const previousSetEntries: Array<{
+          run: PreviewRunDoc;
+          set: ScreenshotSetDoc;
+        }> = [];
+        for (const run of previousRuns) {
+          if (run._id === previewRunId) continue;
+          if (!run.screenshotSetId) continue;
+          const priorSet = await ctx.runQuery(
+            internal.previewScreenshots.getScreenshotSet,
+            { screenshotSetId: run.screenshotSetId },
+          );
+          if (!priorSet) continue;
+          previousSetEntries.push({ run, set: priorSet });
+          if (previousSetEntries.length >= MAX_PREVIOUS_SCREENSHOT_SETS) {
+            break;
+          }
+        }
+
+        if (previousSetEntries.length > 0) {
+          const collapsedSections: string[] = [];
+          for (const entry of previousSetEntries) {
+            const sectionHeading = `#### ${summarizeSet(entry.set, entry.run)}`;
+            collapsedSections.push(
+              await renderScreenshotSetMarkdown(ctx, entry.set, sectionHeading),
+            );
+          }
+
+          const previousBlock = [
+            "<details>",
+            `<summary>Previous preview runs (${previousSetEntries.length})</summary>`,
+            "",
+            collapsedSections.join("\n\n---\n\n"),
+            "",
+            "</details>",
+          ].join("\n");
+
+          commentSections.push(previousBlock);
+        }
+      }
+
+      commentSections.push("---", PREVIEW_SIGNATURE);
+      const commentBody = commentSections.join("\n\n");
+
+      // Update the existing comment
+      const { data } = await octokit.rest.issues.updateComment({
+        owner: repo.owner,
+        repo: repo.repo,
+        comment_id: commentId,
+        body: commentBody,
+      });
+
+      console.log("[github_pr_comments] Successfully updated preview comment", {
+        installationId,
+        repoFullName,
+        prNumber,
+        commentId,
+        commentUrl: data.html_url,
+      });
+
+      // Update preview run status
+      await ctx.runMutation(internal.previewRuns.updateStatus, {
+        previewRunId,
+        status: screenshotSet.status as "completed" | "failed" | "skipped",
+        screenshotSetId,
+        githubCommentUrl: data.html_url,
+        githubCommentId: data.id,
+      });
+
+      // Collapse older preview comments
+      await collapseOlderPreviewComments({
+        octokit,
+        owner: repo.owner,
+        repo: repo.repo,
+        prNumber,
+        latestCommentId: data.id,
+      });
+
+      return { ok: true, commentUrl: data.html_url };
+    } catch (error) {
+      console.error(
+        "[github_pr_comments] Unexpected error updating preview comment",
+        {
+          installationId,
+          repoFullName,
+          prNumber,
+          commentId,
+          error,
+        },
+      );
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
 export const addPrComment = internalAction({
   args: {
     installationId: v.number(),

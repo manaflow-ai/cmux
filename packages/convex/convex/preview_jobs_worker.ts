@@ -877,6 +877,51 @@ export async function runPreviewJob(
         taskRunId,
         instanceId: instance.id,
       });
+
+      // Post initial PR comment with workspace/dev browser links immediately
+      // This gives users quick access to the workspace while screenshots are being captured
+      if (run.repoInstallationId && taskId) {
+        const team = await ctx.runQuery(internal.teams.getByTeamIdInternal, {
+          teamId: run.teamId,
+        });
+        const teamSlug = team?.slug ?? run.teamId;
+        const workspaceUrl = `https://cmux.sh/${teamSlug}/task/${taskId}`;
+        const devServerUrl = `https://cmux.sh/${teamSlug}/task/${taskId}/browser`;
+
+        try {
+          const initialCommentResult = await ctx.runAction(
+            internal.github_pr_comments.postInitialPreviewComment,
+            {
+              installationId: run.repoInstallationId,
+              repoFullName: run.repoFullName,
+              prNumber: run.prNumber,
+              previewRunId,
+              workspaceUrl,
+              devServerUrl,
+              headSha: run.headSha,
+            }
+          );
+
+          if (initialCommentResult.ok) {
+            console.log("[preview-jobs] Posted initial PR comment with workspace links", {
+              previewRunId,
+              commentId: initialCommentResult.commentId,
+              commentUrl: initialCommentResult.commentUrl,
+            });
+          } else {
+            console.warn("[preview-jobs] Failed to post initial PR comment", {
+              previewRunId,
+              error: initialCommentResult.error,
+            });
+          }
+        } catch (error) {
+          // Non-fatal: continue with preview job even if initial comment fails
+          console.error("[preview-jobs] Error posting initial PR comment", {
+            previewRunId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
     }
 
     // Step 2: Fetch latest changes and checkout PR

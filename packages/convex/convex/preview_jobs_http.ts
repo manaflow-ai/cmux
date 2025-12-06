@@ -359,7 +359,7 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
       imageCount: taskScreenshotSet.images.length,
     });
 
-    // Post GitHub comment if we have installation ID
+    // Post or update GitHub comment if we have installation ID
     if (previewRun.repoInstallationId) {
       const team = await ctx.runQuery(internal.teams.getByTeamIdInternal, {
         teamId: taskRun.teamId,
@@ -368,24 +368,56 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
       const workspaceUrl = `https://www.cmux.sh/${teamSlug}/task/${taskRun.taskId}`;
       const devServerUrl = `https://www.cmux.sh/${teamSlug}/task/${taskRun.taskId}/run/${taskRunId}/browser`;
 
-      const commentResult = await ctx.runAction(
-        internal.github_pr_comments.postPreviewComment,
-        {
-          installationId: previewRun.repoInstallationId,
-          repoFullName: previewRun.repoFullName,
-          prNumber: previewRun.prNumber,
-          screenshotSetId: taskRun.latestScreenshotSetId,
+      let commentResult: { ok: true; commentUrl?: string } | { ok: false; error: string };
+
+      // Check if there's already a comment to update (posted by postInitialPreviewComment)
+      if (previewRun.githubCommentId) {
+        console.log("[preview-jobs-http] Updating existing PR comment with screenshots", {
+          taskRunId,
           previewRunId: previewRun._id,
-          workspaceUrl,
-          devServerUrl,
-        }
-      );
+          commentId: previewRun.githubCommentId,
+        });
+
+        commentResult = await ctx.runAction(
+          internal.github_pr_comments.updatePreviewComment,
+          {
+            installationId: previewRun.repoInstallationId,
+            repoFullName: previewRun.repoFullName,
+            prNumber: previewRun.prNumber,
+            commentId: previewRun.githubCommentId,
+            screenshotSetId: taskRun.latestScreenshotSetId,
+            previewRunId: previewRun._id,
+            workspaceUrl,
+            devServerUrl,
+          }
+        );
+      } else {
+        // No existing comment, create a new one
+        console.log("[preview-jobs-http] Creating new PR comment with screenshots", {
+          taskRunId,
+          previewRunId: previewRun._id,
+        });
+
+        commentResult = await ctx.runAction(
+          internal.github_pr_comments.postPreviewComment,
+          {
+            installationId: previewRun.repoInstallationId,
+            repoFullName: previewRun.repoFullName,
+            prNumber: previewRun.prNumber,
+            screenshotSetId: taskRun.latestScreenshotSetId,
+            previewRunId: previewRun._id,
+            workspaceUrl,
+            devServerUrl,
+          }
+        );
+      }
 
       if (commentResult.ok) {
-        console.log("[preview-jobs-http] Successfully posted GitHub comment", {
+        console.log("[preview-jobs-http] Successfully posted/updated GitHub comment", {
           taskRunId,
           previewRunId: previewRun._id,
           commentUrl: commentResult.commentUrl,
+          wasUpdate: Boolean(previewRun.githubCommentId),
         });
 
         const taskCompletion = await markPreviewTaskCompleted(ctx, taskRun, task);
@@ -397,10 +429,11 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
           alreadyCompleted: taskCompletion.taskAlreadyCompleted,
         });
       } else {
-        console.error("[preview-jobs-http] Failed to post GitHub comment", {
+        console.error("[preview-jobs-http] Failed to post/update GitHub comment", {
           taskRunId,
           previewRunId: previewRun._id,
           error: commentResult.error,
+          wasUpdate: Boolean(previewRun.githubCommentId),
         });
         return jsonResponse({
           success: false,
