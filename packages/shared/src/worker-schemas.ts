@@ -186,12 +186,20 @@ export const WorkerExecResultSchema = z.object({
 export const WorkerStartScreenshotCollectionSchema = z.object({
   anthropicApiKey: z.string().min(1).optional(),
   outputPath: z.string().optional(),
+  /** Command to install dependencies (e.g., "bun install") */
+  installCommand: z.string().optional(),
+  /** Command to start the dev server (e.g., "bun run dev") */
+  devCommand: z.string().optional(),
 });
 
 export const WorkerRunTaskScreenshotsSchema = z.object({
   token: z.string(),
   anthropicApiKey: z.string().optional(),
   convexUrl: z.string().min(1).optional(),
+  /** Command to install dependencies (e.g., "bun install") */
+  installCommand: z.string().optional(),
+  /** Command to start the dev server (e.g., "bun run dev") */
+  devCommand: z.string().optional(),
 });
 
 // Server to Worker Events

@@ -90,6 +90,10 @@ type BranchBaseOptions = {
   prDescription: string;
   outputDir: string;
   pathToClaudeCodeExecutable?: string;
+  /** Command to install dependencies (e.g., "bun install", "npm install") */
+  installCommand?: string;
+  /** Command to start the dev server (e.g., "bun run dev", "npm run dev") */
+  devCommand?: string;
 };
 
 type BranchCaptureOptions =
@@ -137,10 +141,18 @@ export async function captureScreenshotsForBranch(
     branch,
     outputDir: requestedOutputDir,
     auth,
+    installCommand,
+    devCommand,
   } = options;
   const outputDir = normalizeScreenshotOutputDir(requestedOutputDir);
   const useTaskRunJwt = isTaskRunJwtAuth(auth);
   const providedApiKey = !useTaskRunJwt ? auth.anthropicApiKey : undefined;
+
+  const devInstructions = installCommand || devCommand
+    ? `
+${installCommand ? `Install command: ${installCommand}` : ""}
+${devCommand ? `Dev server command: ${devCommand}` : ""}`
+    : "";
 
   const prompt = `I need you to take screenshots of the UI changes in this pull request.
 
@@ -153,10 +165,10 @@ ${changedFiles.map((f) => `- ${f}`).join("\n")}
 
 Working directory: ${workspaceDir}
 Screenshot output directory: ${outputDir}
-
+${devInstructions}
 Please:
 0. Read CLAUDE.md or AGENTS.md (they may be one level deeper) and install dependencies if needed
-1. Start the development server if needed (check files like README.md, package.json or .devcontainer.json for dev script, explore the repository more if needed. check tmux panes comprehensively to see if the server is running.)
+1. Start the development server if needed (${devCommand ? `use: ${devCommand}` : "check files like README.md, package.json or .devcontainer.json for dev script, explore the repository more if needed"}. check tmux panes comprehensively to see if the server is running.)
 2. Wait for the server to be ready
 3. Navigate to the pages/components that were modified in the PR
 4. Take full-page screenshots as well as element-specific screenshots of each relevant UI view that was changed
@@ -440,6 +452,8 @@ export async function claudeCodeCapturePRScreenshots(
               outputDir,
               auth: { taskRunJwt: auth.taskRunJwt },
               pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+              installCommand: options.installCommand,
+              devCommand: options.devCommand,
             }
           : {
               workspaceDir,
@@ -450,6 +464,8 @@ export async function claudeCodeCapturePRScreenshots(
               outputDir,
               auth: { anthropicApiKey: auth.anthropicApiKey },
               pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+              installCommand: options.installCommand,
+              devCommand: options.devCommand,
             }
       );
       allScreenshots.push(...beforeScreenshots.screenshots);
@@ -476,6 +492,8 @@ export async function claudeCodeCapturePRScreenshots(
             outputDir,
             auth: { taskRunJwt: auth.taskRunJwt },
             pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+            installCommand: options.installCommand,
+            devCommand: options.devCommand,
           }
         : {
             workspaceDir,
@@ -486,6 +504,8 @@ export async function claudeCodeCapturePRScreenshots(
             outputDir,
             auth: { anthropicApiKey: auth.anthropicApiKey },
             pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+            installCommand: options.installCommand,
+            devCommand: options.devCommand,
           }
     );
     allScreenshots.push(...afterScreenshots.screenshots);

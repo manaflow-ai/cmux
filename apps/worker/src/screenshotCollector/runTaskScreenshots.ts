@@ -14,6 +14,10 @@ export interface RunTaskScreenshotsOptions {
   convexUrl?: string;
   anthropicApiKey?: string | null;
   taskRunJwt?: string | null;
+  /** Command to install dependencies (e.g., "bun install") */
+  installCommand?: string | null;
+  /** Command to start the dev server (e.g., "bun run dev") */
+  devCommand?: string | null;
 }
 
 function resolveContentType(filePath: string): string {
@@ -93,6 +97,8 @@ export async function runTaskScreenshots(
   const result = await startScreenshotCollection({
     anthropicApiKey: anthropicApiKey ?? undefined,
     taskRunJwt,
+    installCommand: options.installCommand,
+    devCommand: options.devCommand,
   });
 
   let images: ScreenshotUploadPayload["images"];

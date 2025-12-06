@@ -1323,6 +1323,9 @@ export async function runPreviewJob(
       const screenshotPayload: WorkerRunTaskScreenshots = {
         token: previewJwt,
         convexUrl,
+        // Pass environment scripts so Claude knows how to install deps and run dev server
+        installCommand: environment.maintenanceScript ?? undefined,
+        devCommand: environment.devScript ?? undefined,
       };
 
       try {

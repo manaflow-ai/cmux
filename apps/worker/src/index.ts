@@ -124,11 +124,15 @@ async function runPreviewJobScreenshots({
   anthropicApiKey,
   context,
   logPrefix,
+  installCommand,
+  devCommand,
 }: {
   token: string;
   anthropicApiKey?: string;
   context: PreviewJobContext;
   logPrefix: string;
+  installCommand?: string;
+  devCommand?: string;
 }) {
   const { taskId, taskRunId, convexUrl } = context;
 
@@ -144,6 +148,8 @@ async function runPreviewJobScreenshots({
     convexUrl,
     anthropicApiKey,
     taskRunJwt: token,
+    installCommand,
+    devCommand,
   });
 
   log("INFO", `${logPrefix} Screenshots completed, calling /api/preview/complete`, {
@@ -316,6 +322,8 @@ app.post("/api/run-task-screenshots", async (req, res) => {
           anthropicApiKey: data.anthropicApiKey,
           context,
           logPrefix,
+          installCommand: data.installCommand,
+          devCommand: data.devCommand,
         });
       } catch (error) {
         log("ERROR", `${logPrefix} Failed`, error);

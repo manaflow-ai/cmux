@@ -27,6 +27,10 @@ export interface StartScreenshotCollectionOptions {
   headBranch?: string | null;
   baseBranch?: string | null;
   changedFiles?: string[] | null;
+  /** Command to install dependencies (e.g., "bun install") */
+  installCommand?: string | null;
+  /** Command to start the dev server (e.g., "bun run dev") */
+  devCommand?: string | null;
 }
 
 interface CapturedScreenshot {
@@ -455,6 +459,8 @@ export async function startScreenshotCollection(
       headBranch,
       outputDir,
       pathToClaudeCodeExecutable: "/root/.bun/bin/claude",
+      installCommand: options.installCommand ?? undefined,
+      devCommand: options.devCommand ?? undefined,
       ...claudeAuth,
     });
 
