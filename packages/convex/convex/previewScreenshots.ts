@@ -66,6 +66,7 @@ export const createScreenshotSet = internalMutation({
         taskId: taskRun.taskId,
         runId: taskRun._id,
         status: args.status,
+        commitSha: args.commitSha,
         hasUiChanges: args.hasUiChanges,
         screenshots,
         error: args.error,

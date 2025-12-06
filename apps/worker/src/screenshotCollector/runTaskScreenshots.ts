@@ -14,6 +14,10 @@ export interface RunTaskScreenshotsOptions {
   convexUrl?: string;
   anthropicApiKey?: string | null;
   taskRunJwt?: string | null;
+  /** Command to install dependencies (e.g., "bun install") */
+  installCommand?: string | null;
+  /** Command to start the dev server (e.g., "bun run dev") */
+  devCommand?: string | null;
 }
 
 function resolveContentType(filePath: string): string {
@@ -93,14 +97,18 @@ export async function runTaskScreenshots(
   const result = await startScreenshotCollection({
     anthropicApiKey: anthropicApiKey ?? undefined,
     taskRunJwt,
+    installCommand: options.installCommand,
+    devCommand: options.devCommand,
   });
 
   let images: ScreenshotUploadPayload["images"];
   let hasUiChanges: boolean | undefined;
   let status: ScreenshotUploadPayload["status"] = "failed";
   let error: string | undefined;
+  let commitSha: string | undefined;
 
   if (result.status === "completed") {
+    commitSha = result.commitSha;
     const capturedScreens = result.screenshots ?? [];
     hasUiChanges = result.hasUiChanges;
     if (capturedScreens.length === 0) {
@@ -160,6 +168,7 @@ export async function runTaskScreenshots(
   } else if (result.status === "skipped") {
     status = "skipped";
     error = result.reason;
+    commitSha = result.commitSha;
     log("INFO", "Screenshot workflow skipped", {
       taskRunId,
       reason: result.reason,
@@ -167,6 +176,7 @@ export async function runTaskScreenshots(
   } else if (result.status === "failed") {
     status = "failed";
     error = result.error;
+    commitSha = result.commitSha;
     log("ERROR", "Screenshot workflow failed", {
       taskRunId,
       error: result.error,
@@ -179,6 +189,16 @@ export async function runTaskScreenshots(
       result,
     });
   }
+  // For completed status, commitSha is required
+  if (status === "completed" && !commitSha) {
+    log("ERROR", "Cannot upload completed screenshot result without commitSha", {
+      taskRunId,
+      status,
+      error,
+    });
+    return;
+  }
+
   await uploadScreenshot({
     token,
     baseUrlOverride: convexUrl,
@@ -186,6 +206,8 @@ export async function runTaskScreenshots(
       taskId,
       runId: taskRunId,
       status,
+      // Only include commitSha if available (required for completed, optional for failed/skipped)
+      ...(commitSha && { commitSha }),
       images,
       error,
       hasUiChanges,

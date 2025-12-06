@@ -335,6 +335,7 @@ const convexSchema = defineSchema({
         storageId: v.id("_storage"),
         mimeType: v.string(),
         fileName: v.optional(v.string()),
+        // @deprecated - use the top-level commitSha field instead
         commitSha: v.optional(v.string()),
         description: v.optional(v.string()),
       }),

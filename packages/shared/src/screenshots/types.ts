@@ -27,6 +27,8 @@ export const ScreenshotUploadPayloadSchema = z.object({
   taskId: typedZid("tasks"),
   runId: typedZid("taskRuns"),
   status: z.enum(["completed", "failed", "skipped"]),
+  /** Required for completed status, optional for failed/skipped */
+  commitSha: z.string().optional(),
   images: z.array(ScreenshotStoredImageSchema).optional(),
   error: z.string().optional(),
   hasUiChanges: z.boolean().optional(),

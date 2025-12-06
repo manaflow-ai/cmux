@@ -3,15 +3,11 @@
 set -euo pipefail
 
 IMAGE_NAME="cmux-shell"
-CONTAINER_NAME="cmux-screenshot"
-WORKER_PORT=39377
-POLLING_BASE="http://localhost:${WORKER_PORT}/socket.io/?EIO=4&transport=polling"
+# Default run ID is empty (uses base ports), or can be specified for parallel runs
+RUN_ID=""
 PR_URL=""
 EXEC_COMMAND=""
 NON_INTERACTIVE=false
-HOST_OUTPUT_ROOT="$(pwd)/tmp"
-HOST_OUTPUT_TGZ="$HOST_OUTPUT_ROOT/cmux-screenshots-latest.tgz"
-HOST_OUTPUT_DIR="$HOST_OUTPUT_ROOT/cmux-screenshots-latest"
 INITIAL_SCREENSHOT_DIR=""
 INITIAL_SCREENSHOT_MTIME=""
 RUN_START_TS=""
@@ -28,6 +24,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --pr=*)
       PR_URL="${1#*=}"
+      shift 1
+      ;;
+    --run-id)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --run-id requires an argument" >&2
+        exit 1
+      fi
+      RUN_ID="$2"
+      shift 2
+      ;;
+    --run-id=*)
+      RUN_ID="${1#*=}"
       shift 1
       ;;
     --exec)
@@ -50,6 +58,32 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Generate unique container name and port offset based on run ID
+if [ -n "$RUN_ID" ]; then
+  CONTAINER_NAME="cmux-screenshot-${RUN_ID}"
+  # Use hash of run ID to generate port offset (0-99)
+  PORT_OFFSET=$(($(echo "$RUN_ID" | cksum | cut -d' ' -f1) % 100))
+else
+  CONTAINER_NAME="cmux-screenshot"
+  PORT_OFFSET=0
+fi
+
+# Base ports offset for parallel runs (each run gets 10 consecutive ports)
+BASE_PORT=$((39375 + PORT_OFFSET * 10))
+WORKER_PORT=$((BASE_PORT + 2))  # 39377 equivalent
+
+# Output directories - unique per run
+HOST_OUTPUT_ROOT="$(pwd)/tmp"
+if [ -n "$RUN_ID" ]; then
+  HOST_OUTPUT_TGZ="$HOST_OUTPUT_ROOT/cmux-screenshots-${RUN_ID}.tgz"
+  HOST_OUTPUT_DIR="$HOST_OUTPUT_ROOT/cmux-screenshots-${RUN_ID}"
+else
+  HOST_OUTPUT_TGZ="$HOST_OUTPUT_ROOT/cmux-screenshots-latest.tgz"
+  HOST_OUTPUT_DIR="$HOST_OUTPUT_ROOT/cmux-screenshots-latest"
+fi
+
+POLLING_BASE="http://localhost:${WORKER_PORT}/socket.io/?EIO=4&transport=polling"
 
 container_started=false
 
@@ -98,15 +132,15 @@ docker run -d \
   --tmpfs /run/lock \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   -v docker-data:/var/lib/docker \
-  -p 39375:39375 \
-  -p 39376:39376 \
-  -p 39377:39377 \
-  -p 39378:39378 \
-  -p 39379:39379 \
-  -p 39380:39380 \
-  -p 39381:39381 \
-  -p 39382:39382 \
-  -p 39383:39383 \
+  -p "${BASE_PORT}:39375" \
+  -p "$((BASE_PORT + 1)):39376" \
+  -p "$((BASE_PORT + 2)):39377" \
+  -p "$((BASE_PORT + 3)):39378" \
+  -p "$((BASE_PORT + 4)):39379" \
+  -p "$((BASE_PORT + 5)):39380" \
+  -p "$((BASE_PORT + 6)):39381" \
+  -p "$((BASE_PORT + 7)):39382" \
+  -p "$((BASE_PORT + 8)):39383" \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   --name "$CONTAINER_NAME" \
   "$IMAGE_NAME"
@@ -267,14 +301,17 @@ curl -s \
   --data-binary "42/management,${SOCKET_PAYLOAD}" \
   "${POLLING_BASE}&sid=${SID}&t=$(date +%s%3N)" >/dev/null
 
-echo "Screenshot collection trigger sent. View logs via http://localhost:39378/?folder=/var/log/cmux"
+VSCODE_PORT=$((BASE_PORT + 3))  # 39378 equivalent
+NOVNC_PORT=$((BASE_PORT + 5))   # 39380 equivalent
+
+echo "Screenshot collection trigger sent. View logs via http://localhost:${VSCODE_PORT}/?folder=/var/log/cmux"
 
 echo ""
 echo "================================ URLs ================================="
-printf "| %-18s | %s |\n" "Worker Logs" "http://localhost:39378/?folder=/var/log/cmux"
-printf "| %-18s | %s |\n" "Workspace" "http://localhost:39378/?folder=/root/workspace"
-printf "| %-18s | %s |\n" "VS Code" "http://localhost:39378/?folder=/root/workspace"
-printf "| %-18s | %s |\n" "noVNC" "http://localhost:39380/vnc.html"
+printf "| %-18s | %s |\n" "Worker Logs" "http://localhost:${VSCODE_PORT}/?folder=/var/log/cmux"
+printf "| %-18s | %s |\n" "Workspace" "http://localhost:${VSCODE_PORT}/?folder=/root/workspace"
+printf "| %-18s | %s |\n" "VS Code" "http://localhost:${VSCODE_PORT}/?folder=/root/workspace"
+printf "| %-18s | %s |\n" "noVNC" "http://localhost:${NOVNC_PORT}/vnc.html"
 echo "========================================================================"
 
 if [ -n "$EXEC_COMMAND" ]; then

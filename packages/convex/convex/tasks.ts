@@ -657,6 +657,8 @@ export const recordScreenshotResult = internalMutation({
       v.literal("failed"),
       v.literal("skipped"),
     ),
+    /** Required for completed status, optional for failed/skipped */
+    commitSha: v.optional(v.string()),
     hasUiChanges: v.optional(v.boolean()),
     screenshots: v.optional(
       v.array(
@@ -690,14 +692,13 @@ export const recordScreenshotResult = internalMutation({
       runId: args.runId,
       status: args.status,
       hasUiChanges: args.hasUiChanges ?? undefined,
-      commitSha: screenshots[0]?.commitSha,
+      commitSha: args.commitSha,
       capturedAt: now,
       error: args.error ?? undefined,
       images: screenshots.map((screenshot) => ({
         storageId: screenshot.storageId,
         mimeType: screenshot.mimeType,
         fileName: screenshot.fileName,
-        commitSha: screenshot.commitSha,
         description: screenshot.description,
       })),
       createdAt: now,
