@@ -30,6 +30,7 @@ import {
   ClipboardCopy,
   FolderPlus,
   GitPullRequest,
+  Globe,
   Home,
   LogOut,
   Monitor,
@@ -1428,6 +1429,11 @@ export function CommandBar({
         });
       } else if (value === "dev:webcontents") {
         navigate({ to: "/debug-webcontents" });
+      } else if (value === "dev:webview-proxy") {
+        navigate({
+          to: "/$teamSlugOrId/webview-proxy",
+          params: { teamSlugOrId },
+        });
       } else if (value.startsWith("team:")) {
         const [teamId, slugPart] = value.slice(5).split(":");
         const targetTeamSlugOrId = slugPart || teamId;
@@ -1619,6 +1625,24 @@ export function CommandBar({
                 <>
                   <Bug className="h-4 w-4 text-neutral-500" />
                   <span className="text-sm">Debug WebContents</span>
+                </>
+              ),
+            },
+            {
+              value: "dev:webview-proxy",
+              label: "Webview Proxy",
+              keywords: ["webview", "proxy", "preview"],
+              searchText: buildSearchText(
+                "Webview Proxy",
+                ["webview", "proxy", "dev"],
+                ["dev:webview-proxy"]
+              ),
+              className: baseCommandItemClassName,
+              execute: () => handleSelect("dev:webview-proxy"),
+              renderContent: () => (
+                <>
+                  <Globe className="h-4 w-4 text-neutral-500" />
+                  <span className="text-sm">Webview Proxy</span>
                 </>
               ),
             },
