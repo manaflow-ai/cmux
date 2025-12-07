@@ -163,8 +163,14 @@ pub const SYNC_FILES: &[SyncFileDef] = &[
         sandbox_path: "/root/.qwen/settings.json",
         is_dir: false,
     },
-    // Zsh configuration - only sync .zshrc.local for user customizations
-    // (sandbox has its own default .zshrc with git prompt, autosuggestions, etc.)
+    // Zsh configuration - sync user's zshrc if they have one
+    // (sandbox creates a default .zshrc only if user doesn't have their own)
+    SyncFileDef {
+        name: "Zshrc",
+        host_path: ".zshrc",
+        sandbox_path: "/root/.zshrc",
+        is_dir: false,
+    },
     SyncFileDef {
         name: "Zshrc Local",
         host_path: ".zshrc.local",
