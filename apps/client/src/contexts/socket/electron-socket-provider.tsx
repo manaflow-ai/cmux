@@ -34,6 +34,7 @@ export const ElectronSocketProvider: React.FC<React.PropsWithChildren> = ({
       console.warn("[ElectronSocket] No auth token yet; delaying connect");
       return;
     }
+    console.log("[ElectronSocket] Connecting with fresh auth token");
 
     let disposed = false;
     let createdSocket: CmuxIpcSocketClient | null = null;
@@ -67,7 +68,21 @@ export const ElectronSocketProvider: React.FC<React.PropsWithChildren> = ({
       });
 
       createdSocket.on("connect_error", (error: unknown) => {
-        console.error("[ElectronSocket] Connection error:", error);
+        const errorMessage =
+          error && typeof error === "object" && "message" in error
+            ? (error as Error).message
+            : String(error);
+        console.error("[ElectronSocket] Connection error:", errorMessage);
+
+        // Check if this is a token expiration error
+        if (
+          errorMessage.includes("Token expired") ||
+          errorMessage.includes("InvalidAuthHeader")
+        ) {
+          console.log(
+            "[ElectronSocket] Token expired, will reconnect with fresh token on next auth refresh"
+          );
+        }
       });
 
       createdSocket.on("available-editors", (editors: unknown) => {
