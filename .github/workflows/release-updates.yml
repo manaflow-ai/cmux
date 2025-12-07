@@ -261,6 +261,12 @@ jobs:
           toolchain: stable
           profile: minimal
           targets: aarch64-apple-darwin
+      - name: Clean Rust build artifacts
+        working-directory: apps/server/native/core
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf target || true
       - name: Install dependencies (bun)
         run: bun install --frozen-lockfile
       - name: Install app deps in apps/client (bun)
@@ -279,6 +285,9 @@ jobs:
       - name: Build native Rust addon
         working-directory: apps/server/native/core
         shell: bash
+        env:
+          CARGO_BUILD_JOBS: 3
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: bunx --bun @napi-rs/cli build --platform --release
       - name: Build, sign, and notarize (arm64) via publish script
         env:
@@ -403,17 +412,21 @@ jobs:
           NEXT_PUBLIC_GITHUB_APP_SLUG=${{ secrets.NEXT_PUBLIC_GITHUB_APP_SLUG }}
           EOF
 
-      - name: Remove stale macOS native binaries
+      - name: Clean Rust build artifacts
         working-directory: apps/server/native/core
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf target || true
           rm -f cmux_native_core.darwin-*.node
 
       # Prebuild the Rust N-API addon for both slices so electron-builder can pick them up.
       - name: Build native Rust addon (arm64 + x64)
         working-directory: apps/server/native/core
         shell: bash
+        env:
+          CARGO_BUILD_JOBS: 3
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: |
           set -euo pipefail
           rustup target add x86_64-apple-darwin aarch64-apple-darwin || true
