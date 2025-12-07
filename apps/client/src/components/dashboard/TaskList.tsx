@@ -116,6 +116,16 @@ type PreviewRunWithConfig = Doc<"previewRuns"> & {
   taskId?: Id<"tasks">;
 };
 
+// Preview run grouped by PR
+type PreviewRunGroup = {
+  key: string; // "repoFullName#prNumber"
+  repoFullName: string;
+  prNumber: number;
+  prUrl: string;
+  latestRun: PreviewRunWithConfig;
+  olderRuns: PreviewRunWithConfig[];
+};
+
 type PreviewCategoryKey = "in_progress" | "completed";
 
 const PREVIEW_CATEGORY_ORDER: PreviewCategoryKey[] = ["in_progress", "completed"];
@@ -136,7 +146,7 @@ const PREVIEW_CATEGORY_META: Record<
 
 const createEmptyPreviewCategoryBuckets = (): Record<
   PreviewCategoryKey,
-  PreviewRunWithConfig[]
+  PreviewRunGroup[]
 > => ({
   in_progress: [],
   completed: [],
@@ -154,20 +164,61 @@ const getPreviewCategory = (run: PreviewRunWithConfig): PreviewCategoryKey | nul
   return null;
 };
 
+// Group preview runs by PR, with the most recent run as the "latestRun"
+const groupPreviewRunsByPr = (
+  runs: PreviewRunWithConfig[]
+): Map<string, PreviewRunGroup> => {
+  const groups = new Map<string, PreviewRunGroup>();
+
+  // Runs are already sorted by createdAt desc from the API
+  for (const run of runs) {
+    const key = `${run.repoFullName}#${run.prNumber}`;
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, {
+        key,
+        repoFullName: run.repoFullName,
+        prNumber: run.prNumber,
+        prUrl: run.prUrl,
+        latestRun: run,
+        olderRuns: [],
+      });
+    } else {
+      existing.olderRuns.push(run);
+    }
+  }
+
+  return groups;
+};
+
 const categorizePreviewRuns = (
   runs: PreviewRunWithConfig[] | undefined
-): Record<PreviewCategoryKey, PreviewRunWithConfig[]> | null => {
+): Record<PreviewCategoryKey, PreviewRunGroup[]> | null => {
   if (!runs) {
     return null;
   }
+
+  // First group all runs by PR
+  const groups = groupPreviewRunsByPr(runs);
+
+  // Then categorize groups by the status of the latest run
   const buckets = createEmptyPreviewCategoryBuckets();
-  for (const run of runs) {
-    const key = getPreviewCategory(run);
-    // Skip runs that don't belong to any category (e.g., failed runs)
+  for (const group of groups.values()) {
+    const key = getPreviewCategory(group.latestRun);
+    // Skip groups where the latest run doesn't belong to any category (e.g., failed runs)
     if (key !== null) {
-      buckets[key].push(run);
+      buckets[key].push(group);
     }
   }
+
+  // Sort groups by the latest run's createdAt
+  for (const key of PREVIEW_CATEGORY_ORDER) {
+    buckets[key].sort((a, b) =>
+      (b.latestRun.createdAt ?? 0) - (a.latestRun.createdAt ?? 0)
+    );
+  }
+
   return buckets;
 };
 
@@ -263,6 +314,16 @@ export const TaskList = memo(function TaskList({
     }));
   }, [setCollapsedPreviewCategories]);
 
+  // State for expanded preview groups (PRs with older runs)
+  const [expandedPreviewGroups, setExpandedPreviewGroups] = useState<Record<string, boolean>>({});
+
+  const togglePreviewGroup = useCallback((groupKey: string) => {
+    setExpandedPreviewGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  }, []);
+
   return (
     <div className="mt-6 w-full">
       <div className="mb-3 px-4">
@@ -339,10 +400,12 @@ export const TaskList = memo(function TaskList({
                 <PreviewCategorySection
                   key={categoryKey}
                   categoryKey={categoryKey}
-                  previewRuns={previewCategoryBuckets[categoryKey]}
+                  previewGroups={previewCategoryBuckets[categoryKey]}
                   teamSlugOrId={teamSlugOrId}
                   collapsed={Boolean(collapsedPreviewCategories[categoryKey])}
                   onToggle={togglePreviewCategoryCollapse}
+                  expandedGroups={expandedPreviewGroups}
+                  onToggleGroup={togglePreviewGroup}
                 />
               ))}
             </div>
@@ -448,16 +511,20 @@ function TaskCategorySection({
 
 function PreviewCategorySection({
   categoryKey,
-  previewRuns,
+  previewGroups,
   teamSlugOrId,
   collapsed,
   onToggle,
+  expandedGroups,
+  onToggleGroup,
 }: {
   categoryKey: PreviewCategoryKey;
-  previewRuns: PreviewRunWithConfig[];
+  previewGroups: PreviewRunGroup[];
   teamSlugOrId: string;
   collapsed: boolean;
   onToggle: (key: PreviewCategoryKey) => void;
+  expandedGroups: Record<string, boolean>;
+  onToggleGroup: (groupKey: string) => void;
 }) {
   const meta = PREVIEW_CATEGORY_META[categoryKey];
   const handleToggle = useCallback(
@@ -468,6 +535,10 @@ function PreviewCategorySection({
   const toggleLabel = collapsed
     ? `Expand ${meta.title}`
     : `Collapse ${meta.title}`;
+
+  // Count total PRs (groups)
+  const groupCount = previewGroups.length;
+
   return (
     <div className="w-full">
       <div
@@ -494,15 +565,21 @@ function PreviewCategorySection({
           <div className="flex items-center gap-2 text-xs font-medium tracking-tight text-neutral-900 dark:text-neutral-100">
             <span>{meta.title}</span>
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              {previewRuns.length}
+              {groupCount}
             </span>
           </div>
         </div>
       </div>
-      {collapsed ? null : previewRuns.length > 0 ? (
+      {collapsed ? null : groupCount > 0 ? (
         <div id={contentId} className="flex flex-col w-full">
-          {previewRuns.map((run) => (
-            <PreviewItem key={run._id} previewRun={run} teamSlugOrId={teamSlugOrId} />
+          {previewGroups.map((group) => (
+            <PreviewGroupItem
+              key={group.key}
+              group={group}
+              teamSlugOrId={teamSlugOrId}
+              isExpanded={expandedGroups[group.key] ?? false}
+              onToggle={() => onToggleGroup(group.key)}
+            />
           ))}
         </div>
       ) : (
@@ -510,6 +587,72 @@ function PreviewCategorySection({
           <p className="pl-5 text-xs text-neutral-500 dark:text-neutral-400 select-none">
             {meta.emptyLabel}
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Component for displaying a preview group (PR) with expandable older runs
+function PreviewGroupItem({
+  group,
+  teamSlugOrId,
+  isExpanded,
+  onToggle,
+}: {
+  group: PreviewRunGroup;
+  teamSlugOrId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const hasOlderRuns = group.olderRuns.length > 0;
+
+  return (
+    <div className="w-full">
+      {/* Latest run - always visible */}
+      <div className="relative">
+        <PreviewItem
+          previewRun={group.latestRun}
+          teamSlugOrId={teamSlugOrId}
+        />
+        {/* Expand/collapse button for older runs */}
+        {hasOlderRuns && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggle();
+            }}
+            className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded hover:bg-neutral-200/60 dark:hover:bg-neutral-700/60 transition-colors"
+            aria-label={isExpanded ? "Collapse previous runs" : `Show ${group.olderRuns.length} previous run${group.olderRuns.length === 1 ? "" : "s"}`}
+            aria-expanded={isExpanded}
+          >
+            <ChevronRight
+              className={clsx(
+                "h-3 w-3 text-neutral-400 dark:text-neutral-500 transition-transform duration-200",
+                isExpanded && "rotate-90"
+              )}
+              aria-hidden="true"
+            />
+          </button>
+        )}
+      </div>
+
+      {/* Older runs - collapsible */}
+      {hasOlderRuns && isExpanded && (
+        <div className="relative pl-6 border-l-2 border-neutral-200 dark:border-neutral-700 ml-3">
+          <div className="absolute -left-[7px] top-0 text-[9px] text-neutral-400 dark:text-neutral-500 bg-white dark:bg-neutral-900 px-0.5 select-none">
+            {group.olderRuns.length} older
+          </div>
+          {group.olderRuns.map((run) => (
+            <div key={run._id} className="opacity-60 hover:opacity-100 transition-opacity">
+              <PreviewItem
+                previewRun={run}
+                teamSlugOrId={teamSlugOrId}
+              />
+            </div>
+          ))}
         </div>
       )}
     </div>
