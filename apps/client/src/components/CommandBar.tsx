@@ -1,5 +1,6 @@
 import { env } from "@/client-env";
 import { GitHubIcon } from "@/components/icons/github";
+import { NewTaskDialog } from "@/components/task/NewTaskDialog";
 import { useTheme } from "@/components/theme/use-theme";
 import { useExpandTasks } from "@/contexts/expand-tasks/ExpandTasksContext";
 import { useSocket } from "@/contexts/socket/use-socket";
@@ -298,6 +299,7 @@ export function CommandBar({
     useState(false);
   const [isCreatingCloudWorkspace, setIsCreatingCloudWorkspace] =
     useState(false);
+  const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
   const [commandValue, setCommandValue] = useState<string | undefined>(
     undefined
   );
@@ -1316,10 +1318,7 @@ export function CommandBar({
         setActivePage("teams");
         return;
       } else if (value === "new-task") {
-        navigate({
-          to: "/$teamSlugOrId/dashboard",
-          params: { teamSlugOrId },
-        });
+        setIsNewTaskDialogOpen(true);
       } else if (value === "local-workspaces") {
         setActivePage("local-workspaces");
         return;
@@ -2727,6 +2726,11 @@ export function CommandBar({
           </Command>
         </div>
       </div>
+      <NewTaskDialog
+        open={isNewTaskDialogOpen}
+        onOpenChange={setIsNewTaskDialogOpen}
+        teamSlugOrId={teamSlugOrId}
+      />
     </>
   );
 }
