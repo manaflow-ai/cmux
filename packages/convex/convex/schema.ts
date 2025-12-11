@@ -1043,6 +1043,23 @@ const convexSchema = defineSchema({
     .index("by_statusId", ["statusId"])
     .index("by_sha_context", ["sha", "context", "updatedAt"])
     .index("by_sha", ["sha", "updatedAt"]),
+
+  // User SSH public keys for sandbox authentication
+  userSshKeys: defineTable({
+    userId: v.string(), // Stack Auth user ID
+    name: v.string(), // 'MacBook Pro', 'Work Laptop'
+    publicKey: v.string(), // 'ssh-ed25519 AAAA...'
+    fingerprint: v.string(), // SHA256 fingerprint for lookup
+    source: v.union(
+      v.literal("manual"), // User pasted/uploaded
+      v.literal("github"), // Imported from GitHub
+      v.literal("local") // Read from ~/.ssh/*.pub
+    ),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_fingerprint", ["userId", "fingerprint"]),
 });
 
 export default convexSchema;

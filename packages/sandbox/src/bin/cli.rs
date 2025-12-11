@@ -1,10 +1,13 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::SecondsFormat;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmux_sandbox::models::{
     CreateSandboxRequest, EnvVar, ExecRequest, ExecResponse, NotificationLogEntry, SandboxSummary,
 };
 use cmux_sandbox::{
-    build_default_env_vars, extract_api_key_from_output, store_claude_token,
+    build_default_env_vars, cache_access_token, clear_cached_access_token,
+    delete_stack_refresh_token, extract_api_key_from_output, get_cached_access_token,
+    get_stack_refresh_token, store_claude_token, store_stack_refresh_token,
     sync_files::{
         prebuild_sync_files_tar, upload_prebuilt_sync_files, upload_sync_files, SYNC_FILES,
     },
@@ -16,6 +19,7 @@ use futures::{SinkExt, StreamExt};
 use ignore::WalkBuilder;
 use reqwest::Client;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -91,11 +95,17 @@ enum Command {
     #[command(name = "_internal-proxy", hide = true)]
     InternalProxy { address: String },
 
-    /// Internal helper to proxy SSH through WebSocket to a sandbox (used as SSH ProxyCommand)
+    /// Internal helper to proxy SSH through direct TCP to Morph (used as SSH ProxyCommand)
     #[command(name = "_ssh-proxy", hide = true)]
     SshProxy {
-        /// Sandbox ID or index
+        /// Sandbox ID (morphvm_xxx or task-run ID)
         id: String,
+        /// Team slug or ID
+        #[arg(long, short = 't', env = "CMUX_TEAM")]
+        team: Option<String>,
+        /// API base URL (for staging/self-hosted environments)
+        #[arg(long, short = 'u', env = "CMUX_BASE_URL")]
+        base_url: Option<String>,
     },
 
     /// Start the sandbox server container
@@ -129,8 +139,20 @@ enum Command {
     /// SSH into a sandbox (real SSH, not WebSocket attach)
     Ssh(SshArgs),
 
+    /// Execute a command on a sandbox via SSH (non-interactive)
+    #[command(name = "ssh-exec")]
+    SshExec(SshExecArgs),
+
     /// Generate SSH config for easy sandbox access (e.g., `ssh sandbox-0`)
     SshConfig,
+
+    /// Manage SSH keys for sandbox access
+    #[command(subcommand)]
+    SshKeys(SshKeysCommand),
+
+    /// Manage cloud VMs (create, list, etc.)
+    #[command(subcommand)]
+    Vm(VmCommand),
 }
 
 #[derive(Args, Debug)]
@@ -159,17 +181,106 @@ struct AuthArgs {
 
 #[derive(Subcommand, Debug)]
 enum AuthCommand {
-    /// List detected authentication files on the host
+    /// Login via browser
+    Login,
+    /// Logout and clear stored credentials
+    Logout,
+    /// Show current authentication state
     Status,
+    /// Print the current access token (for debugging)
+    Token,
+}
+
+#[derive(Subcommand, Debug)]
+enum SshKeysCommand {
+    /// List registered SSH keys
+    #[command(alias = "ls")]
+    List,
+    /// Add an SSH key
+    Add(SshKeysAddArgs),
+    /// Remove an SSH key by fingerprint or ID
+    #[command(alias = "rm")]
+    Remove {
+        /// Fingerprint (SHA256:...) or key ID to remove
+        fingerprint_or_id: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum VmCommand {
+    /// Create a new cloud VM
+    Create(VmCreateArgs),
+    /// List running VMs
+    #[command(alias = "ls")]
+    List(VmListArgs),
+}
+
+#[derive(Args, Debug)]
+struct VmCreateArgs {
+    /// Team slug or ID (required)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: String,
+    /// Time-to-live in seconds before VM auto-pauses (default: 30 minutes)
+    #[arg(long, default_value_t = 1800)]
+    ttl: u64,
+    /// Snapshot preset to use (e.g., "4vcpu_16gb_48gb", "8vcpu_32gb_48gb")
+    #[arg(long)]
+    preset: Option<String>,
+    /// GitHub repositories to clone (format: owner/repo)
+    #[arg(long = "repo", short = 'r')]
+    repos: Vec<String>,
+    /// Output format (json or text)
+    #[arg(long, default_value = "text")]
+    output: String,
+}
+
+#[derive(Args, Debug)]
+struct VmListArgs {
+    /// Team slug or ID
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+    /// Output format (json or text)
+    #[arg(long, default_value = "text")]
+    output: String,
+}
+
+#[derive(Args, Debug)]
+struct SshKeysAddArgs {
+    /// Path to the SSH public key file (default: auto-detect ~/.ssh/id_*.pub)
+    #[arg(value_name = "PATH")]
+    path: Option<PathBuf>,
+
+    /// Import keys from connected GitHub account
+    #[arg(long)]
+    from_github: bool,
+
+    /// Name for the key (default: hostname)
+    #[arg(long, short)]
+    name: Option<String>,
 }
 
 #[derive(Args, Debug)]
 struct SshArgs {
-    /// Sandbox ID or index
+    /// Sandbox ID or index (can be morphvm_xxx or task-run ID)
     id: String,
+    /// Team slug or ID (required for remote SSH connections)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
     /// Additional SSH arguments (e.g., -L 8080:localhost:8080 for port forwarding)
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     ssh_args: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct SshExecArgs {
+    /// Sandbox ID or index (can be morphvm_xxx or task-run ID)
+    id: String,
+    /// Team slug or ID (required for remote SSH connections)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+    /// Command to execute on the sandbox
+    #[arg(trailing_var_arg = true, required = true)]
+    command: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -555,8 +666,9 @@ async fn run() -> anyhow::Result<()> {
                 tokio::io::copy(&mut ri, &mut stdout)
             );
         }
-        Command::SshProxy { id } => {
-            handle_ssh_proxy(&cli.base_url, &id).await?;
+        Command::SshProxy { id, team, base_url } => {
+            let api_url = base_url.as_deref().unwrap_or(&cli.base_url);
+            handle_ssh_proxy(&id, team.as_deref(), api_url).await?;
         }
         Command::Proxy { id, port } => {
             handle_proxy(cli.base_url, id, port).await?;
@@ -669,25 +781,17 @@ async fn run() -> anyhow::Result<()> {
             }
         }
         Command::Auth(args) => match args.command {
+            AuthCommand::Login => {
+                handle_auth_login().await?;
+            }
+            AuthCommand::Logout => {
+                handle_auth_logout()?;
+            }
             AuthCommand::Status => {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                let home_path = PathBuf::from(home);
-                println!(
-                    "Checking for authentication files in {}:",
-                    home_path.display()
-                );
-                println!("{:<25} {:<50} {:<10}", "NAME", "PATH", "STATUS");
-                println!("{}", "-".repeat(85));
-
-                for def in SYNC_FILES {
-                    let path = home_path.join(def.host_path);
-                    let status = if path.exists() {
-                        "\x1b[32mFound\x1b[0m"
-                    } else {
-                        "\x1b[90mMissing\x1b[0m"
-                    };
-                    println!("{:<25} {:<50} {}", def.name, def.host_path, status);
-                }
+                handle_auth_status().await?;
+            }
+            AuthCommand::Token => {
+                handle_auth_token().await?;
             }
         },
         Command::SetupClaude => {
@@ -702,9 +806,31 @@ async fn run() -> anyhow::Result<()> {
         Command::Ssh(args) => {
             handle_real_ssh(&client, &cli.base_url, &args).await?;
         }
+        Command::SshExec(args) => {
+            handle_ssh_exec(&client, &cli.base_url, &args).await?;
+        }
         Command::SshConfig => {
             handle_ssh_config(&client, &cli.base_url).await?;
         }
+        Command::SshKeys(cmd) => match cmd {
+            SshKeysCommand::List => {
+                handle_ssh_keys_list().await?;
+            }
+            SshKeysCommand::Add(args) => {
+                handle_ssh_keys_add(args).await?;
+            }
+            SshKeysCommand::Remove { fingerprint_or_id } => {
+                handle_ssh_keys_remove(&fingerprint_or_id).await?;
+            }
+        },
+        Command::Vm(cmd) => match cmd {
+            VmCommand::Create(args) => {
+                handle_vm_create(args).await?;
+            }
+            VmCommand::List(args) => {
+                handle_vm_list(args).await?;
+            }
+        },
         Command::Sandboxes(cmd) => {
             match cmd {
                 SandboxCommand::List => {
@@ -1880,6 +2006,1212 @@ async fn handle_exec_request(
     Ok(())
 }
 
+// =============================================================================
+// CLI Authentication
+// =============================================================================
+
+/// CMUX API base URL (for cmux-specific endpoints like /api/sandboxes)
+/// Debug builds use localhost, release builds use production
+fn get_cmux_api_url() -> String {
+    std::env::var("CMUX_API_URL").unwrap_or_else(|_| {
+        #[cfg(debug_assertions)]
+        {
+            // Dev server (apps/www runs on port 9779)
+            "http://localhost:9779".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // Production
+            "https://cmux.sh".to_string()
+        }
+    })
+}
+
+/// Auth provider API base URL (for authentication endpoints)
+fn get_auth_api_url() -> String {
+    std::env::var("AUTH_API_URL").unwrap_or_else(|_| "https://api.stack-auth.com".to_string())
+}
+
+/// Auth project ID - dev for debug builds, prod for release builds
+fn get_auth_project_id() -> String {
+    std::env::var("STACK_PROJECT_ID").unwrap_or_else(|_| {
+        #[cfg(debug_assertions)]
+        {
+            // Dev Stack Auth project
+            "1467bed0-8522-45ee-a8d8-055de324118c".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // Prod Stack Auth project
+            "8a877114-b905-47c5-8b64-3a2d90679577".to_string()
+        }
+    })
+}
+
+/// Auth publishable client key - dev for debug builds, prod for release builds
+fn get_auth_publishable_key() -> String {
+    std::env::var("STACK_PUBLISHABLE_CLIENT_KEY").unwrap_or_else(|_| {
+        #[cfg(debug_assertions)]
+        {
+            // Dev Stack Auth key
+            "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // Prod Stack Auth key
+            "pck_8761mjjmyqc84e1e8ga3rn0k1nkggmggwa3pyzzgntv70".to_string()
+        }
+    })
+}
+
+/// CLI auth initiation response
+#[derive(serde::Deserialize, Debug)]
+struct CliAuthInitResponse {
+    polling_code: String,
+    login_code: String,
+}
+
+/// CLI auth poll response
+#[derive(serde::Deserialize, Debug)]
+struct CliAuthPollResponse {
+    status: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+}
+
+/// Token refresh response
+#[derive(serde::Deserialize, Debug)]
+struct TokenRefreshResponse {
+    access_token: String,
+}
+
+/// User info from Stack Auth
+#[derive(serde::Deserialize, Debug)]
+struct StackUserInfo {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    primary_email: Option<String>,
+}
+
+/// SSH connection info from the cmux API
+#[derive(serde::Deserialize, Debug)]
+struct SandboxSshInfo {
+    #[serde(rename = "morphInstanceId")]
+    morph_instance_id: String,
+    host: String,
+    port: u16,
+    user: String,
+}
+
+/// Stack Auth team info
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct StackTeam {
+    id: String,
+    #[serde(default, rename = "displayName")]
+    display_name: Option<String>,
+    #[serde(default, rename = "clientMetadata")]
+    client_metadata: Option<serde_json::Value>,
+}
+
+/// Stack Auth teams list response
+#[derive(serde::Deserialize, Debug)]
+struct StackTeamsResponse {
+    items: Vec<StackTeam>,
+}
+
+/// Custom error type for session expiry
+#[derive(Debug)]
+struct SessionExpiredError;
+
+impl std::fmt::Display for SessionExpiredError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Session expired or revoked. Please run 'cmux auth login' to re-authenticate."
+        )
+    }
+}
+
+impl std::error::Error for SessionExpiredError {}
+
+/// Get an access token using the stored refresh token.
+/// Uses caching to avoid unnecessary refresh calls (access tokens are valid for ~10 minutes).
+/// Implements retry logic with exponential backoff for network resilience.
+async fn get_access_token(client: &Client) -> anyhow::Result<String> {
+    // Buffer time: refresh if token expires in less than 60 seconds
+    const MIN_VALIDITY_SECS: i64 = 60;
+
+    // Check cache first
+    if let Some(cached_token) = get_cached_access_token(MIN_VALIDITY_SECS) {
+        return Ok(cached_token);
+    }
+
+    // Need to refresh - get the refresh token
+    let refresh_token = get_stack_refresh_token()
+        .ok_or_else(|| anyhow::anyhow!("Not logged in. Run 'cmux auth login' first."))?;
+
+    // Refresh the access token with retries
+    let access_token = refresh_access_token_with_retry(client, &refresh_token).await?;
+
+    // Cache the new token
+    cache_access_token(&access_token);
+
+    Ok(access_token)
+}
+
+/// Refresh access token with retry logic and proper error handling
+async fn refresh_access_token_with_retry(
+    client: &Client,
+    refresh_token: &str,
+) -> anyhow::Result<String> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+    let refresh_url = format!("{}/api/v1/auth/sessions/current/refresh", api_url);
+
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 500;
+
+    let mut last_error: Option<anyhow::Error> = None;
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            // Exponential backoff: 500ms, 1000ms, 2000ms
+            let delay = INITIAL_DELAY_MS * (1 << (attempt - 1));
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+
+        let result = client
+            .post(&refresh_url)
+            .header("x-stack-project-id", &project_id)
+            .header("x-stack-publishable-client-key", &publishable_key)
+            .header("x-stack-access-type", "client")
+            .header("x-stack-refresh-token", refresh_token)
+            .send()
+            .await;
+
+        match result {
+            Ok(response) => {
+                let status = response.status();
+
+                if status.is_success() {
+                    let token_response: TokenRefreshResponse = response.json().await?;
+                    return Ok(token_response.access_token);
+                }
+
+                let body = response.text().await.unwrap_or_default();
+
+                // Check for session expired error - don't retry these
+                if status == reqwest::StatusCode::UNAUTHORIZED
+                    && body.contains("REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED")
+                {
+                    // Clear any cached tokens and stored refresh token
+                    clear_cached_access_token();
+                    let _ = delete_stack_refresh_token();
+                    return Err(SessionExpiredError.into());
+                }
+
+                // Server errors (5xx) are retryable
+                if status.is_server_error() {
+                    last_error = Some(anyhow::anyhow!(
+                        "Server error refreshing token: {} - {}",
+                        status,
+                        body
+                    ));
+                    continue;
+                }
+
+                // Client errors (4xx other than 401 session expired) are not retryable
+                return Err(anyhow::anyhow!(
+                    "Failed to refresh token: {} - {}. Try 'cmux auth login' to re-authenticate.",
+                    status,
+                    body
+                ));
+            }
+            Err(e) => {
+                // Network errors are retryable
+                if e.is_timeout() || e.is_connect() || e.is_request() {
+                    last_error = Some(anyhow::anyhow!("Network error: {}", e));
+                    continue;
+                }
+                // Other errors are not retryable
+                return Err(e.into());
+            }
+        }
+    }
+
+    // All retries exhausted
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to refresh token after retries")))
+}
+
+/// Get the user's teams from Stack Auth
+async fn get_user_teams(client: &Client, access_token: &str) -> anyhow::Result<Vec<StackTeam>> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    let teams_url = format!("{}/api/v1/users/me/teams", api_url);
+    let response = client
+        .get(&teams_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get teams: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let teams_response: StackTeamsResponse = response.json().await?;
+    Ok(teams_response.items)
+}
+
+/// Get SSH connection info for a sandbox from the cmux API
+async fn get_sandbox_ssh_info(
+    client: &Client,
+    access_token: &str,
+    sandbox_id: &str,
+    team_slug_or_id: &str,
+    base_url: &str,
+) -> anyhow::Result<SandboxSshInfo> {
+    let api_url = base_url;
+
+    // URL-encode the query parameters
+    let query: String = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("teamSlugOrId", team_slug_or_id)
+        .finish();
+    let ssh_url = format!("{}/api/sandboxes/{}/ssh?{}", api_url, sandbox_id, query);
+
+    let response = client
+        .get(&ssh_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get SSH info: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let ssh_info: SandboxSshInfo = response.json().await?;
+    Ok(ssh_info)
+}
+
+/// Resolve the team to use - from explicit flag, env var, or first available team
+async fn resolve_team(
+    client: &Client,
+    access_token: &str,
+    explicit_team: Option<&str>,
+) -> anyhow::Result<String> {
+    // If explicitly provided, use that
+    if let Some(team) = explicit_team {
+        return Ok(team.to_string());
+    }
+
+    // Try to get the user's teams and use the first one
+    let teams = get_user_teams(client, access_token).await?;
+
+    if teams.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No teams found. Create a team at https://cmux.sh or specify --team."
+        ));
+    }
+
+    // Prefer teams with a slug in metadata
+    for team in &teams {
+        if let Some(metadata) = &team.client_metadata {
+            if let Some(slug) = metadata.get("slug").and_then(|v| v.as_str()) {
+                return Ok(slug.to_string());
+            }
+        }
+    }
+
+    // Fall back to the first team's ID
+    Ok(teams[0].id.clone())
+}
+
+/// Handle `cmux auth login` - browser-based Stack Auth flow
+async fn handle_auth_login() -> anyhow::Result<()> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    // Check if already logged in
+    if get_stack_refresh_token().is_some() {
+        eprintln!("\x1b[33mYou are already logged in.\x1b[0m");
+        eprintln!("Run 'cmux auth logout' first if you want to re-authenticate.");
+        return Ok(());
+    }
+
+    eprintln!("Starting authentication...");
+
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+
+    // Step 1: Initiate CLI auth flow
+    let init_url = format!("{}/api/v1/auth/cli", api_url);
+    let init_body = serde_json::json!({
+        "expires_in_millis": 600000  // 10 minutes
+    });
+
+    let response = client
+        .post(&init_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("Content-Type", "application/json")
+        .json(&init_body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to initiate auth: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let init_response: CliAuthInitResponse = response.json().await?;
+
+    // Step 2: Open browser (use cmux.sh for browser URL, not auth API)
+    let cmux_url = get_cmux_api_url();
+    let auth_url = format!(
+        "{}/handler/cli-auth-confirm?login_code={}",
+        cmux_url, init_response.login_code
+    );
+
+    eprintln!("\nOpening browser to complete authentication...");
+    eprintln!("If browser doesn't open, visit:\n  {}\n", auth_url);
+
+    if let Err(e) = open::that(&auth_url) {
+        eprintln!("Failed to open browser: {}", e);
+        eprintln!("Please open the URL manually.");
+    }
+
+    // Step 3: Poll for completion
+    eprintln!("Waiting for authentication... (press Ctrl+C to cancel)");
+
+    let poll_url = format!("{}/api/v1/auth/cli/poll", api_url);
+    let mut attempts = 0;
+    let max_attempts = 120; // 10 minutes at 5 second intervals
+
+    loop {
+        attempts += 1;
+        if attempts > max_attempts {
+            return Err(anyhow::anyhow!("Authentication timed out"));
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        let poll_body = serde_json::json!({
+            "polling_code": init_response.polling_code
+        });
+
+        let response = client
+            .post(&poll_url)
+            .header("x-stack-project-id", &project_id)
+            .header("x-stack-publishable-client-key", &publishable_key)
+            .header("x-stack-access-type", "client")
+            .header("Content-Type", "application/json")
+            .json(&poll_body)
+            .send()
+            .await;
+
+        let response = match response {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Poll request failed: {}. Retrying...", e);
+                continue;
+            }
+        };
+
+        if !response.status().is_success() {
+            // Keep polling on non-success (could be pending)
+            continue;
+        }
+
+        let poll_response: CliAuthPollResponse = match response.json().await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        match poll_response.status.as_str() {
+            "success" => {
+                if let Some(refresh_token) = poll_response.refresh_token {
+                    // Store the refresh token
+                    store_stack_refresh_token(&refresh_token)
+                        .map_err(|e| anyhow::anyhow!("Failed to store token: {}", e))?;
+
+                    eprintln!("\n\x1b[32m✓ Authentication successful!\x1b[0m");
+                    eprintln!("  Refresh token stored securely.");
+
+                    // Try to get user info
+                    if let Ok(user_info) = get_user_info(&client, &refresh_token).await {
+                        if let Some(email) = user_info.primary_email {
+                            eprintln!("  Logged in as: {}", email);
+                        } else if let Some(name) = user_info.display_name {
+                            eprintln!("  Logged in as: {}", name);
+                        }
+                    }
+
+                    return Ok(());
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Authentication succeeded but no refresh token returned"
+                    ));
+                }
+            }
+            "expired" => {
+                return Err(anyhow::anyhow!("Authentication expired. Please try again."));
+            }
+            _ => {
+                // Still pending, continue polling
+                eprint!(".");
+            }
+        }
+    }
+}
+
+/// Get user info using a refresh token
+async fn get_user_info(client: &Client, refresh_token: &str) -> anyhow::Result<StackUserInfo> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    // First get an access token
+    let refresh_url = format!("{}/api/v1/auth/sessions/current/refresh", api_url);
+    let response = client
+        .post(&refresh_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("x-stack-refresh-token", refresh_token)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to refresh token: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let token_response: TokenRefreshResponse = response.json().await?;
+
+    // Now get user info
+    let user_url = format!("{}/api/v1/users/me", api_url);
+    let response = client
+        .get(&user_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("x-stack-access-token", &token_response.access_token)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get user info: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let user_info: StackUserInfo = response.json().await?;
+    Ok(user_info)
+}
+
+/// Handle `cmux auth logout` - clear stored credentials
+fn handle_auth_logout() -> anyhow::Result<()> {
+    let had_token = get_stack_refresh_token().is_some();
+
+    // Clear both refresh token and cached access token
+    delete_stack_refresh_token().map_err(|e| anyhow::anyhow!("Failed to delete token: {}", e))?;
+    clear_cached_access_token();
+
+    if had_token {
+        eprintln!("\x1b[32m✓ Logged out successfully.\x1b[0m");
+    } else {
+        eprintln!("No credentials found. Already logged out.");
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux auth status` - show current auth state and files
+async fn handle_auth_status() -> anyhow::Result<()> {
+    // Show auth status
+    println!("\x1b[1mAuthentication Status:\x1b[0m");
+
+    if let Some(refresh_token) = get_stack_refresh_token() {
+        let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+
+        match get_user_info(&client, &refresh_token).await {
+            Ok(user_info) => {
+                println!("  Status: \x1b[32mLogged in\x1b[0m");
+                if let Some(email) = user_info.primary_email {
+                    println!("  Email: {}", email);
+                }
+                if let Some(name) = user_info.display_name {
+                    println!("  Name: {}", name);
+                }
+                if let Some(id) = user_info.id {
+                    println!("  User ID: {}", id);
+                }
+            }
+            Err(e) => {
+                println!("  Status: \x1b[33mSession expired or invalid\x1b[0m");
+                println!("  Error: {}", e);
+                println!("  Try 'cmux auth login' to re-authenticate.");
+            }
+        }
+    } else {
+        println!("  Status: \x1b[90mNot logged in\x1b[0m");
+        println!("  Run 'cmux auth login' to authenticate.");
+    }
+
+    // Show auth files status
+    println!("\n\x1b[1mAuthentication Files:\x1b[0m");
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let home_path = PathBuf::from(home);
+
+    println!("{:<25} {:<50} {:<10}", "NAME", "PATH", "STATUS");
+    println!("{}", "-".repeat(85));
+
+    for def in SYNC_FILES {
+        let path = home_path.join(def.host_path);
+        let status = if path.exists() {
+            "\x1b[32mFound\x1b[0m"
+        } else {
+            "\x1b[90mMissing\x1b[0m"
+        };
+        println!("{:<25} {:<50} {}", def.name, def.host_path, status);
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux auth token` - print current access token
+async fn handle_auth_token() -> anyhow::Result<()> {
+    let refresh_token = get_stack_refresh_token()
+        .ok_or_else(|| anyhow::anyhow!("Not logged in. Run 'cmux auth login' first."))?;
+
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+
+    let refresh_url = format!("{}/api/v1/auth/sessions/current/refresh", api_url);
+    let response = client
+        .post(&refresh_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("x-stack-refresh-token", &refresh_token)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to refresh token: {} - {}. Try 'cmux auth login' to re-authenticate.",
+            status,
+            text
+        ));
+    }
+
+    let token_response: TokenRefreshResponse = response.json().await?;
+
+    // Print just the token (useful for piping)
+    println!("{}", token_response.access_token);
+
+    Ok(())
+}
+
+// =============================================================================
+// SSH Keys Management
+// =============================================================================
+
+/// Response type for SSH key listing
+#[derive(serde::Deserialize, Debug)]
+struct SshKeyInfo {
+    id: String,
+    name: String,
+    fingerprint: String,
+    source: String,
+    #[serde(rename = "createdAt")]
+    created_at: i64,
+}
+
+/// Response type for SSH key creation
+#[derive(serde::Deserialize, Debug)]
+struct CreateSshKeyResponse {
+    id: String,
+    fingerprint: String,
+}
+
+/// Response type for GitHub import
+#[derive(serde::Deserialize, Debug)]
+struct ImportGithubKeysResponse {
+    imported: u32,
+    keys: Vec<CreateSshKeyResponse>,
+}
+
+/// Compute SSH key fingerprint from a public key string.
+/// Format: 'SHA256:base64...'
+fn compute_ssh_fingerprint(public_key: &str) -> anyhow::Result<String> {
+    // SSH public key format: "type base64-blob comment"
+    let parts: Vec<&str> = public_key.split_whitespace().collect();
+    if parts.len() < 2 {
+        return Err(anyhow::anyhow!("Invalid SSH public key format"));
+    }
+
+    let key_type = parts[0];
+    let key_blob = parts[1];
+
+    // Validate key type
+    let valid_types = [
+        "ssh-rsa",
+        "ssh-dss",
+        "ssh-ed25519",
+        "ecdsa-sha2-nistp256",
+        "ecdsa-sha2-nistp384",
+        "ecdsa-sha2-nistp521",
+        "sk-ssh-ed25519@openssh.com",
+        "sk-ecdsa-sha2-nistp256@openssh.com",
+    ];
+
+    if !valid_types.contains(&key_type) {
+        return Err(anyhow::anyhow!("Unsupported SSH key type: {}", key_type));
+    }
+
+    // Decode base64 blob and compute SHA256 hash
+    let binary_data = BASE64
+        .decode(key_blob)
+        .map_err(|_| anyhow::anyhow!("Invalid base64 in SSH public key"))?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(&binary_data);
+    let hash = hasher.finalize();
+
+    // Convert to base64 without padding (matches ssh-keygen output)
+    let base64_hash = BASE64.encode(hash);
+    let base64_hash = base64_hash.trim_end_matches('=');
+
+    Ok(format!("SHA256:{}", base64_hash))
+}
+
+/// Find an SSH public key file in the default locations
+fn find_ssh_public_key() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let ssh_dir = PathBuf::from(home).join(".ssh");
+
+    // Check common key types in order of preference
+    let key_files = ["id_ed25519.pub", "id_rsa.pub", "id_ecdsa.pub"];
+
+    for key_file in key_files {
+        let path = ssh_dir.join(key_file);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+/// Get the hostname for default key name
+fn get_hostname() -> String {
+    std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("HOST"))
+        .or_else(|_| {
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|output| {
+                    if output.status.success() {
+                        String::from_utf8(output.stdout)
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or(std::env::VarError::NotPresent)
+        })
+        .unwrap_or_else(|_| "my-laptop".to_string())
+}
+
+/// Format a timestamp as a human-readable relative time
+fn format_relative_time(timestamp_ms: i64) -> String {
+    let now = chrono::Utc::now().timestamp_millis();
+    let diff_secs = (now - timestamp_ms) / 1000;
+
+    if diff_secs < 60 {
+        "just now".to_string()
+    } else if diff_secs < 3600 {
+        let mins = diff_secs / 60;
+        format!("{} minute{} ago", mins, if mins == 1 { "" } else { "s" })
+    } else if diff_secs < 86400 {
+        let hours = diff_secs / 3600;
+        format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
+    } else {
+        let days = diff_secs / 86400;
+        format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
+    }
+}
+
+/// Handle `cmux ssh-keys list` - list registered SSH keys
+async fn handle_ssh_keys_list() -> anyhow::Result<()> {
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    let url = format!("{}/api/user/ssh-keys", api_url);
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list SSH keys: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let keys: Vec<SshKeyInfo> = response.json().await?;
+
+    if keys.is_empty() {
+        println!("No SSH keys registered.");
+        println!("\nAdd a key with: cmux ssh-keys add");
+        return Ok(());
+    }
+
+    // Print header
+    println!(
+        "{:<20} {:<45} {:<10} CREATED",
+        "NAME", "FINGERPRINT", "SOURCE"
+    );
+    println!("{}", "-".repeat(90));
+
+    // Print keys
+    for key in keys {
+        // Truncate fingerprint for display
+        let fingerprint_display = if key.fingerprint.len() > 43 {
+            format!("{}...", &key.fingerprint[..40])
+        } else {
+            key.fingerprint.clone()
+        };
+
+        println!(
+            "{:<20} {:<45} {:<10} {}",
+            truncate_string(&key.name, 18),
+            fingerprint_display,
+            key.source,
+            format_relative_time(key.created_at)
+        );
+    }
+
+    Ok(())
+}
+
+/// Truncate a string to fit in a column
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
+}
+
+/// Handle `cmux ssh-keys add` - add an SSH key
+async fn handle_ssh_keys_add(args: SshKeysAddArgs) -> anyhow::Result<()> {
+    // Handle --from-github flag
+    if args.from_github {
+        return handle_ssh_keys_import_github().await;
+    }
+
+    // Get the public key file path
+    let key_path = match args.path {
+        Some(path) => {
+            if !path.exists() {
+                return Err(anyhow::anyhow!(
+                    "SSH public key file not found: {}",
+                    path.display()
+                ));
+            }
+            path
+        }
+        None => find_ssh_public_key().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No SSH public key found.\n\
+                     \n\
+                     Looked in ~/.ssh/ for: id_ed25519.pub, id_rsa.pub, id_ecdsa.pub\n\
+                     \n\
+                     Generate a new key with: ssh-keygen -t ed25519\n\
+                     Or specify a path: cmux ssh-keys add /path/to/key.pub"
+            )
+        })?,
+    };
+
+    eprintln!("Found SSH public key at {}", key_path.display());
+
+    // Read the public key
+    let public_key = std::fs::read_to_string(&key_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read SSH key: {}", e))?;
+    let public_key = public_key.trim();
+
+    // Compute fingerprint
+    let fingerprint = compute_ssh_fingerprint(public_key)?;
+    eprintln!("Fingerprint: {}", fingerprint);
+
+    // Get key name
+    let key_name = if let Some(name) = args.name {
+        name
+    } else {
+        let default_name = get_hostname();
+        eprintln!();
+
+        // Use dialoguer for interactive prompt
+        use dialoguer::Input;
+        let name: String = Input::new()
+            .with_prompt("Key name")
+            .default(default_name)
+            .interact_text()?;
+        name
+    };
+
+    // Get access token and make API request
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    let url = format!("{}/api/user/ssh-keys", api_url);
+    let body = serde_json::json!({
+        "publicKey": public_key,
+        "name": key_name
+    });
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 409 {
+            return Err(anyhow::anyhow!(
+                "SSH key with this fingerprint already exists"
+            ));
+        }
+        return Err(anyhow::anyhow!(
+            "Failed to add SSH key: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let result: CreateSshKeyResponse = response.json().await?;
+
+    eprintln!("\n\x1b[32m✓ SSH key registered successfully\x1b[0m");
+    eprintln!("  ID: {}", result.id);
+    eprintln!("  Fingerprint: {}", result.fingerprint);
+
+    Ok(())
+}
+
+/// Handle `cmux ssh-keys add --from-github` - import keys from GitHub
+async fn handle_ssh_keys_import_github() -> anyhow::Result<()> {
+    eprintln!("Importing SSH keys from connected GitHub account...");
+
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    let url = format!("{}/api/user/ssh-keys/import-github", api_url);
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 400 && text.contains("not connected") {
+            return Err(anyhow::anyhow!(
+                "GitHub account not connected.\n\
+                 \n\
+                 Please connect your GitHub account at https://cmux.sh/settings"
+            ));
+        }
+        return Err(anyhow::anyhow!(
+            "Failed to import GitHub keys: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let result: ImportGithubKeysResponse = response.json().await?;
+
+    if result.imported == 0 {
+        eprintln!("\x1b[33mNo new keys to import.\x1b[0m");
+        eprintln!("Either you have no SSH keys on GitHub or they're already registered.");
+    } else {
+        eprintln!(
+            "\n\x1b[32m✓ Imported {} SSH key{} from GitHub\x1b[0m",
+            result.imported,
+            if result.imported == 1 { "" } else { "s" }
+        );
+        for key in &result.keys {
+            eprintln!("  • {}", key.fingerprint);
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux ssh-keys remove` - remove an SSH key
+async fn handle_ssh_keys_remove(fingerprint_or_id: &str) -> anyhow::Result<()> {
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    // First, list keys to find the one to delete
+    let list_url = format!("{}/api/user/ssh-keys", api_url);
+    let list_response = client
+        .get(&list_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !list_response.status().is_success() {
+        let status = list_response.status();
+        let text = list_response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list SSH keys: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let keys: Vec<SshKeyInfo> = list_response.json().await?;
+
+    // Find the key by fingerprint or ID
+    let key_to_delete = keys.iter().find(|k| {
+        k.id == fingerprint_or_id
+            || k.fingerprint == fingerprint_or_id
+            || k.fingerprint.ends_with(fingerprint_or_id)
+    });
+
+    let key = match key_to_delete {
+        Some(k) => k,
+        None => {
+            return Err(anyhow::anyhow!(
+                "SSH key not found: {}\n\
+                 \n\
+                 Use 'cmux ssh-keys list' to see registered keys.",
+                fingerprint_or_id
+            ));
+        }
+    };
+
+    // Delete the key
+    let delete_url = format!("{}/api/user/ssh-keys/{}", api_url, key.id);
+    let delete_response = client
+        .delete(&delete_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !delete_response.status().is_success() {
+        let status = delete_response.status();
+        let text = delete_response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to delete SSH key: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    eprintln!("\x1b[32m✓ SSH key removed: {}\x1b[0m", key.name);
+    eprintln!("  Fingerprint: {}", key.fingerprint);
+
+    Ok(())
+}
+
+/// Response from the setup-instance endpoint
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SetupInstanceResponse {
+    instance_id: String,
+    vscode_url: String,
+    cloned_repos: Vec<String>,
+    removed_repos: Vec<String>,
+}
+
+/// Handle `cmux vm create` - create a new cloud VM
+async fn handle_vm_create(args: VmCreateArgs) -> anyhow::Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    // Build the request body
+    let mut body = serde_json::json!({
+        "ttlSeconds": args.ttl,
+        "teamSlugOrId": args.team,
+    });
+
+    if let Some(preset) = &args.preset {
+        body["presetId"] = serde_json::json!(preset);
+    }
+
+    if !args.repos.is_empty() {
+        body["repos"] = serde_json::json!(args.repos);
+    }
+
+    eprintln!("Creating cloud VM...");
+
+    let url = format!("{}/api/morph/setup-instance", api_url);
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to create VM: {} - {} (url: {})",
+            status,
+            text,
+            url
+        ));
+    }
+
+    let result: SetupInstanceResponse = response.json().await?;
+
+    if args.output == "json" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "instanceId": result.instance_id,
+                "vscodeUrl": result.vscode_url,
+                "clonedRepos": result.cloned_repos,
+                "removedRepos": result.removed_repos,
+            }))?
+        );
+    } else {
+        eprintln!("\x1b[32m✓ VM created successfully!\x1b[0m");
+        eprintln!();
+        eprintln!("  Instance ID: {}", result.instance_id);
+        eprintln!("  VS Code URL: {}", result.vscode_url);
+        if !result.cloned_repos.is_empty() {
+            eprintln!("  Cloned repos: {}", result.cloned_repos.join(", "));
+        }
+        eprintln!();
+        eprintln!("Connect via SSH:");
+        eprintln!("  cmux ssh {}", result.instance_id);
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux vm list` - list running VMs
+async fn handle_vm_list(args: VmListArgs) -> anyhow::Result<()> {
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    // Build query params
+    let mut url = format!("{}/api/morph/instances", api_url);
+    if let Some(team) = &args.team {
+        url = format!("{}?teamId={}", url, team);
+    }
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list VMs: {} - {} (url: {})",
+            status,
+            text,
+            url
+        ));
+    }
+
+    let instances: serde_json::Value = response.json().await?;
+
+    if args.output == "json" {
+        println!("{}", serde_json::to_string_pretty(&instances)?);
+    } else {
+        let empty_vec = vec![];
+        let instances_arr = instances.as_array().unwrap_or(&empty_vec);
+        if instances_arr.is_empty() {
+            println!("No running VMs found.");
+            println!("\nCreate a VM with: cmux vm create");
+            return Ok(());
+        }
+
+        // Print header
+        println!("{:<20} {:<12} {:<40}", "INSTANCE ID", "STATUS", "CREATED");
+        println!("{}", "-".repeat(75));
+
+        for instance in instances_arr {
+            let id = instance["id"].as_str().unwrap_or("unknown");
+            let status = instance["status"].as_str().unwrap_or("unknown");
+            let created = instance["createdAt"].as_str().unwrap_or("unknown");
+            println!("{:<20} {:<12} {:<40}", id, status, created);
+        }
+    }
+
+    Ok(())
+}
+
 async fn handle_setup_claude() -> anyhow::Result<()> {
     eprintln!("Running 'claude setup-token'...");
     eprintln!("Please follow the prompts to authenticate with Claude.\n");
@@ -2032,18 +3364,25 @@ async fn handle_onboard() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Handle real SSH to a sandbox (via WebSocket proxy)
+/// Handle real SSH to a sandbox (via direct TCP to Morph)
 async fn handle_real_ssh(client: &Client, base_url: &str, args: &SshArgs) -> anyhow::Result<()> {
     let binary_name = if is_dmux() { "dmux" } else { "cmux" };
 
-    // Sync SSH keys and config files to sandbox before connecting
-    // This ensures authorized_keys exists and sshd is running
-    eprintln!("Syncing SSH keys to sandbox {}...", args.id);
-    if let Err(e) = upload_sync_files(client, base_url, &args.id, false).await {
-        eprintln!("Warning: Failed to sync files: {}", e);
-    }
+    // Get access token and resolve team
+    eprintln!("Authenticating...");
+    let access_token = get_access_token(client).await?;
+    let team = resolve_team(client, &access_token, args.team.as_deref()).await?;
+
+    // Verify we can get SSH info for this sandbox (validates sandbox exists and is accessible)
+    eprintln!("Resolving sandbox {}...", args.id);
+    let ssh_info = get_sandbox_ssh_info(client, &access_token, &args.id, &team, base_url).await?;
+    eprintln!(
+        "Connecting to {} ({}:{})...",
+        ssh_info.morph_instance_id, ssh_info.host, ssh_info.port
+    );
 
     // Build SSH command with ProxyCommand using our _ssh-proxy
+    // Pass the team and base_url to the proxy command so it can authenticate
     let mut ssh_args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=no".to_string(),
@@ -2052,19 +3391,23 @@ async fn handle_real_ssh(client: &Client, base_url: &str, args: &SshArgs) -> any
         "-o".to_string(),
         "LogLevel=ERROR".to_string(),
         "-o".to_string(),
-        format!("ProxyCommand={} _ssh-proxy {}", binary_name, args.id),
+        format!(
+            "ProxyCommand={} _ssh-proxy {} --team {} --base-url {}",
+            binary_name, args.id, team, base_url
+        ),
     ];
 
     // The hostname (doesn't matter since we use ProxyCommand, but SSH requires one)
     // Must come before any remote command
-    ssh_args.push(format!("root@sandbox-{}", args.id));
+    ssh_args.push(format!(
+        "{}@sandbox-{}",
+        ssh_info.user, ssh_info.morph_instance_id
+    ));
 
     // Add any extra SSH args from user (typically remote commands to execute)
     for arg in &args.ssh_args {
         ssh_args.push(arg.clone());
     }
-
-    eprintln!("Connecting to sandbox {}...", args.id);
 
     // Execute native SSH with ProxyCommand
     // Use exec on Unix to replace process and fully inherit terminal for passphrase prompts
@@ -2086,12 +3429,76 @@ async fn handle_real_ssh(client: &Client, base_url: &str, args: &SshArgs) -> any
     }
 }
 
+/// Execute a command on a sandbox via SSH (non-interactive)
+///
+/// This is designed for scripting and automation. Unlike `ssh`, this command:
+/// - Does not allocate a PTY by default
+/// - Suppresses connection status messages
+/// - Properly propagates the exit code of the remote command
+async fn handle_ssh_exec(
+    client: &Client,
+    base_url: &str,
+    args: &SshExecArgs,
+) -> anyhow::Result<()> {
+    let binary_name = if is_dmux() { "dmux" } else { "cmux" };
+
+    // Get access token and resolve team
+    let access_token = get_access_token(client).await?;
+    let team = resolve_team(client, &access_token, args.team.as_deref()).await?;
+
+    // Verify we can get SSH info for this sandbox
+    let ssh_info = get_sandbox_ssh_info(client, &access_token, &args.id, &team, base_url).await?;
+
+    // Build SSH command with ProxyCommand using our _ssh-proxy
+    // Use -T to disable pseudo-terminal allocation (non-interactive)
+    // Use -o BatchMode=yes to prevent password prompts
+    let mut ssh_args = vec![
+        "-T".to_string(), // Disable pseudo-terminal allocation
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(),
+        "UserKnownHostsFile=/dev/null".to_string(),
+        "-o".to_string(),
+        "LogLevel=ERROR".to_string(),
+        "-o".to_string(),
+        format!(
+            "ProxyCommand={} _ssh-proxy {} --team {} --base-url {}",
+            binary_name, args.id, team, base_url
+        ),
+    ];
+
+    // The hostname (doesn't matter since we use ProxyCommand, but SSH requires one)
+    ssh_args.push(format!(
+        "{}@sandbox-{}",
+        ssh_info.user, ssh_info.morph_instance_id
+    ));
+
+    // Add the command to execute
+    // Join command parts into a single string for remote execution
+    let remote_cmd = args.command.join(" ");
+    ssh_args.push(remote_cmd);
+
+    // Execute SSH and capture exit code
+    let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    Ok(())
+}
+
 /// Generate SSH config for easy sandbox access
 async fn handle_ssh_config(_client: &Client, _base_url: &str) -> anyhow::Result<()> {
     let binary_name = if is_dmux() { "dmux" } else { "cmux" };
 
     println!("# SSH config for {} sandboxes", binary_name);
     println!("# Add this to ~/.ssh/config");
+    println!();
+    println!("# NOTE: Set CMUX_TEAM environment variable or the proxy will use your default team");
+    println!("# Example: export CMUX_TEAM=my-team");
     println!();
 
     // Generate a wildcard config for sandbox-* pattern using _ssh-proxy
@@ -2109,54 +3516,64 @@ async fn handle_ssh_config(_client: &Client, _base_url: &str) -> anyhow::Result<
 
     eprintln!();
     eprintln!("Usage examples:");
-    eprintln!("  ssh sandbox-0                           # SSH into sandbox 0");
-    eprintln!("  ssh sandbox-0 -L 8080:localhost:8080    # With port forwarding");
-    eprintln!("  scp sandbox-0:/workspace/file ./        # Copy files");
-    eprintln!("  rsync -avz sandbox-0:/workspace/ ./     # Rsync with sandbox");
+    eprintln!("  ssh sandbox-morphvm_xxx                   # SSH using Morph instance ID");
+    eprintln!("  ssh sandbox-morphvm_xxx -L 8080:localhost:8080  # With port forwarding");
+    eprintln!("  scp sandbox-morphvm_xxx:/workspace/file ./      # Copy files");
+    eprintln!("  rsync -avz sandbox-morphvm_xxx:/workspace/ ./   # Rsync with sandbox");
     eprintln!();
     eprintln!("Or use '{}' directly:", binary_name);
-    eprintln!("  {} ssh <index>              # Direct SSH", binary_name);
     eprintln!(
-        "  {} ssh <index> -L 8080:localhost:8080  # With port forwarding",
+        "  {} ssh <sandbox-id>                         # Direct SSH (uses default team)",
+        binary_name
+    );
+    eprintln!(
+        "  {} ssh <sandbox-id> --team my-team          # With explicit team",
+        binary_name
+    );
+    eprintln!(
+        "  {} ssh <sandbox-id> -L 8080:localhost:8080  # With port forwarding",
         binary_name
     );
 
     Ok(())
 }
 
-/// Internal SSH proxy command - bridges stdin/stdout to WebSocket for SSH ProxyCommand
-async fn handle_ssh_proxy(base_url: &str, id: &str) -> anyhow::Result<()> {
-    // Build WebSocket URL for the proxy endpoint
-    let ws_url = base_url
-        .replace("http://", "ws://")
-        .replace("https://", "wss://");
-    let proxy_url = format!(
-        "{}/sandboxes/{}/proxy?port=22",
-        ws_url.trim_end_matches('/'),
-        id
-    );
+/// Internal SSH proxy command - bridges stdin/stdout to direct TCP to Morph SSH gateway
+/// This is used as SSH ProxyCommand to route SSH through the Morph gateway
+async fn handle_ssh_proxy(id: &str, team: Option<&str>, base_url: &str) -> anyhow::Result<()> {
+    // Create a client for API calls
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
 
-    // Connect to WebSocket
-    let (ws_stream, _) = connect_async(&proxy_url)
+    // Get access token and resolve team
+    let access_token = get_access_token(&client).await?;
+    let team = resolve_team(&client, &access_token, team).await?;
+
+    // Get SSH connection info from the API
+    let ssh_info = get_sandbox_ssh_info(&client, &access_token, id, &team, base_url).await?;
+
+    // The Morph SSH gateway expects connections with the instance ID as the username
+    // Format: ssh -p 22222 morphvm_xxx@ssh.cloud.morph.so
+    // But since we're acting as a ProxyCommand, we just open the TCP connection
+    // and the SSH client will handle the protocol
+    let address = format!("{}:{}", ssh_info.host, ssh_info.port);
+
+    // Connect to Morph SSH gateway
+    let mut stream = tokio::net::TcpStream::connect(&address)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to proxy: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to connect to SSH gateway {}: {}", address, e))?;
 
-    let (mut ws_write, mut ws_read) = ws_stream.split();
+    let (mut read_half, mut write_half) = stream.split();
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
 
-    // Bridge stdin/stdout to WebSocket
-    let stdin_to_ws = async {
+    // Bridge stdin/stdout to TCP socket
+    let stdin_to_tcp = async {
         let mut buf = [0u8; 8192];
         loop {
             match stdin.read(&mut buf).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    if ws_write
-                        .send(Message::Binary(buf[..n].to_vec()))
-                        .await
-                        .is_err()
-                    {
+                    if write_half.write_all(&buf[..n]).await.is_err() {
                         break;
                     }
                 }
@@ -2165,34 +3582,27 @@ async fn handle_ssh_proxy(base_url: &str, id: &str) -> anyhow::Result<()> {
         }
     };
 
-    let ws_to_stdout = async {
-        while let Some(msg) = ws_read.next().await {
-            match msg {
-                Ok(Message::Binary(data)) => {
-                    if stdout.write_all(&data).await.is_err() {
+    let tcp_to_stdout = async {
+        let mut buf = [0u8; 8192];
+        loop {
+            match read_half.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if stdout.write_all(&buf[..n]).await.is_err() {
                         break;
                     }
                     if stdout.flush().await.is_err() {
                         break;
                     }
                 }
-                Ok(Message::Text(text)) => {
-                    if stdout.write_all(text.as_bytes()).await.is_err() {
-                        break;
-                    }
-                    if stdout.flush().await.is_err() {
-                        break;
-                    }
-                }
-                Ok(Message::Close(_)) | Err(_) => break,
-                _ => {}
+                Err(_) => break,
             }
         }
     };
 
     tokio::select! {
-        _ = stdin_to_ws => {}
-        _ = ws_to_stdout => {}
+        _ = stdin_to_tcp => {}
+        _ = tcp_to_stdout => {}
     }
 
     Ok(())

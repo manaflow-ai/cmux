@@ -5,7 +5,7 @@ import { stackServerAppJs } from "@/lib/utils/stack";
 import { verifyTeamAccess } from "@/lib/utils/team-verification";
 import { env } from "@/lib/utils/www-env";
 import { api } from "@cmux/convex/api";
-import type { Id } from "@cmux/convex/dataModel";
+import type { Doc, Id } from "@cmux/convex/dataModel";
 import { RESERVED_CMUX_PORT_SET } from "@cmux/shared/utils/reserved-cmux-ports";
 import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
@@ -915,6 +915,152 @@ sandboxesRouter.openapi(
     } catch (error) {
       console.error("Failed to publish devcontainer networking:", error);
       return c.text("Failed to publish devcontainer networking", 500);
+    }
+  },
+);
+
+// SSH connection info response schema
+const SandboxSshResponse = z
+  .object({
+    morphInstanceId: z.string(),
+    host: z.string(),
+    port: z.number(),
+    user: z.string(),
+  })
+  .openapi("SandboxSshResponse");
+
+// Get SSH connection details for a sandbox
+sandboxesRouter.openapi(
+  createRoute({
+    method: "get" as const,
+    path: "/sandboxes/{id}/ssh",
+    tags: ["Sandboxes"],
+    summary: "Get SSH connection details for a sandbox",
+    description:
+      "Returns SSH connection info for a sandbox. The id can be either a Morph instance ID (morphvm_xxx) or a task-run ID. If a task-run ID is provided, it resolves to the most recent active sandbox for that run.",
+    request: {
+      params: z.object({ id: z.string() }),
+      query: z.object({
+        teamSlugOrId: z.string(),
+      }),
+    },
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            schema: SandboxSshResponse,
+          },
+        },
+        description: "SSH connection details",
+      },
+      401: { description: "Unauthorized" },
+      403: { description: "Forbidden - not a team member" },
+      404: { description: "Sandbox not found or not a Morph sandbox" },
+      500: { description: "Failed to get SSH info" },
+    },
+  }),
+  async (c) => {
+    const accessToken = await getAccessTokenFromRequest(c.req.raw);
+    if (!accessToken) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const { id } = c.req.valid("param");
+    const { teamSlugOrId } = c.req.valid("query");
+
+    try {
+      // Verify team access
+      const team = await verifyTeamAccess({
+        req: c.req.raw,
+        teamSlugOrId,
+      });
+
+      const convex = getConvex({ accessToken });
+
+      let morphInstanceId: string | null = null;
+
+      // Check if the id is a Morph instance ID (starts with "morphvm_")
+      if (id.startsWith("morphvm_")) {
+        // Direct Morph instance ID - verify it belongs to a task run in this team
+        const taskRun = await convex.query(api.taskRuns.getByContainerName, {
+          teamSlugOrId,
+          containerName: id,
+        });
+
+        if (!taskRun) {
+          return c.text("Sandbox not found or not accessible", 404);
+        }
+
+        if (taskRun.vscode?.provider !== "morph") {
+          return c.text("Sandbox is not a Morph instance", 404);
+        }
+
+        morphInstanceId = id;
+      } else {
+        // Assume it's a task-run ID - look up the sandbox
+        let taskRun: Doc<"taskRuns"> | null = null;
+
+        try {
+          taskRun = await convex.query(api.taskRuns.get, {
+            teamSlugOrId,
+            id: id as Id<"taskRuns">,
+          });
+        } catch {
+          // Not a valid task run ID
+          return c.text("Invalid sandbox or task-run ID", 404);
+        }
+
+        if (!taskRun) {
+          return c.text("Task run not found", 404);
+        }
+
+        // Verify the task run is in the correct team
+        if (taskRun.teamId !== team.uuid) {
+          return c.text("Forbidden", 403);
+        }
+
+        // Check if this task run has an active Morph sandbox
+        if (!taskRun.vscode) {
+          return c.text("No sandbox associated with this task run", 404);
+        }
+
+        if (taskRun.vscode.provider !== "morph") {
+          return c.text("Sandbox is not a Morph instance", 404);
+        }
+
+        if (!taskRun.vscode.containerName) {
+          return c.text("Sandbox container name not found", 404);
+        }
+
+        // Only return SSH info for running/starting sandboxes
+        if (
+          taskRun.vscode.status !== "running" &&
+          taskRun.vscode.status !== "starting"
+        ) {
+          return c.text("Sandbox is not running", 404);
+        }
+
+        morphInstanceId = taskRun.vscode.containerName;
+      }
+
+      if (!morphInstanceId) {
+        return c.text("Could not resolve sandbox instance", 404);
+      }
+
+      // Return SSH connection info
+      // The Morph SSH gateway is at ssh.cloud.morph.so on port 22222
+      return c.json({
+        morphInstanceId,
+        host: "ssh.cloud.morph.so",
+        port: 22222,
+        user: "root",
+      });
+    } catch (error) {
+      if (error instanceof HTTPException) {
+        return c.text(error.message || "Request failed", error.status);
+      }
+      console.error("[sandboxes.ssh] Failed to get SSH info:", error);
+      return c.text("Failed to get SSH info", 500);
     }
   },
 );

@@ -950,6 +950,59 @@ async def task_install_base_packages(ctx: TaskContext) -> None:
 
 
 @registry.task(
+    name="configure-sshd",
+    deps=("install-base-packages",),
+    description="Install and configure OpenSSH server on port 22222",
+)
+async def task_configure_sshd(ctx: TaskContext) -> None:
+    cmd = textwrap.dedent(
+        """
+        set -eux
+
+        # Install openssh-server
+        DEBIAN_FRONTEND=noninteractive apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server
+
+        # Generate host keys if they don't exist
+        ssh-keygen -A
+
+        # Configure sshd for port 22222 with secure settings
+        cat > /etc/ssh/sshd_config.d/cmux.conf << 'EOF'
+Port 22222
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+AuthorizedKeysFile .ssh/authorized_keys
+EOF
+
+        # Create /root/.ssh directory with correct permissions
+        mkdir -p /root/.ssh
+        chmod 700 /root/.ssh
+        touch /root/.ssh/authorized_keys
+        chmod 600 /root/.ssh/authorized_keys
+
+        # Ensure sshd is enabled and will start on boot
+        systemctl enable ssh
+        systemctl restart ssh
+
+        # Verify sshd is running and listening on port 22222
+        sleep 2
+        if ! ss -tlnp | grep -q ':22222'; then
+            echo "ERROR: sshd not listening on port 22222" >&2
+            systemctl status ssh --no-pager || true
+            journalctl -u ssh --no-pager -n 50 || true
+            exit 1
+        fi
+
+        echo "sshd configured and running on port 22222"
+
+        rm -rf /var/lib/apt/lists/*
+        """
+    )
+    await ctx.run("configure-sshd", cmd)
+
+
+@registry.task(
     name="ensure-docker",
     deps=("install-base-packages",),
     description="Install Docker engine and CLI plugins",
@@ -2032,8 +2085,8 @@ async def task_check_envctl(ctx: TaskContext) -> None:
 
 @registry.task(
     name="check-ssh-service",
-    deps=("configure-memory-protection", "cleanup-build-artifacts"),
-    description="Verify SSH service is active",
+    deps=("configure-memory-protection", "cleanup-build-artifacts", "configure-sshd"),
+    description="Verify SSH service is active on port 22222",
 )
 async def task_check_ssh_service(ctx: TaskContext) -> None:
     cmd = textwrap.dedent(
@@ -2053,6 +2106,15 @@ async def task_check_ssh_service(ctx: TaskContext) -> None:
           journalctl -u ssh --no-pager -n 50 || true
           exit 1
         fi
+
+        # Verify sshd is listening on port 22222
+        if ! ss -tlnp | grep -q ':22222'; then
+          echo "ERROR: sshd not listening on port 22222" >&2
+          ss -tlnp | grep ssh || true
+          cat /etc/ssh/sshd_config.d/cmux.conf || true
+          exit 1
+        fi
+        echo "sshd is listening on port 22222"
         """
     )
     await ctx.run("check-ssh-service", cmd)

@@ -18,6 +18,7 @@ import {
   configureGithubAccess,
   configureGitIdentity,
   fetchGitIdentityInputs,
+  injectUserSshKeys,
 } from "./sandboxes/git";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
 import * as Sentry from "@sentry/nextjs";
@@ -417,6 +418,119 @@ morphRouter.openapi(
   }
 );
 
+const InjectSshKeysBody = z
+  .object({
+    teamSlugOrId: z.string(),
+  })
+  .openapi("InjectSshKeysBody");
+
+const InjectSshKeysResponse = z
+  .object({
+    injected: z.number(),
+  })
+  .openapi("InjectSshKeysResponse");
+
+morphRouter.openapi(
+  createRoute({
+    method: "post" as const,
+    path: "/morph/task-runs/{taskRunId}/inject-ssh-keys",
+    tags: ["Morph"],
+    summary: "Inject SSH keys into a Morph instance",
+    description:
+      "Injects the user's registered SSH public keys into the authorized_keys file of a running Morph VM. " +
+      "Useful when new SSH keys have been added or need to be refreshed.",
+    request: {
+      params: z.object({
+        taskRunId: typedZid("taskRuns"),
+      }),
+      body: {
+        content: {
+          "application/json": {
+            schema: InjectSshKeysBody,
+          },
+        },
+        required: true,
+      },
+    },
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            schema: InjectSshKeysResponse,
+          },
+        },
+        description: "SSH keys injected successfully",
+      },
+      400: { description: "Task run is not backed by a Morph instance" },
+      401: { description: "Unauthorized" },
+      403: { description: "Forbidden - instance does not belong to this team" },
+      404: { description: "Task run not found" },
+      409: { description: "Instance is paused - resume it first" },
+      500: { description: "Failed to inject SSH keys" },
+    },
+  }),
+  async (c) => {
+    const accessToken = await getAccessTokenFromRequest(c.req.raw);
+    if (!accessToken) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const { taskRunId } = c.req.valid("param");
+    const { teamSlugOrId } = c.req.valid("json");
+
+    const convex = getConvex({ accessToken });
+    const team = await verifyTeamAccess({ req: c.req.raw, teamSlugOrId });
+
+    const taskRun = await convex.query(api.taskRuns.get, {
+      teamSlugOrId,
+      id: taskRunId,
+    });
+
+    if (!taskRun) {
+      return c.text("Task run not found", 404);
+    }
+
+    const instanceId = taskRun.vscode?.containerName;
+    const isMorphProvider = taskRun.vscode?.provider === "morph";
+
+    if (!isMorphProvider || !instanceId) {
+      return c.text("Task run is not backed by a Morph instance", 400);
+    }
+
+    try {
+      const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+      const instance = await client.instances.get({ instanceId });
+
+      // Security: ensure the instance belongs to the requested team
+      const metadataTeamId = (
+        instance as unknown as {
+          metadata?: { teamId?: string };
+        }
+      ).metadata?.teamId;
+
+      if (metadataTeamId && metadataTeamId !== team.uuid) {
+        return c.text("Forbidden", 403);
+      }
+
+      // Check if instance is paused - SSH key injection requires running instance
+      if (instance.status === "paused") {
+        return c.text("Instance is paused - resume it first", 409);
+      }
+
+      const injected = await injectUserSshKeys(instance, convex);
+
+      console.log(
+        `[morph.inject-ssh-keys] Successfully injected ${injected} SSH key(s) for instance ${instanceId}`
+      );
+
+      return c.json({ injected });
+    } catch (error) {
+      console.error("[morph.inject-ssh-keys] Failed to inject SSH keys:", error);
+      return c.text("Failed to inject SSH keys", 500);
+    }
+  }
+);
+
 morphRouter.openapi(
   createRoute({
     method: "post" as const,
@@ -586,6 +700,17 @@ morphRouter.openapi(
         { name: "configureGithubAccess", op: "morph.exec" },
         () => configureGithubAccess(instance, githubAccessToken)
       );
+
+      // Inject user's SSH keys in the background (non-blocking)
+      void Sentry.startSpan(
+        { name: "injectUserSshKeys", op: "morph.exec" },
+        () => injectUserSshKeys(instance, convex)
+      ).catch((error) => {
+        console.error(
+          `[sandboxes.start] Failed to inject SSH keys; continuing...`,
+          error
+        );
+      });
 
       void gitIdentityPromise
         .then(([who, gh]) => {
@@ -800,6 +925,106 @@ morphRouter.openapi(
       }
       console.error("Failed to setup Morph instance:", error);
       return c.text("Failed to setup instance", 500);
+    }
+  }
+);
+
+// =============================================================================
+// List Morph Instances
+// =============================================================================
+
+const ListInstancesQuery = z
+  .object({
+    teamId: z.string().optional(),
+  })
+  .openapi("ListInstancesQuery");
+
+const InstanceInfo = z
+  .object({
+    id: z.string(),
+    status: z.string(),
+    createdAt: z.string().optional(),
+    metadata: z
+      .object({
+        app: z.string().optional(),
+        userId: z.string().optional(),
+        teamId: z.string().optional(),
+      })
+      .optional(),
+  })
+  .openapi("InstanceInfo");
+
+const ListInstancesResponse = z.array(InstanceInfo).openapi("ListInstancesResponse");
+
+morphRouter.openapi(
+  createRoute({
+    method: "get" as const,
+    path: "/morph/instances",
+    tags: ["Morph"],
+    summary: "List Morph instances for the authenticated user",
+    request: {
+      query: ListInstancesQuery,
+    },
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            schema: ListInstancesResponse,
+          },
+        },
+        description: "List of Morph instances",
+      },
+      401: { description: "Unauthorized" },
+      500: { description: "Failed to list instances" },
+    },
+  }),
+  async (c) => {
+    const accessToken = await getAccessTokenFromRequest(c.req.raw);
+    if (!accessToken) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const { teamId } = c.req.valid("query");
+
+    try {
+      const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+
+      // List all instances from Morph
+      const instances = await client.instances.list();
+
+      // Filter instances that belong to cmux and optionally by team
+      const filteredInstances = instances.filter((instance) => {
+        const meta = instance.metadata as
+          | { app?: string; teamId?: string; userId?: string }
+          | undefined;
+
+        // Only show cmux instances
+        if (meta?.app !== "cmux-dev") {
+          return false;
+        }
+
+        // Filter by team if specified
+        if (teamId && meta?.teamId !== teamId) {
+          return false;
+        }
+
+        return true;
+      });
+
+      // Map to response format
+      const response = filteredInstances.map((instance) => ({
+        id: instance.id,
+        status: instance.status,
+        createdAt: (instance as unknown as { created?: string }).created,
+        metadata: instance.metadata as
+          | { app?: string; userId?: string; teamId?: string }
+          | undefined,
+      }));
+
+      return c.json(response);
+    } catch (error) {
+      console.error("[morph.list-instances] Failed to list instances:", error);
+      return c.text("Failed to list instances", 500);
     }
   }
 );

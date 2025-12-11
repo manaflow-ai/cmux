@@ -70,6 +70,8 @@ unicode-width = "0.2"
 open = "5"
 arboard = "3"
 dirs = "5"
+dialoguer = "0.11"
+sha2 = "0.10"
 
 [dev-dependencies]
 assert_cmd = "2.0"
