@@ -1,4 +1,4 @@
-import React, { useState, useEffect, type ReactNode, useCallback } from "react";
+import React, { useState, useEffect, type ReactNode, useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
 import {
   Code2,
@@ -22,6 +22,7 @@ import type { WorkspaceLoadingIndicatorProps } from "./workspace-loading-indicat
 import type { TaskRunTerminalPaneProps } from "./TaskRunTerminalPane";
 import type { TaskRunGitDiffPanelProps } from "./TaskRunGitDiffPanel";
 import { shouldUseServerIframePreflight } from "@/hooks/useIframePreflight";
+import { VncViewer, type VncConnectionStatus } from "@cmux/shared/components/vnc-viewer";
 
 type PanelPosition = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
@@ -167,16 +168,13 @@ interface PanelFactoryProps {
   // Terminal panel props
   rawWorkspaceUrl?: string | null;
   // Browser panel props
-  browserUrl?: string | null;
-  browserPersistKey?: string | null;
-  browserStatus?: PersistentIframeStatus;
-  setBrowserStatus?: (status: PersistentIframeStatus) => void;
+  browserWebsocketUrl?: string | null;
   browserPlaceholder?: {
     title: string;
     description?: string;
   } | null;
   isMorphProvider?: boolean;
-  isBrowserBusy?: boolean;
+  onBrowserVncStatusChange?: (status: VncConnectionStatus) => void;
   // Additional components
   TaskRunChatPane?: React.ComponentType<TaskRunChatPaneProps>;
   PersistentWebView?: React.ComponentType<PersistentWebViewProps>;
@@ -189,6 +187,87 @@ interface PanelFactoryProps {
   // Git diff panel props
   teamSlugOrId?: string;
   taskId?: Id<"tasks">;
+}
+
+interface BrowserPanelContentProps {
+  browserWebsocketUrl: string | null;
+  browserPlaceholder: { title: string; description?: string } | null;
+  shouldShowBrowserLoader: boolean;
+  hasBrowserView: boolean;
+  onBrowserVncStatusChange?: (status: VncConnectionStatus) => void;
+  WorkspaceLoadingIndicator: React.ComponentType<WorkspaceLoadingIndicatorProps>;
+  isExpanded: boolean;
+  panelWrapper: (icon: ReactNode, title: string, content: ReactNode) => ReactNode;
+}
+
+function BrowserPanelContent({
+  browserWebsocketUrl,
+  browserPlaceholder,
+  shouldShowBrowserLoader,
+  hasBrowserView,
+  onBrowserVncStatusChange,
+  WorkspaceLoadingIndicator,
+  isExpanded,
+  panelWrapper,
+}: BrowserPanelContentProps) {
+  const [vncStatus, setVncStatus] = useState<VncConnectionStatus>("disconnected");
+
+  const handleStatusChange = useCallback(
+    (status: VncConnectionStatus) => {
+      setVncStatus(status);
+      onBrowserVncStatusChange?.(status);
+    },
+    [onBrowserVncStatusChange]
+  );
+
+  const isBrowserBusy = !hasBrowserView || vncStatus !== "connected";
+
+  const loadingFallback = useMemo(
+    () => <WorkspaceLoadingIndicator variant="browser" status="loading" />,
+    [WorkspaceLoadingIndicator]
+  );
+  const errorFallback = useMemo(
+    () => <WorkspaceLoadingIndicator variant="browser" status="error" />,
+    [WorkspaceLoadingIndicator]
+  );
+
+  return panelWrapper(
+    <Globe2 className="size-3" aria-hidden />,
+    PANEL_LABELS.browser,
+    <div className={clsx("relative flex-1", isExpanded && "h-full")} aria-busy={isBrowserBusy}>
+      {browserWebsocketUrl ? (
+        <VncViewer
+          url={browserWebsocketUrl}
+          className="h-full w-full"
+          background="#000000"
+          scaleViewport
+          autoConnect
+          autoReconnect
+          reconnectDelay={1000}
+          maxReconnectDelay={30000}
+          focusOnClick
+          onStatusChange={handleStatusChange}
+          loadingFallback={loadingFallback}
+          errorFallback={errorFallback}
+        />
+      ) : shouldShowBrowserLoader ? (
+        <div className="flex h-full items-center justify-center">
+          <WorkspaceLoadingIndicator variant="browser" status="loading" />
+        </div>
+      ) : browserPlaceholder ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-neutral-500 dark:text-neutral-400">
+          <div className="text-sm font-medium text-neutral-600 dark:text-neutral-200">
+            {browserPlaceholder.title}
+          </div>
+          {browserPlaceholder.description ? (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {browserPlaceholder.description}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
@@ -557,67 +636,29 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
 
     case "browser": {
       const {
-        browserUrl,
-        browserPersistKey,
-        setBrowserStatus,
+        browserWebsocketUrl,
         browserPlaceholder,
         selectedRun,
         isMorphProvider,
-        isBrowserBusy,
-        PersistentWebView,
+        onBrowserVncStatusChange,
         WorkspaceLoadingIndicator,
-        TASK_RUN_IFRAME_ALLOW,
-        TASK_RUN_IFRAME_SANDBOX,
       } = props;
 
-      if (!PersistentWebView || !WorkspaceLoadingIndicator) return null;
-      const shouldShowBrowserLoader = Boolean(selectedRun) && isMorphProvider && (!browserUrl || !browserPersistKey);
+      if (!WorkspaceLoadingIndicator) return null;
+      const hasBrowserView = Boolean(browserWebsocketUrl);
+      const shouldShowBrowserLoader = Boolean(selectedRun) && Boolean(isMorphProvider) && !hasBrowserView;
 
-      return panelWrapper(
-        <Globe2 className="size-3" aria-hidden />,
-        PANEL_LABELS.browser,
-        <div className={clsx("relative flex-1", isExpanded && "h-full")} aria-busy={isBrowserBusy}>
-          {browserUrl && browserPersistKey ? (
-            <PersistentWebView
-              key={browserPersistKey}
-              persistKey={browserPersistKey}
-              src={browserUrl}
-              className="flex h-full"
-              iframeClassName={clsx("select-none")}
-              persistentWrapperClassName={isExpanded ? "z-[var(--z-maximized-iframe)]" : undefined}
-              allow={TASK_RUN_IFRAME_ALLOW}
-              sandbox={TASK_RUN_IFRAME_SANDBOX}
-              retainOnUnmount
-              onStatusChange={setBrowserStatus}
-              fallback={
-                <WorkspaceLoadingIndicator variant="browser" status="loading" />
-              }
-              fallbackClassName="bg-neutral-50 dark:bg-black"
-              errorFallback={
-                <WorkspaceLoadingIndicator variant="browser" status="error" />
-              }
-              errorFallbackClassName="bg-neutral-50/95 dark:bg-black/95"
-              loadTimeoutMs={45_000}
-              isExpanded={isExpanded}
-              isAnyPanelExpanded={isAnyPanelExpanded}
-            />
-          ) : shouldShowBrowserLoader ? (
-            <div className="flex h-full items-center justify-center">
-              <WorkspaceLoadingIndicator variant="browser" status="loading" />
-            </div>
-          ) : browserPlaceholder ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-neutral-500 dark:text-neutral-400">
-              <div className="text-sm font-medium text-neutral-600 dark:text-neutral-200">
-                {browserPlaceholder.title}
-              </div>
-              {browserPlaceholder.description ? (
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  {browserPlaceholder.description}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+      return (
+        <BrowserPanelContent
+          browserWebsocketUrl={browserWebsocketUrl ?? null}
+          browserPlaceholder={browserPlaceholder ?? null}
+          shouldShowBrowserLoader={shouldShowBrowserLoader}
+          hasBrowserView={hasBrowserView}
+          onBrowserVncStatusChange={onBrowserVncStatusChange}
+          WorkspaceLoadingIndicator={WorkspaceLoadingIndicator}
+          isExpanded={isExpanded}
+          panelWrapper={panelWrapper}
+        />
       );
     }
 
@@ -657,14 +698,20 @@ export const RenderPanel = React.memo(RenderPanelComponent, (prevProps, nextProp
     return false;
   }
 
-  // For iframe-based panels (workspace/browser), check persist keys
-  if (prevProps.type === "workspace" || prevProps.type === "browser") {
+  // For workspace panel, check persist keys and URLs
+  if (prevProps.type === "workspace") {
     if (prevProps.workspacePersistKey !== nextProps.workspacePersistKey ||
-      prevProps.browserPersistKey !== nextProps.browserPersistKey ||
       prevProps.workspaceUrl !== nextProps.workspaceUrl ||
       prevProps.workspacePlaceholder?.title !== nextProps.workspacePlaceholder?.title ||
       prevProps.workspacePlaceholder?.description !== nextProps.workspacePlaceholder?.description ||
-      prevProps.browserUrl !== nextProps.browserUrl ||
+      prevProps.selectedRun?._id !== nextProps.selectedRun?._id) {
+      return false;
+    }
+  }
+
+  // For browser panel, check VNC websocket URL
+  if (prevProps.type === "browser") {
+    if (prevProps.browserWebsocketUrl !== nextProps.browserWebsocketUrl ||
       prevProps.browserPlaceholder?.title !== nextProps.browserPlaceholder?.title ||
       prevProps.browserPlaceholder?.description !== nextProps.browserPlaceholder?.description ||
       prevProps.selectedRun?._id !== nextProps.selectedRun?._id) {

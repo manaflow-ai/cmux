@@ -2,7 +2,7 @@ import { EnvironmentConfiguration } from "@/components/EnvironmentConfiguration"
 import { FloatingPane } from "@/components/floating-pane";
 import { TitleBar } from "@/components/TitleBar";
 import { parseEnvBlock } from "@/lib/parseEnvBlock";
-import { toMorphVncUrl } from "@/lib/toProxyWorkspaceUrl";
+import { toMorphVncWebsocketUrl } from "@/lib/toProxyWorkspaceUrl";
 import { clearEnvironmentDraft } from "@/state/environment-draft-store";
 import type { Id } from "@cmux/convex/dataModel";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
@@ -51,17 +51,17 @@ function NewSnapshotVersionPage() {
     return `https://port-39378-${hostId}.http.cloud.morph.so/?folder=/root/workspace`;
   }, [urlInstanceId]);
 
-  const derivedBrowserUrl = useMemo(() => {
+  const derivedBrowserWebsocketUrl = useMemo(() => {
     if (urlInstanceId) {
       const hostId = urlInstanceId.replace(/_/g, "-");
       const workspaceUrl = `https://port-39378-${hostId}.http.cloud.morph.so/?folder=/root/workspace`;
-      return toMorphVncUrl(workspaceUrl) ?? undefined;
+      return toMorphVncWebsocketUrl(workspaceUrl) ?? undefined;
     }
     if (urlVscodeUrl) {
-      return toMorphVncUrl(urlVscodeUrl) ?? undefined;
+      return toMorphVncWebsocketUrl(urlVscodeUrl) ?? undefined;
     }
     if (derivedVscodeUrl) {
-      return toMorphVncUrl(derivedVscodeUrl) ?? undefined;
+      return toMorphVncWebsocketUrl(derivedVscodeUrl) ?? undefined;
     }
     return undefined;
   }, [urlInstanceId, urlVscodeUrl, derivedVscodeUrl]);
@@ -168,7 +168,7 @@ function NewSnapshotVersionPage() {
             teamSlugOrId={teamSlugOrId}
             instanceId={urlInstanceId}
             vscodeUrl={effectiveVscodeUrl}
-            browserUrl={derivedBrowserUrl}
+            browserWebsocketUrl={derivedBrowserWebsocketUrl}
             isProvisioning={false}
             mode="snapshot"
             sourceEnvironmentId={sourceEnvironmentId}

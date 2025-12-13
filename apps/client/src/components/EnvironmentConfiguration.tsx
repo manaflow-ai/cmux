@@ -1,6 +1,7 @@
 import { GitHubIcon } from "@/components/icons/github";
 import { PersistentWebView } from "@/components/persistent-webview";
 import { WorkspaceLoadingIndicator } from "@/components/workspace-loading-indicator";
+import { VncViewer } from "@cmux/shared/components/vnc-viewer";
 import { ScriptTextareaField } from "@/components/ScriptTextareaField";
 import { SCRIPT_COPY } from "@/components/scriptCopy";
 import { ResizableColumns } from "@/components/ResizableColumns";
@@ -68,7 +69,7 @@ export function EnvironmentConfiguration({
   teamSlugOrId,
   instanceId,
   vscodeUrl,
-  browserUrl,
+  browserWebsocketUrl,
   isProvisioning,
   mode = "new",
   sourceEnvironmentId,
@@ -87,7 +88,7 @@ export function EnvironmentConfiguration({
   teamSlugOrId: string;
   instanceId?: string;
   vscodeUrl?: string;
-  browserUrl?: string;
+  browserWebsocketUrl?: string;
   isProvisioning: boolean;
   mode?: "new" | "snapshot";
   sourceEnvironmentId?: Id<"environments">;
@@ -243,11 +244,10 @@ export function EnvironmentConfiguration({
   const basePersistKey = useMemo(() => {
     if (instanceId) return `env-config:${instanceId}`;
     if (vscodeUrl) return `env-config:${vscodeUrl}`;
-    if (browserUrl) return `env-config:${browserUrl}`;
+    if (browserWebsocketUrl) return `env-config:${browserWebsocketUrl}`;
     return "env-config";
-  }, [browserUrl, instanceId, vscodeUrl]);
+  }, [browserWebsocketUrl, instanceId, vscodeUrl]);
   const vscodePersistKey = `${basePersistKey}:vscode`;
-  const browserPersistKey = `${basePersistKey}:browser`;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -264,10 +264,10 @@ export function EnvironmentConfiguration({
   }, [splitRatio]);
 
   useEffect(() => {
-    if (previewMode === "browser" && !browserUrl) {
+    if (previewMode === "browser" && !browserWebsocketUrl) {
       setPreviewMode("vscode");
     }
-  }, [browserUrl, previewMode]);
+  }, [browserWebsocketUrl, previewMode]);
 
   const handlePanelSwap = useCallback(
     (fromPosition: PanelPosition, toPosition: PanelPosition) => {
@@ -594,7 +594,7 @@ export function EnvironmentConfiguration({
     }
   };
 
-  const isBrowserAvailable = Boolean(browserUrl);
+  const isBrowserAvailable = Boolean(browserWebsocketUrl);
   const workspacePlaceholder = useMemo(
     () =>
       vscodeUrl
@@ -611,7 +611,7 @@ export function EnvironmentConfiguration({
   );
   const browserPlaceholder = useMemo(
     () =>
-      browserUrl
+      browserWebsocketUrl
         ? null
         : {
             title: instanceId
@@ -621,7 +621,7 @@ export function EnvironmentConfiguration({
               ? "We'll embed the browser session as soon as the environment exposes it."
               : "Launch an environment so the browser agent can handle screenshots and authentication flows.",
           },
-    [browserUrl, instanceId]
+    [browserWebsocketUrl, instanceId]
   );
 
   const renderEnvPanel = (position: EnvPanelPosition) => {
@@ -666,12 +666,8 @@ export function EnvironmentConfiguration({
         key={`env-panel-${position}-browser`}
         type="browser"
         {...commonPanelProps}
-        browserUrl={browserUrl ?? null}
-        browserPersistKey={browserPersistKey}
-        PersistentWebView={PersistentWebView}
+        browserWebsocketUrl={browserWebsocketUrl ?? null}
         WorkspaceLoadingIndicator={WorkspaceLoadingIndicator}
-        TASK_RUN_IFRAME_ALLOW={TASK_RUN_IFRAME_ALLOW}
-        TASK_RUN_IFRAME_SANDBOX={TASK_RUN_IFRAME_SANDBOX}
         browserPlaceholder={browserPlaceholder}
         selectedRun={null}
         isMorphProvider={Boolean(instanceId)}
@@ -713,21 +709,19 @@ export function EnvironmentConfiguration({
     }
 
     if (previewMode === "browser") {
-      return browserUrl && browserPersistKey ? (
-        <PersistentWebView
-          key={browserPersistKey}
-          persistKey={browserPersistKey}
-          src={browserUrl}
-          className="flex h-full"
-          iframeClassName="select-none"
-          allow={TASK_RUN_IFRAME_ALLOW}
-          sandbox={TASK_RUN_IFRAME_SANDBOX}
-          retainOnUnmount
-          fallback={<WorkspaceLoadingIndicator variant="browser" status="loading" />}
-          fallbackClassName="bg-neutral-50 dark:bg-black"
+      return browserWebsocketUrl ? (
+        <VncViewer
+          url={browserWebsocketUrl}
+          className="h-full w-full"
+          background="#000000"
+          scaleViewport
+          autoConnect
+          autoReconnect
+          reconnectDelay={1000}
+          maxReconnectDelay={30000}
+          focusOnClick
+          loadingFallback={<WorkspaceLoadingIndicator variant="browser" status="loading" />}
           errorFallback={<WorkspaceLoadingIndicator variant="browser" status="error" />}
-          errorFallbackClassName="bg-neutral-50/95 dark:bg-black/95"
-          loadTimeoutMs={45_000}
         />
       ) : browserPlaceholder ? (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-neutral-500 dark:text-neutral-400">

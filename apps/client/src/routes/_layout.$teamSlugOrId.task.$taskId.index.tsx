@@ -19,19 +19,15 @@ import {
   PANEL_LABELS,
 } from "@/lib/panel-config";
 import type { PanelConfig, PanelType, PanelPosition } from "@/lib/panel-config";
+import { getTaskRunPersistKey } from "@/lib/persistent-webview-keys";
 import {
-  getTaskRunBrowserPersistKey,
-  getTaskRunPersistKey,
-} from "@/lib/persistent-webview-keys";
-import {
-  toMorphVncUrl,
+  toMorphVncWebsocketUrl,
   toMorphXtermBaseUrl,
   toProxyWorkspaceUrl,
 } from "@/lib/toProxyWorkspaceUrl";
 import {
   TASK_RUN_IFRAME_ALLOW,
   TASK_RUN_IFRAME_SANDBOX,
-  preloadTaskRunBrowserIframe,
   preloadTaskRunIframes,
 } from "../lib/preloadTaskRunIframes";
 import {
@@ -129,10 +125,8 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/task/$taskId/")({
         : taskRuns[0];
 
       const rawWorkspaceUrl = selectedRun?.vscode?.workspaceUrl ?? null;
-      const rawBrowserUrl =
-        selectedRun?.vscode?.url ?? rawWorkspaceUrl ?? null;
 
-      // Preload both VSCode and browser iframes in parallel
+      // Preload VSCode iframe
       if (selectedRun && rawWorkspaceUrl) {
         const workspaceUrl = toProxyWorkspaceUrl(rawWorkspaceUrl, undefined);
         void preloadTaskRunIframes([
@@ -140,16 +134,6 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/task/$taskId/")({
         ]).catch((error) => {
           console.error("Failed to preload VSCode iframe", error);
         });
-      }
-      if (selectedRun && rawBrowserUrl) {
-        const vncUrl = toMorphVncUrl(rawBrowserUrl);
-        if (vncUrl) {
-          void preloadTaskRunBrowserIframe(selectedRun._id, vncUrl).catch(
-            (error) => {
-              console.error("Failed to preload browser iframe", error);
-            }
-          );
-        }
       }
       if (!rawWorkspaceUrl) {
         return;
@@ -575,35 +559,19 @@ function TaskDetailPage() {
 
   const rawBrowserUrl =
     selectedRun?.vscode?.url ?? selectedRun?.vscode?.workspaceUrl ?? null;
-  const browserUrl = useMemo(() => {
+  const browserWebsocketUrl = useMemo(() => {
     if (!rawBrowserUrl) {
       return null;
     }
-    return toMorphVncUrl(rawBrowserUrl);
+    return toMorphVncWebsocketUrl(rawBrowserUrl);
   }, [rawBrowserUrl]);
-  const browserPersistKey = selectedRunId
-    ? getTaskRunBrowserPersistKey(selectedRunId)
-    : null;
-  const hasBrowserView = Boolean(browserUrl);
   const isMorphProvider = selectedRun?.vscode?.provider === "morph";
-
-  const handleBrowserStatusChange = useCallback(
-    (status: PersistentIframeStatus) => {
-      updateIframeStatus(browserPersistKey, browserUrl, status);
-    },
-    [updateIframeStatus, browserPersistKey, browserUrl]
-  );
 
   const editorStatus = workspacePersistKey
     ? (iframeStatusByKey[workspacePersistKey]?.status ?? "loading")
     : "loading";
-  const browserStatus = browserPersistKey
-    ? (iframeStatusByKey[browserPersistKey]?.status ?? "loading")
-    : "loading";
   const isEditorBusy =
     Boolean(selectedRun) && (!workspaceUrl || editorStatus !== "loaded");
-  const isBrowserBusy =
-    Boolean(selectedRun) && (!hasBrowserView || browserStatus !== "loaded");
 
   const workspacePlaceholder = useMemo(() => {
     if (!taskRuns?.length) {
@@ -671,13 +639,9 @@ function TaskDetailPage() {
       isEditorBusy,
       workspacePlaceholder,
       rawWorkspaceUrl,
-      browserUrl,
-      browserPersistKey,
-      browserStatus,
-      setBrowserStatus: handleBrowserStatusChange,
+      browserWebsocketUrl,
       browserPlaceholder,
       isMorphProvider,
-      isBrowserBusy,
       TaskRunChatPane,
       PersistentWebView,
       WorkspaceLoadingIndicator,
@@ -705,13 +669,9 @@ function TaskDetailPage() {
       isEditorBusy,
       workspacePlaceholder,
       rawWorkspaceUrl,
-      browserUrl,
-      browserPersistKey,
-      browserStatus,
-      handleBrowserStatusChange,
+      browserWebsocketUrl,
       browserPlaceholder,
       isMorphProvider,
-      isBrowserBusy,
       handlePanelClose,
       teamSlugOrId,
       taskId,
