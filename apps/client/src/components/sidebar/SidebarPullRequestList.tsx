@@ -1,17 +1,31 @@
 import { GitHubIcon } from "@/components/icons/github";
 import { api } from "@cmux/convex/api";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery as useConvexQuery } from "convex/react";
 import {
+  FolderOpen,
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
   GitPullRequestDraft,
 } from "lucide-react";
-import { useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useMemo, useState, type MouseEvent } from "react";
+import { toast } from "sonner";
+import { useSocketSuspense } from "@/contexts/socket/use-socket";
 import { SidebarListItem } from "./SidebarListItem";
 import { SIDEBAR_PRS_DEFAULT_LIMIT } from "./const";
-import type { Doc } from "@cmux/convex/dataModel";
+import type { Doc, Id } from "@cmux/convex/dataModel";
+
+type CreateLocalWorkspaceResponse = {
+  success: boolean;
+  taskId?: string;
+  taskRunId?: string;
+  workspaceName?: string;
+  workspacePath?: string;
+  workspaceUrl?: string;
+  pending?: boolean;
+  error?: string;
+};
 
 type Props = {
   teamSlugOrId: string;
@@ -75,6 +89,8 @@ type PullRequestListItemProps = {
 };
 
 function PullRequestListItem({ pr, teamSlugOrId, expanded, setExpanded }: PullRequestListItemProps) {
+  const navigate = useNavigate();
+  const { socket } = useSocketSuspense();
   const [owner = "", repo = ""] = pr.repoFullName?.split("/", 2) ?? ["", ""];
   const key = `${pr.repoFullName}#${pr.number}`;
   const isExpanded = expanded[key] ?? false;
@@ -106,6 +122,59 @@ function PullRequestListItem({ pr, teamSlugOrId, expanded, setExpanded }: PullRe
       [key]: !isExpanded,
     }));
   };
+
+  const handleOpenLocalWorkspace = useCallback(() => {
+    if (!socket) {
+      toast.error("Socket not connected");
+      return;
+    }
+
+    if (!pr.repoFullName) {
+      toast.error("No repository information available");
+      return;
+    }
+
+    if (!pr.headRef) {
+      toast.error("No branch information available");
+      return;
+    }
+
+    const loadingToast = toast.loading("Creating local workspace...");
+
+    socket.emit(
+      "create-local-workspace",
+      {
+        teamSlugOrId,
+        projectFullName: pr.repoFullName,
+        repoUrl: `https://github.com/${pr.repoFullName}.git`,
+        branch: pr.headRef,
+      },
+      (response: CreateLocalWorkspaceResponse) => {
+        if (response.success && response.workspacePath) {
+          toast.success("Workspace created successfully!", {
+            id: loadingToast,
+            description: `Opening workspace at ${response.workspacePath}`,
+          });
+
+          // Navigate to the vscode view for this workspace
+          if (response.taskRunId && response.taskId) {
+            navigate({
+              to: "/$teamSlugOrId/task/$taskId/run/$runId/vscode",
+              params: {
+                teamSlugOrId,
+                taskId: response.taskId as Id<"tasks">,
+                runId: response.taskRunId as Id<"taskRuns">,
+              },
+            });
+          }
+        } else {
+          toast.error(response.error || "Failed to create workspace", {
+            id: loadingToast,
+          });
+        }
+      }
+    );
+  }, [socket, teamSlugOrId, pr.repoFullName, pr.headRef, navigate]);
 
   return (
     <li key={key} className="rounded-md select-none">
@@ -144,26 +213,45 @@ function PullRequestListItem({ pr, teamSlugOrId, expanded, setExpanded }: PullRe
           meta={leadingIcon}
         />
       </Link>
-      {isExpanded && pr.htmlUrl ? (
+      {isExpanded ? (
         <div className="mt-px flex flex-col" role="group">
-          <a
-            href={pr.htmlUrl}
-            target="_blank"
-            rel="noreferrer"
+          <button
             onClick={(event) => {
               event.stopPropagation();
+              handleOpenLocalWorkspace();
             }}
-            className="mt-px flex w-full items-center rounded-md pr-2 py-1 text-xs transition-colors hover:bg-neutral-200/45 dark:hover:bg-neutral-800/45"
+            className="flex w-full items-center rounded-md pr-2 py-1 text-xs transition-colors hover:bg-neutral-200/45 dark:hover:bg-neutral-800/45"
             style={{ paddingLeft: "32px" }}
+            title="Open local workspace from this branch"
           >
-            <GitHubIcon
-              className="mr-2 h-3 w-3 text-neutral-400 grayscale opacity-60"
+            <FolderOpen
+              className="mr-2 h-3 w-3 text-neutral-400"
               aria-hidden
             />
             <span className="text-neutral-600 dark:text-neutral-400">
-              GitHub
+              Open workspace
             </span>
-          </a>
+          </button>
+          {pr.htmlUrl ? (
+            <a
+              href={pr.htmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+              className="flex w-full items-center rounded-md pr-2 py-1 text-xs transition-colors hover:bg-neutral-200/45 dark:hover:bg-neutral-800/45"
+              style={{ paddingLeft: "32px" }}
+            >
+              <GitHubIcon
+                className="mr-2 h-3 w-3 text-neutral-400 grayscale opacity-60"
+                aria-hidden
+              />
+              <span className="text-neutral-600 dark:text-neutral-400">
+                GitHub
+              </span>
+            </a>
+          ) : null}
         </div>
       ) : null}
     </li>
