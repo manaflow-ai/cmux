@@ -755,8 +755,23 @@ RUN curl -fsSL https://bun.sh/install | bash && \
 ENV PATH="/usr/local/bin:$PATH"
 ENV BUN_INSTALL_CACHE_DIR=/cmux/node_modules/.bun
 
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-  bun add -g @openai/codex@0.50.0 @anthropic-ai/claude-code@2.0.54 @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff @devcontainers/cli @sourcegraph/amp
+# Global CLIs are sourced from configs/ide-deps.json.
+COPY configs/ide-deps.json /tmp/ide-deps.json
+RUN --mount=type=cache,target=/root/.bun/install/cache <<'EOF'
+set -eux
+packages="$(node - <<'NODE'
+const fs = require("node:fs");
+const deps = JSON.parse(fs.readFileSync("/tmp/ide-deps.json", "utf8"));
+const entries = Object.entries(deps.packages ?? {});
+process.stdout.write(entries.map(([name, version]) => `${name}@${version}`).join(" "));
+NODE
+)"
+if [ -z "${packages}" ]; then
+  echo "No packages found in /tmp/ide-deps.json" >&2
+  exit 1
+fi
+bun add -g ${packages}
+EOF
 
 # Install cursor cli
 RUN curl https://cursor.com/install -fsS | bash
@@ -895,17 +910,28 @@ download_extension() {
   fi
 }
 
-while IFS='|' read -r publisher name version; do
-  [ -z "\${publisher}" ] && continue
-  download_extension "\${publisher}" "\${name}" "\${version}" "\${download_dir}/\${publisher}.\${name}.vsix" &
-done <<'EXTENSIONS'
-anthropic|claude-code|2.0.27
-openai|chatgpt|0.5.27
-ms-vscode|vscode-typescript-next|5.9.20250531
-ms-python|python|2025.6.1
-ms-python|vscode-pylance|2025.8.100
-ms-python|debugpy|2025.14.0
-EXTENSIONS
+extensions="$(node - <<'NODE'
+const fs = require("node:fs");
+const deps = JSON.parse(fs.readFileSync("/tmp/ide-deps.json", "utf8"));
+const exts = deps.extensions ?? [];
+if (!Array.isArray(exts)) {
+  throw new Error("ide-deps.json extensions must be an array");
+}
+process.stdout.write(
+  exts
+    .map((ext) => `${ext.publisher}|${ext.name}|${ext.version}`)
+    .join("\\n")
+);
+NODE
+)"
+if [ -z "${extensions}" ]; then
+  echo "No extensions found in /tmp/ide-deps.json" >&2
+  exit 1
+fi
+printf '%s\n' "${extensions}" | while IFS='|' read -r publisher name version; do
+  [ -z "${publisher}" ] && continue
+  download_extension "${publisher}" "${name}" "${version}" "${download_dir}/${publisher}.${name}.vsix" &
+done
 wait
 set -- "\${download_dir}"/*.vsix
 for vsix in "\$@"; do

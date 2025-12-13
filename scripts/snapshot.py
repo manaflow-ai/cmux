@@ -1314,6 +1314,37 @@ async def task_install_ide_extensions(ctx: TaskContext) -> None:
         extensions_dir = "/root/.openvscode-server/extensions"
         user_data_dir = "/root/.openvscode-server/data"
 
+    ide_deps_path = Path(__file__).resolve().parent.parent / "configs/ide-deps.json"
+    try:
+        ide_deps_raw = ide_deps_path.read_text(encoding="utf-8")
+        ide_deps = json.loads(ide_deps_raw)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read {ide_deps_path}") from exc
+
+    extensions = ide_deps.get("extensions")
+    if not isinstance(extensions, list):
+        raise RuntimeError("configs/ide-deps.json extensions must be an array.")
+
+    extension_lines: list[str] = []
+    for ext in extensions:
+        if not isinstance(ext, dict):
+            raise RuntimeError(f"Invalid extension entry {ext!r}")
+        publisher = ext.get("publisher")
+        name = ext.get("name")
+        version = ext.get("version")
+        if (
+            not isinstance(publisher, str)
+            or not isinstance(name, str)
+            or not isinstance(version, str)
+        ):
+            raise RuntimeError(f"Invalid extension entry {ext!r}")
+        extension_lines.append(f"{publisher}|{name}|{version}")
+
+    if not extension_lines:
+        raise RuntimeError("No extensions found in configs/ide-deps.json.")
+
+    extensions_blob = "\n".join(extension_lines)
+
     cmd = textwrap.dedent(
         f"""
         set -eux
@@ -1389,12 +1420,7 @@ async def task_install_ide_extensions(ctx: TaskContext) -> None:
           [ -z "${{publisher}}" ] && continue
           download_extension "${{publisher}}" "${{name}}" "${{version}}" "${{download_dir}}/${{publisher}}.${{name}}.vsix" &
         done <<'EXTENSIONS'
-        anthropic|claude-code|2.0.27
-        openai|chatgpt|0.5.27
-        ms-vscode|vscode-typescript-next|5.9.20250531
-        ms-python|python|2025.6.1
-        ms-python|vscode-pylance|2025.8.100
-        ms-python|debugpy|2025.14.0
+        {extensions_blob}
         EXTENSIONS
         wait
         set -- "${{download_dir}}"/*.vsix
@@ -1429,14 +1455,154 @@ async def task_install_cursor(ctx: TaskContext) -> None:
     description="Install global agent CLIs with bun",
 )
 async def task_install_global_cli(ctx: TaskContext) -> None:
+    ide_deps_path = Path(__file__).resolve().parent.parent / "configs/ide-deps.json"
+    try:
+        ide_deps_raw = ide_deps_path.read_text(encoding="utf-8")
+        ide_deps = json.loads(ide_deps_raw)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read {ide_deps_path}") from exc
+
+    packages = ide_deps.get("packages")
+    if not isinstance(packages, dict):
+        raise RuntimeError("configs/ide-deps.json packages must be an object.")
+
+    package_args: list[str] = []
+    for name, version in packages.items():
+        if not isinstance(name, str) or not isinstance(version, str):
+            raise RuntimeError(f"Invalid package entry {name!r}: {version!r}")
+        package_args.append(f"{name}@{version}")
+
+    if not package_args:
+        raise RuntimeError("No packages found in configs/ide-deps.json.")
+
+    bun_line = "bun add -g " + " ".join(package_args)
     cmd = textwrap.dedent(
-        """
-        bun add -g @openai/codex@0.50.0 @anthropic-ai/claude-code@2.0.54 \
-          @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff \
-          @devcontainers/cli @sourcegraph/amp
+        f"""
+        {bun_line}
         """
     )
     await ctx.run("install-global-cli", cmd)
+
+
+@registry.task(
+    name="setup-claude-oauth-wrappers",
+    deps=("install-global-cli",),
+    description="Create wrapper scripts for claude/npx/bunx to support OAuth token injection",
+)
+async def task_setup_claude_oauth_wrappers(ctx: TaskContext) -> None:
+    """
+    Create wrapper scripts that source /etc/claude-code/env before running claude-code.
+    This allows cmux to inject CLAUDE_CODE_OAUTH_TOKEN at runtime without needing
+    to set it as an environment variable (which doesn't work due to OAuth check timing).
+    """
+    cmd = textwrap.dedent(
+        r'''
+        set -eux
+
+        # Create the env file directory
+        mkdir -p /etc/claude-code
+        touch /etc/claude-code/env
+        chmod 644 /etc/claude-code/env
+
+        # Add bun global bin to PATH (where bun add -g installs binaries)
+        export PATH="/root/.bun/bin:$PATH"
+
+        # Find the real claude binary location
+        CLAUDE_PATH="$(which claude 2>/dev/null || true)"
+        if [ -z "$CLAUDE_PATH" ]; then
+            echo "claude not found in PATH, skipping wrapper setup"
+            exit 0
+        fi
+
+        echo "Found claude at: $CLAUDE_PATH"
+        CLAUDE_DIR="$(dirname "$CLAUDE_PATH")"
+        echo "Claude directory: $CLAUDE_DIR"
+
+        # If claude is already a wrapper (not a symlink), skip
+        if [ -f "$CLAUDE_PATH" ] && ! [ -L "$CLAUDE_PATH" ]; then
+            if head -1 "$CLAUDE_PATH" 2>/dev/null | grep -q "^#!/bin/bash"; then
+                echo "claude already appears to be a wrapper, skipping"
+                exit 0
+            fi
+        fi
+
+        # Move claude to claude-real (works for both symlinks and regular files)
+        mv "$CLAUDE_DIR/claude" "$CLAUDE_DIR/claude-real"
+
+        # Create claude wrapper that calls the real binary
+        cat > "$CLAUDE_DIR/claude" << WRAPPER
+#!/bin/bash
+# Source claude-code env vars if file exists
+if [ -f /etc/claude-code/env ]; then
+    set -a
+    source /etc/claude-code/env
+    set +a
+fi
+exec "$CLAUDE_DIR/claude-real" "\$@"
+WRAPPER
+        chmod +x "$CLAUDE_DIR/claude"
+
+        # Setup bunx wrapper if bunx exists (used by cmux to run claude-code)
+        BUNX_PATH="$(which bunx 2>/dev/null || true)"
+        if [ -n "$BUNX_PATH" ]; then
+            echo "Found bunx at: $BUNX_PATH"
+            BUNX_DIR="$(dirname "$BUNX_PATH")"
+
+            # Only wrap if it's a symlink (not already wrapped)
+            if [ -L "$BUNX_PATH" ]; then
+                mv "$BUNX_DIR/bunx" "$BUNX_DIR/bunx-real"
+                cat > "$BUNX_DIR/bunx" << WRAPPER
+#!/bin/bash
+# If running claude-code (with or without version suffix), source env vars
+case "\$1" in
+    @anthropic-ai/claude-code|@anthropic-ai/claude-code@*|claude-code|claude-code@*)
+        if [ -f /etc/claude-code/env ]; then
+            set -a
+            source /etc/claude-code/env
+            set +a
+        fi
+        ;;
+esac
+exec "$BUNX_DIR/bunx-real" "\$@"
+WRAPPER
+                chmod +x "$BUNX_DIR/bunx"
+            fi
+        fi
+
+        # Setup npx wrapper if npx exists
+        NPX_PATH="$(which npx 2>/dev/null || true)"
+        if [ -n "$NPX_PATH" ]; then
+            echo "Found npx at: $NPX_PATH"
+            NPX_DIR="$(dirname "$NPX_PATH")"
+
+            # Only wrap if it's a symlink (not already wrapped)
+            if [ -L "$NPX_PATH" ]; then
+                mv "$NPX_DIR/npx" "$NPX_DIR/npx-real"
+                cat > "$NPX_DIR/npx" << WRAPPER
+#!/bin/bash
+# If running claude-code (with or without version suffix), source env vars
+case "\$1" in
+    @anthropic-ai/claude-code|@anthropic-ai/claude-code@*|claude-code|claude-code@*)
+        if [ -f /etc/claude-code/env ]; then
+            set -a
+            source /etc/claude-code/env
+            set +a
+        fi
+        ;;
+esac
+exec "$NPX_DIR/npx-real" "\$@"
+WRAPPER
+                chmod +x "$NPX_DIR/npx"
+            fi
+        fi
+
+        echo "Claude OAuth wrappers setup complete"
+        echo "claude wrapper:"
+        ls -la "$CLAUDE_DIR/claude" "$CLAUDE_DIR/claude-real" 2>/dev/null || true
+        cat "$CLAUDE_DIR/claude"
+        '''
+    )
+    await ctx.run("setup-claude-oauth-wrappers", cmd)
 
 
 @registry.task(
@@ -2542,6 +2708,22 @@ async def provision_and_snapshot(args: argparse.Namespace) -> None:
     atexit.register(_sync_cleanup)
 
     repo_root = Path(args.repo_root).resolve()
+    if getattr(args, "bump_ide_deps", False):
+        bun_path = shutil.which("bun")
+        if bun_path is None:
+            raise RuntimeError(
+                "bun not found on host; install bun or rerun with --no-bump-ide-deps."
+            )
+        console.always("Bumping IDE deps to latest (bun run bump-ide-deps)...")
+        bump_result = subprocess.run(
+            [bun_path, "run", "bump-ide-deps"],
+            cwd=str(repo_root),
+            text=True,
+        )
+        if bump_result.returncode != 0:
+            raise RuntimeError(
+                f"bun run bump-ide-deps failed with exit code {bump_result.returncode}"
+            )
     preset_plans = _build_preset_plans(args)
 
     console.always(
@@ -2692,6 +2874,13 @@ def parse_args() -> argparse.Namespace:
         choices=(IDE_PROVIDER_CODER, IDE_PROVIDER_OPENVSCODE),
         default=DEFAULT_IDE_PROVIDER,
         help=f"IDE provider to install (default: {DEFAULT_IDE_PROVIDER})",
+    )
+    parser.add_argument(
+        "--bump-ide-deps",
+        dest="bump_ide_deps",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Update configs/ide-deps.json to latest versions before snapshotting",
     )
     return parser.parse_args()
 

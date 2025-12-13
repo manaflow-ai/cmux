@@ -37,6 +37,8 @@
     "check": "bun run scripts/check.ts",
     "lint": "bun run scripts/lint.ts",
     "test": "bun run scripts/test.ts",
+    "sync-ide-deps": "bun run scripts/sync-ide-deps.ts",
+    "bump-ide-deps": "bun run scripts/bump-ide-deps.ts",
     "typecheck": "run-p typecheck:*",
     "typecheck:client": "cd apps/client && bun run typecheck",
     "typecheck:scripts": "cd scripts && bun run typecheck",
