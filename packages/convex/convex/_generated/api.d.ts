@@ -45,6 +45,8 @@ import type * as previewScreenshots from "../previewScreenshots.js";
 import type * as preview_jobs from "../preview_jobs.js";
 import type * as preview_jobs_http from "../preview_jobs_http.js";
 import type * as preview_jobs_worker from "../preview_jobs_worker.js";
+import type * as preview_quota from "../preview_quota.js";
+import type * as preview_quota_actions from "../preview_quota_actions.js";
 import type * as preview_screenshots_http from "../preview_screenshots_http.js";
 import type * as screenshots_http from "../screenshots_http.js";
 import type * as seed from "../seed.js";
@@ -109,6 +111,8 @@ declare const fullApi: ApiFromModules<{
   preview_jobs: typeof preview_jobs;
   preview_jobs_http: typeof preview_jobs_http;
   preview_jobs_worker: typeof preview_jobs_worker;
+  preview_quota: typeof preview_quota;
+  preview_quota_actions: typeof preview_quota_actions;
   preview_screenshots_http: typeof preview_screenshots_http;
   screenshots_http: typeof screenshots_http;
   seed: typeof seed;

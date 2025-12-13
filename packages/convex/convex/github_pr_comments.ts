@@ -979,6 +979,92 @@ export const postPreviewComment = internalAction({
   },
 });
 
+/**
+ * Posts a paywall notification comment to a GitHub PR when user has exceeded their preview quota.
+ * Directs them to subscribe at /preview/subscription
+ */
+export const postPaywallComment = internalAction({
+  args: {
+    installationId: v.number(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    usedRuns: v.number(),
+    limit: v.number(),
+  },
+  handler: async (
+    _ctx,
+    { installationId, repoFullName, prNumber, usedRuns, limit },
+  ): Promise<{ ok: true; commentId: number } | { ok: false; error: string }> => {
+    try {
+      const accessToken = await fetchInstallationAccessToken(installationId);
+      if (!accessToken) {
+        console.error(
+          "[github_pr_comments] Failed to get access token for paywall comment",
+          { installationId },
+        );
+        return { ok: false, error: "Failed to get access token" };
+      }
+
+      const repo = parseRepoFullName(repoFullName);
+      if (!repo) {
+        console.error("[github_pr_comments] Invalid repo full name for paywall comment", {
+          repoFullName,
+        });
+        return { ok: false, error: "Invalid repository name" };
+      }
+
+      const octokit = createOctokit(accessToken);
+
+      const subscriptionUrl = `${CMUX_BASE_URL}/preview/subscription?${UTM_PARAMS}&utm_content=paywall_comment`;
+
+      const commentBody = [
+        "## 🔒 Preview Quota Exceeded",
+        "",
+        `You've used **${usedRuns}** of your **${limit}** free PR previews.`,
+        "",
+        "To continue receiving automatic screenshot previews on your PRs, please subscribe to cmux Preview.",
+        "",
+        `<a href="${subscriptionUrl}" target="_blank"><strong>Subscribe to unlock unlimited previews →</strong></a>`,
+        "",
+        "---",
+        PREVIEW_SIGNATURE,
+      ].join("\n");
+
+      const { data } = await octokit.rest.issues.createComment({
+        owner: repo.owner,
+        repo: repo.repo,
+        issue_number: prNumber,
+        body: commentBody,
+      });
+
+      console.log("[github_pr_comments] Posted paywall comment", {
+        installationId,
+        repoFullName,
+        prNumber,
+        usedRuns,
+        limit,
+        commentId: data.id,
+      });
+
+      return { ok: true, commentId: data.id };
+    } catch (error) {
+      console.error(
+        "[github_pr_comments] Unexpected error posting paywall comment",
+        {
+          installationId,
+          repoFullName,
+          prNumber,
+          error,
+        },
+      );
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
 export const addPrComment = internalAction({
   args: {
     installationId: v.number(),

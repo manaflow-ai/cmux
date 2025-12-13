@@ -1,18 +1,52 @@
 import { v } from "convex/values";
+import {
+  PREVIEW_PAYWALL_FREE_PR_LIMIT,
+  PREVIEW_PAYWALL_STATE_REASON,
+} from "../_shared/preview-paywall";
 import { getTeamId } from "../_shared/team";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { authMutation, authQuery } from "./users/utils";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 
 function normalizeRepoFullName(value: string): string {
   return value.trim().replace(/\.git$/i, "").toLowerCase();
+}
+
+async function countUniquePullRequestsForUser(
+  ctx: QueryCtx,
+  userId: string,
+  cap: number,
+): Promise<number> {
+  const maxUnique = Math.max(1, cap);
+  const unique = new Set<string>();
+
+  // Fetch enough runs to reliably count unique PRs up to the cap.
+  // If a user has 10 unique PRs averaging ~5 runs each, we need ~50 runs.
+  // Using 500 gives us margin for heavy users while avoiding pagination
+  // (Convex doesn't allow multiple paginated queries in a single function).
+  const runs = await ctx.db
+    .query("previewRuns")
+    .withIndex("by_user_created", (q) => q.eq("createdByUserId", userId))
+    .order("desc")
+    .take(500);
+
+  for (const run of runs) {
+    if (run.stateReason === PREVIEW_PAYWALL_STATE_REASON) {
+      continue;
+    }
+    unique.add(`${run.repoFullName}#${run.prNumber}`);
+    if (unique.size >= maxUnique) break;
+  }
+
+  return unique.size;
 }
 
 export const enqueueFromWebhook = internalMutation({
   args: {
     previewConfigId: v.id("previewConfigs"),
     teamId: v.string(),
+    createdByUserId: v.string(),
     repoFullName: v.string(),
     repoInstallationId: v.optional(v.number()),
     prNumber: v.number(),
@@ -24,6 +58,16 @@ export const enqueueFromWebhook = internalMutation({
     headRef: v.optional(v.string()),
     headRepoFullName: v.optional(v.string()),
     headRepoCloneUrl: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("skipped"),
+      ),
+    ),
+    stateReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const repoFullName = normalizeRepoFullName(args.repoFullName);
@@ -54,10 +98,26 @@ export const enqueueFromWebhook = internalMutation({
       return existingByPr._id;
     }
 
+    // Avoid creating multiple paywall-skipped runs for the same PR.
+    if (
+      args.status === "skipped" &&
+      args.stateReason === PREVIEW_PAYWALL_STATE_REASON &&
+      existingByPr?.status === "skipped" &&
+      existingByPr.stateReason === PREVIEW_PAYWALL_STATE_REASON
+    ) {
+      return existingByPr._id;
+    }
+
     const now = Date.now();
+    const status = args.status ?? "pending";
+    const completedAt =
+      status === "completed" || status === "failed" || status === "skipped"
+        ? now
+        : undefined;
     const runId = await ctx.db.insert("previewRuns", {
       previewConfigId: args.previewConfigId,
       teamId: args.teamId,
+      createdByUserId: args.createdByUserId,
       repoFullName,
       repoInstallationId: args.repoInstallationId,
       prNumber: args.prNumber,
@@ -69,10 +129,11 @@ export const enqueueFromWebhook = internalMutation({
       headRef: args.headRef,
       headRepoFullName,
       headRepoCloneUrl: args.headRepoCloneUrl,
-      status: "pending",
+      status,
+      stateReason: args.stateReason,
       dispatchedAt: undefined,
       startedAt: undefined,
-      completedAt: undefined,
+      completedAt,
       screenshotSetId: undefined,
       githubCommentUrl: undefined,
       createdAt: now,
@@ -244,6 +305,7 @@ export const enqueueFromTaskRun = internalMutation({
     const runId = await ctx.db.insert("previewRuns", {
       previewConfigId: previewConfig._id,
       teamId: taskRun.teamId,
+      createdByUserId: taskRun.userId,
       repoFullName,
       repoInstallationId: previewConfig.repoInstallationId,
       prNumber,
@@ -511,6 +573,78 @@ export const listByTeam = authQuery({
   },
 });
 
+export const hasProcessedPullRequest = internalQuery({
+  args: {
+    previewConfigId: v.id("previewConfigs"),
+    prNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const runs = await ctx.db
+      .query("previewRuns")
+      .withIndex("by_config_pr", (q) =>
+        q.eq("previewConfigId", args.previewConfigId).eq("prNumber", args.prNumber),
+      )
+      .order("desc")
+      .take(250);
+
+    return runs.some((run) => run.stateReason !== PREVIEW_PAYWALL_STATE_REASON);
+  },
+});
+
+/**
+ * Check if there's already a paywall-blocked run for this PR.
+ * Used to avoid posting duplicate paywall comments.
+ */
+export const hasPaywallRunForPullRequest = internalQuery({
+  args: {
+    previewConfigId: v.id("previewConfigs"),
+    prNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const runs = await ctx.db
+      .query("previewRuns")
+      .withIndex("by_config_pr", (q) =>
+        q.eq("previewConfigId", args.previewConfigId).eq("prNumber", args.prNumber),
+      )
+      .order("desc")
+      .take(50);
+
+    return runs.some((run) => run.stateReason === PREVIEW_PAYWALL_STATE_REASON);
+  },
+});
+
+export const getUniquePullRequestCountByUser = internalQuery({
+  args: {
+    userId: v.string(),
+    cap: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const cap = Math.max(1, Math.min(args.cap ?? PREVIEW_PAYWALL_FREE_PR_LIMIT, 10_000));
+    return await countUniquePullRequestsForUser(ctx, args.userId, cap);
+  },
+});
+
+export const getCurrentUserPreviewUsage = authQuery({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required");
+    }
+
+    const usedUniquePullRequests = await countUniquePullRequestsForUser(
+      ctx,
+      identity.subject,
+      PREVIEW_PAYWALL_FREE_PR_LIMIT,
+    );
+
+    return {
+      usedUniquePullRequests,
+      freeLimit: PREVIEW_PAYWALL_FREE_PR_LIMIT,
+    };
+  },
+});
+
 /**
  * Create a preview run manually (for local preview scripts).
  * Follows the same flow as the GitHub webhook handler:
@@ -575,6 +709,7 @@ export const createManual = authMutation({
     const runId = await ctx.db.insert("previewRuns", {
       previewConfigId: config._id,
       teamId,
+      createdByUserId: config.createdByUserId,
       repoFullName,
       repoInstallationId: config.repoInstallationId,
       prNumber: args.prNumber,

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { waitUntil } from "@vercel/functions";
 import { stackServerApp } from "@/lib/utils/stack";
 import { getConvex } from "@/lib/utils/get-convex";
+import { env } from "@/lib/utils/www-env";
 import { api } from "@cmux/convex/api";
 import { PreviewDashboard } from "@/components/preview/preview-dashboard";
 import {
@@ -49,6 +50,13 @@ type PreviewConfigListItem = {
 type TeamOption = {
   slugOrId: string;
   displayName: string;
+};
+
+type PreviewPaywallState = {
+  isBlocked: boolean;
+  usedRuns: number;
+  freeLimit: number;
+  productId: string;
 };
 
 function serializeProviderConnections(
@@ -200,6 +208,46 @@ export default async function PreviewLandingPage({ searchParams }: PageProps) {
   }));
 
   const convex = getConvex({ accessToken });
+
+  const paywallProductId =
+    env.NEXT_PUBLIC_PREVIEW_PAYWALL_PRODUCT_ID ?? "preview-pro";
+
+  let paywall: PreviewPaywallState | null = null;
+  try {
+    const quotaInfo = await convex.query(api.preview_quota.getQuotaInfo, {
+      teamSlugOrId: selectedTeamSlugOrId,
+    });
+
+    let hasPaid = false;
+    let paymentCheckFailed = false;
+    try {
+      const products = await user.listProducts({ limit: 100 });
+      hasPaid = products.some(
+        (product) => product.id === paywallProductId && product.quantity > 0,
+      );
+    } catch (error) {
+      paymentCheckFailed = true;
+      console.error("[PreviewLandingPage] Failed to check Stack products", {
+        error,
+      });
+    }
+
+    paywall = {
+      isBlocked:
+        !paymentCheckFailed &&
+        !hasPaid &&
+        quotaInfo.remainingRuns <= 0,
+      usedRuns: quotaInfo.usedRuns,
+      freeLimit: quotaInfo.freeLimit,
+      productId: paywallProductId,
+    };
+  } catch (error) {
+    console.error("[PreviewLandingPage] Failed to load preview quota info", {
+      error,
+      teamSlugOrId: selectedTeamSlugOrId,
+    });
+  }
+
   const [providerConnectionsByTeamEntries, previewConfigs] = await Promise.all([
     Promise.all(
       teams.map(async (team) => {
@@ -291,6 +339,7 @@ export default async function PreviewLandingPage({ searchParams }: PageProps) {
         popupComplete={popupComplete}
         waitlistProviders={waitlistProviders}
         waitlistEmail={user.primaryEmail}
+        paywall={paywall}
       />
     </div>
   );
