@@ -270,16 +270,78 @@ async function waitForTmuxSession(
   return false;
 }
 
+const CMUX_TERMINAL_NAME = "cmux";
+
+function hasCmuxTerminal(): boolean {
+  // Check if a terminal named "cmux" already exists
+  const existingTerminal = vscode.window.terminals.find(
+    (t) => t.name === CMUX_TERMINAL_NAME
+  );
+  if (existingTerminal) {
+    log(`Found existing cmux terminal: ${existingTerminal.name}`);
+    return true;
+  }
+
+  // Also check editor tabs for terminal tabs with "cmux" name
+  const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+  const cmuxTab = tabs.find((tab) => tab.label === CMUX_TERMINAL_NAME);
+  if (cmuxTab) {
+    log(`Found existing cmux tab: ${cmuxTab.label}`);
+    return true;
+  }
+
+  return false;
+}
+
+async function ensureCmuxTerminal(): Promise<vscode.Terminal | null> {
+  // Check if cmux terminal already exists
+  if (hasCmuxTerminal()) {
+    log("Cmux terminal already exists, skipping creation");
+    const existingTerminal = vscode.window.terminals.find(
+      (t) => t.name === CMUX_TERMINAL_NAME
+    );
+    if (existingTerminal) {
+      activeTerminals.set("default", existingTerminal);
+    }
+    return existingTerminal ?? null;
+  }
+
+  // Wait for tmux session to exist before creating terminal
+  const tmuxSessionExists = await waitForTmuxSession(CMUX_TERMINAL_NAME);
+  if (!tmuxSessionExists) {
+    log("Tmux session not found, skipping terminal creation");
+    return null;
+  }
+
+  // Create terminal and attach to tmux session
+  log("Creating cmux terminal...");
+  const terminal = vscode.window.createTerminal({
+    name: CMUX_TERMINAL_NAME,
+    location: vscode.TerminalLocation.Editor,
+    cwd: "/root/workspace",
+    env: process.env,
+  });
+  terminal.show();
+  activeTerminals.set("default", terminal);
+  terminal.sendText(`tmux attach-session -t ${CMUX_TERMINAL_NAME}`);
+
+  log("Cmux terminal created successfully");
+  return terminal;
+}
+
 async function setupDefaultTerminal() {
   log("Setting up default terminal");
 
-  // Prevent duplicate setup
+  // Prevent duplicate setup of the full UI (diff view, SCM, etc.)
   if (isSetupComplete) {
-    log("Setup already complete, skipping");
+    log("Setup already complete, ensuring cmux terminal exists");
+    // Even if setup is complete, ensure the cmux terminal exists
+    await ensureCmuxTerminal();
     return;
   }
 
-  // If any meaningful editors exist (not just system/onboarding tabs), don't do anything
+  // Check if we should skip the full UI setup (diff view, etc.)
+  // This is separate from terminal creation - we always want the terminal
   const isSystemTab = (label: string | undefined): boolean => {
     if (!label) return false;
     // Exact matches for known system tabs
@@ -289,38 +351,28 @@ async function setupDefaultTerminal() {
     return false;
   };
   const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
-  const meaningfulTabs = tabs.filter((tab) => !isSystemTab(tab.label));
-  if (meaningfulTabs.length > 0) {
-    log(`Found ${meaningfulTabs.length} existing tab(s), skipping setup`);
-    return;
+  const meaningfulTabs = tabs.filter(
+    (tab) => !isSystemTab(tab.label) && tab.label !== CMUX_TERMINAL_NAME
+  );
+  const skipFullSetup = meaningfulTabs.length > 0;
+
+  if (skipFullSetup) {
+    log(`Found ${meaningfulTabs.length} existing tab(s), skipping full setup but ensuring terminal`);
   }
 
   isSetupComplete = true; // Set this BEFORE creating UI elements to prevent race conditions
 
-  // Wait for tmux session to exist before creating terminal
-  const tmuxSessionExists = await waitForTmuxSession("cmux");
-  if (!tmuxSessionExists) {
-    log("Tmux session not found, skipping terminal creation");
-    return;
+  // Always ensure cmux terminal exists
+  const terminal = await ensureCmuxTerminal();
+
+  // Only run full UI setup if no meaningful tabs exist
+  if (!skipFullSetup && terminal) {
+    log("Setting up SCM view, multi-diff editor in parallel...");
+    await Promise.all([
+      vscode.commands.executeCommand("workbench.view.scm"),
+      openMultiDiffEditor(),
+    ]);
   }
-
-  // Create terminal and attach to tmux session
-  const terminal = vscode.window.createTerminal({
-    name: "cmux",
-    location: vscode.TerminalLocation.Editor,
-    cwd: "/root/workspace",
-    env: process.env,
-  });
-  terminal.show();
-  activeTerminals.set("default", terminal);
-  terminal.sendText("tmux attach-session -t cmux");
-
-  // Run all UI setup in parallel
-  log("Setting up SCM view, multi-diff editor in parallel...");
-  await Promise.all([
-    vscode.commands.executeCommand("workbench.view.scm"),
-    openMultiDiffEditor(),
-  ]);
 
   log("Terminal setup complete");
 }
