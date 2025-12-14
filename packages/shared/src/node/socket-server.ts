@@ -1,6 +1,6 @@
 import type { ServerOptions } from "socket.io";
 
-export function getMainServerSocketOptions(origin: string = "http://localhost:5173"): Partial<ServerOptions> {
+export function getMainServerSocketOptions(origin: string = "http://localhost:9775"): Partial<ServerOptions> {
   return {
     cors: {
       origin,

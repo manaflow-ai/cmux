@@ -32,7 +32,7 @@ describe("shouldUseIframePreflightProxy", () => {
 
   it("returns false for localhost targets", () => {
     expect(
-      shouldUseIframePreflightProxy("http://localhost:5173/index.html"),
+      shouldUseIframePreflightProxy("http://localhost:9775/index.html"),
     ).toBe(false);
   });
 

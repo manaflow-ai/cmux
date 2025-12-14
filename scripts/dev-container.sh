@@ -43,7 +43,7 @@ if [ -z "$CONTAINER_NAME" ]; then
 fi
 
 echo -e "${GREEN}Devcontainer is running!${NC}"
-echo -e "${BLUE}Frontend: http://localhost:5173${NC}"
+echo -e "${BLUE}Frontend: http://localhost:9775${NC}"
 echo -e "${BLUE}Backend: http://localhost:9776${NC}"
 echo -e "${BLUE}Convex Backend: http://localhost:9777${NC}"
 echo -e "${BLUE}Convex Dashboard: http://localhost:6791${NC}"

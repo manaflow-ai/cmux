@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 
 # Ensure common dev ports are free (respect Chrome/OrbStack) using shared helper
 CONVEX_PORT=${CONVEX_PORT:-9777}
-PORTS_TO_CHECK="5173 $CONVEX_PORT 9777 9778"
+PORTS_TO_CHECK="9775 $CONVEX_PORT 9777 9778"
 source "$(dirname "$0")/_port-clean.sh"
 clean_ports $PORTS_TO_CHECK
 

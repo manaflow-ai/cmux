@@ -28,7 +28,7 @@
       }
     }
   },
-  "forwardPorts": [5173, 9776, 9779],
+  "forwardPorts": [9775, 9776, 9779],
   "portsAttributes": {
     "9776": {
       "label": "apps/server",
@@ -38,7 +38,7 @@
       "label": "apps/www",
       "onAutoForward": "notify"
     },
-    "5173": {
+    "9775": {
       "label": "apps/client",
       "onAutoForward": "notify"
     }

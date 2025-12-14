@@ -26,7 +26,7 @@ test.describe('vite app', () => {
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
     
-    const targetUrl = 'http://localhost:5173';
+    const targetUrl = 'http://localhost:9775';
     console.log(`Navigating to ${targetUrl}`);
     
     // Capture console logs to check for the "Blocked script" error
@@ -57,7 +57,7 @@ test.describe('vite app', () => {
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
     
-    const targetUrl = 'https://localhost:5173';
+    const targetUrl = 'https://localhost:9775';
     console.log(`Navigating to ${targetUrl}`);
     
     page.on('console', msg => console.log(`[Browser Console] ${msg.text()}`));

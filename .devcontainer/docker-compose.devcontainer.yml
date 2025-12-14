@@ -12,7 +12,7 @@ services:
       - CONVEX_PORT=9777
       - NEXT_PUBLIC_CONVEX_URL=http://localhost:9777
     ports:
-      - "5173:5173"
+      - "9775:9775"
       - "9776:9776"
       - "9779:9779"
     depends_on:

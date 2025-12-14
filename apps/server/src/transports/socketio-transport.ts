@@ -15,7 +15,7 @@ export function createSocketIOTransport(
 ): RealtimeServer {
   const allowedOriginsEnv = process.env.CMUX_ALLOWED_SOCKET_ORIGINS;
   const defaultAllowed = new Set([
-    "http://localhost:5173",
+    "http://localhost:9775",
     "https://cmux.local",
     "https://www.cmux.sh",
   ]);

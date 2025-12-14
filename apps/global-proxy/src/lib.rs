@@ -40,7 +40,7 @@ const GIT_COMMIT: &str = match option_env!("GIT_COMMIT") {
     None => "unknown",
 };
 
-const CSP_FRAME_ANCESTORS_PORT_39378: &str = "frame-ancestors 'self' https://cmux.local http://cmux.local https://www.cmux.sh https://cmux.sh https://www.cmux.dev https://cmux.dev http://localhost:5173;";
+const CSP_FRAME_ANCESTORS_PORT_39378: &str = "frame-ancestors 'self' https://cmux.local http://cmux.local https://www.cmux.sh https://cmux.sh https://www.cmux.dev https://cmux.dev http://localhost:9775;";
 const FORWARD_ALL_WEBSOCKET_HEADERS: bool = true;
 
 #[derive(Clone, Debug)]

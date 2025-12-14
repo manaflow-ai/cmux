@@ -3,9 +3,9 @@
 # Port cleanup helper. Can be sourced and called as a function, or executed.
 # Usage (sourced):
 #   source scripts/_port-clean.sh
-#   clean_ports 5173 9777 9778
+#   clean_ports 9775 9777 9778
 # Usage (exec):
-#   scripts/_port-clean.sh 5173 9777 9778
+#   scripts/_port-clean.sh 9775 9777 9778
 
 clean_ports() {
   # Colors (optional; no-op if not set by caller)
@@ -20,7 +20,7 @@ clean_ports() {
     ports=("$@")
   else
     local default_convex=${CONVEX_PORT:-9777}
-    ports=(5173 "$default_convex" 9777 9778)
+    ports=(9775 "$default_convex" 9777 9778)
   fi
 
   echo -e "${BLUE}Checking ports and cleaning up processes...${NC}"

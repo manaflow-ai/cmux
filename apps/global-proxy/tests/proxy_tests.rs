@@ -866,7 +866,7 @@ async fn port_39378_strips_cors_and_applies_csp() {
             .get("content-security-policy")
             .and_then(|v| v.to_str().ok()),
         Some(
-            "frame-ancestors 'self' https://cmux.local http://cmux.local https://www.cmux.sh https://cmux.sh https://www.cmux.dev https://cmux.dev http://localhost:5173;",
+            "frame-ancestors 'self' https://cmux.local http://cmux.local https://www.cmux.sh https://cmux.sh https://www.cmux.dev https://cmux.dev http://localhost:9775;",
         )
     );
     assert!(headers.get("x-frame-options").is_none());
@@ -931,7 +931,7 @@ async fn port_39378_strips_cors_and_applies_csp() {
             Method::GET,
             "port-39378-test.cmux.localhost",
             "/",
-            &[("Origin", "http://localhost:5173")],
+            &[("Origin", "http://localhost:9775")],
         )
         .await;
     assert_eq!(response_localhost.status(), StatusCode::OK);
@@ -955,7 +955,7 @@ async fn port_39378_strips_cors_and_applies_csp() {
             Method::GET,
             "cmux-test-base-39378.cmux.sh",
             "/",
-            &[("Origin", "http://localhost:5173")],
+            &[("Origin", "http://localhost:9775")],
         )
         .await;
     assert_eq!(cmux_local_response.status(), StatusCode::OK);
@@ -1003,7 +1003,7 @@ async fn port_39378_strips_cors_and_applies_csp() {
             .get("content-security-policy")
             .and_then(|v| v.to_str().ok()),
         Some(
-            "frame-ancestors 'self' https://cmux.local http://cmux.local https://www.cmux.sh https://cmux.sh https://www.cmux.dev https://cmux.dev http://localhost:5173;"
+            "frame-ancestors 'self' https://cmux.local http://cmux.local https://www.cmux.sh https://cmux.sh https://www.cmux.dev https://cmux.dev http://localhost:9775;"
         )
     );
 

@@ -80,13 +80,32 @@ app.use("*", prettyJSON());
 app.use(
   "*",
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:9779",
-      "https://cmux.sh",
-      "https://www.cmux.sh",
-      ...(clientPreviewOrigin ? [clientPreviewOrigin] : []),
-    ],
+    origin: (origin) => {
+      // Allow requests with no origin (e.g., server-to-server, Electron)
+      if (!origin) return "https://cmux.sh";
+
+      // Production origins
+      const productionOrigins = [
+        "https://cmux.sh",
+        "https://www.cmux.sh",
+      ];
+      if (productionOrigins.includes(origin)) return origin;
+
+      // Client preview origin from Vercel related projects
+      if (clientPreviewOrigin && origin === clientPreviewOrigin) return origin;
+
+      // Allow any localhost origin during development (any port)
+      try {
+        const url = new URL(origin);
+        if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+          return origin;
+        }
+      } catch {
+        // Invalid URL, reject
+      }
+
+      return null;
+    },
     credentials: true,
     allowHeaders: ["x-stack-auth", "content-type", "authorization"],
   }),

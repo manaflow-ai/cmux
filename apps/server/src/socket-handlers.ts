@@ -2163,7 +2163,7 @@ Please address the issue mentioned in the comment above.`;
           await getConvex().mutation(api.comments.addReply, {
             teamSlugOrId: safeTeam,
             commentId: commentId,
-            content: `[View run here](http://localhost:5173/${safeTeam}/task/${taskId})`,
+            content: `[View run here](http://localhost:9775/${safeTeam}/task/${taskId})`,
           });
           serverLogger.info("Created comment reply with task link:", {
             commentId,

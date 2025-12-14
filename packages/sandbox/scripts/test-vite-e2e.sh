@@ -49,7 +49,7 @@ echo "Installing dependencies and scaffolding Vite app in sandbox..."
 # --host is required to listen on 0.0.0.0 so we can reach it from the network namespace
 echo "Starting Vite server..."
 ./scripts/cmux-cli.sh sandboxes exec "$SANDBOX_ID" -- \
-  /bin/sh -c "cd /workspace/app && npm run dev -- --host 0.0.0.0 --port 5173" &
+  /bin/sh -c "cd /workspace/app && npm run dev -- --host 0.0.0.0 --port 9775" &
 VITE_PID=$!
 # Wait for Vite to be ready
 echo "Waiting for Vite to start..."

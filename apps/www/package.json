@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "dotenv -e ../../.env -- next dev --port 9779",
+    "dev": "dotenv -e ../../.env -- next dev --port ${CMUX_WWW_PORT:-9779}",
     "prebuild": "bun run generate-openapi-client",
     "build": "./scripts/build.sh",
     "start": "next start",

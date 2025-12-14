@@ -44,7 +44,7 @@ process.on("SIGINT", async () => {
 
 console.log(`Created instance: ${instance.id}`);
 
-const portsToExpose = [5173, 9777, 9778, 6791, 39378, 39377, 39379, 39380, 39381];
+const portsToExpose = [9775, 9777, 9778, 6791, 39378, 39377, 39379, 39380, 39381];
 console.log("Exposing ports", portsToExpose);
 await Promise.all(
   portsToExpose.map((port) => instance.exposeHttpService(`port-${port}`, port))

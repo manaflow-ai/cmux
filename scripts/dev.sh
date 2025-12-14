@@ -11,21 +11,41 @@
 #   --show-compose-logs     Show Docker Compose logs in console
 #   --electron              Start Electron app
 #   --convex-agent          Run convex dev in agent mode
+#   --port-range=N          Run on port range N (shifts all ports by N*100)
+#                           Auto-detected from directory name (cmux3 -> range 3)
+#                           Range 0: 9775, 9776, 9777, 9778, 9779
+#                           Range 1: 9875, 9876, 9877, 9878, 9879
+#                           Range 2: 9975, 9976, 9977, 9978, 9979
+#                           Range 3: 10075, 10076, 10077, 10078, 10079
+#                           etc.
 #
 # Environment variables:
 #   SKIP_DOCKER_BUILD       Set to "false" to build Docker image (default: true)
 #   SKIP_CONVEX             Set to "false" to run Convex (default: true)
+#   CMUX_PORT_RANGE         Port range offset (default: 0)
 #
 # Examples:
 #   ./scripts/dev.sh                          # Start without Docker build
 #   ./scripts/dev.sh --force-docker-build     # Force Docker image rebuild
 #   ./scripts/dev.sh --skip-docker=false      # Build Docker image
 #   ./scripts/dev.sh --skip-convex=false      # Run with Convex enabled
+#   ./scripts/dev.sh --port-range=1           # Run on port range 1
 #
 
 set -e
 
-export CONVEX_PORT=9777
+# Port range configuration (can be overridden via --port-range or CMUX_PORT_RANGE env)
+# Auto-detect from directory name if not set (e.g., cmux3 -> range 3)
+if [[ -z "${CMUX_PORT_RANGE:-}" ]]; then
+    dir_name=$(basename "$PWD")
+    if [[ "$dir_name" =~ ^cmux([0-9]+)$ ]]; then
+        PORT_RANGE="${BASH_REMATCH[1]}"
+    else
+        PORT_RANGE=0
+    fi
+else
+    PORT_RANGE="${CMUX_PORT_RANGE}"
+fi
 
 if [ -f .env ]; then
     echo "Loading .env file"
@@ -137,6 +157,31 @@ while [[ $# -gt 0 ]]; do
             CONVEX_AGENT_MODE=true
             shift
             ;;
+        --port-range)
+            # Support `--port-range N` and bare `--port-range` (defaults to 0)
+            if [[ -n "${2:-}" && "${2}" != --* ]]; then
+                if [[ "$2" =~ ^[0-9]+$ ]]; then
+                    PORT_RANGE="$2"
+                    shift 2
+                else
+                    echo "Invalid value for --port-range: $2. Use a non-negative integer." >&2
+                    exit 1
+                fi
+            else
+                PORT_RANGE=0
+                shift
+            fi
+            ;;
+        --port-range=*)
+            val="${1#*=}"
+            if [[ "$val" =~ ^[0-9]+$ ]]; then
+                PORT_RANGE="$val"
+            else
+                echo "Invalid value for --port-range: $val. Use a non-negative integer." >&2
+                exit 1
+            fi
+            shift
+            ;;
         *)
             # Unknown flag; ignore and shift
             shift
@@ -145,10 +190,34 @@ while [[ $# -gt 0 ]]; do
 done
 export SKIP_DOCKER_BUILD
 
+# Calculate ports based on port range
+# Base ports: CLIENT=9775, SERVER=9776, CONVEX=9777, CONVEX_PROXY=9778, WWW=9779
+PORT_OFFSET=$((PORT_RANGE * 100))
+export CMUX_CLIENT_PORT=$((9775 + PORT_OFFSET))
+export PORT=$((9776 + PORT_OFFSET))  # Server port
+export CONVEX_PORT=$((9777 + PORT_OFFSET))
+export CONVEX_SITE_PROXY_PORT=$((9778 + PORT_OFFSET))
+export CMUX_WWW_PORT=$((9779 + PORT_OFFSET))
+
+# Export port range for child processes
+export CMUX_PORT_RANGE="$PORT_RANGE"
+
+echo "Port range: $PORT_RANGE (offset: $PORT_OFFSET)"
+echo "  Client:       http://localhost:$CMUX_CLIENT_PORT"
+echo "  Server:       http://localhost:$PORT"
+if [ "$SKIP_CONVEX" = "true" ]; then
+    echo "  Convex:       http://localhost:$CONVEX_PORT (skipped)"
+    echo "  Convex Proxy: http://localhost:$CONVEX_SITE_PROXY_PORT (skipped)"
+else
+    echo "  Convex:       http://localhost:$CONVEX_PORT"
+    echo "  Convex Proxy: http://localhost:$CONVEX_SITE_PROXY_PORT"
+fi
+echo "  WWW:          http://localhost:$CMUX_WWW_PORT"
+
 # Only clean ports when not in devcontainer (devcontainer handles this)
 if [ "$IS_DEVCONTAINER" = "false" ]; then
-    # Check if anything is running on ports 5173, $CONVEX_PORT, 9777, 9778, 9779
-    PORTS_TO_CHECK="5173 9779"
+    # Check if anything is running on our configured ports
+    PORTS_TO_CHECK="$CMUX_CLIENT_PORT $PORT $CONVEX_PORT $CONVEX_SITE_PROXY_PORT $CMUX_WWW_PORT"
     # Use shared port cleanup helper
     source "$(dirname "$0")/_port-clean.sh"
     clean_ports $PORTS_TO_CHECK
@@ -356,27 +425,27 @@ check_process $CONVEX_DEV_PID "Convex Dev"
 CONVEX_PID=$CONVEX_DEV_PID
 
 # Start the backend server
-echo -e "${GREEN}Starting backend server on port 9776...${NC}"
+echo -e "${GREEN}Starting backend server on port $PORT...${NC}"
 (cd "$APP_DIR/apps/server" && exec bash -c 'trap "kill -9 0" EXIT; bun run dev 2>&1 | tee "$LOG_DIR/server.log" | prefix_output "SERVER" "$YELLOW"') &
 SERVER_PID=$!
 check_process $SERVER_PID "Backend Server"
 
 # Start the frontend
-echo -e "${GREEN}Starting frontend on port 5173...${NC}"
-(cd "$APP_DIR/apps/client" && exec bash -c 'trap "kill -9 0" EXIT; bun run dev --host 0.0.0.0 2>&1 | tee "$LOG_DIR/client.log" | prefix_output "CLIENT" "$CYAN"') &
+echo -e "${GREEN}Starting frontend on port $CMUX_CLIENT_PORT...${NC}"
+(cd "$APP_DIR/apps/client" && exec bash -c 'trap "kill -9 0" EXIT; bun run dev --host 0.0.0.0 --port '"$CMUX_CLIENT_PORT"' 2>&1 | tee "$LOG_DIR/client.log" | prefix_output "CLIENT" "$CYAN"') &
 CLIENT_PID=$!
 check_process $CLIENT_PID "Frontend Client"
 
 # Start the www app
-echo -e "${GREEN}Starting www app on port 9779...${NC}"
-(cd "$APP_DIR/apps/www" && exec bash -c 'trap "kill -9 0" EXIT; bun run dev 2>&1 | tee "$LOG_DIR/www.log" | prefix_output "WWW" "$GREEN"') &
+echo -e "${GREEN}Starting www app on port $CMUX_WWW_PORT...${NC}"
+(cd "$APP_DIR/apps/www" && exec bash -c 'trap "kill -9 0" EXIT; CMUX_WWW_PORT='"$CMUX_WWW_PORT"' bun run dev 2>&1 | tee "$LOG_DIR/www.log" | prefix_output "WWW" "$GREEN"') &
 WWW_PID=$!
 check_process $WWW_PID "WWW App"
 
 # Warm up www server in background (non-blocking)
 (bash -c '
   for i in {1..30}; do
-    if curl -s -f http://localhost:9779/api/health > /dev/null 2>&1; then
+    if curl -s -f http://localhost:'"$CMUX_WWW_PORT"'/api/health > /dev/null 2>&1; then
       echo -e "'"${GREEN}"'WWW server ready and warmed up'"${NC}"'"
       break
     fi
@@ -387,7 +456,7 @@ check_process $WWW_PID "WWW App"
 # Warm up frontend in background (non-blocking)
 (bash -c '
   for i in {1..30}; do
-    if curl -s -f http://localhost:5173 > /dev/null 2>&1; then
+    if curl -s -f http://localhost:'"$CMUX_CLIENT_PORT"' > /dev/null 2>&1; then
       echo -e "'"${GREEN}"'Frontend ready and warmed up'"${NC}"'"
       break
     fi
@@ -413,9 +482,9 @@ if [ "$RUN_ELECTRON" = "true" ]; then
 fi
 
 echo -e "${GREEN}Terminal app is running!${NC}"
-echo -e "${BLUE}Frontend: http://localhost:5173${NC}"
-echo -e "${BLUE}Backend: http://localhost:9776${NC}"
-echo -e "${BLUE}WWW: http://localhost:9779${NC}"
+echo -e "${BLUE}Frontend: http://localhost:$CMUX_CLIENT_PORT${NC}"
+echo -e "${BLUE}Backend: http://localhost:$PORT${NC}"
+echo -e "${BLUE}WWW: http://localhost:$CMUX_WWW_PORT${NC}"
 if [ "$SKIP_CONVEX" != "true" ]; then
     echo -e "${BLUE}Convex: http://localhost:$CONVEX_PORT${NC}"
 fi
