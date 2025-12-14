@@ -104,6 +104,7 @@ import {
   type HeatmapModelQueryValue,
   type TooltipLanguageValue,
 } from "@/lib/services/code-review/model-config";
+import { PrScreenshotGallery } from "./pr-screenshot-gallery";
 
 type PullRequestDiffViewerProps = {
   files: GithubFileChange[];
@@ -1053,6 +1054,25 @@ export function PullRequestDiffViewer({
   const comparisonFileOutputs = useConvexQuery(
     api.codeReview.listFileOutputsForComparison,
     comparisonQueryArgs
+  );
+
+  const screenshotQueryArgs = useMemo(
+    () =>
+      normalizedJobType !== "pull_request" ||
+      prNumber === null ||
+      prNumber === undefined
+        ? ("skip" as const)
+        : {
+            teamSlugOrId,
+            repoFullName,
+            prNumber,
+          },
+    [normalizedJobType, teamSlugOrId, repoFullName, prNumber]
+  );
+
+  const prScreenshotSets = useConvexQuery(
+    api.github_pr_queries.listScreenshotSetsForPr,
+    screenshotQueryArgs
   );
 
   const fileOutputs =
@@ -2224,6 +2244,10 @@ export function PullRequestDiffViewer({
                 onModelChange={handleHeatmapModelPreferenceChange}
                 selectedLanguage={tooltipLanguagePreference}
                 onLanguageChange={handleTooltipLanguagePreferenceChange}
+              />
+              <PrScreenshotGallery
+                screenshotSets={prScreenshotSets}
+                commitRef={commitRef}
               />
               <CmuxPromoCard />
               {targetCount > 0 ? (
