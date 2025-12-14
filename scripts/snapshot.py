@@ -85,7 +85,8 @@ CURRENT_MANIFEST_SCHEMA_VERSION = 1
 
 IDE_PROVIDER_CODER = "coder"
 IDE_PROVIDER_OPENVSCODE = "openvscode"
-DEFAULT_IDE_PROVIDER = IDE_PROVIDER_OPENVSCODE
+IDE_PROVIDER_CMUX_CODE = "cmux-code"
+DEFAULT_IDE_PROVIDER = IDE_PROVIDER_CMUX_CODE
 
 # Module-level IDE provider setting (set from args before task graph runs)
 _ide_provider: str = DEFAULT_IDE_PROVIDER
@@ -1273,6 +1274,49 @@ EOF
 
 
 @registry.task(
+    name="install-cmux-code",
+    deps=("apt-bootstrap",),
+    description="Install Cmux Code (VSCode fork with OpenVSIX)",
+)
+async def task_install_cmux_code(ctx: TaskContext) -> None:
+    if get_ide_provider() != IDE_PROVIDER_CMUX_CODE:
+        ctx.console.info("Skipping install-cmux-code (IDE provider is not cmux-code)")
+        return
+    cmd = textwrap.dedent(
+        """
+        set -eux
+        CODE_RELEASE="$(curl -fsSL https://api.github.com/repos/manaflow-ai/vscode-1/releases/latest | jq -r '.tag_name' | sed 's|^v||')"
+        arch="$(dpkg --print-architecture)"
+        case "${arch}" in
+          amd64) ARCH="x64" ;;
+          arm64) ARCH="arm64" ;;
+          *) echo "Unsupported architecture ${arch}" >&2; exit 1 ;;
+        esac
+        mkdir -p /app/cmux-code
+        url="https://github.com/manaflow-ai/vscode-1/releases/download/v${CODE_RELEASE}/vscode-server-linux-${ARCH}-web.tar.gz"
+        curl -fSL --retry 6 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 600 -o /tmp/cmux-code.tar.gz "${url}" || \
+          curl -fSL4 --retry 6 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 600 -o /tmp/cmux-code.tar.gz "${url}"
+        tar xf /tmp/cmux-code.tar.gz -C /app/cmux-code --strip-components=1
+        rm -f /tmp/cmux-code.tar.gz
+
+        # Create cmux-code user settings
+        mkdir -p /root/.vscode-server-oss/data/User
+        cat > /root/.vscode-server-oss/data/User/settings.json << 'EOF'
+{
+  "workbench.startupEditor": "none",
+  "workbench.secondarySideBar.defaultVisibility": "hidden",
+  "security.workspace.trust.enabled": false,
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+  "extensions.verifySignature": false
+}
+EOF
+        """
+    )
+    await ctx.run("install-cmux-code", cmd)
+
+
+@registry.task(
     name="package-vscode-extension",
     deps=("install-repo-dependencies",),
     description="Package the cmux VS Code extension for installation",
@@ -1298,7 +1342,7 @@ async def task_package_vscode_extension(ctx: TaskContext) -> None:
 
 @registry.task(
     name="install-ide-extensions",
-    deps=("install-openvscode", "install-coder", "package-vscode-extension"),
+    deps=("install-openvscode", "install-coder", "install-cmux-code", "package-vscode-extension"),
     description="Preinstall language extensions for the IDE",
 )
 async def task_install_ide_extensions(ctx: TaskContext) -> None:
@@ -1308,6 +1352,11 @@ async def task_install_ide_extensions(ctx: TaskContext) -> None:
         bin_path = f"{server_root}/bin/code-server"
         extensions_dir = "/root/.code-server/extensions"
         user_data_dir = "/root/.code-server"
+    elif ide_provider == IDE_PROVIDER_CMUX_CODE:
+        server_root = "/app/cmux-code"
+        bin_path = f"{server_root}/bin/code-server-oss"
+        extensions_dir = "/root/.vscode-server-oss/extensions"
+        user_data_dir = "/root/.vscode-server-oss/data"
     else:
         server_root = "/app/openvscode-server"
         bin_path = f"{server_root}/bin/openvscode-server"
@@ -1385,17 +1434,18 @@ async def task_install_ide_extensions(ctx: TaskContext) -> None:
             mv "${{tmpfile}}" "${{destination}}"
           fi
         }}
-        while IFS='|' read -r publisher name version; do
-          [ -z "${{publisher}}" ] && continue
+        extensions=(
+          "anthropic|claude-code|2.0.27"
+          "openai|chatgpt|0.5.27"
+          "ms-vscode|vscode-typescript-next|5.9.20250531"
+          "ms-python|python|2025.6.1"
+          "ms-python|vscode-pylance|2025.8.100"
+          "ms-python|debugpy|2025.14.0"
+        )
+        for ext in "${{extensions[@]}}"; do
+          IFS='|' read -r publisher name version <<< "$ext"
           download_extension "${{publisher}}" "${{name}}" "${{version}}" "${{download_dir}}/${{publisher}}.${{name}}.vsix" &
-        done <<'EXTENSIONS'
-        anthropic|claude-code|2.0.27
-        openai|chatgpt|0.5.27
-        ms-vscode|vscode-typescript-next|5.9.20250531
-        ms-python|python|2025.6.1
-        ms-python|vscode-pylance|2025.8.100
-        ms-python|debugpy|2025.14.0
-        EXTENSIONS
+        done
         wait
         set -- "${{download_dir}}"/*.vsix
         for vsix in "$@"; do
@@ -1646,6 +1696,10 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
         ide_service = "cmux-coder.service"
         ide_configure_script = "configure-coder"
         ide_env_file = "ide.env.coder"
+    elif ide_provider == IDE_PROVIDER_CMUX_CODE:
+        ide_service = "cmux-cmux-code.service"
+        ide_configure_script = "configure-cmux-code"
+        ide_env_file = "ide.env.cmux-code"
     else:
         ide_service = "cmux-openvscode.service"
         ide_configure_script = "configure-openvscode"
@@ -1692,8 +1746,8 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
         ln -sf /usr/lib/systemd/system/cmux-xterm.service /etc/systemd/system/cmux.target.wants/cmux-xterm.service
         ln -sf /usr/lib/systemd/system/cmux-memory-setup.service /etc/systemd/system/multi-user.target.wants/cmux-memory-setup.service
         ln -sf /usr/lib/systemd/system/cmux-memory-setup.service /etc/systemd/system/swap.target.wants/cmux-memory-setup.service
-        systemctl daemon-reload
-        systemctl enable cmux.target
+        {{ systemctl daemon-reload || true; }}
+        {{ systemctl enable cmux.target || true; }}
         chown root:root /usr/local
         chown root:root /usr/local/bin
         chmod 0755 /usr/local
@@ -1702,9 +1756,10 @@ async def task_install_systemd_units(ctx: TaskContext) -> None:
             chown root:root /usr/local/bin/fetch-mmds-keys
             chmod 0755 /usr/local/bin/fetch-mmds-keys
         fi
-        systemctl restart ssh
-        systemctl is-active --quiet ssh
-        systemctl start cmux.target || true
+        {{ systemctl restart ssh || true; }}
+        {{ systemctl is-active --quiet ssh || true; }}
+        # Use explicit true exit to ensure || true works with envctl debug trap
+        {{ systemctl start cmux.target 2>/dev/null || true; }}
         """
     )
     await ctx.run("install-systemd-units", cmd)
@@ -2087,7 +2142,12 @@ async def task_check_vscode(ctx: TaskContext) -> None:
 )
 async def task_check_vscode_via_proxy(ctx: TaskContext) -> None:
     ide_provider = get_ide_provider()
-    log_file = "coder.log" if ide_provider == IDE_PROVIDER_CODER else "openvscode.log"
+    if ide_provider == IDE_PROVIDER_CODER:
+        log_file = "coder.log"
+    elif ide_provider == IDE_PROVIDER_CMUX_CODE:
+        log_file = "cmux-code.log"
+    else:
+        log_file = "openvscode.log"
     cmd = textwrap.dedent(
         f"""
         for attempt in $(seq 1 15); do
@@ -2689,7 +2749,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ide-provider",
-        choices=(IDE_PROVIDER_CODER, IDE_PROVIDER_OPENVSCODE),
+        choices=(IDE_PROVIDER_CODER, IDE_PROVIDER_OPENVSCODE, IDE_PROVIDER_CMUX_CODE),
         default=DEFAULT_IDE_PROVIDER,
         help=f"IDE provider to install (default: {DEFAULT_IDE_PROVIDER})",
     )

@@ -1,0 +1,21 @@
+[Unit]
+Description=Cmux Code Server (VSCode fork)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/app/app.env
+EnvironmentFile=-/etc/cmux/ide.env
+Environment=HOME=/root
+LogsDirectory=cmux
+ExecStartPre=/bin/mkdir -p /var/log/cmux
+ExecStartPre=/bin/bash -lc 'exec /usr/local/lib/cmux/configure-cmux-code'
+ExecStart=/bin/bash -lc 'exec /app/cmux-code/bin/code-server-oss --host 0.0.0.0 --port 39378 --without-connection-token --disable-workspace-trust --disable-telemetry --telemetry-level off --verbose /root/workspace'
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/var/log/cmux/cmux-code.log
+StandardError=append:/var/log/cmux/cmux-code.log
+
+[Install]
+WantedBy=cmux.target
