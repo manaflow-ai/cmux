@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type MouseEvent } from "react";
 import { SidebarListItem } from "./SidebarListItem";
+import { SidebarPRPreviewRuns } from "./SidebarPRPreviewRuns";
 import { SIDEBAR_PRS_DEFAULT_LIMIT } from "./const";
 import type { Doc } from "@cmux/convex/dataModel";
 
@@ -144,26 +145,35 @@ function PullRequestListItem({ pr, teamSlugOrId, expanded, setExpanded }: PullRe
           meta={leadingIcon}
         />
       </Link>
-      {isExpanded && pr.htmlUrl ? (
+      {isExpanded ? (
         <div className="mt-px flex flex-col" role="group">
-          <a
-            href={pr.htmlUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(event) => {
-              event.stopPropagation();
-            }}
-            className="mt-px flex w-full items-center rounded-md pr-2 py-1 text-xs transition-colors hover:bg-neutral-200/45 dark:hover:bg-neutral-800/45"
-            style={{ paddingLeft: "32px" }}
-          >
-            <GitHubIcon
-              className="mr-2 h-3 w-3 text-neutral-400 grayscale opacity-60"
-              aria-hidden
-            />
-            <span className="text-neutral-600 dark:text-neutral-400">
-              GitHub
-            </span>
-          </a>
+          {/* Preview runs for this PR */}
+          <SidebarPRPreviewRuns
+            teamSlugOrId={teamSlugOrId}
+            repoFullName={pr.repoFullName}
+            prNumber={pr.number}
+          />
+          {/* GitHub link */}
+          {pr.htmlUrl ? (
+            <a
+              href={pr.htmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+              className="mt-px flex w-full items-center rounded-md pr-2 py-1 text-xs transition-colors hover:bg-neutral-200/45 dark:hover:bg-neutral-800/45"
+              style={{ paddingLeft: "32px" }}
+            >
+              <GitHubIcon
+                className="mr-2 h-3 w-3 text-neutral-400 grayscale opacity-60"
+                aria-hidden
+              />
+              <span className="text-neutral-600 dark:text-neutral-400">
+                GitHub
+              </span>
+            </a>
+          ) : null}
         </div>
       ) : null}
     </li>
