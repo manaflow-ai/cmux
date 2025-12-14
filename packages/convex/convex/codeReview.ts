@@ -1002,7 +1002,8 @@ export const listFileOutputsForPr = authQuery({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    // Use resolveTeamIdLoose to allow public repo access for non-members
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const limit = Math.min(args.limit ?? 200, 500);
 
     let query = ctx.db
@@ -1054,7 +1055,8 @@ export const listFileOutputsForComparison = authQuery({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    // Use resolveTeamIdLoose to allow public repo access for non-members
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
     const limit = Math.min(args.limit ?? 200, 500);
 
     let query = ctx.db

@@ -568,6 +568,18 @@ function CopyButton({ text }: { text: string }) {
 
 const DEBUG_LOG = false;
 
+// Check if we're on 0github.com - in that case, teamSlugOrId is actually the GitHub owner
+// and we should skip Convex queries that require real team membership
+function useIs0GithubDomain(): boolean {
+  const [is0Github, setIs0Github] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIs0Github(window.location.hostname === "0github.com");
+    }
+  }, []);
+  return is0Github;
+}
+
 export function PullRequestDiffViewer({
   files,
   teamSlugOrId,
@@ -580,6 +592,7 @@ export function PullRequestDiffViewer({
   pullRequestTitle,
   pullRequestUrl,
 }: PullRequestDiffViewerProps) {
+  const is0Github = useIs0GithubDomain();
   const normalizedJobType: "pull_request" | "comparison" =
     jobType ?? (comparisonSlug ? "comparison" : "pull_request");
   const [heatmapModelPreference, setHeatmapModelPreference] =
@@ -1002,8 +1015,11 @@ export function PullRequestDiffViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Skip Convex queries on 0github.com since teamSlugOrId is the GitHub owner, not a real team
+  // The streaming heatmap review works independently of these queries
   const prQueryArgs = useMemo(
     () =>
+      is0Github ||
       normalizedJobType !== "pull_request" ||
       prNumber === null ||
       prNumber === undefined
@@ -1016,6 +1032,7 @@ export function PullRequestDiffViewer({
             ...(baseCommitRef ? { baseCommitRef } : {}),
           },
     [
+      is0Github,
       normalizedJobType,
       teamSlugOrId,
       repoFullName,
@@ -1027,7 +1044,9 @@ export function PullRequestDiffViewer({
 
   const comparisonQueryArgs = useMemo(
     () =>
-      normalizedJobType !== "comparison" || !comparisonSlug
+      is0Github ||
+      normalizedJobType !== "comparison" ||
+      !comparisonSlug
         ? ("skip" as const)
         : {
             teamSlugOrId,
@@ -1037,6 +1056,7 @@ export function PullRequestDiffViewer({
             ...(baseCommitRef ? { baseCommitRef } : {}),
           },
     [
+      is0Github,
       normalizedJobType,
       teamSlugOrId,
       repoFullName,

@@ -43,6 +43,37 @@ export const heatmapSchema = z.object({
 
 export type HeatmapLine = z.infer<typeof heatmapLineSchema>;
 
+export interface HeatmapPromptOptions {
+  /** BCP-47 language tag for the review comments (e.g., "en", "ja", "zh-CN") */
+  language?: string | null;
+}
+
+/**
+ * Extracts a BCP-47 language code from an Accept-Language header value.
+ * Returns the primary language or null if invalid.
+ */
+export function parseAcceptLanguage(acceptLanguage: string | null | undefined): string | null {
+  if (!acceptLanguage || typeof acceptLanguage !== "string") {
+    return null;
+  }
+  // Accept-Language format: "en-US,en;q=0.9,ja;q=0.8"
+  // We want the first (highest priority) language
+  const first = acceptLanguage.split(",")[0];
+  if (!first) {
+    return null;
+  }
+  // Remove quality factor if present: "en-US;q=0.9" -> "en-US"
+  const lang = first.split(";")[0]?.trim();
+  if (!lang || lang.length === 0) {
+    return null;
+  }
+  // Validate it looks like a BCP-47 tag (basic check)
+  if (!/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]+)*$/.test(lang)) {
+    return null;
+  }
+  return lang;
+}
+
 export function buildHeatmapPrompt(
   filePath: string,
   formattedDiff: readonly string[],
