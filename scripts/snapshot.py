@@ -393,6 +393,8 @@ def _build_preset_plans(args: argparse.Namespace) -> tuple[SnapshotPresetPlan, .
         memory_mib=args.standard_memory,
         disk_size_mib=args.standard_disk_size,
     )
+    if getattr(args, "standard_only", False):
+        return (standard_plan,)
     boosted_plan = SnapshotPresetPlan(
         preset_id=_preset_id_from_resources(
             args.boosted_vcpus, args.boosted_memory, args.boosted_disk_size
@@ -918,7 +920,10 @@ async def task_install_base_packages(ctx: TaskContext) -> None:
             gh \
             zsh \
             zsh-autosuggestions \
-            ripgrep
+            ripgrep \
+            adwaita-icon-theme \
+            gnome-themes-extra \
+            gtk2-engines-pixbuf
 
 
         # Download and install Chrome
@@ -1524,15 +1529,35 @@ EOF
 @registry.task(
     name="configure-openbox",
     deps=("upload-repo", "install-base-packages"),
-    description="Install openbox configuration for desktop menu",
+    description="Install openbox configuration for desktop menu and GTK theme",
 )
 async def task_configure_openbox(ctx: TaskContext) -> None:
     repo = shlex.quote(ctx.remote_repo_root)
     cmd = textwrap.dedent(
         f"""
         set -eux
+
+        # Install openbox menu configuration
         mkdir -p /root/.config/openbox
         install -Dm0644 {repo}/configs/openbox/menu.xml /root/.config/openbox/menu.xml
+
+        # Install GTK-3.0 settings for proper form element styling in Chrome
+        mkdir -p /root/.config/gtk-3.0
+        install -Dm0644 {repo}/configs/gtk-3.0/settings.ini /root/.config/gtk-3.0/settings.ini
+
+        # Install GTK-2.0 settings (fallback for some applications)
+        mkdir -p /root/.config/gtk-2.0
+        install -Dm0644 {repo}/configs/gtk-2.0/gtkrc /root/.config/gtk-2.0/gtkrc
+
+        # Also install system-wide GTK settings
+        install -Dm0644 {repo}/configs/gtk-3.0/settings.ini /etc/gtk-3.0/settings.ini
+        install -Dm0644 {repo}/configs/gtk-2.0/gtkrc /etc/gtk-2.0/gtkrc
+
+        # Set environment variables for GTK theme (will be picked up by Chrome)
+        cat >> /etc/environment <<'EOF'
+GTK_THEME=Adwaita
+GTK2_RC_FILES=/etc/gtk-2.0/gtkrc
+EOF
         """
     )
     await ctx.run("configure-openbox", cmd)
@@ -2692,6 +2717,11 @@ def parse_args() -> argparse.Namespace:
         choices=(IDE_PROVIDER_CODER, IDE_PROVIDER_OPENVSCODE),
         default=DEFAULT_IDE_PROVIDER,
         help=f"IDE provider to install (default: {DEFAULT_IDE_PROVIDER})",
+    )
+    parser.add_argument(
+        "--standard-only",
+        action="store_true",
+        help="Only build the standard preset (skip boosted)",
     )
     return parser.parse_args()
 
