@@ -55,6 +55,7 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 which = "6.0"
 ratatui = "0.29"
+indicatif = "0.17"
 tui-textarea = "0.7"
 tui-markdown = { version = "0.3.6" }
 two-face = { version = "0.4", default-features = false, features = ["syntect-onig"] }
@@ -70,6 +71,8 @@ unicode-width = "0.2"
 open = "5"
 arboard = "3"
 dirs = "5"
+dialoguer = "0.11"
+sha2 = "0.10"
 
 [dev-dependencies]
 assert_cmd = "2.0"

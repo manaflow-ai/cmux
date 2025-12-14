@@ -106,3 +106,8 @@ When running `./scripts/dev.sh`, service logs are written to `logs/{type}.log`:
 - client.log: Frontend dev server in `apps/client` (Vite).
 
 Log files are overwritten on each run. Use `tail -f logs/<file>` to follow live output.
+
+## cmux/dmux cli
+
+The cmux cli is written in Rust.
+If working on the cmux cli (dmux in development mode), first read packages/sandbox/AGENTS.md

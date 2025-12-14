@@ -918,7 +918,8 @@ async def task_install_base_packages(ctx: TaskContext) -> None:
             gh \
             zsh \
             zsh-autosuggestions \
-            ripgrep
+            ripgrep \
+            openssh-server
 
 
         # Download and install Chrome
@@ -946,6 +947,54 @@ async def task_install_base_packages(ctx: TaskContext) -> None:
         """
     )
     await ctx.run("install-base-packages", cmd)
+
+
+@registry.task(
+    name="configure-sshd",
+    deps=("install-base-packages",),
+    description="Configure OpenSSH server on port 22 (used by Morph SSH gateway)",
+)
+async def task_configure_sshd(ctx: TaskContext) -> None:
+    cmd = textwrap.dedent(
+        """
+        set -eux
+
+        # openssh-server is installed by install-base-packages
+        # Generate host keys if they don't exist
+        ssh-keygen -A
+
+        # Configure sshd on port 22 (Morph handles SSH access via per-instance tokens)
+        cat > /etc/ssh/sshd_config.d/cmux.conf << 'EOF'
+Port 22
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+AuthorizedKeysFile .ssh/authorized_keys
+EOF
+
+        # Create /root/.ssh directory with correct permissions
+        mkdir -p /root/.ssh
+        chmod 700 /root/.ssh
+        touch /root/.ssh/authorized_keys
+        chmod 600 /root/.ssh/authorized_keys
+
+        # Ensure sshd is enabled and will start on boot
+        systemctl enable ssh
+        systemctl restart ssh
+
+        # Verify sshd is running on port 22
+        sleep 2
+        if ! ss -tlnp | grep -q ':22 '; then
+            echo "ERROR: sshd not listening on port 22" >&2
+            systemctl status ssh --no-pager || true
+            journalctl -u ssh --no-pager -n 50 || true
+            exit 1
+        fi
+
+        echo "sshd configured and running on port 22"
+        """
+    )
+    await ctx.run("configure-sshd", cmd)
 
 
 @registry.task(
@@ -2032,7 +2081,7 @@ async def task_check_envctl(ctx: TaskContext) -> None:
 @registry.task(
     name="check-ssh-service",
     deps=("configure-memory-protection", "cleanup-build-artifacts"),
-    description="Verify SSH service is active",
+    description="Verify SSH service is active on port 22",
 )
 async def task_check_ssh_service(ctx: TaskContext) -> None:
     cmd = textwrap.dedent(
@@ -2052,6 +2101,15 @@ async def task_check_ssh_service(ctx: TaskContext) -> None:
           journalctl -u ssh --no-pager -n 50 || true
           exit 1
         fi
+
+        # Verify sshd is listening on port 22
+        if ! ss -tlnp | grep -q ':22 '; then
+          echo "ERROR: sshd not listening on port 22" >&2
+          ss -tlnp | grep ssh || true
+          cat /etc/ssh/sshd_config.d/cmux.conf || true
+          exit 1
+        fi
+        echo "sshd is listening on port 22"
         """
     )
     await ctx.run("check-ssh-service", cmd)

@@ -1,4 +1,5 @@
 import { getConvex } from "@/lib/utils/get-convex";
+import { getUserFromRequest } from "@/lib/utils/auth";
 import { stackServerApp } from "@/lib/utils/stack";
 import { api } from "@cmux/convex/api";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -60,6 +61,20 @@ const ErrorResponseSchema = z
   })
   .openapi("CreateTeamErrorResponse");
 
+const TeamSchema = z
+  .object({
+    id: z.string().openapi({ description: "Team ID" }),
+    displayName: z.string().openapi({ description: "Display name", example: "Frontend Wizards" }),
+    slug: z.string().nullable().openapi({ description: "URL slug", example: "frontend-wizards" }),
+  })
+  .openapi("Team");
+
+const ListTeamsResponseSchema = z
+  .object({
+    teams: z.array(TeamSchema),
+  })
+  .openapi("ListTeamsResponse");
+
 const SLUG_POLL_INTERVAL_MS = 400;
 const SLUG_POLL_TIMEOUT_MS = 15_000;
 
@@ -84,6 +99,68 @@ async function wait(ms: number): Promise<void> {
     setTimeout(resolve, ms);
   });
 }
+
+// GET /teams - List user's teams
+teamsRouter.openapi(
+  createRoute({
+    method: "get" as const,
+    path: "/teams",
+    tags: ["Teams"],
+    summary: "List user's teams",
+    responses: {
+      200: {
+        description: "List of teams",
+        content: {
+          "application/json": {
+            schema: ListTeamsResponseSchema,
+          },
+        },
+      },
+      401: {
+        description: "Unauthorized",
+        content: {
+          "application/json": {
+            schema: ErrorResponseSchema,
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) {
+      return c.json({ code: 401, message: "Unauthorized" }, 401);
+    }
+
+    const authJson = await user.getAuthJson();
+    if (!authJson.accessToken) {
+      return c.json({ code: 401, message: "Unauthorized" }, 401);
+    }
+
+    const stackTeams = await user.listTeams();
+    const convex = getConvex({ accessToken: authJson.accessToken });
+
+    // Fetch slugs from Convex for each team
+    const teams = await Promise.all(
+      stackTeams.map(async (team) => {
+        let slug: string | null = null;
+        try {
+          const convexTeam = await convex.query(api.teams.get, { teamSlugOrId: team.id });
+          slug = convexTeam?.slug ?? null;
+        } catch {
+          // Team might not exist in Convex yet
+        }
+        return {
+          id: team.id,
+          displayName: team.displayName,
+          slug,
+        };
+      })
+    );
+
+    return c.json({ teams }, 200);
+  }
+);
 
 teamsRouter.openapi(
   createRoute({

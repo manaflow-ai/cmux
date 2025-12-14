@@ -4,7 +4,7 @@ import { api } from "@cmux/convex/api";
 import type { MorphCloudClient } from "morphcloud";
 
 import type { ConvexClient } from "./snapshot";
-import { maskSensitive, singleQuote } from "./shell";
+import { singleQuote } from "./shell";
 
 export type MorphInstance = Awaited<
   ReturnType<MorphCloudClient["instances"]["start"]>
@@ -50,18 +50,18 @@ export const configureGithubAccess = async (
         return;
       }
 
-      const errorMessage = ghAuthRes.stderr || ghAuthRes.stdout || "Unknown error";
-      lastError = new Error(`GitHub auth failed: ${maskSensitive(errorMessage).slice(0, 500)}`);
+      const errorMessage =
+        ghAuthRes.stderr || ghAuthRes.stdout || "Unknown error";
+      const maskedError = errorMessage.replace(/:[^@]*@/g, ":***@");
+      lastError = new Error(`GitHub auth failed: ${maskedError.slice(0, 500)}`);
 
       console.error(
-        `[sandboxes.start] GIT AUTH: Attempt ${attempt}/${maxRetries} failed: exit=${ghAuthRes.exit_code} stderr=${maskSensitive(
-          ghAuthRes.stderr || ""
-        ).slice(0, 200)}`
+        `[sandboxes.start] GIT AUTH: Attempt ${attempt}/${maxRetries} failed: exit=${ghAuthRes.exit_code} stderr=${maskedError.slice(0, 200)}`
       );
 
       if (attempt < maxRetries) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -72,7 +72,7 @@ export const configureGithubAccess = async (
 
       if (attempt < maxRetries) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }

@@ -4,7 +4,10 @@ use cmux_sandbox::models::{
     CreateSandboxRequest, EnvVar, ExecRequest, ExecResponse, NotificationLogEntry, SandboxSummary,
 };
 use cmux_sandbox::{
-    build_default_env_vars, extract_api_key_from_output, store_claude_token,
+    build_default_env_vars, cache_access_token, clear_cached_access_token, clear_default_team,
+    delete_stack_refresh_token, extract_api_key_from_output, get_cached_access_token,
+    get_default_team, get_stack_refresh_token, set_default_team, store_claude_token,
+    store_stack_refresh_token,
     sync_files::{
         prebuild_sync_files_tar, upload_prebuilt_sync_files, upload_sync_files, SYNC_FILES,
     },
@@ -14,6 +17,7 @@ use cmux_sandbox::{
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use futures::{SinkExt, StreamExt};
 use ignore::WalkBuilder;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::Serialize;
 use std::io::IsTerminal;
@@ -58,7 +62,7 @@ enum Command {
     Openapi,
 
     /// List known sandboxes (alias for 'sandboxes list')
-    Ls,
+    Ls(LsArgs),
 
     /// Attach to a shell in the sandbox (SSH-like)
     #[command(alias = "a")]
@@ -80,22 +84,25 @@ enum Command {
         port: u16,
     },
 
-    /// Open a browser connected to the sandbox
+    /// Open Chrome with proxy to access services running in the sandbox
     #[command(alias = "b")]
-    Browser {
-        /// Sandbox ID or index
-        id: String,
-    },
+    Browser(BrowserArgs),
 
     /// Internal helper to proxy stdin/stdout to a TCP address
     #[command(name = "_internal-proxy", hide = true)]
     InternalProxy { address: String },
 
-    /// Internal helper to proxy SSH through WebSocket to a sandbox (used as SSH ProxyCommand)
+    /// Internal helper to proxy SSH through direct TCP to Morph (used as SSH ProxyCommand)
     #[command(name = "_ssh-proxy", hide = true)]
     SshProxy {
-        /// Sandbox ID or index
+        /// Sandbox ID
         id: String,
+        /// Team slug or ID
+        #[arg(long, short = 't', env = "CMUX_TEAM")]
+        team: Option<String>,
+        /// API base URL (for staging/self-hosted environments)
+        #[arg(long, short = 'u', env = "CMUX_BASE_URL")]
+        base_url: Option<String>,
     },
 
     /// Start the sandbox server container
@@ -129,8 +136,60 @@ enum Command {
     /// SSH into a sandbox (real SSH, not WebSocket attach)
     Ssh(SshArgs),
 
+    /// Execute a command on a sandbox via SSH (non-interactive)
+    #[command(name = "ssh-exec")]
+    SshExec(SshExecArgs),
+
     /// Generate SSH config for easy sandbox access (e.g., `ssh sandbox-0`)
     SshConfig,
+
+    /// Manage cloud VMs (create, list, etc.)
+    #[command(subcommand)]
+    Vm(VmCommand),
+
+    /// Manage teams (list, set default)
+    #[command(subcommand)]
+    Team(TeamCommand),
+
+    /// Open sandbox in VS Code via SSH Remote
+    Code(IdeArgs),
+
+    /// Open sandbox in Cursor via SSH Remote
+    Cursor(IdeArgs),
+
+    /// Open sandbox in Windsurf via SSH Remote
+    Windsurf(IdeArgs),
+
+    /// Open sandbox in Zed via SSH Remote
+    Zed(IdeArgs),
+}
+
+#[derive(Args, Debug)]
+struct IdeArgs {
+    /// Sandbox ID: c_xxx (cloud), l_xxx (local)
+    id: String,
+    /// Team slug or ID (optional for cloud sandboxes)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+    /// Path to open in the IDE (defaults to /workspace for local, /root/workspace for cloud)
+    #[arg(long, short = 'p')]
+    path: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct BrowserArgs {
+    /// Sandbox ID: c_xxx (cloud), l_xxx (local)
+    id: String,
+    /// Team slug or ID (optional for cloud sandboxes)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct LsArgs {
+    /// Show all sandboxes, including paused/stopped (default: only ready/running)
+    #[arg(long, short = 'a')]
+    all: bool,
 }
 
 #[derive(Args, Debug)]
@@ -159,17 +218,104 @@ struct AuthArgs {
 
 #[derive(Subcommand, Debug)]
 enum AuthCommand {
-    /// List detected authentication files on the host
+    /// Login via browser
+    Login,
+    /// Logout and clear stored credentials
+    Logout,
+    /// Show current authentication state
     Status,
+    /// Print the current access token (for debugging)
+    Token,
+}
+
+#[derive(Subcommand, Debug)]
+enum VmCommand {
+    /// Create a new cloud VM
+    Create(VmCreateArgs),
+    /// List running VMs
+    #[command(alias = "ls")]
+    List(VmListArgs),
+}
+
+#[derive(Args, Debug)]
+struct VmCreateArgs {
+    /// Team slug or ID (uses default team if not specified)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+    /// Time-to-live in seconds before VM auto-pauses (default: 30 minutes)
+    #[arg(long, default_value_t = 1800)]
+    ttl: u64,
+    /// Snapshot preset to use (e.g., "4vcpu_16gb_48gb", "8vcpu_32gb_48gb")
+    #[arg(long)]
+    preset: Option<String>,
+    /// GitHub repositories to clone (format: owner/repo)
+    #[arg(long = "repo", short = 'r')]
+    repos: Vec<String>,
+    /// Output format (json or text)
+    #[arg(long, default_value = "text")]
+    output: String,
+    /// SSH into the VM immediately after creation
+    #[arg(long)]
+    ssh: bool,
+}
+
+#[derive(Args, Debug)]
+struct VmListArgs {
+    /// Team slug or ID
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+    /// Output format (json or text)
+    #[arg(long, default_value = "text")]
+    output: String,
+}
+
+#[derive(Subcommand, Debug)]
+enum TeamCommand {
+    /// List your teams
+    #[command(alias = "ls")]
+    List(TeamListArgs),
+    /// Show or set the default team
+    Default(TeamDefaultArgs),
+}
+
+#[derive(Args, Debug)]
+struct TeamListArgs {
+    /// Output format (json or text)
+    #[arg(long, default_value = "text")]
+    output: String,
+}
+
+#[derive(Args, Debug)]
+struct TeamDefaultArgs {
+    /// Team ID or slug to set as default (omit to show current default)
+    team: Option<String>,
+    /// Clear the default team
+    #[arg(long)]
+    clear: bool,
 }
 
 #[derive(Args, Debug)]
 struct SshArgs {
-    /// Sandbox ID or index
+    /// Sandbox ID: c_xxx (cloud), l_xxx (local), or UUID (task run)
     id: String,
+    /// Team slug or ID (optional for cloud sandboxes)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
     /// Additional SSH arguments (e.g., -L 8080:localhost:8080 for port forwarding)
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     ssh_args: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct SshExecArgs {
+    /// Sandbox ID: c_xxx (cloud), l_xxx (local), or UUID (task run)
+    id: String,
+    /// Team slug or ID (optional for cloud sandboxes)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+    /// Command to execute on the sandbox
+    #[arg(trailing_var_arg = true, required = true)]
+    command: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -206,7 +352,7 @@ enum SandboxCommand {
     /// Create a new sandbox
     Create(CreateArgs),
     /// Create a new sandbox and attach to it immediately
-    New(NewArgs),
+    New(LocalNewArgs),
     /// Inspect a sandbox
     Show { id: String },
     /// Execute a command inside a sandbox
@@ -215,6 +361,13 @@ enum SandboxCommand {
     Ssh { id: String },
     /// Tear down a sandbox
     Delete { id: String },
+}
+
+#[derive(Args, Debug)]
+struct LocalNewArgs {
+    /// Path to the project directory to upload (defaults to current directory)
+    #[arg(default_value = ".")]
+    path: PathBuf,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -272,9 +425,28 @@ struct ExecArgs {
 
 #[derive(Args, Debug)]
 struct NewArgs {
-    /// Path to the project directory to upload (defaults to current directory)
-    #[arg(default_value = ".")]
-    path: PathBuf,
+    /// Path to the project directory to upload (optional)
+    path: Option<PathBuf>,
+
+    /// Create a local sandbox instead of a cloud VM
+    #[arg(long)]
+    local: bool,
+
+    /// Team slug or ID (uses default team if not specified)
+    #[arg(long, short = 't', env = "CMUX_TEAM")]
+    team: Option<String>,
+
+    /// Time-to-live in seconds before VM auto-pauses (default: 30 minutes)
+    #[arg(long, default_value_t = 1800)]
+    ttl: u64,
+
+    /// Snapshot preset to use (e.g., "4vcpu_16gb_48gb", "8vcpu_32gb_48gb")
+    #[arg(long)]
+    preset: Option<String>,
+
+    /// GitHub repositories to clone (format: owner/repo)
+    #[arg(long = "repo", short = 'r')]
+    repos: Vec<String>,
 }
 
 /// Check if we're running as "dmux" (debug/dev binary)
@@ -407,128 +579,260 @@ async fn run() -> anyhow::Result<()> {
             print_json(&value)?;
         }
         Command::New(args) => {
-            check_server_reachable(&client, &cli.base_url).await?;
+            if args.local {
+                // Local sandbox mode
+                check_server_reachable(&client, &cli.base_url).await?;
 
-            // OPTIMIZATION: Pre-build the sync files tar while waiting for sandbox creation
-            // This overlaps CPU work (tar creation) with network I/O (sandbox creation)
-            let sync_tar_handle = tokio::task::spawn_blocking(prebuild_sync_files_tar);
+                // Use current directory if no path specified
+                let path = args.path.clone().unwrap_or_else(|| PathBuf::from("."));
 
-            // OPTIMIZATION: Start building the workspace tar archive BEFORE sandbox creation
-            // The stream_directory function spawns a blocking task that starts immediately
-            let workspace_body = stream_directory(args.path.clone());
+                // OPTIMIZATION: Pre-build the sync files tar while waiting for sandbox creation
+                // This overlaps CPU work (tar creation) with network I/O (sandbox creation)
+                let sync_tar_handle = tokio::task::spawn_blocking(prebuild_sync_files_tar);
 
-            let body = CreateSandboxRequest {
-                name: Some("interactive".into()),
-                workspace: None,
-                tab_id: Some(Uuid::new_v4().to_string()),
-                read_only_paths: vec![],
-                tmpfs: vec![],
-                env: build_default_env_vars(),
-            };
-            let url = format!("{}/sandboxes", cli.base_url.trim_end_matches('/'));
-            let response = client.post(url).json(&body).send().await?;
-            let summary: SandboxSummary = parse_response(response).await?;
-            eprintln!("Created sandbox {}", summary.id);
+                // OPTIMIZATION: Start building the workspace tar archive BEFORE sandbox creation
+                // The stream_directory function spawns a blocking task that starts immediately
+                let workspace_body = stream_directory(path.clone());
 
-            // OPTIMIZATION: Start uploads in background, attach to shell IMMEDIATELY
-            // User gets a shell while files are still uploading in the background
-            let sandbox_id_for_upload = summary.id.to_string();
-            let base_url_for_upload = cli.base_url.clone();
-            let client_for_upload = client.clone();
-            let path_display = args.path.display().to_string();
+                let body = CreateSandboxRequest {
+                    name: Some("interactive".into()),
+                    workspace: None,
+                    tab_id: Some(Uuid::new_v4().to_string()),
+                    read_only_paths: vec![],
+                    tmpfs: vec![],
+                    env: build_default_env_vars(),
+                };
+                let url = format!("{}/sandboxes", cli.base_url.trim_end_matches('/'));
+                let response = client.post(url).json(&body).send().await?;
+                let summary: SandboxSummary = parse_response(response).await?;
+                eprintln!("Created local sandbox {}", summary.id);
 
-            eprintln!("Uploading {} in background...", path_display);
+                // OPTIMIZATION: Start uploads in background, attach to shell IMMEDIATELY
+                // User gets a shell while files are still uploading in the background
+                let sandbox_id_for_upload = summary.id.to_string();
+                let base_url_for_upload = cli.base_url.clone();
+                let client_for_upload = client.clone();
+                let path_display = path.display().to_string();
 
-            // Spawn workspace upload task - starts immediately to drain the stream
-            let upload_url = format!(
-                "{}/sandboxes/{}/files",
-                base_url_for_upload.trim_end_matches('/'),
-                sandbox_id_for_upload
-            );
-            let client_for_workspace = client_for_upload.clone();
-            let workspace_upload_handle = tokio::spawn(async move {
-                let response = client_for_workspace
-                    .post(&upload_url)
-                    .body(workspace_body)
-                    .send()
-                    .await;
-                match response {
-                    Ok(resp) if resp.status().is_success() => {
-                        eprintln!("\r\x1b[K\x1b[32m✓\x1b[0m Files uploaded.");
+                eprintln!("Uploading {} in background...", path_display);
+
+                // Spawn workspace upload task - starts immediately to drain the stream
+                let upload_url = format!(
+                    "{}/sandboxes/{}/files",
+                    base_url_for_upload.trim_end_matches('/'),
+                    sandbox_id_for_upload
+                );
+                let client_for_workspace = client_for_upload.clone();
+                let workspace_upload_handle = tokio::spawn(async move {
+                    let response = client_for_workspace
+                        .post(&upload_url)
+                        .body(workspace_body)
+                        .send()
+                        .await;
+                    match response {
+                        Ok(resp) if resp.status().is_success() => {
+                            eprintln!("\r\x1b[K\x1b[32m✓\x1b[0m Files uploaded.");
+                        }
+                        Ok(resp) => {
+                            eprintln!(
+                                "\r\x1b[K\x1b[31m✗\x1b[0m Failed to upload files: {}",
+                                resp.status()
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("\r\x1b[K\x1b[31m✗\x1b[0m Failed to upload files: {}", e);
+                        }
                     }
-                    Ok(resp) => {
+                });
+
+                // Spawn auth upload task - waits for tar to be ready first
+                let auth_upload_handle = tokio::spawn(async move {
+                    let sync_tar_result = match sync_tar_handle.await {
+                        Ok(result) => result,
+                        Err(e) => {
+                            eprintln!(
+                                "\r\x1b[K\x1b[33m!\x1b[0m Warning: Failed to build auth files tar: {}",
+                                e
+                            );
+                            return;
+                        }
+                    };
+                    let tar_data = match sync_tar_result {
+                        Ok(Some(data)) => data,
+                        Ok(None) => return, // No files to sync
+                        Err(e) => {
+                            eprintln!(
+                                "\r\x1b[K\x1b[33m!\x1b[0m Warning: Failed to build auth files tar: {}",
+                                e
+                            );
+                            return;
+                        }
+                    };
+                    if let Err(e) = upload_prebuilt_sync_files(
+                        &client_for_upload,
+                        &base_url_for_upload,
+                        &sandbox_id_for_upload,
+                        tar_data,
+                        false,
+                    )
+                    .await
+                    {
                         eprintln!(
-                            "\r\x1b[K\x1b[31m✗\x1b[0m Failed to upload files: {}",
-                            resp.status()
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("\r\x1b[K\x1b[31m✗\x1b[0m Failed to upload files: {}", e);
-                    }
-                }
-            });
-
-            // Spawn auth upload task - waits for tar to be ready first
-            let auth_upload_handle = tokio::spawn(async move {
-                let sync_tar_result = match sync_tar_handle.await {
-                    Ok(result) => result,
-                    Err(e) => {
-                        eprintln!(
-                            "\r\x1b[K\x1b[33m!\x1b[0m Warning: Failed to build auth files tar: {}",
+                            "\r\x1b[K\x1b[33m!\x1b[0m Warning: Failed to upload auth files: {}",
                             e
                         );
-                        return;
                     }
-                };
-                let tar_data = match sync_tar_result {
-                    Ok(Some(data)) => data,
-                    Ok(None) => return, // No files to sync
-                    Err(e) => {
-                        eprintln!(
-                            "\r\x1b[K\x1b[33m!\x1b[0m Warning: Failed to build auth files tar: {}",
-                            e
-                        );
-                        return;
-                    }
-                };
-                if let Err(e) = upload_prebuilt_sync_files(
-                    &client_for_upload,
-                    &base_url_for_upload,
-                    &sandbox_id_for_upload,
-                    tar_data,
-                    false,
-                )
-                .await
-                {
+                });
+
+                save_last_sandbox(&summary.id.to_string());
+                if should_attach() {
+                    // Run SSH session, but ensure uploads complete even if SSH exits quickly
+                    let ssh_result = handle_ssh(&cli.base_url, &summary.id.to_string()).await;
+                    // Wait for background uploads to complete before exiting
+                    // (otherwise the runtime shuts down and cancels the background tasks)
+                    let _ = tokio::join!(workspace_upload_handle, auth_upload_handle);
+                    ssh_result?;
+                } else {
+                    // In non-interactive mode, wait for uploads to complete before exiting
+                    let _ = tokio::join!(workspace_upload_handle, auth_upload_handle);
                     eprintln!(
-                        "\r\x1b[K\x1b[33m!\x1b[0m Warning: Failed to upload auth files: {}",
-                        e
+                        "Skipping interactive shell attach (non-interactive environment detected)."
                     );
                 }
-            });
-
-            save_last_sandbox(&summary.id.to_string());
-            if should_attach() {
-                // Run SSH session, but ensure uploads complete even if SSH exits quickly
-                let ssh_result = handle_ssh(&cli.base_url, &summary.id.to_string()).await;
-                // Wait for background uploads to complete before exiting
-                // (otherwise the runtime shuts down and cancels the background tasks)
-                let _ = tokio::join!(workspace_upload_handle, auth_upload_handle);
-                ssh_result?;
             } else {
-                // In non-interactive mode, wait for uploads to complete before exiting
-                let _ = tokio::join!(workspace_upload_handle, auth_upload_handle);
-                eprintln!(
-                    "Skipping interactive shell attach (non-interactive environment detected)."
-                );
+                // Cloud VM mode (default)
+                let long_client = Client::builder()
+                    .timeout(Duration::from_secs(120))
+                    .build()?;
+                let access_token = get_access_token(&long_client).await?;
+                let api_url = get_cmux_api_url();
+
+                eprintln!("Creating cloud VM...");
+
+                let result = create_cloud_vm(
+                    &long_client,
+                    &access_token,
+                    &api_url,
+                    CreateVmOptions {
+                        team: args.team.clone(),
+                        ttl: args.ttl,
+                        preset: args.preset.clone(),
+                        repos: args.repos.clone(),
+                    },
+                )
+                .await?;
+
+                let ssh_id = format!("c_{}", result.instance_id);
+
+                eprintln!("\x1b[32m✓ VM created: {}\x1b[0m", ssh_id);
+
+                // SSH into the VM
+                let ssh_args = SshArgs {
+                    id: ssh_id,
+                    team: args.team,
+                    ssh_args: vec![],
+                };
+                handle_real_ssh(&long_client, &api_url, "", &ssh_args).await?;
             }
         }
-        Command::Ls => {
-            check_server_reachable(&client, &cli.base_url).await?;
-            let url = format!("{}/sandboxes", cli.base_url.trim_end_matches('/'));
-            let response = client.get(url).send().await?;
-            let sandboxes: Vec<SandboxSummary> = parse_response(response).await?;
-            print_json(&sandboxes)?;
+        Command::Ls(args) => {
+            // Unified listing of both cloud and local sandboxes
+            let mut entries: Vec<(String, String, String, String)> = vec![];
+
+            // Helper to check if a status should be shown (ready/running by default)
+            let is_active_status = |status: &str| -> bool {
+                matches!(
+                    status.to_lowercase().as_str(),
+                    "running" | "ready" | "active"
+                )
+            };
+
+            // Try to list local sandboxes (might fail if daemon not running)
+            let local_sandboxes: Vec<SandboxSummary> =
+                if let Ok(()) = check_server_reachable(&client, &cli.base_url).await {
+                    let url = format!("{}/sandboxes", cli.base_url.trim_end_matches('/'));
+                    match client.get(url).send().await {
+                        Ok(response) => parse_response(response).await.unwrap_or_default(),
+                        Err(_) => vec![],
+                    }
+                } else {
+                    vec![]
+                };
+
+            for sandbox in local_sandboxes {
+                let id = format!("l_{}", &sandbox.id.to_string()[..8]);
+                let status = format!("{:?}", sandbox.status).to_lowercase();
+                let created = sandbox.created_at.format("%Y-%m-%d %H:%M").to_string();
+                // Filter by status unless --all is passed
+                if args.all || is_active_status(&status) {
+                    entries.push((id, "local".to_string(), status, created));
+                }
+            }
+
+            // Try to list cloud VMs (might fail if not authenticated)
+            let api_url = get_cmux_api_url();
+            if let Ok(access_token) = get_access_token(&client).await {
+                let url = format!("{}/api/morph/instances", api_url);
+                if let Ok(response) = client
+                    .get(&url)
+                    .header("Authorization", format!("Bearer {}", access_token))
+                    .send()
+                    .await
+                {
+                    if response.status().is_success() {
+                        if let Ok(instances) = response.json::<serde_json::Value>().await {
+                            let empty_vec = vec![];
+                            let instances_arr = instances.as_array().unwrap_or(&empty_vec);
+                            for instance in instances_arr {
+                                let raw_id = instance["id"].as_str().unwrap_or("unknown");
+                                let display_id = raw_id.strip_prefix("morphvm_").unwrap_or(raw_id);
+                                let id = format!("c_{}", display_id);
+                                let status =
+                                    instance["status"].as_str().unwrap_or("unknown").to_string();
+                                // Filter by status unless --all is passed
+                                if !args.all && !is_active_status(&status) {
+                                    continue;
+                                }
+                                let created = instance["createdAt"]
+                                    .as_i64()
+                                    .map(|ts| {
+                                        // Parse Unix timestamp and format nicely
+                                        chrono::DateTime::from_timestamp(ts, 0)
+                                            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                                            .unwrap_or_else(|| ts.to_string())
+                                    })
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                entries.push((id, "cloud".to_string(), status, created));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if entries.is_empty() {
+                if args.all {
+                    println!("No sandboxes found.");
+                } else {
+                    println!("No running sandboxes found.");
+                    println!("Use --all to show paused/stopped sandboxes.");
+                }
+                println!("\nCreate a cloud VM with: cmux new");
+                println!("Create a local sandbox with: cmux new --local");
+            } else {
+                // Print header
+                println!(
+                    "{:<16} {:<8} {:<12} {:<20}",
+                    "ID", "TYPE", "STATUS", "CREATED"
+                );
+                println!("{}", "-".repeat(60));
+
+                for (id, sandbox_type, status, created) in entries {
+                    println!(
+                        "{:<16} {:<8} {:<12} {:<20}",
+                        id, sandbox_type, status, created
+                    );
+                }
+            }
         }
         Command::Attach { id } => {
             let target_id = if let Some(id) = id {
@@ -555,14 +859,16 @@ async fn run() -> anyhow::Result<()> {
                 tokio::io::copy(&mut ri, &mut stdout)
             );
         }
-        Command::SshProxy { id } => {
-            handle_ssh_proxy(&cli.base_url, &id).await?;
+        Command::SshProxy { id, team, base_url } => {
+            let api_url = base_url.as_deref().unwrap_or(&cli.base_url);
+            handle_ssh_proxy(&id, team.as_deref(), api_url).await?;
         }
         Command::Proxy { id, port } => {
             handle_proxy(cli.base_url, id, port).await?;
         }
-        Command::Browser { id } => {
-            handle_browser(cli.base_url, id).await?;
+        Command::Browser(args) => {
+            let api_url = get_cmux_api_url();
+            handle_browser_unified(&client, &cli.base_url, &api_url, &args).await?;
         }
         Command::Start(args) => {
             handle_server_start(&args).await?;
@@ -669,25 +975,17 @@ async fn run() -> anyhow::Result<()> {
             }
         }
         Command::Auth(args) => match args.command {
+            AuthCommand::Login => {
+                handle_auth_login().await?;
+            }
+            AuthCommand::Logout => {
+                handle_auth_logout()?;
+            }
             AuthCommand::Status => {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                let home_path = PathBuf::from(home);
-                println!(
-                    "Checking for authentication files in {}:",
-                    home_path.display()
-                );
-                println!("{:<25} {:<50} {:<10}", "NAME", "PATH", "STATUS");
-                println!("{}", "-".repeat(85));
-
-                for def in SYNC_FILES {
-                    let path = home_path.join(def.host_path);
-                    let status = if path.exists() {
-                        "\x1b[32mFound\x1b[0m"
-                    } else {
-                        "\x1b[90mMissing\x1b[0m"
-                    };
-                    println!("{:<25} {:<50} {}", def.name, def.host_path, status);
-                }
+                handle_auth_status().await?;
+            }
+            AuthCommand::Token => {
+                handle_auth_token().await?;
             }
         },
         Command::SetupClaude => {
@@ -700,10 +998,50 @@ async fn run() -> anyhow::Result<()> {
             handle_onboard().await?;
         }
         Command::Ssh(args) => {
-            handle_real_ssh(&client, &cli.base_url, &args).await?;
+            let api_url = get_cmux_api_url();
+            let local_daemon_url = &cli.base_url;
+            handle_real_ssh(&client, &api_url, local_daemon_url, &args).await?;
+        }
+        Command::SshExec(args) => {
+            let api_url = get_cmux_api_url();
+            let local_daemon_url = &cli.base_url;
+            handle_ssh_exec(&client, &api_url, local_daemon_url, &args).await?;
         }
         Command::SshConfig => {
-            handle_ssh_config(&client, &cli.base_url).await?;
+            let api_url = get_cmux_api_url();
+            handle_ssh_config(&client, &api_url).await?;
+        }
+        Command::Vm(cmd) => match cmd {
+            VmCommand::Create(args) => {
+                handle_vm_create(args).await?;
+            }
+            VmCommand::List(args) => {
+                handle_vm_list(args).await?;
+            }
+        },
+        Command::Team(cmd) => match cmd {
+            TeamCommand::List(args) => {
+                handle_team_list(args).await?;
+            }
+            TeamCommand::Default(args) => {
+                handle_team_default(args).await?;
+            }
+        },
+        Command::Code(args) => {
+            let api_url = get_cmux_api_url();
+            handle_ide(&client, &cli.base_url, &api_url, "code", &args).await?;
+        }
+        Command::Cursor(args) => {
+            let api_url = get_cmux_api_url();
+            handle_ide(&client, &cli.base_url, &api_url, "cursor", &args).await?;
+        }
+        Command::Windsurf(args) => {
+            let api_url = get_cmux_api_url();
+            handle_ide(&client, &cli.base_url, &api_url, "windsurf", &args).await?;
+        }
+        Command::Zed(args) => {
+            let api_url = get_cmux_api_url();
+            handle_ide(&client, &cli.base_url, &api_url, "zed", &args).await?;
         }
         Command::Sandboxes(cmd) => {
             match cmd {
@@ -1311,7 +1649,7 @@ impl BrowserProxy {
     }
 }
 
-async fn handle_browser(base_url: String, id: String) -> anyhow::Result<()> {
+async fn handle_browser_local(base_url: String, id: String) -> anyhow::Result<()> {
     let proxy = BrowserProxy::start(base_url, id, Arc::new(generate_ca()?)).await?;
     let port = proxy.port();
     eprintln!("Proxy started on port {}", port);
@@ -1355,6 +1693,149 @@ async fn handle_browser(base_url: String, id: String) -> anyhow::Result<()> {
     }
     shutdown_result?;
     Ok(())
+}
+
+/// Response from the sandbox status endpoint
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct SandboxStatusResponse {
+    running: bool,
+    #[serde(rename = "vscodeUrl")]
+    vscode_url: Option<String>,
+    #[serde(rename = "workerUrl")]
+    worker_url: Option<String>,
+}
+
+/// Unified browser handler that supports both local and cloud sandboxes
+/// Opens Chrome with a proxy configured to route traffic through the sandbox
+async fn handle_browser_unified(
+    client: &Client,
+    local_daemon_url: &str,
+    api_url: &str,
+    args: &BrowserArgs,
+) -> anyhow::Result<()> {
+    let (id_type, id) = parse_sandbox_id(&args.id);
+
+    match id_type {
+        SandboxIdType::Local => {
+            // For local sandboxes, use the existing proxy-based browser handler
+            let sandbox_id = args.id.strip_prefix("l_").unwrap_or(&args.id);
+            handle_browser_local(local_daemon_url.to_string(), sandbox_id.to_string()).await
+        }
+        SandboxIdType::Cloud | SandboxIdType::TaskRun => {
+            // For cloud sandboxes, set up SSH SOCKS proxy and launch Chrome
+            let spinner = create_spinner("Authenticating");
+            let access_token = get_access_token(client).await?;
+            finish_spinner(&spinner, "Authenticated");
+
+            // Resolve team if needed
+            let team = if id_type == SandboxIdType::Cloud && args.team.is_none() {
+                None
+            } else {
+                Some(resolve_team(client, &access_token, args.team.as_deref()).await?)
+            };
+
+            // Get SSH info
+            let spinner = create_spinner("Getting SSH credentials");
+            let ssh_info =
+                get_sandbox_ssh_info(client, &access_token, &id, team.as_deref(), api_url).await?;
+            finish_spinner(&spinner, "SSH credentials obtained");
+
+            // Check if paused and resume
+            if ssh_info.status == "paused" {
+                let spinner = create_spinner("Resuming sandbox");
+                resume_sandbox(client, &access_token, &id, team.as_deref(), api_url).await?;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                finish_spinner(&spinner, "Sandbox resumed");
+            }
+
+            // Find a free port for SOCKS proxy
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let socks_port = listener.local_addr()?.port();
+            drop(listener); // Release the port so SSH can use it
+
+            eprintln!("Starting SSH SOCKS proxy on port {}...", socks_port);
+
+            // Start SSH with dynamic SOCKS proxy (-D)
+            let mut ssh_child = tokio::process::Command::new("ssh")
+                .arg("-D")
+                .arg(format!("127.0.0.1:{}", socks_port))
+                .arg("-N") // Don't execute remote command
+                .arg("-o")
+                .arg("StrictHostKeyChecking=no")
+                .arg("-o")
+                .arg("UserKnownHostsFile=/dev/null")
+                .arg("-o")
+                .arg("LogLevel=ERROR")
+                .arg(format!("{}@ssh.cloud.morph.so", ssh_info.access_token))
+                .kill_on_drop(true)
+                .spawn()?;
+
+            // Wait a moment for SSH to establish the tunnel
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+            // Check if SSH is still running
+            match ssh_child.try_wait()? {
+                Some(status) => {
+                    return Err(anyhow::anyhow!(
+                        "SSH tunnel failed to start (exit code: {:?})",
+                        status.code()
+                    ));
+                }
+                None => {
+                    eprintln!("SSH SOCKS proxy started successfully");
+                }
+            }
+
+            // Launch Chrome with SOCKS proxy
+            // Use --proxy-bypass-list="" to force localhost through the proxy
+            // When Chrome connects to "localhost:8000" through SOCKS, the cloud VM
+            // resolves "localhost" as its own localhost, giving access to all ports
+            #[cfg(target_os = "macos")]
+            let chrome_bin = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+            #[cfg(target_os = "linux")]
+            let chrome_bin = "google-chrome";
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            let chrome_bin = "chrome";
+
+            let user_data = std::env::temp_dir().join("cmux-chrome-profile-cloud");
+            let _ = std::fs::create_dir_all(&user_data);
+
+            eprintln!("Launching Chrome with SOCKS proxy...");
+            eprintln!("  All ports forwarded - browse to http://localhost:<any-port>");
+
+            // Use same flags as local browser, but with SOCKS5 instead of HTTP proxy
+            // The <-loopback> bypass list disables the implicit localhost bypass
+            let mut chrome_child = match tokio::process::Command::new(chrome_bin)
+                .arg(format!("--proxy-server=socks5://127.0.0.1:{}", socks_port))
+                .arg("--proxy-bypass-list=<-loopback>")
+                .arg("--host-resolver-rules=MAP localhost 127.0.0.1")
+                .arg(format!("--user-data-dir={}", user_data.display()))
+                .arg("--no-first-run")
+                .arg("http://localhost:8000")
+                .kill_on_drop(true)
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(err) => {
+                    ssh_child.kill().await.ok();
+                    return Err(err.into());
+                }
+            };
+
+            // Wait for Chrome to exit
+            let chrome_result = chrome_child.wait().await;
+
+            // Kill SSH tunnel
+            ssh_child.kill().await.ok();
+
+            if let Err(err) = chrome_result {
+                return Err(err.into());
+            }
+
+            Ok(())
+        }
+    }
 }
 
 fn generate_ca() -> anyhow::Result<rcgen::Certificate> {
@@ -1880,6 +2361,1083 @@ async fn handle_exec_request(
     Ok(())
 }
 
+// =============================================================================
+// CLI Authentication
+// =============================================================================
+
+/// CMUX API base URL (for cmux-specific endpoints like /api/sandboxes)
+/// Debug builds use localhost, release builds use production
+fn get_cmux_api_url() -> String {
+    std::env::var("CMUX_API_URL").unwrap_or_else(|_| {
+        #[cfg(debug_assertions)]
+        {
+            // Dev server (apps/www runs on port 9779)
+            "http://localhost:9779".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // Production
+            "https://cmux.sh".to_string()
+        }
+    })
+}
+
+/// Auth provider API base URL (for authentication endpoints)
+fn get_auth_api_url() -> String {
+    std::env::var("AUTH_API_URL").unwrap_or_else(|_| "https://api.stack-auth.com".to_string())
+}
+
+/// Auth project ID - dev for debug builds, prod for release builds
+fn get_auth_project_id() -> String {
+    std::env::var("STACK_PROJECT_ID").unwrap_or_else(|_| {
+        #[cfg(debug_assertions)]
+        {
+            // Dev Stack Auth project
+            "1467bed0-8522-45ee-a8d8-055de324118c".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // Prod Stack Auth project
+            "8a877114-b905-47c5-8b64-3a2d90679577".to_string()
+        }
+    })
+}
+
+/// Auth publishable client key - dev for debug builds, prod for release builds
+fn get_auth_publishable_key() -> String {
+    std::env::var("STACK_PUBLISHABLE_CLIENT_KEY").unwrap_or_else(|_| {
+        #[cfg(debug_assertions)]
+        {
+            // Dev Stack Auth key
+            "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // Prod Stack Auth key
+            "pck_8761mjjmyqc84e1e8ga3rn0k1nkggmggwa3pyzzgntv70".to_string()
+        }
+    })
+}
+
+/// CLI auth initiation response
+#[derive(serde::Deserialize, Debug)]
+struct CliAuthInitResponse {
+    polling_code: String,
+    login_code: String,
+}
+
+/// CLI auth poll response
+#[derive(serde::Deserialize, Debug)]
+struct CliAuthPollResponse {
+    status: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+}
+
+/// Token refresh response
+#[derive(serde::Deserialize, Debug)]
+struct TokenRefreshResponse {
+    access_token: String,
+}
+
+/// User info from Stack Auth
+#[derive(serde::Deserialize, Debug)]
+struct StackUserInfo {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    primary_email: Option<String>,
+}
+
+/// SSH connection info from the cmux API
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct SandboxSshInfo {
+    #[serde(rename = "morphInstanceId")]
+    morph_instance_id: String,
+    #[serde(rename = "sshCommand")]
+    ssh_command: String,
+    #[serde(rename = "accessToken")]
+    access_token: String,
+    user: String,
+    status: String,
+}
+
+/// Stack Auth team info
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct StackTeam {
+    id: String,
+    #[serde(default, rename = "displayName")]
+    display_name: Option<String>,
+    #[serde(default, rename = "clientMetadata")]
+    client_metadata: Option<serde_json::Value>,
+}
+
+/// Custom error type for session expiry
+#[derive(Debug)]
+struct SessionExpiredError;
+
+impl std::fmt::Display for SessionExpiredError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Session expired or revoked. Please run 'cmux auth login' to re-authenticate."
+        )
+    }
+}
+
+impl std::error::Error for SessionExpiredError {}
+
+/// Get an access token using the stored refresh token.
+/// Uses caching to avoid unnecessary refresh calls (access tokens are valid for ~10 minutes).
+/// Implements retry logic with exponential backoff for network resilience.
+async fn get_access_token(client: &Client) -> anyhow::Result<String> {
+    // Buffer time: refresh if token expires in less than 60 seconds
+    const MIN_VALIDITY_SECS: i64 = 60;
+
+    // Check cache first
+    if let Some(cached_token) = get_cached_access_token(MIN_VALIDITY_SECS) {
+        return Ok(cached_token);
+    }
+
+    // Need to refresh - get the refresh token
+    let refresh_token = get_stack_refresh_token()
+        .ok_or_else(|| anyhow::anyhow!("Not logged in. Run 'cmux auth login' first."))?;
+
+    // Refresh the access token with retries
+    let access_token = refresh_access_token_with_retry(client, &refresh_token).await?;
+
+    // Cache the new token
+    cache_access_token(&access_token);
+
+    Ok(access_token)
+}
+
+/// Refresh access token with retry logic and proper error handling
+async fn refresh_access_token_with_retry(
+    client: &Client,
+    refresh_token: &str,
+) -> anyhow::Result<String> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+    let refresh_url = format!("{}/api/v1/auth/sessions/current/refresh", api_url);
+
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 500;
+
+    let mut last_error: Option<anyhow::Error> = None;
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            // Exponential backoff: 500ms, 1000ms, 2000ms
+            let delay = INITIAL_DELAY_MS * (1 << (attempt - 1));
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+
+        let result = client
+            .post(&refresh_url)
+            .header("x-stack-project-id", &project_id)
+            .header("x-stack-publishable-client-key", &publishable_key)
+            .header("x-stack-access-type", "client")
+            .header("x-stack-refresh-token", refresh_token)
+            .send()
+            .await;
+
+        match result {
+            Ok(response) => {
+                let status = response.status();
+
+                if status.is_success() {
+                    let token_response: TokenRefreshResponse = response.json().await?;
+                    return Ok(token_response.access_token);
+                }
+
+                let body = response.text().await.unwrap_or_default();
+
+                // Check for session expired error - don't retry these
+                if status == reqwest::StatusCode::UNAUTHORIZED
+                    && body.contains("REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED")
+                {
+                    // Clear any cached tokens and stored refresh token
+                    clear_cached_access_token();
+                    let _ = delete_stack_refresh_token();
+                    return Err(SessionExpiredError.into());
+                }
+
+                // Server errors (5xx) are retryable
+                if status.is_server_error() {
+                    last_error = Some(anyhow::anyhow!(
+                        "Server error refreshing token: {} - {}",
+                        status,
+                        body
+                    ));
+                    continue;
+                }
+
+                // Client errors (4xx other than 401 session expired) are not retryable
+                return Err(anyhow::anyhow!(
+                    "Failed to refresh token: {} - {}. Try 'cmux auth login' to re-authenticate.",
+                    status,
+                    body
+                ));
+            }
+            Err(e) => {
+                // Network errors are retryable
+                if e.is_timeout() || e.is_connect() || e.is_request() {
+                    last_error = Some(anyhow::anyhow!("Network error: {}", e));
+                    continue;
+                }
+                // Other errors are not retryable
+                return Err(e.into());
+            }
+        }
+    }
+
+    // All retries exhausted
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to refresh token after retries")))
+}
+
+/// Get the user's teams from our API
+async fn get_user_teams(client: &Client, access_token: &str) -> anyhow::Result<Vec<StackTeam>> {
+    let api_url = get_cmux_api_url();
+    let teams_url = format!("{}/api/teams", api_url);
+
+    let response = client
+        .get(&teams_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get teams: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    // Response format: { "teams": [ { "id": "...", "displayName": "...", "slug": "..." } ] }
+    let json: serde_json::Value = response.json().await?;
+    let teams_arr = json["teams"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Invalid teams response"))?;
+
+    let teams: Vec<StackTeam> = teams_arr
+        .iter()
+        .map(|t| StackTeam {
+            id: t["id"].as_str().unwrap_or_default().to_string(),
+            display_name: t["displayName"].as_str().map(String::from),
+            client_metadata: t["slug"].as_str().map(|s| serde_json::json!({ "slug": s })),
+        })
+        .collect();
+
+    Ok(teams)
+}
+
+/// Get SSH connection info for a sandbox from the cmux API
+async fn get_sandbox_ssh_info(
+    client: &Client,
+    access_token: &str,
+    sandbox_id: &str,
+    team_slug_or_id: Option<&str>,
+    base_url: &str,
+) -> anyhow::Result<SandboxSshInfo> {
+    let api_url = base_url;
+
+    // Build URL with optional team parameter
+    let ssh_url = if let Some(team) = team_slug_or_id {
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("teamSlugOrId", team)
+            .finish();
+        format!("{}/api/sandboxes/{}/ssh?{}", api_url, sandbox_id, query)
+    } else {
+        format!("{}/api/sandboxes/{}/ssh", api_url, sandbox_id)
+    };
+
+    let response = client
+        .get(&ssh_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+
+        // Provide helpful error messages for common cases
+        if status.as_u16() == 404 {
+            return Err(anyhow::anyhow!(
+                "Sandbox not found. The ID may be invalid or the sandbox no longer exists."
+            ));
+        } else if status.as_u16() == 401 {
+            return Err(anyhow::anyhow!(
+                "Not authenticated. Please run 'cmux auth login' first."
+            ));
+        } else if status.as_u16() == 403 {
+            return Err(anyhow::anyhow!(
+                "Access denied. You may not have permission to access this sandbox."
+            ));
+        }
+
+        return Err(anyhow::anyhow!(
+            "Failed to get sandbox info: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let response_text = response.text().await?;
+    let ssh_info: SandboxSshInfo = serde_json::from_str(&response_text).map_err(|_| {
+        // Check for common error patterns
+        if response_text.contains("<!doctype html>") || response_text.contains("<html") {
+            anyhow::anyhow!(
+                "Server returned HTML instead of JSON. Check CMUX_API_URL is set correctly."
+            )
+        } else if response_text.is_empty() {
+            anyhow::anyhow!("Server returned empty response")
+        } else {
+            anyhow::anyhow!(
+                "Invalid response from server: {}",
+                response_text.chars().take(200).collect::<String>()
+            )
+        }
+    })?;
+    Ok(ssh_info)
+}
+
+/// Resume a paused sandbox
+async fn resume_sandbox(
+    client: &Client,
+    access_token: &str,
+    sandbox_id: &str,
+    team_slug_or_id: Option<&str>,
+    base_url: &str,
+) -> anyhow::Result<()> {
+    let api_url = base_url;
+
+    // Build URL with optional team parameter
+    let resume_url = if let Some(team) = team_slug_or_id {
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("teamSlugOrId", team)
+            .finish();
+        format!("{}/api/sandboxes/{}/resume?{}", api_url, sandbox_id, query)
+    } else {
+        format!("{}/api/sandboxes/{}/resume", api_url, sandbox_id)
+    };
+
+    let response = client
+        .post(&resume_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to resume sandbox: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    Ok(())
+}
+
+/// Resolve the team to use - from explicit flag, default config, or auto-detect
+async fn resolve_team(
+    client: &Client,
+    access_token: &str,
+    explicit_team: Option<&str>,
+) -> anyhow::Result<String> {
+    // 1. If explicitly provided, use that
+    if let Some(team) = explicit_team {
+        return Ok(team.to_string());
+    }
+
+    // 2. Check for default team in config
+    if let Some(default) = get_default_team() {
+        return Ok(default);
+    }
+
+    // 3. Try to get the user's teams and auto-detect
+    let teams = get_user_teams(client, access_token).await?;
+
+    if teams.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No teams found. Create a team at https://cmux.sh or specify --team."
+        ));
+    }
+
+    // If only one team, auto-set as default
+    if teams.len() == 1 {
+        let team_id = &teams[0].id;
+        if set_default_team(team_id).is_ok() {
+            let name = teams[0].display_name.as_deref().unwrap_or(team_id);
+            eprintln!("Auto-set default team to: {}", name);
+        }
+        return Ok(team_id.clone());
+    }
+
+    // Multiple teams - require explicit selection
+    Err(anyhow::anyhow!(
+        "Multiple teams found. Specify with --team or set a default with 'dmux team default <team-id>'"
+    ))
+}
+
+/// Handle `cmux auth login` - browser-based Stack Auth flow
+async fn handle_auth_login() -> anyhow::Result<()> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    // Check if already logged in
+    if get_stack_refresh_token().is_some() {
+        eprintln!("\x1b[33mYou are already logged in.\x1b[0m");
+        eprintln!("Run 'cmux auth logout' first if you want to re-authenticate.");
+        return Ok(());
+    }
+
+    eprintln!("Starting authentication...");
+
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+
+    // Step 1: Initiate CLI auth flow
+    let init_url = format!("{}/api/v1/auth/cli", api_url);
+    let init_body = serde_json::json!({
+        "expires_in_millis": 600000  // 10 minutes
+    });
+
+    let response = client
+        .post(&init_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("Content-Type", "application/json")
+        .json(&init_body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to initiate auth: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let init_response: CliAuthInitResponse = response.json().await?;
+
+    // Step 2: Open browser (use cmux.sh for browser URL, not auth API)
+    let cmux_url = get_cmux_api_url();
+    let auth_url = format!(
+        "{}/handler/cli-auth-confirm?login_code={}",
+        cmux_url, init_response.login_code
+    );
+
+    eprintln!("\nOpening browser to complete authentication...");
+    eprintln!("If browser doesn't open, visit:\n  {}\n", auth_url);
+
+    if let Err(e) = open::that(&auth_url) {
+        eprintln!("Failed to open browser: {}", e);
+        eprintln!("Please open the URL manually.");
+    }
+
+    // Step 3: Poll for completion
+    eprintln!("Waiting for authentication... (press Ctrl+C to cancel)");
+
+    let poll_url = format!("{}/api/v1/auth/cli/poll", api_url);
+    let mut attempts = 0;
+    let max_attempts = 120; // 10 minutes at 5 second intervals
+
+    loop {
+        attempts += 1;
+        if attempts > max_attempts {
+            return Err(anyhow::anyhow!("Authentication timed out"));
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        let poll_body = serde_json::json!({
+            "polling_code": init_response.polling_code
+        });
+
+        let response = client
+            .post(&poll_url)
+            .header("x-stack-project-id", &project_id)
+            .header("x-stack-publishable-client-key", &publishable_key)
+            .header("x-stack-access-type", "client")
+            .header("Content-Type", "application/json")
+            .json(&poll_body)
+            .send()
+            .await;
+
+        let response = match response {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Poll request failed: {}. Retrying...", e);
+                continue;
+            }
+        };
+
+        if !response.status().is_success() {
+            // Keep polling on non-success (could be pending)
+            continue;
+        }
+
+        let poll_response: CliAuthPollResponse = match response.json().await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        match poll_response.status.as_str() {
+            "success" => {
+                if let Some(refresh_token) = poll_response.refresh_token {
+                    // Store the refresh token
+                    store_stack_refresh_token(&refresh_token)
+                        .map_err(|e| anyhow::anyhow!("Failed to store token: {}", e))?;
+
+                    eprintln!("\n\x1b[32m✓ Authentication successful!\x1b[0m");
+                    eprintln!("  Refresh token stored securely.");
+
+                    // Try to get user info
+                    if let Ok(user_info) = get_user_info(&client, &refresh_token).await {
+                        if let Some(email) = user_info.primary_email {
+                            eprintln!("  Logged in as: {}", email);
+                        } else if let Some(name) = user_info.display_name {
+                            eprintln!("  Logged in as: {}", name);
+                        }
+                    }
+
+                    return Ok(());
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Authentication succeeded but no refresh token returned"
+                    ));
+                }
+            }
+            "expired" => {
+                return Err(anyhow::anyhow!("Authentication expired. Please try again."));
+            }
+            _ => {
+                // Still pending, continue polling
+                eprint!(".");
+            }
+        }
+    }
+}
+
+/// Get user info using a refresh token
+async fn get_user_info(client: &Client, refresh_token: &str) -> anyhow::Result<StackUserInfo> {
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    // First get an access token
+    let refresh_url = format!("{}/api/v1/auth/sessions/current/refresh", api_url);
+    let response = client
+        .post(&refresh_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("x-stack-refresh-token", refresh_token)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to refresh token: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let token_response: TokenRefreshResponse = response.json().await?;
+
+    // Now get user info
+    let user_url = format!("{}/api/v1/users/me", api_url);
+    let response = client
+        .get(&user_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("x-stack-access-token", &token_response.access_token)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get user info: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let user_info: StackUserInfo = response.json().await?;
+    Ok(user_info)
+}
+
+/// Handle `cmux auth logout` - clear stored credentials
+fn handle_auth_logout() -> anyhow::Result<()> {
+    let had_token = get_stack_refresh_token().is_some();
+
+    // Clear both refresh token and cached access token
+    delete_stack_refresh_token().map_err(|e| anyhow::anyhow!("Failed to delete token: {}", e))?;
+    clear_cached_access_token();
+
+    if had_token {
+        eprintln!("\x1b[32m✓ Logged out successfully.\x1b[0m");
+    } else {
+        eprintln!("No credentials found. Already logged out.");
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux auth status` - show current auth state and files
+async fn handle_auth_status() -> anyhow::Result<()> {
+    // Show auth status
+    println!("\x1b[1mAuthentication Status:\x1b[0m");
+
+    if let Some(refresh_token) = get_stack_refresh_token() {
+        let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+
+        match get_user_info(&client, &refresh_token).await {
+            Ok(user_info) => {
+                println!("  Status: \x1b[32mLogged in\x1b[0m");
+                if let Some(email) = user_info.primary_email {
+                    println!("  Email: {}", email);
+                }
+                if let Some(name) = user_info.display_name {
+                    println!("  Name: {}", name);
+                }
+                if let Some(id) = user_info.id {
+                    println!("  User ID: {}", id);
+                }
+            }
+            Err(e) => {
+                println!("  Status: \x1b[33mSession expired or invalid\x1b[0m");
+                println!("  Error: {}", e);
+                println!("  Try 'cmux auth login' to re-authenticate.");
+            }
+        }
+    } else {
+        println!("  Status: \x1b[90mNot logged in\x1b[0m");
+        println!("  Run 'cmux auth login' to authenticate.");
+    }
+
+    // Show auth files status
+    println!("\n\x1b[1mAuthentication Files:\x1b[0m");
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let home_path = PathBuf::from(home);
+
+    println!("{:<25} {:<50} {:<10}", "NAME", "PATH", "STATUS");
+    println!("{}", "-".repeat(85));
+
+    for def in SYNC_FILES {
+        let path = home_path.join(def.host_path);
+        let status = if path.exists() {
+            "\x1b[32mFound\x1b[0m"
+        } else {
+            "\x1b[90mMissing\x1b[0m"
+        };
+        println!("{:<25} {:<50} {}", def.name, def.host_path, status);
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux auth token` - print current access token
+async fn handle_auth_token() -> anyhow::Result<()> {
+    let refresh_token = get_stack_refresh_token()
+        .ok_or_else(|| anyhow::anyhow!("Not logged in. Run 'cmux auth login' first."))?;
+
+    let api_url = get_auth_api_url();
+    let project_id = get_auth_project_id();
+    let publishable_key = get_auth_publishable_key();
+
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+
+    let refresh_url = format!("{}/api/v1/auth/sessions/current/refresh", api_url);
+    let response = client
+        .post(&refresh_url)
+        .header("x-stack-project-id", &project_id)
+        .header("x-stack-publishable-client-key", &publishable_key)
+        .header("x-stack-access-type", "client")
+        .header("x-stack-refresh-token", &refresh_token)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to refresh token: {} - {}. Try 'cmux auth login' to re-authenticate.",
+            status,
+            text
+        ));
+    }
+
+    let token_response: TokenRefreshResponse = response.json().await?;
+
+    // Print just the token (useful for piping)
+    println!("{}", token_response.access_token);
+
+    Ok(())
+}
+
+/// Response from the setup-instance endpoint
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+struct SetupInstanceResponse {
+    instance_id: String,
+    vscode_url: String,
+    cloned_repos: Vec<String>,
+    removed_repos: Vec<String>,
+}
+
+/// Options for creating a cloud VM
+struct CreateVmOptions {
+    team: Option<String>,
+    ttl: u64,
+    preset: Option<String>,
+    repos: Vec<String>,
+}
+
+/// Result of creating a cloud VM
+struct CreateVmResult {
+    /// Instance ID (without morphvm_ prefix)
+    instance_id: String,
+    /// Full instance ID (with morphvm_ prefix if present)
+    full_instance_id: String,
+    vscode_url: String,
+    cloned_repos: Vec<String>,
+}
+
+/// Create a cloud VM and return the result
+async fn create_cloud_vm(
+    client: &Client,
+    access_token: &str,
+    api_url: &str,
+    options: CreateVmOptions,
+) -> anyhow::Result<CreateVmResult> {
+    // Resolve team from options, default, or auto-detect
+    let team = resolve_team(client, access_token, options.team.as_deref()).await?;
+
+    // Build the request body
+    let mut body = serde_json::json!({
+        "ttlSeconds": options.ttl,
+        "teamSlugOrId": team,
+    });
+
+    if let Some(preset) = &options.preset {
+        body["presetId"] = serde_json::json!(preset);
+    }
+
+    if !options.repos.is_empty() {
+        body["repos"] = serde_json::json!(options.repos);
+    }
+
+    let url = format!("{}/api/morph/setup-instance", api_url);
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to create VM: {} - {} (url: {})",
+            status,
+            text,
+            url
+        ));
+    }
+
+    let result: SetupInstanceResponse = response.json().await?;
+
+    // Strip morphvm_ prefix for display
+    let display_id = result
+        .instance_id
+        .strip_prefix("morphvm_")
+        .unwrap_or(&result.instance_id)
+        .to_string();
+
+    Ok(CreateVmResult {
+        instance_id: display_id,
+        full_instance_id: result.instance_id,
+        vscode_url: result.vscode_url,
+        cloned_repos: result.cloned_repos,
+    })
+}
+
+/// Handle `cmux vm create` - create a new cloud VM
+async fn handle_vm_create(args: VmCreateArgs) -> anyhow::Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    eprintln!("Creating cloud VM...");
+
+    let result = create_cloud_vm(
+        &client,
+        &access_token,
+        &api_url,
+        CreateVmOptions {
+            team: args.team.clone(),
+            ttl: args.ttl,
+            preset: args.preset.clone(),
+            repos: args.repos.clone(),
+        },
+    )
+    .await?;
+
+    let ssh_id = format!("c_{}", result.instance_id);
+
+    if args.output == "json" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "instanceId": result.full_instance_id,
+                "vscodeUrl": result.vscode_url,
+                "clonedRepos": result.cloned_repos,
+            }))?
+        );
+    } else {
+        eprintln!("\x1b[32m✓ VM created successfully!\x1b[0m");
+        eprintln!();
+        eprintln!("  ID: {}", ssh_id);
+        eprintln!("  VS Code URL: {}", result.vscode_url);
+        if !result.cloned_repos.is_empty() {
+            eprintln!("  Cloned repos: {}", result.cloned_repos.join(", "));
+        }
+        eprintln!();
+        eprintln!("Connect via SSH:");
+        eprintln!("  cmux ssh {}", ssh_id);
+    }
+
+    // If --ssh flag is set, SSH into the VM
+    if args.ssh {
+        let ssh_args = SshArgs {
+            id: ssh_id,
+            team: args.team,
+            ssh_args: vec![],
+        };
+        handle_real_ssh(&client, &api_url, "", &ssh_args).await?;
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux vm list` - list running VMs
+async fn handle_vm_list(args: VmListArgs) -> anyhow::Result<()> {
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    // Build query params
+    let mut url = format!("{}/api/morph/instances", api_url);
+    if let Some(team) = &args.team {
+        url = format!("{}?teamId={}", url, team);
+    }
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list VMs: {} - {} (url: {})",
+            status,
+            text,
+            url
+        ));
+    }
+
+    let instances: serde_json::Value = response.json().await?;
+
+    if args.output == "json" {
+        println!("{}", serde_json::to_string_pretty(&instances)?);
+    } else {
+        let empty_vec = vec![];
+        let instances_arr = instances.as_array().unwrap_or(&empty_vec);
+        if instances_arr.is_empty() {
+            println!("No running VMs found.");
+            println!("\nCreate a VM with: cmux vm create");
+            return Ok(());
+        }
+
+        // Print header
+        println!("{:<20} {:<12} {:<40}", "INSTANCE ID", "STATUS", "CREATED");
+        println!("{}", "-".repeat(75));
+
+        for instance in instances_arr {
+            let id = instance["id"].as_str().unwrap_or("unknown");
+            let status = instance["status"].as_str().unwrap_or("unknown");
+            let created = instance["createdAt"].as_str().unwrap_or("unknown");
+            println!("{:<20} {:<12} {:<40}", id, status, created);
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux team list` - list user's teams
+async fn handle_team_list(args: TeamListArgs) -> anyhow::Result<()> {
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let access_token = get_access_token(&client).await?;
+    let api_url = get_cmux_api_url();
+
+    let url = format!("{}/api/teams", api_url);
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list teams: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    let teams = result["teams"].as_array();
+
+    // Auto-set default if user has exactly one team and no default is set
+    if let Some(teams_arr) = teams {
+        if teams_arr.len() == 1 && get_default_team().is_none() {
+            if let Some(team_id) = teams_arr[0]["id"].as_str() {
+                if set_default_team(team_id).is_ok() {
+                    eprintln!(
+                        "Auto-set default team to: {}",
+                        teams_arr[0]["displayName"].as_str().unwrap_or(team_id)
+                    );
+                }
+            }
+        }
+    }
+
+    if args.output == "json" {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        let default_team = get_default_team();
+        let empty_vec = vec![];
+        let teams_arr = teams.unwrap_or(&empty_vec);
+
+        if teams_arr.is_empty() {
+            println!("No teams found.");
+            return Ok(());
+        }
+
+        // Print header
+        println!("{:<40} {:<30} {:<10}", "ID", "NAME", "DEFAULT");
+        println!("{}", "-".repeat(80));
+
+        for team in teams_arr {
+            let id = team["id"].as_str().unwrap_or("unknown");
+            let name = team["displayName"].as_str().unwrap_or("unknown");
+            let is_default = default_team.as_deref() == Some(id);
+            let default_marker = if is_default { "✓" } else { "" };
+            println!("{:<40} {:<30} {:<10}", id, name, default_marker);
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle `cmux team default` - show or set default team
+async fn handle_team_default(args: TeamDefaultArgs) -> anyhow::Result<()> {
+    if args.clear {
+        clear_default_team()?;
+        println!("Default team cleared.");
+        return Ok(());
+    }
+
+    if let Some(team_id) = args.team {
+        // Verify team exists by listing teams
+        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+        let access_token = get_access_token(&client).await?;
+        let api_url = get_cmux_api_url();
+
+        let url = format!("{}/api/teams", api_url);
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "Failed to list teams: {} - {}",
+                status,
+                text
+            ));
+        }
+
+        let result: serde_json::Value = response.json().await?;
+        let teams = result["teams"].as_array();
+
+        // Find the team by ID or slug
+        let found_team = teams.and_then(|arr| {
+            arr.iter().find(|t| {
+                t["id"].as_str() == Some(&team_id) || t["slug"].as_str() == Some(&team_id)
+            })
+        });
+
+        if let Some(team) = found_team {
+            let actual_id = team["id"].as_str().unwrap_or(&team_id);
+            let name = team["displayName"].as_str().unwrap_or("unknown");
+            set_default_team(actual_id)?;
+            println!("Default team set to: {} ({})", name, actual_id);
+        } else {
+            return Err(anyhow::anyhow!(
+                "Team '{}' not found. Use 'dmux team list' to see available teams.",
+                team_id
+            ));
+        }
+    } else {
+        // Show current default
+        if let Some(team_id) = get_default_team() {
+            println!("Default team: {}", team_id);
+        } else {
+            println!("No default team set.");
+            println!("\nUse 'dmux team list' to see available teams.");
+            println!("Use 'dmux team default <team-id>' to set a default.");
+        }
+    }
+
+    Ok(())
+}
+
 async fn handle_setup_claude() -> anyhow::Result<()> {
     eprintln!("Running 'claude setup-token'...");
     eprintln!("Please follow the prompts to authenticate with Claude.\n");
@@ -2032,18 +3590,116 @@ async fn handle_onboard() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Handle real SSH to a sandbox (via WebSocket proxy)
-async fn handle_real_ssh(client: &Client, base_url: &str, args: &SshArgs) -> anyhow::Result<()> {
-    let binary_name = if is_dmux() { "dmux" } else { "cmux" };
+/// Sandbox ID type
+#[derive(Debug, Clone, PartialEq)]
+enum SandboxIdType {
+    /// Cloud sandbox (c_xxx) - runs on remote cloud infrastructure
+    Cloud,
+    /// Local sandbox (l_xxx) - runs in local Docker
+    Local,
+    /// Task run ID (UUID) - lookup required to determine type
+    TaskRun,
+}
 
-    // Sync SSH keys and config files to sandbox before connecting
-    // This ensures authorized_keys exists and sshd is running
-    eprintln!("Syncing SSH keys to sandbox {}...", args.id);
-    if let Err(e) = upload_sync_files(client, base_url, &args.id, false).await {
-        eprintln!("Warning: Failed to sync files: {}", e);
+/// Parse a sandbox ID and return its type and the internal ID
+/// - c_xxxxxxxx → Cloud, morphvm_xxxxxxxx
+/// - l_xxxxxxxx → Local, l_xxxxxxxx
+/// - UUID → TaskRun, UUID as-is
+fn parse_sandbox_id(id: &str) -> (SandboxIdType, String) {
+    if let Some(cloud_id) = id.strip_prefix("c_") {
+        (SandboxIdType::Cloud, format!("morphvm_{}", cloud_id))
+    } else if id.starts_with("l_") {
+        (SandboxIdType::Local, id.to_string())
+    } else if id.contains("-") {
+        // UUID format - task run ID
+        (SandboxIdType::TaskRun, id.to_string())
+    } else {
+        // Unknown format - show error with expected formats
+        eprintln!("Error: Invalid sandbox ID format: {}", id);
+        eprintln!("Expected formats:");
+        eprintln!("  c_xxxxxxxx  - cloud sandbox");
+        eprintln!("  l_xxxxxxxx  - local sandbox");
+        eprintln!("  <uuid>      - task run ID");
+        std::process::exit(1);
+    }
+}
+
+/// Create a spinner with a message
+fn create_spinner(msg: &str) -> ProgressBar {
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan} {msg} {elapsed:.dim}")
+            .expect("Invalid spinner template"),
+    );
+    spinner.set_message(msg.to_string());
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+    spinner
+}
+
+/// Finish a spinner with a success message
+fn finish_spinner(spinner: &ProgressBar, msg: &str) {
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{msg}")
+            .expect("Invalid spinner template"),
+    );
+    spinner.finish_with_message(format!("✓ {}", msg));
+}
+
+/// Handle SSH to a sandbox
+/// - Cloud sandboxes (c_xxx): Real SSH via cloud gateway
+/// - Local sandboxes (l_xxx): WebSocket attach to local daemon
+async fn handle_real_ssh(
+    client: &Client,
+    api_url: &str,
+    local_daemon_url: &str,
+    args: &SshArgs,
+) -> anyhow::Result<()> {
+    // Parse the sandbox ID
+    let (id_type, id) = parse_sandbox_id(&args.id);
+
+    // Local sandboxes use WebSocket attach to local daemon
+    if id_type == SandboxIdType::Local {
+        // Strip l_ prefix to get the sandbox ID
+        let sandbox_id = args.id.strip_prefix("l_").unwrap_or(&args.id);
+        eprintln!("→ Connecting to local sandbox...");
+        return handle_ssh(local_daemon_url, sandbox_id).await;
     }
 
-    // Build SSH command with ProxyCommand using our _ssh-proxy
+    // Authenticate
+    let spinner = create_spinner("Authenticating");
+    let access_token = get_access_token(client).await?;
+    finish_spinner(&spinner, "Authenticated");
+
+    // For cloud sandbox IDs, team is optional (provider validates access)
+    // For task-run IDs, team is required
+    let team = if id_type == SandboxIdType::Cloud && args.team.is_none() {
+        None
+    } else {
+        Some(resolve_team(client, &access_token, args.team.as_deref()).await?)
+    };
+
+    // Get SSH info from the API (includes status)
+    let spinner = create_spinner("Resolving sandbox");
+    let ssh_info =
+        get_sandbox_ssh_info(client, &access_token, &id, team.as_deref(), api_url).await?;
+    finish_spinner(&spinner, "Sandbox resolved");
+
+    // Check if the sandbox is paused and resume it
+    let was_resumed = if ssh_info.status == "paused" {
+        let spinner = create_spinner("Resuming sandbox");
+        resume_sandbox(client, &access_token, &id, team.as_deref(), api_url).await?;
+        // Wait a moment for the instance to be fully ready
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        finish_spinner(&spinner, "Sandbox resumed");
+        true
+    } else {
+        false
+    };
+
+    // Build SSH command using per-instance SSH tokens
     let mut ssh_args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=no".to_string(),
@@ -2051,22 +3707,26 @@ async fn handle_real_ssh(client: &Client, base_url: &str, args: &SshArgs) -> any
         "UserKnownHostsFile=/dev/null".to_string(),
         "-o".to_string(),
         "LogLevel=ERROR".to_string(),
-        "-o".to_string(),
-        format!("ProxyCommand={} _ssh-proxy {}", binary_name, args.id),
     ];
 
-    // The hostname (doesn't matter since we use ProxyCommand, but SSH requires one)
-    // Must come before any remote command
-    ssh_args.push(format!("root@sandbox-{}", args.id));
-
-    // Add any extra SSH args from user (typically remote commands to execute)
+    // Add any extra SSH args from user BEFORE the hostname
+    // SSH options like -i, -L must come before user@host
     for arg in &args.ssh_args {
         ssh_args.push(arg.clone());
     }
 
-    eprintln!("Connecting to sandbox {}...", args.id);
+    // Use SSH gateway with per-instance token
+    ssh_args.push(format!("{}@ssh.cloud.morph.so", ssh_info.access_token));
 
-    // Execute native SSH with ProxyCommand
+    // Print static "Connecting" message - no spinner needed since exec() happens immediately
+    // The SSH handshake time is spent inside the SSH process which we can't monitor
+    if was_resumed {
+        eprintln!("→ Connecting (takes longer after resume)...");
+    } else {
+        eprintln!("→ Connecting...");
+    }
+
+    // Execute native SSH
     // Use exec on Unix to replace process and fully inherit terminal for passphrase prompts
     #[cfg(unix)]
     {
@@ -2086,116 +3746,405 @@ async fn handle_real_ssh(client: &Client, base_url: &str, args: &SshArgs) -> any
     }
 }
 
+/// Execute a command on a sandbox via SSH (non-interactive)
+///
+/// This is designed for scripting and automation. Unlike `ssh`, this command:
+/// - Does not allocate a PTY by default
+/// - Suppresses connection status messages
+/// - Properly propagates the exit code of the remote command
+async fn handle_ssh_exec(
+    client: &Client,
+    api_url: &str,
+    local_daemon_url: &str,
+    args: &SshExecArgs,
+) -> anyhow::Result<()> {
+    // Parse the sandbox ID
+    let (id_type, id) = parse_sandbox_id(&args.id);
+
+    // Local sandboxes use HTTP exec to local daemon
+    if id_type == SandboxIdType::Local {
+        let sandbox_id = args.id.strip_prefix("l_").unwrap_or(&args.id);
+        let command = if args.command.len() == 1 && args.command[0].contains(' ') {
+            vec!["/bin/sh".into(), "-c".into(), args.command[0].clone()]
+        } else {
+            args.command.clone()
+        };
+        let body = ExecRequest {
+            command,
+            workdir: None,
+            env: Vec::new(),
+        };
+        let url = format!(
+            "{}/sandboxes/{}/exec",
+            local_daemon_url.trim_end_matches('/'),
+            sandbox_id
+        );
+        let response = client.post(url).json(&body).send().await?;
+        let result: ExecResponse = parse_response(response).await?;
+
+        // Print stdout/stderr and exit with proper code
+        if !result.stdout.is_empty() {
+            print!("{}", result.stdout);
+        }
+        if !result.stderr.is_empty() {
+            eprint!("{}", result.stderr);
+        }
+        if result.exit_code != 0 {
+            std::process::exit(result.exit_code);
+        }
+        return Ok(());
+    }
+
+    // Get access token (no spinner for exec - keep it minimal for scripting)
+    let access_token = get_access_token(client).await?;
+
+    // For cloud sandbox IDs, team is optional (provider validates access)
+    // For task-run IDs, team is required
+    let team = if id_type == SandboxIdType::Cloud && args.team.is_none() {
+        None
+    } else {
+        Some(resolve_team(client, &access_token, args.team.as_deref()).await?)
+    };
+
+    // Get SSH info from the API (includes status)
+    let ssh_info =
+        get_sandbox_ssh_info(client, &access_token, &id, team.as_deref(), api_url).await?;
+
+    // Check if the sandbox is paused and resume it
+    if ssh_info.status == "paused" {
+        let spinner = create_spinner("Resuming sandbox");
+        resume_sandbox(client, &access_token, &id, team.as_deref(), api_url).await?;
+        // Wait a moment for the instance to be fully ready
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        finish_spinner(&spinner, "Sandbox resumed");
+    }
+
+    // Build SSH command
+    // Use -T to disable pseudo-terminal allocation (non-interactive)
+    // Use -o BatchMode=yes to prevent password prompts
+    let mut ssh_args = vec![
+        "-T".to_string(), // Disable pseudo-terminal allocation
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(),
+        "UserKnownHostsFile=/dev/null".to_string(),
+        "-o".to_string(),
+        "LogLevel=ERROR".to_string(),
+    ];
+
+    // Use SSH gateway with per-instance token
+    ssh_args.push(format!("{}@ssh.cloud.morph.so", ssh_info.access_token));
+
+    // Add the command to execute
+    // Join command parts into a single string for remote execution
+    let remote_cmd = args.command.join(" ");
+    ssh_args.push(remote_cmd);
+
+    // Execute SSH and capture exit code
+    let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
+
+    if !status.success() {
+        let exit_code = status.code().unwrap_or(1);
+        // Exit code 255 typically means SSH connection failure
+        if exit_code == 255 {
+            eprintln!("Error: SSH connection failed. The sandbox may be paused or unreachable.");
+            eprintln!("Hint: Check sandbox status or try again later.");
+        }
+        std::process::exit(exit_code);
+    }
+
+    Ok(())
+}
+
 /// Generate SSH config for easy sandbox access
 async fn handle_ssh_config(_client: &Client, _base_url: &str) -> anyhow::Result<()> {
     let binary_name = if is_dmux() { "dmux" } else { "cmux" };
 
-    println!("# SSH config for {} sandboxes", binary_name);
-    println!("# Add this to ~/.ssh/config");
-    println!();
-
-    // Generate a wildcard config for sandbox-* pattern using _ssh-proxy
-    println!("# Wildcard config for all sandboxes (works from macOS shell)");
-    println!("Host sandbox-*");
-    println!("    User root");
-    println!("    StrictHostKeyChecking no");
-    println!("    UserKnownHostsFile /dev/null");
-    println!("    LogLevel ERROR");
+    println!("# SSH with {} uses per-instance SSH tokens", binary_name);
     println!(
-        "    ProxyCommand {} _ssh-proxy $(echo %n | sed 's/sandbox-//')",
+        "# No SSH config needed - just use the {} ssh command",
         binary_name
     );
     println!();
+    println!(
+        "# The {} ssh command fetches a per-instance access token",
+        binary_name
+    );
+    println!("# and connects directly via: ssh <access_token>@ssh.cloud.morph.so");
+    println!();
 
-    eprintln!();
     eprintln!("Usage examples:");
-    eprintln!("  ssh sandbox-0                           # SSH into sandbox 0");
-    eprintln!("  ssh sandbox-0 -L 8080:localhost:8080    # With port forwarding");
-    eprintln!("  scp sandbox-0:/workspace/file ./        # Copy files");
-    eprintln!("  rsync -avz sandbox-0:/workspace/ ./     # Rsync with sandbox");
-    eprintln!();
-    eprintln!("Or use '{}' directly:", binary_name);
-    eprintln!("  {} ssh <index>              # Direct SSH", binary_name);
     eprintln!(
-        "  {} ssh <index> -L 8080:localhost:8080  # With port forwarding",
+        "  {} ssh <sandbox-id>                         # Direct SSH (uses default team)",
+        binary_name
+    );
+    eprintln!(
+        "  {} ssh <sandbox-id> --team my-team          # With explicit team",
+        binary_name
+    );
+    eprintln!(
+        "  {} ssh <sandbox-id> -- -L 8080:localhost:8080  # With port forwarding",
+        binary_name
+    );
+    eprintln!(
+        "  {} ssh-exec <sandbox-id> -- ls -la          # Execute command non-interactively",
+        binary_name
+    );
+    eprintln!();
+    eprintln!("For scp/rsync, use the ssh-exec command or get the SSH command directly:");
+    eprintln!(
+        "  {} ssh <sandbox-id> 2>&1 | grep -o 'ssh .*@ssh.cloud.morph.so'",
         binary_name
     );
 
     Ok(())
 }
 
-/// Internal SSH proxy command - bridges stdin/stdout to WebSocket for SSH ProxyCommand
-async fn handle_ssh_proxy(base_url: &str, id: &str) -> anyhow::Result<()> {
-    // Build WebSocket URL for the proxy endpoint
-    let ws_url = base_url
-        .replace("http://", "ws://")
-        .replace("https://", "wss://");
-    let proxy_url = format!(
-        "{}/sandboxes/{}/proxy?port=22",
-        ws_url.trim_end_matches('/'),
-        id
-    );
+/// Ensure ~/.ssh/config includes our cmux SSH config
+fn ensure_ssh_config_include() -> anyhow::Result<()> {
+    let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME not set"))?;
+    let ssh_dir = PathBuf::from(&home).join(".ssh");
+    let ssh_config_path = ssh_dir.join("config");
+    let cmux_config_path = get_config_dir().join("ssh_config");
 
-    // Connect to WebSocket
-    let (ws_stream, _) = connect_async(&proxy_url)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to proxy: {}", e))?;
+    // Ensure ~/.ssh directory exists
+    std::fs::create_dir_all(&ssh_dir)?;
 
-    let (mut ws_write, mut ws_read) = ws_stream.split();
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
+    // The include line we want to add
+    let include_line = format!("Include {}", cmux_config_path.display());
 
-    // Bridge stdin/stdout to WebSocket
-    let stdin_to_ws = async {
-        let mut buf = [0u8; 8192];
-        loop {
-            match stdin.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    if ws_write
-                        .send(Message::Binary(buf[..n].to_vec()))
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
+    // Check if ~/.ssh/config exists and already has the include
+    if ssh_config_path.exists() {
+        let content = std::fs::read_to_string(&ssh_config_path)?;
+        if content.contains(&include_line) || content.contains("~/.cmux/ssh_config") {
+            return Ok(()); // Already included
         }
-    };
 
-    let ws_to_stdout = async {
-        while let Some(msg) = ws_read.next().await {
-            match msg {
-                Ok(Message::Binary(data)) => {
-                    if stdout.write_all(&data).await.is_err() {
-                        break;
-                    }
-                    if stdout.flush().await.is_err() {
-                        break;
-                    }
-                }
-                Ok(Message::Text(text)) => {
-                    if stdout.write_all(text.as_bytes()).await.is_err() {
-                        break;
-                    }
-                    if stdout.flush().await.is_err() {
-                        break;
-                    }
-                }
-                Ok(Message::Close(_)) | Err(_) => break,
-                _ => {}
-            }
-        }
-    };
+        // Prepend the include line (Include must be at the top)
+        let new_content = format!("{}\n\n{}", include_line, content);
+        std::fs::write(&ssh_config_path, new_content)?;
+        eprintln!(
+            "Added 'Include {}' to ~/.ssh/config",
+            cmux_config_path.display()
+        );
+    } else {
+        // Create new ~/.ssh/config with the include
+        std::fs::write(&ssh_config_path, format!("{}\n", include_line))?;
+        eprintln!("Created ~/.ssh/config with cmux include");
+    }
 
-    tokio::select! {
-        _ = stdin_to_ws => {}
-        _ = ws_to_stdout => {}
+    // Set proper permissions on ~/.ssh/config (600)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&ssh_config_path, perms)?;
     }
 
     Ok(())
+}
+
+/// Handle IDE commands (code, cursor, windsurf, zed)
+/// Opens the sandbox in the specified IDE via SSH Remote
+async fn handle_ide(
+    client: &Client,
+    local_daemon_url: &str,
+    api_url: &str,
+    ide: &str,
+    args: &IdeArgs,
+) -> anyhow::Result<()> {
+    let (id_type, id) = parse_sandbox_id(&args.id);
+
+    // Determine the IDE command and remote path
+    let (ide_cmd, remote_prefix) = match ide {
+        "code" => ("code", "vscode-remote://ssh-remote+"),
+        "cursor" => ("cursor", "vscode-remote://ssh-remote+"),
+        "windsurf" => ("windsurf", "vscode-remote://ssh-remote+"),
+        "zed" => ("zed", "ssh://"),
+        _ => return Err(anyhow::anyhow!("Unknown IDE: {}", ide)),
+    };
+
+    // Check if the IDE is installed
+    if std::process::Command::new("which")
+        .arg(ide_cmd)
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        return Err(anyhow::anyhow!(
+            "{} is not installed or not in PATH. Install it first.",
+            ide_cmd
+        ));
+    }
+
+    // For VS Code-like IDEs, ensure SSH config is set up first
+    if ide != "zed" {
+        ensure_ssh_config_include()?;
+    }
+
+    match id_type {
+        SandboxIdType::Local => {
+            // For local sandboxes, get the sandbox IP and connect via SSH
+            let sandbox_id = args.id.strip_prefix("l_").unwrap_or(&args.id);
+
+            // Get sandbox info from local daemon
+            let url = format!(
+                "{}/sandboxes/{}",
+                local_daemon_url.trim_end_matches('/'),
+                sandbox_id
+            );
+            let response = client.get(&url).send().await?;
+            if !response.status().is_success() {
+                return Err(anyhow::anyhow!(
+                    "Failed to get sandbox info: {}",
+                    response.status()
+                ));
+            }
+            let sandbox: SandboxSummary = response.json().await?;
+            let sandbox_ip = &sandbox.network.sandbox_ip;
+
+            // Default path for local sandboxes
+            let remote_path = args
+                .path
+                .clone()
+                .unwrap_or_else(|| "/workspace".to_string());
+
+            // Create SSH config for the local sandbox
+            let ssh_host = format!("cmux-local-{}", &sandbox_id[..8.min(sandbox_id.len())]);
+            let config_dir = get_config_dir();
+            let ssh_config_path = config_dir.join("ssh_config");
+
+            // Ensure config directory exists
+            std::fs::create_dir_all(&config_dir)?;
+
+            // Write SSH config
+            let ssh_config = format!(
+                r#"Host {}
+    HostName {}
+    User root
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    LogLevel ERROR
+"#,
+                ssh_host, sandbox_ip
+            );
+            std::fs::write(&ssh_config_path, ssh_config)?;
+
+            eprintln!("Opening {} in {}...", args.id, ide_cmd);
+
+            // Open the IDE
+            if ide == "zed" {
+                // Zed uses a different URL format: zed ssh://user@host/path
+                let url = format!("{}root@{}{}", remote_prefix, sandbox_ip, remote_path);
+                let status = std::process::Command::new(ide_cmd).arg(&url).status()?;
+                if !status.success() {
+                    return Err(anyhow::anyhow!("Failed to open {}", ide_cmd));
+                }
+            } else {
+                // VS Code-like IDEs use: code --remote ssh-remote+host /path
+                let remote_arg = format!("ssh-remote+{}", ssh_host);
+                let status = std::process::Command::new(ide_cmd)
+                    .args(["--remote", &remote_arg, &remote_path])
+                    .status()?;
+                if !status.success() {
+                    return Err(anyhow::anyhow!("Failed to open {}", ide_cmd));
+                }
+            }
+        }
+        SandboxIdType::Cloud | SandboxIdType::TaskRun => {
+            // For cloud sandboxes, get SSH token and connect
+            let spinner = create_spinner("Authenticating");
+            let access_token = get_access_token(client).await?;
+            finish_spinner(&spinner, "Authenticated");
+
+            // Resolve team if needed
+            let team = if id_type == SandboxIdType::Cloud && args.team.is_none() {
+                None
+            } else {
+                Some(resolve_team(client, &access_token, args.team.as_deref()).await?)
+            };
+
+            // Get SSH info
+            let spinner = create_spinner("Getting SSH credentials");
+            let ssh_info =
+                get_sandbox_ssh_info(client, &access_token, &id, team.as_deref(), api_url).await?;
+            finish_spinner(&spinner, "SSH credentials obtained");
+
+            // Check if paused and resume
+            if ssh_info.status == "paused" {
+                let spinner = create_spinner("Resuming sandbox");
+                resume_sandbox(client, &access_token, &id, team.as_deref(), api_url).await?;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                finish_spinner(&spinner, "Sandbox resumed");
+            }
+
+            // Default path for cloud sandboxes
+            let remote_path = args
+                .path
+                .clone()
+                .unwrap_or_else(|| "/root/workspace".to_string());
+
+            // Create SSH config for the cloud sandbox
+            let display_id = id.strip_prefix("morphvm_").unwrap_or(&id);
+            let ssh_host = format!("cmux-cloud-{}", display_id);
+            let config_dir = get_config_dir();
+            let ssh_config_path = config_dir.join("ssh_config");
+
+            // Ensure config directory exists
+            std::fs::create_dir_all(&config_dir)?;
+
+            // Write SSH config with the access token as username
+            let ssh_config = format!(
+                r#"Host {}
+    HostName ssh.cloud.morph.so
+    User {}
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    LogLevel ERROR
+"#,
+                ssh_host, ssh_info.access_token
+            );
+            std::fs::write(&ssh_config_path, &ssh_config)?;
+
+            eprintln!("Opening {} in {}...", args.id, ide_cmd);
+
+            // Open the IDE
+            if ide == "zed" {
+                // Zed uses: zed ssh://user@host/path
+                let url = format!(
+                    "{}{}@ssh.cloud.morph.so{}",
+                    remote_prefix, ssh_info.access_token, remote_path
+                );
+                let status = std::process::Command::new(ide_cmd).arg(&url).status()?;
+                if !status.success() {
+                    return Err(anyhow::anyhow!("Failed to open {}", ide_cmd));
+                }
+            } else {
+                // VS Code-like IDEs
+                let remote_arg = format!("ssh-remote+{}", ssh_host);
+                let status = std::process::Command::new(ide_cmd)
+                    .args(["--remote", &remote_arg, &remote_path])
+                    .status()?;
+                if !status.success() {
+                    return Err(anyhow::anyhow!("Failed to open {}", ide_cmd));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Internal SSH proxy command (DEPRECATED)
+/// This command is no longer needed - SSH now uses native per-instance tokens
+#[allow(unused_variables)]
+async fn handle_ssh_proxy(id: &str, team: Option<&str>, base_url: &str) -> anyhow::Result<()> {
+    eprintln!("\x1b[33mWarning: _ssh-proxy is deprecated.\x1b[0m");
+    eprintln!("SSH now uses native per-instance tokens directly.");
+    eprintln!("Use 'cmux ssh <sandbox-id>' instead.");
+    std::process::exit(1);
 }
 
 const ESCTEST2_REPO: &str = "https://github.com/ThomasDickey/esctest2.git";
