@@ -89,6 +89,7 @@ import {
   ReviewCompletionNotificationCard,
   type ReviewCompletionNotificationCardState,
 } from "./review-completion-notification-card";
+import { PrScreenshotGallery } from "./pr-screenshot-gallery";
 import clsx from "clsx";
 import { kitties } from "./kitty";
 import {
@@ -1057,6 +1058,26 @@ export function PullRequestDiffViewer({
 
   const fileOutputs =
     normalizedJobType === "comparison" ? comparisonFileOutputs : prFileOutputs;
+
+  // Fetch screenshots for the PR
+  const screenshotQueryArgs = useMemo(
+    () =>
+      normalizedJobType !== "pull_request" ||
+      prNumber === null ||
+      prNumber === undefined
+        ? ("skip" as const)
+        : {
+            teamSlugOrId,
+            repoFullName,
+            prNumber,
+          },
+    [normalizedJobType, teamSlugOrId, repoFullName, prNumber]
+  );
+
+  const screenshotSets = useConvexQuery(
+    api.codeReview.getScreenshotSetsForPr,
+    screenshotQueryArgs
+  );
 
   const fileOutputIndex = useMemo(() => {
     if (!fileOutputs) {
@@ -2225,6 +2246,9 @@ export function PullRequestDiffViewer({
                 selectedLanguage={tooltipLanguagePreference}
                 onLanguageChange={handleTooltipLanguagePreferenceChange}
               />
+              {screenshotSets && screenshotSets.length > 0 ? (
+                <PrScreenshotGallery screenshotSets={screenshotSets} />
+              ) : null}
               <CmuxPromoCard />
               {targetCount > 0 ? (
                 <div className="flex justify-center">
