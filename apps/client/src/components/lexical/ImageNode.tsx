@@ -11,7 +11,7 @@ import type {
 
 import { $applyNodeReplacement, DecoratorNode, type LexicalEditor } from "lexical";
 import * as React from "react";
-import ImageComponent from "./ImageComponent";
+import { ImageNodeComponent } from "./ImageNodeComponent";
 
 export interface ImagePayload {
   altText: string;
@@ -132,8 +132,16 @@ export class ImageNode extends DecoratorNode<React.JSX.Element> {
     return this.__fileName;
   }
 
-  decorate(_editor: LexicalEditor, _config: EditorConfig): React.JSX.Element {
-    return <ImageComponent src={this.__src} altText={this.__altText} fileName={this.__fileName} />;
+  decorate(editor: LexicalEditor, _config: EditorConfig): React.JSX.Element {
+    return (
+      <ImageNodeComponent
+        src={this.__src}
+        altText={this.__altText}
+        fileName={this.__fileName}
+        nodeKey={this.__key}
+        editor={editor}
+      />
+    );
   }
 }
 
