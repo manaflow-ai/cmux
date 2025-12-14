@@ -241,7 +241,12 @@ async function collapseOlderPreviewComments({
       }
       const { body } = comment;
       if (!body) continue;
-      if (comment.id === latestCommentId) continue;
+      // Only collapse comments with IDs LESS than the latest comment ID.
+      // GitHub comment IDs are monotonically increasing, so this ensures we
+      // don't collapse comments that were posted concurrently or after ours.
+      // This prevents a race condition where two concurrent preview runs
+      // would each collapse the other's comment.
+      if (comment.id >= latestCommentId) continue;
       const hasSignature = COMMENT_SIGNATURE_MATCHERS.some((signature) =>
         body.includes(signature),
       );
