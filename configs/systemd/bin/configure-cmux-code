@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p /var/log/cmux
+
+color=""
+case "${VSCODE_THEME:-}" in
+  dark)
+    color="Default Dark Modern"
+    ;;
+  light)
+    color="Default Light Modern"
+    ;;
+  system)
+    color="Default Dark Modern"
+    ;;
+esac
+
+SETTINGS=$(jq -n \
+  --arg theme "$color" \
+  '{
+    "workbench.startupEditor": "none",
+    "workbench.secondarySideBar.defaultVisibility": "hidden",
+    "security.workspace.trust.enabled": false,
+    "terminal.integrated.shellIntegration.enabled": false,
+    "terminal.integrated.showTerminalConfigPrompt": false,
+    "terminal.integrated.macOptionClickForcesSelection": true,
+    "terminal.integrated.shell.linux": "/usr/bin/zsh",
+    "terminal.integrated.shellArgs.linux": ["-l"],
+    "terminal.integrated.defaultProfile.linux": "zsh",
+    "terminal.integrated.profiles.linux": {
+      "zsh": {
+        "path": "/usr/bin/zsh",
+        "args": ["-l"]
+      }
+    },
+    "python.languageServer": "Pylance",
+    "python.defaultInterpreterPath": "/usr/bin/python3",
+    "git.openDiffOnClick": true,
+    "scm.defaultViewMode": "tree",
+    "git.showPushSuccessNotification": true,
+    "git.autorefresh": true,
+    "git.branchCompareWith": "main",
+    "telemetry.telemetryLevel": "off",
+    "update.mode": "none",
+    "extensions.verifySignature": false
+  } + (if $theme != "" then {"workbench.colorTheme": $theme} else {} end)')
+
+home="${HOME:-/root}"
+user_base="${home}/.vscode-server-oss"
+user_dir="${user_base}/data/User"
+default_profile_dir="${user_base}/data/User/profiles/default-profile"
+machine_dir="${user_base}/data/Machine"
+
+mkdir -p "${user_dir}" "${default_profile_dir}" "${machine_dir}"
+
+printf '%s' "$SETTINGS" > "${user_dir}/settings.json"
+printf '%s' "$SETTINGS" > "${default_profile_dir}/settings.json"
+printf '%s' "$SETTINGS" > "${machine_dir}/settings.json"

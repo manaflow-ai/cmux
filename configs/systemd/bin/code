@@ -9,7 +9,9 @@ fi
 
 # Fallback detection if env not set
 if [ -z "${IDE_BINARY_PATH:-}" ]; then
-  if [ -x /app/code-server/bin/code-server ]; then
+  if [ -x /app/cmux-code/bin/code-server-oss ]; then
+    IDE_BINARY_PATH="/app/cmux-code/bin/code-server-oss"
+  elif [ -x /app/code-server/bin/code-server ]; then
     IDE_BINARY_PATH="/app/code-server/bin/code-server"
   elif [ -x /app/openvscode-server/bin/openvscode-server ]; then
     IDE_BINARY_PATH="/app/openvscode-server/bin/openvscode-server"
