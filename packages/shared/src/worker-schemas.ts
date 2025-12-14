@@ -210,6 +210,8 @@ export const WorkerRunTaskScreenshotsSchema = z.object({
   installCommand: z.string().optional(),
   /** Command to start the dev server (e.g., "bun run dev") */
   devCommand: z.string().optional(),
+  /** Additional context/notes for the screenshot agent (e.g., auth instructions, browser config) */
+  screenshotAgentContext: z.string().optional(),
 });
 
 // Server to Worker Events

@@ -63,6 +63,7 @@ export const create = authMutation({
     maintenanceScript: v.optional(v.string()),
     devScript: v.optional(v.string()),
     exposedPorts: v.optional(v.array(v.number())),
+    screenshotAgentContext: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = ctx.identity.subject;
@@ -83,6 +84,7 @@ export const create = authMutation({
     };
     const maintenanceScript = normalizeScript(args.maintenanceScript);
     const devScript = normalizeScript(args.devScript);
+    const screenshotAgentContext = normalizeScript(args.screenshotAgentContext);
 
     const environmentId = await ctx.db.insert("environments", {
       name: args.name,
@@ -95,6 +97,7 @@ export const create = authMutation({
       maintenanceScript,
       devScript,
       exposedPorts: sanitizedPorts.length > 0 ? sanitizedPorts : undefined,
+      screenshotAgentContext,
       createdAt,
       updatedAt: createdAt,
     });
@@ -122,6 +125,7 @@ export const update = authMutation({
     description: v.optional(v.string()),
     maintenanceScript: v.optional(v.string()),
     devScript: v.optional(v.string()),
+    screenshotAgentContext: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
@@ -136,6 +140,7 @@ export const update = authMutation({
       description?: string;
       maintenanceScript?: string;
       devScript?: string;
+      screenshotAgentContext?: string;
       updatedAt: number;
     } = {
       updatedAt: Date.now(),
@@ -159,6 +164,12 @@ export const update = authMutation({
       const trimmedDevScript = args.devScript.trim();
       updates.devScript =
         trimmedDevScript.length > 0 ? trimmedDevScript : undefined;
+    }
+
+    if (args.screenshotAgentContext !== undefined) {
+      const trimmedContext = args.screenshotAgentContext.trim();
+      updates.screenshotAgentContext =
+        trimmedContext.length > 0 ? trimmedContext : undefined;
     }
 
     await ctx.db.patch(args.id, updates);

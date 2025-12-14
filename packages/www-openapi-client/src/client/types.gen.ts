@@ -438,6 +438,7 @@ export type CreateEnvironmentBody = {
     maintenanceScript?: string;
     devScript?: string;
     exposedPorts?: Array<number>;
+    screenshotAgentContext?: string;
 };
 
 export type GetEnvironmentResponse = {
@@ -450,6 +451,7 @@ export type GetEnvironmentResponse = {
     maintenanceScript?: string;
     devScript?: string;
     exposedPorts?: Array<number>;
+    screenshotAgentContext?: string;
     createdAt: number;
     updatedAt: number;
 };
@@ -466,6 +468,7 @@ export type UpdateEnvironmentBody = {
     description?: string;
     maintenanceScript?: string;
     devScript?: string;
+    screenshotAgentContext?: string;
 };
 
 export type ExposedService = {

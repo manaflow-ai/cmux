@@ -18,6 +18,8 @@ export interface RunTaskScreenshotsOptions {
   installCommand?: string | null;
   /** Command to start the dev server (e.g., "bun run dev") */
   devCommand?: string | null;
+  /** Additional context/notes for the screenshot agent (e.g., auth instructions, browser config) */
+  screenshotAgentContext?: string | null;
 }
 
 function resolveContentType(filePath: string): string {
@@ -100,6 +102,7 @@ export async function runTaskScreenshots(
     convexUrl,
     installCommand: options.installCommand,
     devCommand: options.devCommand,
+    screenshotAgentContext: options.screenshotAgentContext,
   });
 
   let images: ScreenshotUploadPayload["images"];

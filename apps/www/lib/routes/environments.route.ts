@@ -43,6 +43,7 @@ const CreateEnvironmentBody = z
     maintenanceScript: z.string().optional(),
     devScript: z.string().optional(),
     exposedPorts: z.array(z.number()).optional(),
+    screenshotAgentContext: z.string().optional(), // Additional context for screenshot agent
   })
   .openapi("CreateEnvironmentBody");
 
@@ -64,6 +65,7 @@ const GetEnvironmentResponse = z
     maintenanceScript: z.string().optional(),
     devScript: z.string().optional(),
     exposedPorts: z.array(z.number()).optional(),
+    screenshotAgentContext: z.string().optional(),
     createdAt: z.number(),
     updatedAt: z.number(),
   })
@@ -86,13 +88,15 @@ const UpdateEnvironmentBody = z
     description: z.string().optional(),
     maintenanceScript: z.string().optional(),
     devScript: z.string().optional(),
+    screenshotAgentContext: z.string().optional(),
   })
   .refine(
     (value) =>
       value.name !== undefined ||
       value.description !== undefined ||
       value.maintenanceScript !== undefined ||
-      value.devScript !== undefined,
+      value.devScript !== undefined ||
+      value.screenshotAgentContext !== undefined,
     "At least one field must be provided",
   )
   .openapi("UpdateEnvironmentBody");
@@ -258,6 +262,7 @@ environmentsRouter.openapi(
           maintenanceScript: body.maintenanceScript,
           devScript: body.devScript,
           exposedPorts: sanitizedPorts.length > 0 ? sanitizedPorts : undefined,
+          screenshotAgentContext: body.screenshotAgentContext,
         }
       );
 
@@ -324,6 +329,7 @@ environmentsRouter.openapi(
         maintenanceScript: env.maintenanceScript,
         devScript: env.devScript,
         exposedPorts: env.exposedPorts,
+        screenshotAgentContext: env.screenshotAgentContext,
         createdAt: env.createdAt,
         updatedAt: env.updatedAt,
       }));
@@ -395,6 +401,7 @@ environmentsRouter.openapi(
         maintenanceScript: environment.maintenanceScript,
         devScript: environment.devScript,
         exposedPorts: environment.exposedPorts,
+        screenshotAgentContext: environment.screenshotAgentContext,
         createdAt: environment.createdAt,
         updatedAt: environment.updatedAt,
       };
@@ -533,6 +540,7 @@ environmentsRouter.openapi(
         description: body.description,
         maintenanceScript: body.maintenanceScript,
         devScript: body.devScript,
+        screenshotAgentContext: body.screenshotAgentContext,
       });
 
       const updated = await convexClient.query(api.environments.get, {
@@ -554,6 +562,7 @@ environmentsRouter.openapi(
         maintenanceScript: updated.maintenanceScript ?? undefined,
         devScript: updated.devScript ?? undefined,
         exposedPorts: updated.exposedPorts ?? undefined,
+        screenshotAgentContext: updated.screenshotAgentContext ?? undefined,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
       });

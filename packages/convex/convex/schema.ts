@@ -733,6 +733,8 @@ const convexSchema = defineSchema({
     maintenanceScript: v.optional(v.string()),
     devScript: v.optional(v.string()),
     exposedPorts: v.optional(v.array(v.number())),
+    // Additional context/notes for the screenshot agent (e.g., auth instructions, browser config notes)
+    screenshotAgentContext: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

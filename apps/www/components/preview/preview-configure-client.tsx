@@ -491,6 +491,7 @@ export function PreviewConfigureClient({
   );
 
   const [isSaving, setIsSaving] = useState(false);
+  const [screenshotAgentContext, setScreenshotAgentContext] = useState("");
 
   useEffect(() => {
     if (initialHasEnvValues) {
@@ -898,12 +899,17 @@ export function PreviewConfigureClient({
 
     const normalizedMaintenanceScript = maintenanceScript.trim();
     const normalizedDevScript = devScript.trim();
+    const normalizedScreenshotAgentContext = screenshotAgentContext.trim();
     const requestMaintenanceScript =
       normalizedMaintenanceScript.length > 0
         ? normalizedMaintenanceScript
         : undefined;
     const requestDevScript =
       normalizedDevScript.length > 0 ? normalizedDevScript : undefined;
+    const requestScreenshotAgentContext =
+      normalizedScreenshotAgentContext.length > 0
+        ? normalizedScreenshotAgentContext
+        : undefined;
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -922,6 +928,7 @@ export function PreviewConfigureClient({
           devScript: requestDevScript,
           exposedPorts: undefined,
           description: undefined,
+          screenshotAgentContext: requestScreenshotAgentContext,
         }),
       });
 
@@ -1707,6 +1714,31 @@ export function PreviewConfigureClient({
                 <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
                   Proceed once browser is set up properly.
                 </p>
+
+                {/* Additional context for screenshot agent */}
+                <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-800">
+                  <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+                    Additional Notes{" "}
+                    <span className="font-normal text-neutral-400">(optional)</span>
+                  </label>
+                  <textarea
+                    value={screenshotAgentContext}
+                    onChange={(e) => setScreenshotAgentContext(e.target.value)}
+                    placeholder={`e.g., Test credentials: user@example.com / password123
+Navigate to /dashboard after login
+The loading spinner appears for ~2 seconds`}
+                    rows={4}
+                    className="w-full rounded-md border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-xs text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:focus:ring-neutral-700 resize-none min-h-[110px]"
+                  />
+                  <p className="text-[10px] text-neutral-400 mt-1 leading-snug">
+                    <span className="block">
+                      Give clear instructions for the screenshot bot.
+                    </span>
+                    <span className="block">
+                      Include backup creds, auth steps, and pages to capture.
+                    </span>
+                  </p>
+                </div>
               </div>
             </details>
             {/* Save button outside chevron */}

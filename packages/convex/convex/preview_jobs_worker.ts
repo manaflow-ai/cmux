@@ -1834,7 +1834,7 @@ export async function runPreviewJob(
       }
 
       // Trigger screenshot collection via Morph exec (bypasses worker)
-      // Convex determines staging and downloads/runs the collector directly
+      // Convex determines staging and downloads/runs the collector directly.
       const isStaging = env.CMUX_IS_STAGING === "true";
 
       // Fetch the screenshot collector release URL

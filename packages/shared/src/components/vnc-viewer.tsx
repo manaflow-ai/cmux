@@ -7,6 +7,7 @@ import {
   useState,
   forwardRef,
   type CSSProperties,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import clsx from "clsx";
@@ -964,7 +965,7 @@ export const VncViewer = forwardRef<VncViewerHandle, VncViewerProps>(
       [connect, errorMessage, isOffline]
     );
 
-    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const handleContextMenu = useCallback((e: MouseEvent<HTMLDivElement>) => {
       e.preventDefault();
     }, []);
 
