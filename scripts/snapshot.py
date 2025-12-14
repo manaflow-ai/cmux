@@ -1298,11 +1298,12 @@ async def task_package_vscode_extension(ctx: TaskContext) -> None:
 
 @registry.task(
     name="install-ide-extensions",
-    deps=("install-openvscode", "install-coder", "package-vscode-extension"),
+    deps=("install-openvscode", "install-coder", "package-vscode-extension", "upload-repo"),
     description="Preinstall language extensions for the IDE",
 )
 async def task_install_ide_extensions(ctx: TaskContext) -> None:
     ide_provider = get_ide_provider()
+    repo = shlex.quote(ctx.remote_repo_root)
     if ide_provider == IDE_PROVIDER_CODER:
         server_root = "/app/code-server"
         bin_path = f"{server_root}/bin/code-server"
@@ -1385,17 +1386,11 @@ async def task_install_ide_extensions(ctx: TaskContext) -> None:
             mv "${{tmpfile}}" "${{destination}}"
           fi
         }}
-        while IFS='|' read -r publisher name version; do
+        # Read extensions from sync-extensions.json and download in parallel
+        jq -r '.extensions[] | "\\(.publisher)|\\(.name)|\\(.version)"' {repo}/scripts/sync-extensions.json | while IFS='|' read -r publisher name version; do
           [ -z "${{publisher}}" ] && continue
           download_extension "${{publisher}}" "${{name}}" "${{version}}" "${{download_dir}}/${{publisher}}.${{name}}.vsix" &
-        done <<'EXTENSIONS'
-        anthropic|claude-code|2.0.27
-        openai|chatgpt|0.5.27
-        ms-vscode|vscode-typescript-next|5.9.20250531
-        ms-python|python|2025.6.1
-        ms-python|vscode-pylance|2025.8.100
-        ms-python|debugpy|2025.14.0
-        EXTENSIONS
+        done
         wait
         set -- "${{download_dir}}"/*.vsix
         for vsix in "$@"; do
@@ -1425,15 +1420,16 @@ async def task_install_cursor(ctx: TaskContext) -> None:
 
 @registry.task(
     name="install-global-cli",
-    deps=("install-bun", "install-node-runtime"),
+    deps=("install-bun", "install-node-runtime", "upload-repo"),
     description="Install global agent CLIs with bun",
 )
 async def task_install_global_cli(ctx: TaskContext) -> None:
+    repo = shlex.quote(ctx.remote_repo_root)
     cmd = textwrap.dedent(
-        """
-        bun add -g @openai/codex@0.50.0 @anthropic-ai/claude-code@2.0.54 \
-          @google/gemini-cli@0.1.21 opencode-ai@0.6.4 codebuff \
-          @devcontainers/cli @sourcegraph/amp
+        f"""
+        set -euo pipefail
+        packages=$(jq -r '.globalPackages[] | if .version then "\\(.name)@\\(.version)" else .name end' {repo}/scripts/sync-extensions.json | tr '\\n' ' ')
+        bun add -g $packages
         """
     )
     await ctx.run("install-global-cli", cmd)
@@ -2018,6 +2014,55 @@ async def task_check_uv(ctx: TaskContext) -> None:
 )
 async def task_check_gh(ctx: TaskContext) -> None:
     await ctx.run("check-gh", "gh --version")
+
+
+@registry.task(
+    name="check-global-cli",
+    deps=("install-global-cli", "cleanup-build-artifacts"),
+    description="Verify global CLI tools (codex, claude, gemini, amp) are accessible",
+)
+async def task_check_global_cli(ctx: TaskContext) -> None:
+    cmd = textwrap.dedent(
+        """
+        set -euo pipefail
+        echo "Checking global CLI tools..."
+
+        # Check codex
+        if ! command -v codex >/dev/null 2>&1; then
+          echo "ERROR: codex not found in PATH" >&2
+          exit 1
+        fi
+        codex --version
+        echo "codex: OK"
+
+        # Check claude
+        if ! command -v claude >/dev/null 2>&1; then
+          echo "ERROR: claude not found in PATH" >&2
+          exit 1
+        fi
+        claude --version
+        echo "claude: OK"
+
+        # Check gemini
+        if ! command -v gemini >/dev/null 2>&1; then
+          echo "ERROR: gemini not found in PATH" >&2
+          exit 1
+        fi
+        gemini --version
+        echo "gemini: OK"
+
+        # Check amp
+        if ! command -v amp >/dev/null 2>&1; then
+          echo "ERROR: amp not found in PATH" >&2
+          exit 1
+        fi
+        amp --version
+        echo "amp: OK"
+
+        echo "All global CLI tools verified successfully"
+        """
+    )
+    await ctx.run("check-global-cli", cmd)
 
 
 @registry.task(

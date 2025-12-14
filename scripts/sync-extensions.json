@@ -1,0 +1,72 @@
+{
+  "$schema": "./sync-extensions.schema.json",
+  "extensions": [
+    {
+      "publisher": "anthropic",
+      "name": "claude-code",
+      "version": "2.0.65"
+    },
+    {
+      "publisher": "openai",
+      "name": "chatgpt",
+      "version": "0.5.51"
+    },
+    {
+      "publisher": "ms-vscode",
+      "name": "vscode-typescript-next",
+      "version": "6.0.20251210"
+    },
+    {
+      "publisher": "ms-python",
+      "name": "python",
+      "version": "2025.20.0"
+    },
+    {
+      "publisher": "ms-python",
+      "name": "vscode-pylance",
+      "version": "2025.10.4"
+    },
+    {
+      "publisher": "ms-python",
+      "name": "debugpy",
+      "version": "2025.17.2025121103"
+    }
+  ],
+  "globalPackages": [
+    {
+      "name": "@openai/codex",
+      "version": "0.71.0",
+      "versionCommand": "codex --version"
+    },
+    {
+      "name": "@anthropic-ai/claude-code",
+      "version": "2.0.65",
+      "versionCommand": "claude --version"
+    },
+    {
+      "name": "@google/gemini-cli",
+      "version": "0.20.0",
+      "versionCommand": "gemini --version"
+    },
+    {
+      "name": "opencode-ai",
+      "version": "1.0.150",
+      "versionCommand": null
+    },
+    {
+      "name": "codebuff",
+      "version": "1.0.549",
+      "versionCommand": null
+    },
+    {
+      "name": "@devcontainers/cli",
+      "version": "0.80.3",
+      "versionCommand": null
+    },
+    {
+      "name": "@sourcegraph/amp",
+      "version": "0.0.1765483279-gc7f4f6",
+      "versionCommand": "amp --version"
+    }
+  ]
+}
