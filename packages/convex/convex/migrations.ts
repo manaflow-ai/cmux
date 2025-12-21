@@ -65,6 +65,28 @@ export const clearTaskRunsLog = migrations.define({
   },
 });
 
+// Remove deprecated createdByUserId from previewConfigs (quota now team-based)
+export const dropPreviewConfigsCreatedByUserId = migrations.define({
+  table: "previewConfigs",
+  migrateOne: (_ctx, doc) => {
+    const d = doc as unknown as { createdByUserId?: string } & Record<string, unknown>;
+    if (d.createdByUserId !== undefined) {
+      return { createdByUserId: undefined } as Partial<typeof doc>;
+    }
+  },
+});
+
+// Remove deprecated createdByUserId from previewRuns (quota now team-based)
+export const dropPreviewRunsCreatedByUserId = migrations.define({
+  table: "previewRuns",
+  migrateOne: (_ctx, doc) => {
+    const d = doc as unknown as { createdByUserId?: string } & Record<string, unknown>;
+    if (d.createdByUserId !== undefined) {
+      return { createdByUserId: undefined } as Partial<typeof doc>;
+    }
+  },
+});
+
 // Generic runner; choose migrations from CLI or dashboard when invoking
 export const run = migrations.runner();
 

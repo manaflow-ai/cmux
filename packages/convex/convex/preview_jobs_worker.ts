@@ -1197,12 +1197,22 @@ export async function runPreviewJob(
       prNumber: run.prNumber,
     });
 
-    // Use "system" as fallback for legacy configs without createdByUserId
-    const configUserId = config.createdByUserId ?? "system";
+    // Get userId from the environment (who created it)
+    const userId = environment.userId;
+    if (!userId) {
+      console.error("[preview-jobs] No userId available for preview task creation", {
+        previewRunId,
+        repoFullName: run.repoFullName,
+        prNumber: run.prNumber,
+        teamId: run.teamId,
+        environmentId: environment._id,
+      });
+      throw new Error("No userId available for preview task creation");
+    }
 
     taskId = await ctx.runMutation(internal.tasks.createForPreview, {
       teamId: run.teamId,
-      userId: configUserId,
+      userId,
       previewRunId,
       repoFullName: run.repoFullName,
       prNumber: run.prNumber,
@@ -1216,7 +1226,7 @@ export async function runPreviewJob(
       {
         taskId,
         teamId: run.teamId,
-        userId: configUserId,
+        userId,
         prUrl: run.prUrl,
         environmentId: config.environmentId,
         newBranch: run.headRef,
@@ -1305,7 +1315,6 @@ export async function runPreviewJob(
       ? await new SignJWT({
           taskRunId,
           teamId: run.teamId,
-          userId: config.createdByUserId,
         })
           .setProtectedHeader({ alg: "HS256" })
           .setIssuedAt()
