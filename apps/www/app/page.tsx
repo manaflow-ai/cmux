@@ -153,14 +153,16 @@ export default async function LandingPage() {
     await Promise.all([fetchLatestRelease(), fetchGithubRepoStats()]);
 
   return (
-    <div className="relative flex min-h-dvh flex-col bg-[#030712] text-foreground">
+    <div className="relative flex min-h-dvh flex-col text-foreground">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
       >
-        <div className="absolute inset-x-[-20%] top-[-30%] h-[40rem] rounded-full bg-gradient-to-br from-blue-600/30 via-sky-500/20 to-purple-600/10 blur-3xl" />
-        <div className="absolute inset-x-[30%] top-[20%] h-[30rem] rounded-full bg-gradient-to-br from-cyan-400/20 via-sky-500/20 to-transparent blur-[160px]" />
-        <div className="absolute inset-x-[10%] bottom-[-20%] h-[32rem] rounded-full bg-gradient-to-tr from-indigo-500/20 via-blue-700/10 to-transparent blur-[200px]" />
+        <div className="absolute inset-0 bg-[conic-gradient(from_160deg_at_50%_50%,#f97316,#eab308,#22c55e,#22d3ee,#8b5cf6,#ec4899,#f97316)] opacity-90" />
+        <div className="absolute inset-0 bg-gradient-to-b from-neutral-950/40 via-neutral-950/60 to-neutral-950/75" />
+        <div className="absolute inset-x-[-15%] top-[-25%] h-[40rem] rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(236,72,153,0.36),rgba(59,130,246,0))] blur-[160px]" />
+        <div className="absolute inset-x-[25%] top-[15%] h-[30rem] rounded-full bg-[radial-gradient(circle_at_70%_20%,rgba(244,114,182,0.28),rgba(16,185,129,0))] blur-[180px]" />
+        <div className="absolute inset-x-[5%] bottom-[-25%] h-[32rem] rounded-full bg-[radial-gradient(circle_at_50%_50%,rgba(94,234,212,0.3),rgba(79,70,229,0))] blur-[220px]" />
       </div>
 
       <SiteHeader
