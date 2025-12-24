@@ -1,6 +1,27 @@
 import { z } from "zod";
 import { typedZid } from "../utils/typed-zid";
 
+// Available crown model options for evaluation
+export const CROWN_MODEL_OPTIONS = [
+  // Anthropic models
+  { value: "claude-sonnet-4-5-20250514", label: "Claude Sonnet 4.5", provider: "anthropic" as const },
+  { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", provider: "anthropic" as const },
+  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", provider: "anthropic" as const },
+  { value: "claude-opus-4-5", label: "Claude Opus 4.5", provider: "anthropic" as const },
+  { value: "claude-opus-4-20250514", label: "Claude Opus 4", provider: "anthropic" as const },
+  // OpenAI models
+  { value: "gpt-5-mini", label: "GPT-5 Mini", provider: "openai" as const },
+  { value: "gpt-4.1", label: "GPT-4.1", provider: "openai" as const },
+  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini", provider: "openai" as const },
+  { value: "o3-mini", label: "o3-mini", provider: "openai" as const },
+] as const;
+
+export type CrownModelOption = (typeof CROWN_MODEL_OPTIONS)[number];
+
+// Default system prompt for crown evaluation
+export const DEFAULT_CROWN_SYSTEM_PROMPT =
+  "You select the best implementation from structured diff inputs and explain briefly why.";
+
 export const WorkerRunStatusSchema = z.enum([
   "pending",
   "running",

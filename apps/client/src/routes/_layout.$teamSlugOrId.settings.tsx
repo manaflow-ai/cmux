@@ -9,6 +9,7 @@ import { api } from "@cmux/convex/api";
 import type { Doc } from "@cmux/convex/dataModel";
 import { AGENT_CONFIGS, type AgentConfig } from "@cmux/shared/agentConfig";
 import { API_KEY_MODELS_BY_ENV } from "@cmux/shared/model-usage";
+import { CROWN_MODEL_OPTIONS, DEFAULT_CROWN_SYSTEM_PROMPT } from "@cmux/shared/convex-safe";
 import { convexQuery } from "@convex-dev/react-query";
 import { Switch } from "@heroui/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -98,6 +99,11 @@ function SettingsComponent() {
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [originalAutoPrEnabled, setOriginalAutoPrEnabled] =
     useState<boolean>(false);
+  const [crownModel, setCrownModel] = useState<string>("");
+  const [originalCrownModel, setOriginalCrownModel] = useState<string>("");
+  const [crownSystemPrompt, setCrownSystemPrompt] = useState<string>("");
+  const [originalCrownSystemPrompt, setOriginalCrownSystemPrompt] =
+    useState<string>("");
   // const [isSaveButtonVisible, setIsSaveButtonVisible] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveButtonRef = useRef<HTMLDivElement>(null);
@@ -257,6 +263,23 @@ function SettingsComponent() {
       prev === nextAutoPrEnabled ? prev : nextAutoPrEnabled
     );
 
+    // Crown settings
+    const nextCrownModel = workspaceSettings?.crownModel ?? "";
+    setCrownModel((prev) =>
+      prev === nextCrownModel ? prev : nextCrownModel
+    );
+    setOriginalCrownModel((prev) =>
+      prev === nextCrownModel ? prev : nextCrownModel
+    );
+
+    const nextCrownSystemPrompt = workspaceSettings?.crownSystemPrompt ?? "";
+    setCrownSystemPrompt((prev) =>
+      prev === nextCrownSystemPrompt ? prev : nextCrownSystemPrompt
+    );
+    setOriginalCrownSystemPrompt((prev) =>
+      prev === nextCrownSystemPrompt ? prev : nextCrownSystemPrompt
+    );
+
     if (workspaceSettings?.heatmapModel) {
       const nextModel = workspaceSettings.heatmapModel;
       setHeatmapModel((prev) => (prev === nextModel ? prev : nextModel));
@@ -389,6 +412,10 @@ function SettingsComponent() {
     // Auto PR toggle changes
     const autoPrChanged = autoPrEnabled !== originalAutoPrEnabled;
 
+    // Crown settings changes
+    const crownModelChanged = crownModel !== originalCrownModel;
+    const crownSystemPromptChanged = crownSystemPrompt !== originalCrownSystemPrompt;
+
     // Heatmap settings changes
     const heatmapModelChanged = heatmapModel !== originalHeatmapModel;
     const heatmapThresholdChanged = heatmapThreshold !== originalHeatmapThreshold;
@@ -399,6 +426,8 @@ function SettingsComponent() {
     return (
       worktreePathChanged ||
       autoPrChanged ||
+      crownModelChanged ||
+      crownSystemPromptChanged ||
       apiKeysChanged ||
       containerSettingsChanged ||
       heatmapModelChanged ||
@@ -415,10 +444,12 @@ function SettingsComponent() {
       let savedCount = 0;
       let deletedCount = 0;
 
-      // Save worktree path / auto PR / heatmap settings if changed
+      // Save worktree path / auto PR / crown / heatmap settings if changed
       const workspaceSettingsChanged =
         worktreePath !== originalWorktreePath ||
         autoPrEnabled !== originalAutoPrEnabled ||
+        crownModel !== originalCrownModel ||
+        crownSystemPrompt !== originalCrownSystemPrompt ||
         heatmapModel !== originalHeatmapModel ||
         heatmapThreshold !== originalHeatmapThreshold ||
         heatmapTooltipLanguage !== originalHeatmapTooltipLanguage ||
@@ -429,6 +460,8 @@ function SettingsComponent() {
           teamSlugOrId,
           worktreePath: worktreePath || undefined,
           autoPrEnabled,
+          crownModel: crownModel || undefined,
+          crownSystemPrompt: crownSystemPrompt || undefined,
           heatmapModel,
           heatmapThreshold,
           heatmapTooltipLanguage,
@@ -436,6 +469,8 @@ function SettingsComponent() {
         });
         setOriginalWorktreePath(worktreePath);
         setOriginalAutoPrEnabled(autoPrEnabled);
+        setOriginalCrownModel(crownModel);
+        setOriginalCrownSystemPrompt(crownSystemPrompt);
         setOriginalHeatmapModel(heatmapModel);
         setOriginalHeatmapThreshold(heatmapThreshold);
         setOriginalHeatmapTooltipLanguage(heatmapTooltipLanguage);
@@ -789,7 +824,8 @@ function SettingsComponent() {
                   Crown Evaluator
                 </h2>
               </div>
-              <div className="p-4">
+              <div className="p-4 space-y-6">
+                {/* Auto PR Toggle */}
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -807,6 +843,79 @@ function SettingsComponent() {
                     isSelected={autoPrEnabled}
                     onValueChange={setAutoPrEnabled}
                   />
+                </div>
+
+                {/* Crown Model Selector */}
+                <div>
+                  <label
+                    htmlFor="crownModel"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Evaluation Model
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    Select the AI model used to evaluate and compare agent outputs.
+                    Default is Claude Sonnet 4.5 (with Anthropic key) or GPT-5 Mini (with OpenAI key).
+                  </p>
+                  <div className="relative">
+                    <select
+                      id="crownModel"
+                      value={crownModel}
+                      onChange={(e) => setCrownModel(e.target.value)}
+                      className="w-full appearance-none px-3 py-2 pr-10 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm"
+                    >
+                      <option value="">Default (auto-select based on API keys)</option>
+                      <optgroup label="Anthropic (requires ANTHROPIC_API_KEY)">
+                        {CROWN_MODEL_OPTIONS.filter(opt => opt.provider === "anthropic").map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="OpenAI (requires OPENAI_API_KEY)">
+                        {CROWN_MODEL_OPTIONS.filter(opt => opt.provider === "openai").map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <ChevronDown
+                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
+                      aria-hidden
+                    />
+                  </div>
+                </div>
+
+                {/* Crown System Prompt */}
+                <div>
+                  <label
+                    htmlFor="crownSystemPrompt"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Custom System Prompt
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    Customize the system prompt used when evaluating agent outputs.
+                    Leave empty to use the default prompt.
+                  </p>
+                  <textarea
+                    id="crownSystemPrompt"
+                    value={crownSystemPrompt}
+                    onChange={(e) => setCrownSystemPrompt(e.target.value)}
+                    rows={4}
+                    placeholder={DEFAULT_CROWN_SYSTEM_PROMPT}
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm resize-y font-mono"
+                  />
+                  {crownSystemPrompt && (
+                    <button
+                      type="button"
+                      onClick={() => setCrownSystemPrompt("")}
+                      className="mt-2 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Reset to default
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

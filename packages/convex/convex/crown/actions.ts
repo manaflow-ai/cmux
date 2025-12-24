@@ -5,18 +5,23 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject, type LanguageModel } from "ai";
 import { ConvexError, v } from "convex/values";
 import {
+  CROWN_MODEL_OPTIONS,
   CrownEvaluationResponseSchema,
   CrownSummarizationResponseSchema,
+  DEFAULT_CROWN_SYSTEM_PROMPT,
   type CrownEvaluationCandidate,
   type CrownEvaluationResponse,
   type CrownSummarizationResponse,
 } from "@cmux/shared/convex-safe";
 import { CLOUDFLARE_OPENAI_BASE_URL } from "@cmux/shared";
 import { env } from "../../_shared/convex-env";
+import { internal } from "../_generated/api";
 import { action } from "../_generated/server";
 
-const OPENAI_CROWN_MODEL = "gpt-5-mini";
-const ANTHROPIC_CROWN_MODEL = "claude-3-5-sonnet-20241022";
+// Default model when Anthropic key is available
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250514";
+// Fallback when only OpenAI key is available
+const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 
 const CrownEvaluationCandidateValidator = v.object({
   runId: v.optional(v.string()),
@@ -27,26 +32,50 @@ const CrownEvaluationCandidateValidator = v.object({
   index: v.optional(v.number()),
 });
 
-function resolveCrownModel(): {
+function resolveCrownModel(configuredModel?: string): {
   provider: "openai" | "anthropic";
   model: LanguageModel;
 } {
+  const anthropicKey = env.ANTHROPIC_API_KEY;
   const openaiKey = env.OPENAI_API_KEY;
+
+  // If a specific model is configured, use it
+  if (configuredModel) {
+    const modelConfig = CROWN_MODEL_OPTIONS.find(
+      (opt) => opt.value === configuredModel
+    );
+
+    if (modelConfig) {
+      if (modelConfig.provider === "anthropic" && anthropicKey) {
+        const anthropic = createAnthropic({ apiKey: anthropicKey });
+        return { provider: "anthropic", model: anthropic(modelConfig.value) };
+      }
+      if (modelConfig.provider === "openai" && openaiKey) {
+        const openai = createOpenAI({
+          apiKey: openaiKey,
+          baseURL: CLOUDFLARE_OPENAI_BASE_URL,
+        });
+        return { provider: "openai", model: openai(modelConfig.value) };
+      }
+      // Configured model's provider key not available, fall through to defaults
+      console.warn(
+        `[convex.crown] Configured model ${configuredModel} requires ${modelConfig.provider} key which is not available, falling back to default`
+      );
+    }
+  }
+
+  // Default: prefer Anthropic (claude-sonnet-4-5), fallback to OpenAI
+  if (anthropicKey) {
+    const anthropic = createAnthropic({ apiKey: anthropicKey });
+    return { provider: "anthropic", model: anthropic(DEFAULT_ANTHROPIC_MODEL) };
+  }
+
   if (openaiKey) {
     const openai = createOpenAI({
       apiKey: openaiKey,
       baseURL: CLOUDFLARE_OPENAI_BASE_URL,
     });
-    return { provider: "openai", model: openai(OPENAI_CROWN_MODEL) };
-  }
-
-  const anthropicKey = env.ANTHROPIC_API_KEY;
-  if (anthropicKey) {
-    const anthropic = createAnthropic({ apiKey: anthropicKey });
-    return {
-      provider: "anthropic",
-      model: anthropic(ANTHROPIC_CROWN_MODEL),
-    };
+    return { provider: "openai", model: openai(DEFAULT_OPENAI_MODEL) };
   }
 
   throw new ConvexError(
@@ -56,9 +85,11 @@ function resolveCrownModel(): {
 
 export async function performCrownEvaluation(
   prompt: string,
-  candidates: CrownEvaluationCandidate[]
+  candidates: CrownEvaluationCandidate[],
+  options?: { configuredModel?: string; customSystemPrompt?: string }
 ): Promise<CrownEvaluationResponse> {
-  const { model, provider } = resolveCrownModel();
+  const { model, provider } = resolveCrownModel(options?.configuredModel);
+  const systemPrompt = options?.customSystemPrompt || DEFAULT_CROWN_SYSTEM_PROMPT;
 
   const normalizedCandidates = candidates.map((candidate, idx) => {
     const resolvedIndex = candidate.index ?? idx;
@@ -107,8 +138,7 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
     const { object } = await generateObject({
       model,
       schema: CrownEvaluationResponseSchema,
-      system:
-        "You select the best implementation from structured diff inputs and explain briefly why.",
+      system: systemPrompt,
       prompt: evaluationPrompt,
       ...(provider === "openai" ? {} : { temperature: 0 }),
       maxRetries: 2,
@@ -123,9 +153,10 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
 
 export async function performCrownSummarization(
   prompt: string,
-  gitDiff: string
+  gitDiff: string,
+  options?: { configuredModel?: string }
 ): Promise<CrownSummarizationResponse> {
-  const { model, provider } = resolveCrownModel();
+  const { model, provider } = resolveCrownModel(options?.configuredModel);
 
   const summarizationPrompt = `You are an expert reviewer summarizing a pull request.
 
@@ -178,8 +209,26 @@ export const evaluate = action({
     candidates: v.array(CrownEvaluationCandidateValidator),
     teamSlugOrId: v.string(),
   },
-  handler: async (_ctx, args) => {
-    return performCrownEvaluation(args.prompt, args.candidates);
+  handler: async (ctx, args): Promise<CrownEvaluationResponse> => {
+    // Fetch workspace settings for crown model and system prompt
+    // Use internal query to avoid circular reference
+    const identity = await ctx.auth.getUserIdentity();
+    let workspaceSettings: {
+      crownModel?: string;
+      crownSystemPrompt?: string;
+    } | null = null;
+
+    if (identity) {
+      workspaceSettings = await ctx.runQuery(
+        internal.workspaceSettings.getByTeamAndUserInternal,
+        { teamId: args.teamSlugOrId, userId: identity.subject }
+      );
+    }
+
+    return performCrownEvaluation(args.prompt, args.candidates, {
+      configuredModel: workspaceSettings?.crownModel,
+      customSystemPrompt: workspaceSettings?.crownSystemPrompt,
+    });
   },
 });
 
@@ -189,7 +238,21 @@ export const summarize = action({
     gitDiff: v.string(),
     teamSlugOrId: v.string(),
   },
-  handler: async (_ctx, args) => {
-    return performCrownSummarization(args.prompt, args.gitDiff);
+  handler: async (ctx, args): Promise<CrownSummarizationResponse> => {
+    // Fetch workspace settings for crown model
+    // Use internal query to avoid circular reference
+    const identity = await ctx.auth.getUserIdentity();
+    let workspaceSettings: { crownModel?: string } | null = null;
+
+    if (identity) {
+      workspaceSettings = await ctx.runQuery(
+        internal.workspaceSettings.getByTeamAndUserInternal,
+        { teamId: args.teamSlugOrId, userId: identity.subject }
+      );
+    }
+
+    return performCrownSummarization(args.prompt, args.gitDiff, {
+      configuredModel: workspaceSettings?.crownModel,
+    });
   },
 });
