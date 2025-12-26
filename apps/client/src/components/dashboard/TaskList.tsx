@@ -1,12 +1,12 @@
 import { api } from "@cmux/convex/api";
 import type { Doc, Id } from "@cmux/convex/dataModel";
 import { useLocalStorage } from "@mantine/hooks";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import clsx from "clsx";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TaskItem } from "./TaskItem";
 import { PreviewItem } from "./PreviewItem";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
 type TaskCategoryKey =
   | "pinned"
@@ -178,19 +178,54 @@ const createCollapsedPreviewCategoryState = (
   completed: defaultValue,
 });
 
+const ARCHIVED_PAGE_SIZE = 20;
+
 export const TaskList = memo(function TaskList({
   teamSlugOrId,
 }: {
   teamSlugOrId: string;
 }) {
   const allTasks = useQuery(api.tasks.get, { teamSlugOrId });
-  const archivedTasks = useQuery(api.tasks.get, {
-    teamSlugOrId,
-    archived: true,
-  });
+  const {
+    results: archivedTasks,
+    status: archivedStatus,
+    loadMore: loadMoreArchived,
+  } = usePaginatedQuery(
+    api.tasks.getArchivedPaginated,
+    { teamSlugOrId },
+    { initialNumItems: ARCHIVED_PAGE_SIZE },
+  );
   const pinnedData = useQuery(api.tasks.getPinned, { teamSlugOrId });
   const previewRuns = useQuery(api.previewRuns.listByTeam, { teamSlugOrId });
   const [tab, setTab] = useState<"all" | "archived" | "previews">("all");
+
+  // Infinite scroll for archived tasks
+  const archivedScrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (tab !== "archived" || archivedStatus !== "CanLoadMore") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMoreArchived(ARCHIVED_PAGE_SIZE);
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    const trigger = loadMoreTriggerRef.current;
+    if (trigger) {
+      observer.observe(trigger);
+    }
+
+    return () => {
+      if (trigger) {
+        observer.unobserve(trigger);
+      }
+    };
+  }, [tab, archivedStatus, loadMoreArchived]);
 
   const categorizedTasks = useMemo(() => {
     const categorized = categorizeTasks(allTasks);
@@ -307,7 +342,7 @@ export const TaskList = memo(function TaskList({
       </div>
       <div className="flex flex-col gap-1 w-full">
         {tab === "archived" ? (
-          archivedTasks === undefined ? (
+          archivedStatus === "LoadingFirstPage" ? (
             <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2 pl-4 select-none">
               Loading...
             </div>
@@ -316,13 +351,27 @@ export const TaskList = memo(function TaskList({
               No archived tasks
             </div>
           ) : (
-            archivedTasks.map((task) => (
-              <TaskItem
-                key={task._id}
-                task={task}
-                teamSlugOrId={teamSlugOrId}
-              />
-            ))
+            <div ref={archivedScrollRef} className="flex flex-col w-full">
+              {archivedTasks.map((task) => (
+                <TaskItem
+                  key={task._id}
+                  task={task}
+                  teamSlugOrId={teamSlugOrId}
+                />
+              ))}
+              {/* Infinite scroll trigger */}
+              <div ref={loadMoreTriggerRef} className="w-full py-2">
+                {archivedStatus === "LoadingMore" && (
+                  <div className="flex items-center justify-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Loading more...</span>
+                  </div>
+                )}
+                {archivedStatus === "CanLoadMore" && (
+                  <div className="h-1" />
+                )}
+              </div>
+            </div>
           )
         ) : tab === "previews" ? (
           previewRuns === undefined ? (

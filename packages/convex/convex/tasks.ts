@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { getTeamId, resolveTeamIdLoose } from "../_shared/team";
 import { api } from "./_generated/api";
@@ -58,6 +59,53 @@ export const get = authQuery({
       ...task,
       hasUnread: tasksWithUnread.has(task._id),
     }));
+  },
+});
+
+// Paginated query for archived tasks (infinite scroll)
+export const getArchivedPaginated = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.identity.subject;
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+
+    // Query archived tasks with pagination
+    const paginatedResult = await ctx.db
+      .query("tasks")
+      .withIndex("by_team_user", (idx) =>
+        idx.eq("teamId", teamId).eq("userId", userId),
+      )
+      .filter((qq) => qq.eq(qq.field("isArchived"), true))
+      .filter((qq) => qq.neq(qq.field("isPreview"), true))
+      .order("desc")
+      .paginate(args.paginationOpts);
+
+    // Get unread task runs for this user in this team
+    const unreadRuns = await ctx.db
+      .query("unreadTaskRuns")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", teamId).eq("userId", userId),
+      )
+      .collect();
+
+    // Build set of taskIds that have unread runs
+    const tasksWithUnread = new Set(
+      unreadRuns
+        .map((ur) => ur.taskId)
+        .filter((id): id is Id<"tasks"> => id !== undefined),
+    );
+
+    // Return paginated result with hasUnread indicator
+    return {
+      ...paginatedResult,
+      page: paginatedResult.page.map((task) => ({
+        ...task,
+        hasUnread: tasksWithUnread.has(task._id),
+      })),
+    };
   },
 });
 
