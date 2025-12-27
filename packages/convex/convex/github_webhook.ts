@@ -592,7 +592,32 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
                     repoFullName,
                     prNumber,
                     prUrl,
+                    isExisting: Boolean(existingRun?.headSha === headSha && existingRun?.status !== "pending"),
                   });
+
+                  // Cancel any previous running/pending preview runs for this PR
+                  // This ensures only the latest commit's preview runs
+                  // Skip if we just returned an existing run for the same commit
+                  const isNewRun = !existingRun || existingRun.headSha !== headSha || existingRun.status === "pending";
+                  if (isNewRun) {
+                    try {
+                      await _ctx.runAction(internal.preview_jobs.cancelPreviousPreviewsForPr, {
+                        previewConfigId: previewConfig._id,
+                        prNumber,
+                        newHeadSha: headSha,
+                        exceptRunId: runId,
+                        installationId: installation,
+                        repoFullName,
+                      });
+                    } catch (cancelError) {
+                      console.error("[preview-jobs] Failed to cancel previous preview runs", {
+                        runId,
+                        prNumber,
+                        error: cancelError instanceof Error ? cancelError.message : String(cancelError),
+                      });
+                      // Continue - we still want to dispatch the new run even if cancellation fails
+                    }
+                  }
 
                   if (existingRun?.taskRunId) {
                     console.log("[preview-jobs] Preview run already has taskRun; skipping duplicate creation", {

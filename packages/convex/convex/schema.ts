@@ -180,7 +180,8 @@ const convexSchema = defineSchema({
       v.literal("running"),
       v.literal("completed"),
       v.literal("failed"),
-      v.literal("skipped")
+      v.literal("skipped"),
+      v.literal("cancelled") // Cancelled when a newer commit supersedes this run
     ),
     isArchived: v.optional(v.boolean()), // Whether this run is hidden from default views
     isLocalWorkspace: v.optional(v.boolean()),
@@ -639,6 +640,7 @@ const convexSchema = defineSchema({
       v.literal("completed"),
       v.literal("failed"),
       v.literal("skipped"),
+      v.literal("superseded"), // Newer commit arrived; this run was skipped
     ),
     stateReason: v.optional(v.string()),
     dispatchedAt: v.optional(v.number()),
