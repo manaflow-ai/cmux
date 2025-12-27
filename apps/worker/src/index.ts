@@ -1261,6 +1261,9 @@ async function createTerminal(
     args,
     envKeys: Object.keys(env),
     backend,
+    taskRunId: options.taskRunId,
+    // Log that CMUX_TASK_RUN_ID will be set - critical for completion detection
+    willSetCmuxTaskRunId: Boolean(options.taskRunId),
   });
 
   // ==========================================================================
@@ -1507,6 +1510,11 @@ async function createTerminal(
     ...(process.env.GIT_SSH_COMMAND
       ? { GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND }
       : {}),
+    // CRITICAL: Pass taskRunId as CMUX_TASK_RUN_ID for Claude's stop hook
+    // The stop hook uses this to create the completion marker file:
+    // /root/lifecycle/claude-complete-${CMUX_TASK_RUN_ID}
+    // Without this, the hook creates claude-complete-unknown and completion detection fails
+    ...(options.taskRunId ? { CMUX_TASK_RUN_ID: options.taskRunId } : {}),
   };
   if (!Object.prototype.hasOwnProperty.call(env, "NODE_ENV")) {
     // Ensure tmux sessions do not inherit NODE_ENV unless explicitly provided
@@ -1746,6 +1754,17 @@ async function createTerminal(
       agentConfig
         .completionDetector(options.taskRunId)
         .then(async () => {
+          // Check if completion was already triggered by process exit fallback
+          if (completionTriggered) {
+            log(
+              "INFO",
+              `Completion detector resolved but workflow already triggered for ${options.taskRunId}`
+            );
+            return;
+          }
+
+          completionTriggered = true;
+
           log(
             "INFO",
             `Completion detector resolved for task ${options.taskRunId}`
@@ -1835,6 +1854,9 @@ async function createTerminal(
     }
   });
 
+  // Track whether completion has been triggered (to avoid double-triggering)
+  let completionTriggered = false;
+
   // Handle process exit
   childProcess.on("exit", (code, signal) => {
     const runtime = Date.now() - processStartTime;
@@ -1846,7 +1868,67 @@ async function createTerminal(
       runtimeSeconds: (runtime / 1000).toFixed(2),
       command: spawnCommand,
       args: spawnArgs.slice(0, 5), // Log first 5 args for debugging
+      taskRunId: options.taskRunId,
+      agentModel: options.agentModel,
+      completionTriggered,
     });
+
+    // If the agent process exited and we have completion detector enabled,
+    // but completion hasn't been triggered yet, trigger it as a fallback.
+    // This handles cases where Claude Code exits without the stop hook running
+    // (e.g., crash, SIGTERM, auth failure, etc.)
+    if (
+      options.taskRunId &&
+      agentConfig?.completionDetector &&
+      !completionTriggered &&
+      taskRunToken
+    ) {
+      const MIN_RUNTIME_FOR_FALLBACK_MS = 10000; // 10 seconds minimum
+      if (runtime >= MIN_RUNTIME_FOR_FALLBACK_MS) {
+        log(
+          "WARN",
+          `Process exited before completion marker was created - triggering fallback crown workflow`,
+          {
+            taskRunId: options.taskRunId,
+            runtime,
+            exitCode: code,
+            signal,
+          }
+        );
+
+        completionTriggered = true;
+
+        // Trigger crown workflow as fallback
+        handleWorkerTaskCompletion({
+          taskRunId: options.taskRunId,
+          token: taskRunToken,
+          prompt: promptValue,
+          convexUrl: convexUrl ?? undefined,
+          agentModel: options.agentModel,
+          elapsedMs: runtime,
+          exitCode: code ?? 1,
+        })
+          .then(() => {
+            log("INFO", `Fallback crown workflow completed for ${options.taskRunId}`);
+          })
+          .catch((error) => {
+            log("ERROR", `Fallback crown workflow failed for ${options.taskRunId}`, {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+      } else {
+        log(
+          "WARN",
+          `Process exited too quickly (${runtime}ms < ${MIN_RUNTIME_FOR_FALLBACK_MS}ms) - NOT triggering fallback crown workflow`,
+          {
+            taskRunId: options.taskRunId,
+            runtime,
+            exitCode: code,
+            signal,
+          }
+        );
+      }
+    }
   });
 
   childProcess.on("error", (error) => {

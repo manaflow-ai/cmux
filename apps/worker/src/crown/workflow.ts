@@ -400,6 +400,12 @@ async function startCrownEvaluation({
   );
 
   if (!crownData?.ok) {
+    log("ERROR", "Crown check request failed or returned not ok", {
+      taskRunId,
+      taskId: currentTaskId,
+      hasResponse: Boolean(crownData),
+      okValue: crownData?.ok,
+    });
     return;
   }
 
@@ -496,9 +502,11 @@ async function startCrownEvaluation({
       baseBranch
     );
     if (!branchesReady) {
-      log("WARN", "Branches not ready for single-run crown; continuing", {
+      log("WARN", "Branches not ready for single-run crown; aborting crown evaluation", {
         taskRunId,
         elapsedMs,
+        baseBranch,
+        candidateBranch: candidate.newBranch,
       });
       return;
     }

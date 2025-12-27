@@ -37,6 +37,31 @@ fn oid_from_rev_parse(repo: &Repository, rev: &str) -> anyhow::Result<ObjectId> 
     Err(anyhow::anyhow!("could not resolve rev '{}'", rev))
 }
 
+/// Resolve a ref with fallback: if `origin/branch` fails to resolve (remote not pushed),
+/// try resolving `branch` as a local ref. This handles the case where a branch is created
+/// locally but not yet pushed to the remote.
+fn resolve_ref_with_local_fallback(repo: &Repository, rev: &str) -> anyhow::Result<ObjectId> {
+    match oid_from_rev_parse(repo, rev) {
+        Ok(oid) => Ok(oid),
+        Err(orig_err) => {
+            // If ref starts with "origin/", try stripping it and resolving as local branch
+            if let Some(local_branch) = rev.strip_prefix("origin/") {
+                if !local_branch.is_empty() {
+                    if let Ok(oid) = oid_from_rev_parse(repo, local_branch) {
+                        #[cfg(debug_assertions)]
+                        println!(
+                            "[native.refs] fallback: resolved local branch '{}' for '{}'",
+                            local_branch, rev
+                        );
+                        return Ok(oid);
+                    }
+                }
+            }
+            Err(orig_err)
+        }
+    }
+}
+
 fn is_binary(data: &[u8]) -> bool {
     data.contains(&0) || std::str::from_utf8(data).is_err()
 }
@@ -220,7 +245,7 @@ pub fn diff_refs(opts: GitDiffOptions) -> Result<Vec<DiffEntry>> {
     let repo = gix::open(&cwd)?;
     let _d_open = t_open.elapsed();
     let t_head = Instant::now();
-    let head_oid = match oid_from_rev_parse(&repo, head_ref) {
+    let head_oid = match resolve_ref_with_local_fallback(&repo, head_ref) {
         Ok(oid) => oid,
         Err(_) => {
             let _d_head = t_head.elapsed();
@@ -238,7 +263,7 @@ pub fn diff_refs(opts: GitDiffOptions) -> Result<Vec<DiffEntry>> {
 
     let t_base = Instant::now();
     let mut resolved_base_oid = match base_ref_input {
-        Some(ref spec) => match oid_from_rev_parse(&repo, spec) {
+        Some(ref spec) => match resolve_ref_with_local_fallback(&repo, spec) {
             Ok(oid) => oid,
             Err(_) => {
                 let _d_base = t_base.elapsed();

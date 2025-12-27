@@ -161,6 +161,8 @@ export const CrownEvaluationRequestSchema = z.object({
   prompt: z.string(),
   candidates: z.array(CrownEvaluationCandidateSchema).min(1),
   teamSlugOrId: z.string(),
+  crownModel: z.string().optional(),
+  crownSystemPrompt: z.string().optional(),
 });
 export type CrownEvaluationRequest = z.infer<
   typeof CrownEvaluationRequestSchema
@@ -175,6 +177,7 @@ export const CrownSummarizationRequestSchema = z.object({
   prompt: z.string(),
   gitDiff: z.string(),
   teamSlugOrId: z.string().optional(),
+  crownModel: z.string().optional(),
 });
 export type CrownSummarizationRequest = z.infer<
   typeof CrownSummarizationRequestSchema
