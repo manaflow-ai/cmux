@@ -479,7 +479,7 @@ function HeatmapGutterTooltip({
   const theme = getHeatmapTooltipTheme(tooltipMeta.score);
 
   return (
-    <Tooltip delayDuration={120} open={isOpen} onOpenChange={handleOpenChange}>
+    <Tooltip delayDuration={0} open={isOpen} onOpenChange={handleOpenChange}>
       <TooltipTrigger asChild>
         <span
           className="cmux-heatmap-gutter"
@@ -666,7 +666,7 @@ export const HeatmapDiffViewer = memo(function HeatmapDiffViewerComponent({
             return (
               <Tooltip
                 key={`heatmap-char-${lineNumber}-${index}`}
-                delayDuration={120}
+                delayDuration={0}
               >
                 <TooltipTrigger asChild>
                   <span className="cmux-heatmap-char-wrapper">{rendered}</span>
@@ -836,8 +836,8 @@ export const HeatmapDiffViewer = memo(function HeatmapDiffViewerComponent({
 
   return (
     <TooltipProvider
-      delayDuration={120}
-      skipDelayDuration={100}
+      delayDuration={0}
+      skipDelayDuration={0}
       disableHoverableContent
     >
       <style

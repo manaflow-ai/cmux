@@ -1220,32 +1220,44 @@ const FileDiffCard = memo(function FileDiffCardComponent({
     if (!focusedChangeKey) {
       return;
     }
+    // Expand the file first
     onFileCollapseChange(filePath, false);
-  }, [focusedChangeKey, filePath, onFileCollapseChange]);
 
-  useEffect(() => {
-    if (!focusedChangeKey) {
-      return;
-    }
     const currentCard = cardRef.current;
     if (!currentCard) {
       return;
     }
 
-    const targetCell = currentCard.querySelector<HTMLElement>(
-      `[data-change-key="${focusedChangeKey}"]`
-    );
-    if (!targetCell) {
-      return;
-    }
+    // Use double requestAnimationFrame to ensure DOM has painted after expansion
+    // First rAF schedules after the current frame, second rAF ensures layout is complete
+    let cancelled = false;
+    const frame1 = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      const frame2 = window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        const targetCell = currentCard.querySelector<HTMLElement>(
+          `[data-change-key="${focusedChangeKey}"]`
+        );
+        if (!targetCell) {
+          return;
+        }
 
-    const targetRow = targetCell.closest("tr");
-    const scrollTarget =
-      targetRow instanceof HTMLElement ? targetRow : targetCell;
-    window.requestAnimationFrame(() => {
-      scrollElementToViewportCenter(scrollTarget, { scrollContainer });
+        const targetRow = targetCell.closest("tr");
+        const scrollTarget =
+          targetRow instanceof HTMLElement ? targetRow : targetCell;
+        scrollElementToViewportCenter(scrollTarget, { scrollContainer });
+      });
+      cleanupFrame2 = () => window.cancelAnimationFrame(frame2);
     });
-  }, [focusedChangeKey, scrollContainer]);
+
+    let cleanupFrame2: (() => void) | undefined;
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame1);
+      cleanupFrame2?.();
+    };
+  }, [focusedChangeKey, filePath, onFileCollapseChange, scrollContainer]);
 
   return (
     <div id={entry.anchorId} ref={cardRef}>
