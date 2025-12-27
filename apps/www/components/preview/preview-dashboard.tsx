@@ -1895,10 +1895,8 @@ function MockGitHubPRBrowser() {
               {/* Header with logo */}
               <div className="h-[38px] flex items-center px-3 shrink-0">
                 <CmuxLogo height={28} wordmarkText="cmux" />
-                <div className="ml-auto">
-                  <div className="w-[25px] h-[25px] border border-neutral-800 rounded-lg flex items-center justify-center cursor-not-allowed">
-                    <Plus className="w-4 h-4 text-neutral-400" />
-                  </div>
+                <div className="ml-auto w-[25px] h-[25px] border border-neutral-800 rounded-lg flex items-center justify-center cursor-not-allowed">
+                  <Plus className="w-4 h-4 text-neutral-400" />
                 </div>
               </div>
 
