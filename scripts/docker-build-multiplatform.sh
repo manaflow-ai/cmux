@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# Docker Hub repository
-REPO="lawrencecchen/cmux"
+# GitHub Container Registry repository
+REPO="ghcr.io/manaflow-ai/cmux"
 
 # Get version from argument or use 'latest'
 VERSION=${1:-latest}
@@ -18,5 +18,5 @@ docker buildx build \
   --push \
   .
 
-echo "Successfully built and pushed multi-platform image to Docker Hub!"
+echo "Successfully built and pushed multi-platform image to GHCR!"
 echo "Users can now run: docker pull ${REPO}:latest"

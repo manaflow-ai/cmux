@@ -6,8 +6,8 @@ log() {
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
 }
 
-# Docker Hub repository
-REPO="lawrencecchen/cmux"
+# GitHub Container Registry repository
+REPO="ghcr.io/manaflow-ai/cmux"
 
 # Get version from argument or use 'latest'
 VERSION=${1:-latest}
@@ -22,7 +22,7 @@ log "Detected environment: $(docker context show 2>/dev/null || echo 'default')"
 log "Building Docker image locally..."
 ./scripts/docker-build.sh ${VERSION}
 
-log "Docker build complete, starting push to Docker Hub..."
+log "Docker build complete, starting push to GHCR..."
 log "Repository: ${REPO}"
 log "Version: ${VERSION}"
 
@@ -33,11 +33,12 @@ if ! docker version >/dev/null 2>&1; then
     exit 1
 fi
 
-# Check if we're logged in to Docker Hub by checking if we can access Docker Hub
-log "Checking Docker Hub authentication..."
-# Try to inspect a small public image to verify connectivity
-if ! docker login >/dev/null 2>&1; then
-    log "WARNING: May not be authenticated to Docker Hub properly"
+# Check if we're logged in to GHCR
+log "Checking GHCR authentication..."
+# Try to login to ghcr.io
+if ! docker login ghcr.io >/dev/null 2>&1; then
+    log "WARNING: May not be authenticated to GHCR properly"
+    log "Run: echo \$GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin"
     log "Attempting push anyway..."
 fi
 
@@ -59,9 +60,9 @@ smart_push() {
     
     log "Checking if ${image} needs to be pushed..."
     
-    # First check if image exists on Docker Hub
+    # First check if image exists on GHCR
     if docker manifest inspect ${image} >/dev/null 2>&1; then
-        log "Image ${image} already exists on Docker Hub"
+        log "Image ${image} already exists on GHCR"
         
         # For OrbStack, we can't reliably compare digests, so we'll assume it's up to date
         # if it exists and we just built it
@@ -69,7 +70,7 @@ smart_push() {
         return 0
     fi
     
-    log "Image ${image} not found on Docker Hub, pushing..."
+    log "Image ${image} not found on GHCR, pushing..."
     
     # Try push with timeout
     log "Starting push (this may take a few minutes)..."
@@ -98,10 +99,10 @@ smart_push() {
             fi
         fi
         
-        # Check if image is now accessible on Docker Hub
+        # Check if image is now accessible on GHCR
         if [ $elapsed -gt 20 ]; then  # Give it 20 seconds before checking
             if docker manifest inspect ${image} >/dev/null 2>&1; then
-                log "Image ${image} is now accessible on Docker Hub"
+                log "Image ${image} is now accessible on GHCR"
                 # Kill the push process as it's no longer needed
                 kill $push_pid 2>/dev/null || true
                 wait $push_pid 2>/dev/null || true
@@ -125,7 +126,7 @@ smart_push() {
     
     # Final check if it made it
     if docker manifest inspect ${image} >/dev/null 2>&1; then
-        log "Image ${image} is accessible on Docker Hub (pushed successfully)"
+        log "Image ${image} is accessible on GHCR (pushed successfully)"
         return 0
     else
         log "ERROR: Failed to push ${image}"

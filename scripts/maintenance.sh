@@ -15,9 +15,9 @@ done
 ./scripts/clean.sh
 
 if [ "$NO_CACHE" = true ]; then
-  docker build -t cmux-worker:0.0.1 . --no-cache &
+  docker build -t cmux-worker:0.0.1 -t ghcr.io/manaflow-ai/cmux:latest . --no-cache &
 else
-  docker build -t cmux-worker:0.0.1 . &
+  docker build -t cmux-worker:0.0.1 -t ghcr.io/manaflow-ai/cmux:latest . &
 fi
 
 bun i --frozen-lockfile &

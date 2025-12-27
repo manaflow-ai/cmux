@@ -203,7 +203,7 @@ const VERSION = cmuxPackageJson.version;
 
 // bun build the cli
 log(`Building CLI binary with version ${VERSION}...`);
-await $`bun build ./packages/cmux/src/cli.ts --compile --define VERSION="\"${VERSION}\"" --define process.env.WORKER_IMAGE_NAME="\"docker.io/lawrencecchen/cmux:${VERSION}\"" --define process.env.NODE_ENV="\"production\"" --outfile cmux-cli --target bun`;
+await $`bun build ./packages/cmux/src/cli.ts --compile --define VERSION="\"${VERSION}\"" --define process.env.WORKER_IMAGE_NAME="\"ghcr.io/manaflow-ai/cmux:${VERSION}\"" --define process.env.NODE_ENV="\"production\"" --outfile cmux-cli --target bun`;
 log("Successfully built cmux-cli binary");
 
 // Ensure all output is flushed

@@ -7,7 +7,7 @@ const daytona = new Daytona();
 console.log("Creating sandbox...");
 const sandbox = await daytona.create(
   {
-    image: "cmux-worker:0.0.1",
+    image: process.env.WORKER_IMAGE_NAME || "ghcr.io/manaflow-ai/cmux:latest",
     public: true,
   },
   {

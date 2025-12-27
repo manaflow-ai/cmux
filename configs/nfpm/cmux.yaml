@@ -9,7 +9,7 @@ maintainer: cmux <eng@cmux.dev>
 description: |
   cmux host runtime and services packaged for native installation.
 license: MIT
-homepage: https://github.com/lawrencecchen/cmux
+homepage: https://github.com/manaflow-ai/cmux
 depends:
   - systemd
   - bash

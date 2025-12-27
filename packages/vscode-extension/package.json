@@ -7,7 +7,7 @@
   "publisher": "cmux",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lawrencecchen/cmux"
+    "url": "https://github.com/manaflow-ai/cmux"
   },
   "engines": {
     "vscode": "^1.101.2"
