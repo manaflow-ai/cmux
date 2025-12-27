@@ -48,14 +48,6 @@ export function ProviderStatusSettings() {
             </div>
           </div>
 
-          {/* Git skeleton */}
-          <div className="flex items-center gap-2">
-            <div className="w-3.5 h-3.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
-            <div className="w-20 leading-3 bg-neutral-200 text-transparent dark:bg-neutral-700 rounded text-xs">
-              loading...
-            </div>
-          </div>
-
           {/* AI Provider skeletons - typically 10 providers */}
           {[...Array(8)].map((_, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -73,7 +65,6 @@ export function ProviderStatusSettings() {
   if (!status) return null;
 
   const dockerOk = status.dockerStatus?.isRunning ?? false;
-  const gitOk = status.gitStatus?.isAvailable ?? false;
   const dockerImage = status.dockerStatus?.workerImage;
 
   return (
@@ -130,21 +121,6 @@ export function ProviderStatusSettings() {
             </span>
           </div>
         )}
-
-        {/* Git Status */}
-        <div className="flex items-center gap-2">
-          {gitOk ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-          ) : (
-            <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-          )}
-          <span className="text-xs text-neutral-700 dark:text-neutral-300 select-text">
-            Git
-            {gitOk &&
-              status.gitStatus?.version &&
-              ` ${status.gitStatus.version}`}
-          </span>
-        </div>
 
         {/* AI Providers */}
         {status.providers?.map((provider: ProviderStatus) => {

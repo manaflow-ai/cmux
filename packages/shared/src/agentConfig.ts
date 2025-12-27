@@ -76,8 +76,6 @@ import {
   QWEN_OPENROUTER_CODER_FREE_CONFIG,
 } from "./providers/qwen/configs";
 
-export { checkGitStatus } from "./providers/common/check-git";
-
 export { type EnvironmentResult };
 
 export type AgentConfigApiKey = {

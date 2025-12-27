@@ -389,13 +389,6 @@ export const DockerStatusSchema = z.object({
     .optional(),
 });
 
-export const GitStatusSchema = z.object({
-  isAvailable: z.boolean(),
-  version: z.string().optional(),
-  remoteAccess: z.boolean().optional(),
-  error: z.string().optional(),
-});
-
 export const GitHubStatusSchema = z.object({
   isConfigured: z.boolean(),
   hasToken: z.boolean(),
@@ -406,7 +399,6 @@ export const ProviderStatusResponseSchema = z.object({
   success: z.boolean(),
   providers: z.array(ProviderStatusSchema).optional(),
   dockerStatus: DockerStatusSchema.optional(),
-  gitStatus: GitStatusSchema.optional(),
   githubStatus: GitHubStatusSchema.optional(),
   error: z.string().optional(),
 });
@@ -470,7 +462,6 @@ export type ArchiveTask = z.infer<typeof ArchiveTaskSchema>;
 export type SpawnFromComment = z.infer<typeof SpawnFromCommentSchema>;
 export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
 export type DockerStatus = z.infer<typeof DockerStatusSchema>;
-export type GitStatus = z.infer<typeof GitStatusSchema>;
 export type GitHubStatus = z.infer<typeof GitHubStatusSchema>;
 export type GitHubFetchRepos = z.infer<typeof GitHubFetchReposSchema>;
 export type ProviderStatusResponse = z.infer<
