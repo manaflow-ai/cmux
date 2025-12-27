@@ -93,3 +93,44 @@ exit $EXIT_CODE
     throw new Error(`Hydration failed with exit code ${hydrateRes.exit_code}`);
   }
 };
+
+/**
+ * Write sanitized shell history to the VM for zsh-autosuggestions.
+ * Appends to ~/.zsh_history to preserve any existing history.
+ */
+export const writeShellHistory = async ({
+  instance,
+  sanitizedHistory,
+}: {
+  instance: MorphInstance;
+  sanitizedHistory: string;
+}): Promise<void> => {
+  if (!sanitizedHistory || sanitizedHistory.trim().length === 0) {
+    return;
+  }
+
+  console.log(
+    `[sandboxes.start] Writing shell history (${sanitizedHistory.split("\n").length} lines)`,
+  );
+
+  // Use heredoc to safely write history content
+  // Append (>>) to preserve any existing history in the VM
+  const command = `
+set -e
+cat >> ~/.zsh_history << 'SHELL_HISTORY_EOF'
+${sanitizedHistory}
+SHELL_HISTORY_EOF
+chmod 600 ~/.zsh_history
+`;
+
+  const result = await instance.exec(`bash -c ${singleQuote(command)}`);
+
+  if (result.exit_code !== 0) {
+    console.error(
+      `[sandboxes.start] Failed to write shell history: exit=${result.exit_code} stderr=${(result.stderr || "").slice(0, 200)}`,
+    );
+    // Don't throw - this is a nice-to-have feature, not critical
+  } else {
+    console.log("[sandboxes.start] Shell history written successfully");
+  }
+};

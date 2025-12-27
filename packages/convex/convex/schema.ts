@@ -680,6 +680,16 @@ const convexSchema = defineSchema({
     teamId: v.string(),
   }).index("by_team_user", ["teamId", "userId"]),
 
+  // Shell history settings for zsh-autosuggestions in VMs
+  shellHistorySettings: defineTable({
+    enabled: v.boolean(), // Whether to sync shell history to VMs
+    sanitizedHistory: v.optional(v.string()), // Sanitized shell history content
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    userId: v.string(),
+    teamId: v.string(),
+  }).index("by_team_user", ["teamId", "userId"]),
+
   // System and user comments attached to a task
   taskComments: defineTable({
     taskId: v.id("tasks"),

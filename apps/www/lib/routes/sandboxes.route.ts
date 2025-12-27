@@ -21,7 +21,7 @@ import {
   fetchGitIdentityInputs,
 } from "./sandboxes/git";
 import type { HydrateRepoConfig } from "./sandboxes/hydration";
-import { hydrateWorkspace } from "./sandboxes/hydration";
+import { hydrateWorkspace, writeShellHistory } from "./sandboxes/hydration";
 import { resolveTeamAndSnapshot } from "./sandboxes/snapshot";
 import {
   allocateScriptIdentifiers,
@@ -576,6 +576,30 @@ sandboxesRouter.openapi(
         await instance.stop().catch(() => { });
         return c.text("Failed to hydrate sandbox", 500);
       }
+
+      // Write shell history if enabled (non-blocking, best-effort)
+      (async () => {
+        try {
+          const shellHistorySettings = await convex.query(
+            api.shellHistorySettings.get,
+            { teamSlugOrId: body.teamSlugOrId },
+          );
+          if (
+            shellHistorySettings?.enabled &&
+            shellHistorySettings?.sanitizedHistory
+          ) {
+            await writeShellHistory({
+              instance,
+              sanitizedHistory: shellHistorySettings.sanitizedHistory,
+            });
+          }
+        } catch (error) {
+          console.error(
+            "[sandboxes.start] Failed to write shell history (non-fatal):",
+            error,
+          );
+        }
+      })();
 
       // Update status to "running" after hydration completes
       if (body.taskRunId && vscodePersisted) {
