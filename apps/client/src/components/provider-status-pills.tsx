@@ -1,3 +1,4 @@
+import { env } from "@/client-env";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSocket } from "@/contexts/socket/use-socket";
 import type { ProviderStatus, ProviderStatusResponse } from "@cmux/shared";
@@ -37,11 +38,15 @@ export function ProviderStatusPills({ teamSlugOrId }: { teamSlugOrId: string }) 
   const unavailableProviders =
     status.providers?.filter((p: ProviderStatus) => !p.isAvailable) ?? [];
 
-  const dockerNotReady = !status.dockerStatus?.isRunning;
+  // In web mode, Docker status is not relevant
+  const dockerNotReady =
+    !env.NEXT_PUBLIC_WEB_MODE && !status.dockerStatus?.isRunning;
   const dockerImageNotReady =
+    !env.NEXT_PUBLIC_WEB_MODE &&
     status.dockerStatus?.workerImage &&
     !status.dockerStatus.workerImage.isAvailable;
-  const dockerImagePulling = status.dockerStatus?.workerImage?.isPulling;
+  const dockerImagePulling =
+    !env.NEXT_PUBLIC_WEB_MODE && status.dockerStatus?.workerImage?.isPulling;
 
   // Count total available and unavailable providers
   const totalProviders = status.providers?.length ?? 0;
