@@ -232,6 +232,7 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
   }, []);
 
   // Control iframe wrapper visibility based on this panel's expansion state
+  // Use opacity transitions to prevent white flash during panel expansion
   useEffect(() => {
     if (typeof document === "undefined" || !type) return;
 
@@ -251,12 +252,22 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
     if (!wrapper) return;
 
     if (isAnyPanelExpanded && !isExpanded) {
-      // Another panel is expanded - hide this iframe
-      wrapper.style.visibility = "hidden";
+      // Another panel is expanded - fade out and hide this iframe
+      wrapper.style.transition = "opacity 30ms ease-in";
+      wrapper.style.opacity = "0";
       wrapper.style.pointerEvents = "none";
+      // Fully hide after transition completes
+      const timeoutId = setTimeout(() => {
+        if (wrapper.style.opacity === "0") {
+          wrapper.style.visibility = "hidden";
+        }
+      }, 35);
+      return () => clearTimeout(timeoutId);
     } else {
-      // This panel is expanded OR no panel is expanded - show iframe
+      // This panel is expanded OR no panel is expanded - fade in
       wrapper.style.visibility = "visible";
+      wrapper.style.transition = "opacity 50ms ease-out";
+      wrapper.style.opacity = "1";
       wrapper.style.pointerEvents = "auto";
     }
   }, [type, position, isExpanded, isAnyPanelExpanded]);
