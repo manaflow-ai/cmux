@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# Docker Hub repository
-REPO="lawrencecchen/cmux"
+# GitHub Container Registry repository
+REPO="ghcr.io/manaflow-ai/cmux"
 
 # Get version from package.json or use 'latest'
 VERSION=${1:-latest}

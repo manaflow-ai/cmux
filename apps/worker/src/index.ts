@@ -189,8 +189,8 @@ const Terminal = xtermHeadless.Terminal;
 // Configuration
 const WORKER_ID = process.env.WORKER_ID || `worker-${Date.now()}`;
 const WORKER_PORT = parseInt(process.env.WORKER_PORT || "39377", 10);
-const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || "cmux-worker";
-const CONTAINER_VERSION = process.env.CONTAINER_VERSION || "0.0.1";
+const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || "ghcr.io/manaflow-ai/cmux";
+const CONTAINER_VERSION = process.env.CONTAINER_VERSION || "latest";
 
 // Create Express app
 const app = express();

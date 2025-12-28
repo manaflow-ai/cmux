@@ -14,7 +14,7 @@ interface ContainerInfo {
 
 async function spawnVSCodeContainer(docker: Docker): Promise<ContainerInfo> {
   const containerName = `cmux-vscode-minimal-${Date.now()}`;
-  const imageName = "cmux-worker:0.0.1";
+  const imageName = process.env.WORKER_IMAGE_NAME || "ghcr.io/manaflow-ai/cmux:latest";
 
   console.log(`Creating container ${containerName}...`);
 

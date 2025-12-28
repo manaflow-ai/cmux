@@ -9,7 +9,7 @@ async function main() {
 
   const container = await docker.createContainer({
     name: containerName,
-    Image: "cmux-worker:0.0.1",
+    Image: process.env.WORKER_IMAGE_NAME || "ghcr.io/manaflow-ai/cmux:latest",
     Env: ["NODE_ENV=production", "WORKER_PORT=39377"],
     HostConfig: {
       AutoRemove: false, // Don't auto-remove so we can inspect logs

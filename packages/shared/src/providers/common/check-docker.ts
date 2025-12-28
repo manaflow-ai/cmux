@@ -320,7 +320,7 @@ export async function checkDockerStatus(): Promise<DockerStatus> {
     }
   }
 
-  const imageName = process.env.WORKER_IMAGE_NAME ?? "cmux-worker:0.0.1";
+  const imageName = process.env.WORKER_IMAGE_NAME ?? "ghcr.io/manaflow-ai/cmux:latest";
 
   try {
     await execAsync(`docker image inspect "${imageName.replace(/"/g, '\\"')}"`);

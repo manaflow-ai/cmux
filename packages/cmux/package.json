@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lawrencecchen/cmux"
+    "url": "https://github.com/manaflow-ai/cmux"
   },
   "bin": {
     "cmux": "./dist/cli.js"

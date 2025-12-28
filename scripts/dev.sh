@@ -161,7 +161,8 @@ fi
 
 # Build Docker image (different logic for devcontainer vs host)
 # Allow overriding the build platform for cross-architecture builds
-DOCKER_BUILD_ARGS=(-t cmux-worker:0.0.1)
+# Tag with both local dev name and ghcr name for compatibility
+DOCKER_BUILD_ARGS=(-t cmux-worker:0.0.1 -t ghcr.io/manaflow-ai/cmux:latest)
 if [ -n "${CMUX_DOCKER_PLATFORM:-}" ]; then
     DOCKER_BUILD_ARGS+=(--platform "${CMUX_DOCKER_PLATFORM}")
 fi

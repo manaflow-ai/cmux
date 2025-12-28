@@ -9,8 +9,8 @@ log() {
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
 }
 
-# Docker Hub repository
-REPO="lawrencecchen/cmux"
+# GitHub Container Registry repository
+REPO="ghcr.io/manaflow-ai/cmux"
 
 # Get version from argument or use 'latest'
 VERSION=${1:-latest}
@@ -58,7 +58,7 @@ attempt_push() {
     kill -9 $pid 2>/dev/null || true
     wait $pid 2>/dev/null || true
     
-    # Check if it actually made it to Docker Hub despite timeout
+    # Check if it actually made it to GHCR despite timeout
     if docker manifest inspect ${REPO}:${tag} >/dev/null 2>&1; then
         log "Push appears successful for ${REPO}:${tag} (image is accessible)"
         return 0

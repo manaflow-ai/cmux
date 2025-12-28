@@ -156,7 +156,7 @@ echo "----------------------------------------"
 # Don't fail on Docker push issues as they're often transient with OrbStack
 if [ $? -ne 0 ]; then
   warning "Docker push had issues (common with OrbStack)"
-  warning "You may need to manually push later: docker push lawrencecchen/cmux:$NEW_VERSION"
+  warning "You may need to manually push later: docker push ghcr.io/manaflow-ai/cmux:$NEW_VERSION"
 else
   success "Docker build and push complete"
 fi
@@ -188,4 +188,4 @@ echo ""
 echo "Next steps:"
 echo "  - Verify the package on npm: https://www.npmjs.com/package/cmux"
 echo "  - Test installation: npm install -g cmux@$NEW_VERSION"
-echo "  - Verify Docker image: docker pull lawrencecchen/cmux:$NEW_VERSION"
+echo "  - Verify Docker image: docker pull ghcr.io/manaflow-ai/cmux:$NEW_VERSION"
