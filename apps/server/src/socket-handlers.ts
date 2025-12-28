@@ -1002,6 +1002,8 @@ export function setupSocketHandlers(
                   env: {
                     ...process.env,
                     ...parsedEnvVars,
+                    // CMUX_SETUP_MODE indicates whether the workspace is running in "local" or "cloud" mode
+                    CMUX_SETUP_MODE: "local",
                   },
                   maxBuffer: 10 * 1024 * 1024,
                 });
