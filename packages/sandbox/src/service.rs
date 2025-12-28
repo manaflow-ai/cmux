@@ -1,7 +1,8 @@
 use crate::errors::SandboxResult;
 use crate::models::{
     AwaitReadyRequest, AwaitReadyResponse, CreateSandboxRequest, ExecRequest, ExecResponse,
-    GhResponse, HostEvent, PruneRequest, PruneResponse, SandboxSummary,
+    GhResponse, HostEvent, PruneRequest, PruneResponse, PtyCaptureResponse, PtyCreateRequest,
+    PtyResizeRequest, PtySessionInfo, SandboxSummary,
 };
 use crate::notifications::NotificationStore;
 use async_trait::async_trait;
@@ -64,6 +65,54 @@ pub trait SandboxService: Send + Sync + 'static {
         id: String,
         request: AwaitReadyRequest,
     ) -> SandboxResult<AwaitReadyResponse>;
+
+    // =========================================================================
+    // PTY Session Methods (HTTP API)
+    // =========================================================================
+
+    /// Create a new PTY session in a sandbox.
+    async fn pty_create_session(
+        &self,
+        sandbox_id: String,
+        request: PtyCreateRequest,
+    ) -> SandboxResult<PtySessionInfo>;
+
+    /// List all PTY sessions in a sandbox.
+    async fn pty_list_sessions(&self, sandbox_id: String) -> SandboxResult<Vec<PtySessionInfo>>;
+
+    /// Get a specific PTY session.
+    async fn pty_get_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+    ) -> SandboxResult<Option<PtySessionInfo>>;
+
+    /// Capture the current terminal content of a PTY session.
+    async fn pty_capture_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+    ) -> SandboxResult<PtyCaptureResponse>;
+
+    /// Resize a PTY session.
+    async fn pty_resize_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+        request: PtyResizeRequest,
+    ) -> SandboxResult<()>;
+
+    /// Send input data to a PTY session.
+    async fn pty_send_input(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+        data: Vec<u8>,
+    ) -> SandboxResult<()>;
+
+    /// Delete (close) a PTY session.
+    async fn pty_delete_session(&self, sandbox_id: String, session_id: String)
+        -> SandboxResult<()>;
 }
 
 #[derive(Clone)]

@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
+import * as net from 'net';
+import * as fs from 'fs';
 
 // =============================================================================
 // Types
@@ -7,6 +9,144 @@ import { randomUUID } from 'crypto';
 
 // Unique client ID for this VSCode instance
 const CLIENT_ID = randomUUID();
+
+// Bridge socket path (mounted into sandbox)
+const BRIDGE_SOCKET_PATH = '/run/cmux/bridge.sock';
+
+// =============================================================================
+// Bridge Socket Types
+// =============================================================================
+
+interface BridgeRequest {
+  type: string;
+  sandbox_id?: string;
+  session_id?: string;
+  name?: string;
+  command?: string;
+  args?: string[];
+  cols?: number;
+  rows?: number;
+  cwd?: string;
+  env?: Record<string, string>;
+  data?: string;
+}
+
+interface BridgeSessionInfo {
+  id: string;
+  name?: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  cols: number;
+  rows: number;
+  exited: boolean;
+  exit_code?: number | null;
+  pid?: number;
+}
+
+interface BridgeResponse {
+  type: string;
+  message?: string;
+  sessions?: BridgeSessionInfo[];
+  session?: BridgeSessionInfo | null;
+}
+
+// =============================================================================
+// Bridge Socket Communication
+// =============================================================================
+
+function getBridgeConfig(): { socketPath: string; sandboxId: string | undefined; available: boolean } {
+  const sandboxId = process.env.CMUX_SANDBOX_ID;
+  const socketExists = fs.existsSync(BRIDGE_SOCKET_PATH);
+  return {
+    socketPath: BRIDGE_SOCKET_PATH,
+    sandboxId,
+    available: socketExists && !!sandboxId,
+  };
+}
+
+async function sendBridgeRequest(request: BridgeRequest): Promise<BridgeResponse> {
+  const config = getBridgeConfig();
+  if (!config.available) {
+    throw new Error('Bridge socket not available');
+  }
+
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(config.socketPath);
+    let responseData = '';
+
+    socket.on('connect', () => {
+      const payload = JSON.stringify(request) + '\n';
+      socket.write(payload);
+    });
+
+    socket.on('data', (data) => {
+      responseData += data.toString();
+      // Check for newline (end of response)
+      if (responseData.includes('\n')) {
+        const line = responseData.split('\n')[0];
+        try {
+          const response = JSON.parse(line) as BridgeResponse;
+          socket.end();
+          resolve(response);
+        } catch (err) {
+          socket.end();
+          reject(new Error(`Failed to parse bridge response: ${err}`));
+        }
+      }
+    });
+
+    socket.on('error', (err) => {
+      reject(err);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      reject(new Error('Bridge socket timeout'));
+    });
+
+    socket.setTimeout(10000); // 10 second timeout
+  });
+}
+
+function bridgeSessionToTerminalInfo(session: BridgeSessionInfo, index: number): TerminalInfo {
+  return {
+    id: session.id,
+    name: session.name || `session-${index}`,
+    index,
+    shell: session.command,
+    cwd: session.cwd,
+    cols: session.cols,
+    rows: session.rows,
+    created_at: 0,
+    alive: !session.exited,
+    pid: session.pid || 0,
+  };
+}
+
+/**
+ * Delete a PTY session via bridge socket or HTTP.
+ * Uses bridge socket when available, falls back to HTTP.
+ */
+async function deletePtySession(ptyId: string, serverUrl: string): Promise<void> {
+  const bridgeConfig = getBridgeConfig();
+
+  if (bridgeConfig.available) {
+    console.log(`[cmux] Deleting PTY ${ptyId} via bridge socket`);
+    const response = await sendBridgeRequest({
+      type: 'pty_delete',
+      sandbox_id: bridgeConfig.sandboxId,
+      session_id: ptyId,
+    });
+
+    if (response.type === 'error') {
+      throw new Error(response.message || 'Unknown error');
+    }
+  } else {
+    console.log(`[cmux] Deleting PTY ${ptyId} via HTTP`);
+    await fetch(`${serverUrl}/sessions/${ptyId}`, { method: 'DELETE' });
+  }
+}
 
 interface TerminalMetadata {
   /** Where to open the terminal: "editor" for Editor pane, "panel" for bottom Panel */
@@ -732,8 +872,7 @@ class CmuxTerminalManager {
             return;
           }
           try {
-            console.log(`[cmux] Deleting PTY ${info.id} on server`);
-            await fetch(`${config.serverUrl}/sessions/${info.id}`, { method: 'DELETE' });
+            await deletePtySession(info.id, config.serverUrl);
           } catch (err) {
             console.error(`[cmux] Failed to delete PTY ${info.id}:`, err);
           }
@@ -745,36 +884,67 @@ class CmuxTerminalManager {
   }
 
   /**
-   * Create a PTY via HTTP and return a Pseudoterminal for it.
-   * Used by TerminalProfileProvider for synchronous terminal creation.
+   * Create a PTY via bridge socket or HTTP and return a Pseudoterminal for it.
+   * Uses bridge socket when available (inside sandbox), falls back to HTTP.
    */
   async createPtyAndGetTerminal(): Promise<{ pty: vscode.Pseudoterminal; name: string; id: string } | null> {
     const config = getConfig();
+    const bridgeConfig = getBridgeConfig();
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/home/vscode';
 
-    // Track that we're waiting for HTTP response
+    // Track that we're waiting for response
     // This prevents pty_created handler from creating duplicate terminals
     this._httpPendingCount++;
 
     try {
-      // Create PTY via HTTP POST with our client ID
-      const response = await fetch(`${config.serverUrl}/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shell: config.defaultShell,
+      let data: TerminalInfo;
+
+      // Try bridge socket first
+      if (bridgeConfig.available) {
+        console.log('[cmux] Creating PTY via bridge socket');
+        const response = await sendBridgeRequest({
+          type: 'pty_create',
+          sandbox_id: bridgeConfig.sandboxId,
+          command: config.defaultShell,
+          args: [],
+          cols: 80,
+          rows: 24,
           cwd: cwd,
-          client_id: CLIENT_ID,
-        }),
-      });
+        });
 
-      if (!response.ok) {
-        console.error('[cmux] Failed to create PTY:', response.statusText);
-        return null;
+        if (response.type === 'error') {
+          console.error('[cmux] Bridge socket error:', response.message);
+          return null;
+        }
+
+        if (response.type === 'pty_created' && response.session) {
+          data = bridgeSessionToTerminalInfo(response.session, 0);
+          console.log('[cmux] Created PTY via bridge socket:', data.id, data.name);
+        } else {
+          console.error('[cmux] Unexpected bridge response:', response.type);
+          return null;
+        }
+      } else {
+        // Fallback to HTTP
+        console.log('[cmux] Creating PTY via HTTP');
+        const response = await fetch(`${config.serverUrl}/sessions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shell: config.defaultShell,
+            cwd: cwd,
+            client_id: CLIENT_ID,
+          }),
+        });
+
+        if (!response.ok) {
+          console.error('[cmux] Failed to create PTY:', response.statusText);
+          return null;
+        }
+
+        data = await response.json() as TerminalInfo;
+        console.log('[cmux] Created PTY via HTTP:', data.id, data.name);
       }
-
-      const data = await response.json() as TerminalInfo;
-      console.log('[cmux] Created PTY via HTTP:', data.id, data.name);
 
       // Mark as pending to prevent duplicate from pty_created event
       this._pendingCreations.add(data.id);
@@ -981,8 +1151,7 @@ class CmuxTerminalManager {
             return;
           }
           try {
-            console.log(`[cmux] Deleting PTY ${pending.id} on server`);
-            await fetch(`${config.serverUrl}/sessions/${pending.id}`, { method: 'DELETE' });
+            await deletePtySession(pending.id, config.serverUrl);
           } catch (err) {
             console.error(`[cmux] Failed to delete PTY ${pending.id}:`, err);
           }

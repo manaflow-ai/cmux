@@ -6,7 +6,8 @@ use cmux_sandbox::build_router;
 use cmux_sandbox::errors::{SandboxError, SandboxResult};
 use cmux_sandbox::models::{
     BridgeRequest, BridgeResponse, CreateSandboxRequest, ExecRequest, ExecResponse, GhRequest,
-    GhResponse, HostEvent, NotificationLevel, NotificationRequest, OpenUrlRequest, SandboxSummary,
+    GhResponse, HostEvent, NotificationLevel, NotificationRequest, OpenUrlRequest,
+    PtyCreateRequest, PtyResizeRequest, SandboxSummary,
 };
 use cmux_sandbox::notifications::NotificationStore;
 use cmux_sandbox::service::{GhAuthCache, GhResponseRegistry, HostEventSender, SandboxService};
@@ -125,7 +126,7 @@ async fn run_server(options: Options) {
 
     let service = build_service(&options).await;
     let app = build_router(
-        service,
+        service.clone(),
         host_event_tx.clone(),
         gh_responses.clone(),
         gh_auth_cache.clone(),
@@ -138,6 +139,7 @@ async fn run_server(options: Options) {
     let bridge_gh_responses = gh_responses.clone();
     let bridge_gh_auth_cache = gh_auth_cache.clone();
     let bridge_notifications = notifications.clone();
+    let bridge_service = service.clone();
     tokio::spawn(async move {
         if let Err(e) = run_bridge_socket(
             &socket_path,
@@ -145,6 +147,7 @@ async fn run_server(options: Options) {
             bridge_gh_responses,
             bridge_gh_auth_cache,
             bridge_notifications,
+            bridge_service,
         )
         .await
         {
@@ -253,6 +256,7 @@ async fn run_bridge_socket(
     gh_responses: GhResponseRegistry,
     gh_auth_cache: GhAuthCache,
     notifications: NotificationStore,
+    service: Arc<dyn SandboxService>,
 ) -> anyhow::Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = socket_path.parent() {
@@ -281,6 +285,7 @@ async fn run_bridge_socket(
                 let gh_responses = gh_responses.clone();
                 let gh_auth_cache = gh_auth_cache.clone();
                 let notifications = notifications.clone();
+                let service = Arc::clone(&service);
                 tokio::spawn(async move {
                     if let Err(e) = handle_bridge_connection(
                         stream,
@@ -288,6 +293,7 @@ async fn run_bridge_socket(
                         gh_responses,
                         gh_auth_cache,
                         notifications,
+                        service,
                     )
                     .await
                     {
@@ -309,6 +315,7 @@ async fn handle_bridge_connection(
     gh_responses: GhResponseRegistry,
     gh_auth_cache: GhAuthCache,
     notifications: NotificationStore,
+    service: Arc<dyn SandboxService>,
 ) -> anyhow::Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -386,6 +393,45 @@ async fn handle_bridge_connection(
             )
             .await
         }
+        BridgeRequest::PtyList { sandbox_id } => handle_pty_list(&service, sandbox_id).await,
+        BridgeRequest::PtyGet {
+            sandbox_id,
+            session_id,
+        } => handle_pty_get(&service, sandbox_id, session_id).await,
+        BridgeRequest::PtyCreate {
+            sandbox_id,
+            name,
+            command,
+            args,
+            cols,
+            rows,
+            cwd,
+            env,
+        } => {
+            handle_pty_create(
+                &service, sandbox_id, name, command, args, cols, rows, cwd, env,
+            )
+            .await
+        }
+        BridgeRequest::PtyInput {
+            sandbox_id,
+            session_id,
+            data,
+        } => handle_pty_input(&service, sandbox_id, session_id, data).await,
+        BridgeRequest::PtyResize {
+            sandbox_id,
+            session_id,
+            cols,
+            rows,
+        } => handle_pty_resize(&service, sandbox_id, session_id, cols, rows).await,
+        BridgeRequest::PtyCapture {
+            sandbox_id,
+            session_id,
+        } => handle_pty_capture(&service, sandbox_id, session_id).await,
+        BridgeRequest::PtyDelete {
+            sandbox_id,
+            session_id,
+        } => handle_pty_delete(&service, sandbox_id, session_id).await,
     };
 
     writer
@@ -588,6 +634,134 @@ async fn handle_gh_request(
     }
 }
 
+// PTY bridge handlers
+
+async fn handle_pty_list(service: &Arc<dyn SandboxService>, sandbox_id: String) -> BridgeResponse {
+    match service.pty_list_sessions(sandbox_id).await {
+        Ok(sessions) => BridgeResponse::PtyList { sessions },
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to list PTY sessions: {e}"),
+        },
+    }
+}
+
+async fn handle_pty_get(
+    service: &Arc<dyn SandboxService>,
+    sandbox_id: String,
+    session_id: String,
+) -> BridgeResponse {
+    match service.pty_get_session(sandbox_id, session_id).await {
+        Ok(session) => BridgeResponse::PtySession { session },
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to get PTY session: {e}"),
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_pty_create(
+    service: &Arc<dyn SandboxService>,
+    sandbox_id: String,
+    name: Option<String>,
+    command: String,
+    args: Vec<String>,
+    cols: u16,
+    rows: u16,
+    cwd: String,
+    env: std::collections::HashMap<String, String>,
+) -> BridgeResponse {
+    let request = PtyCreateRequest {
+        name,
+        command,
+        args,
+        cols,
+        rows,
+        cwd,
+        env,
+    };
+    match service.pty_create_session(sandbox_id, request).await {
+        Ok(session) => BridgeResponse::PtyCreated { session },
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to create PTY session: {e}"),
+        },
+    }
+}
+
+async fn handle_pty_input(
+    service: &Arc<dyn SandboxService>,
+    sandbox_id: String,
+    session_id: String,
+    data: String,
+) -> BridgeResponse {
+    // Decode base64 data
+    let decoded = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &data) {
+        Ok(d) => d,
+        Err(e) => {
+            return BridgeResponse::Error {
+                message: format!("Invalid base64 data: {e}"),
+            };
+        }
+    };
+
+    match service
+        .pty_send_input(sandbox_id, session_id, decoded)
+        .await
+    {
+        Ok(()) => BridgeResponse::Ok,
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to send PTY input: {e}"),
+        },
+    }
+}
+
+async fn handle_pty_resize(
+    service: &Arc<dyn SandboxService>,
+    sandbox_id: String,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> BridgeResponse {
+    match service
+        .pty_resize_session(sandbox_id, session_id, PtyResizeRequest { cols, rows })
+        .await
+    {
+        Ok(()) => BridgeResponse::Ok,
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to resize PTY: {e}"),
+        },
+    }
+}
+
+async fn handle_pty_capture(
+    service: &Arc<dyn SandboxService>,
+    sandbox_id: String,
+    session_id: String,
+) -> BridgeResponse {
+    match service.pty_capture_session(sandbox_id, session_id).await {
+        Ok(capture) => BridgeResponse::PtyCapture {
+            content: capture.content,
+            cursor_x: capture.cursor_x,
+            cursor_y: capture.cursor_y,
+        },
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to capture PTY: {e}"),
+        },
+    }
+}
+
+async fn handle_pty_delete(
+    service: &Arc<dyn SandboxService>,
+    sandbox_id: String,
+    session_id: String,
+) -> BridgeResponse {
+    match service.pty_delete_session(sandbox_id, session_id).await {
+        Ok(()) => BridgeResponse::Ok,
+        Err(e) => BridgeResponse::Error {
+            message: format!("Failed to delete PTY session: {e}"),
+        },
+    }
+}
+
 #[derive(Clone)]
 struct UnavailableSandboxService {
     reason: String,
@@ -675,5 +849,62 @@ impl SandboxService for UnavailableSandboxService {
         _request: cmux_sandbox::models::AwaitReadyRequest,
     ) -> SandboxResult<cmux_sandbox::models::AwaitReadyResponse> {
         Err(self.error("await services ready"))
+    }
+
+    async fn pty_create_session(
+        &self,
+        _sandbox_id: String,
+        _request: cmux_sandbox::models::PtyCreateRequest,
+    ) -> SandboxResult<cmux_sandbox::models::PtySessionInfo> {
+        Err(self.error("create pty session"))
+    }
+
+    async fn pty_list_sessions(
+        &self,
+        _sandbox_id: String,
+    ) -> SandboxResult<Vec<cmux_sandbox::models::PtySessionInfo>> {
+        Err(self.error("list pty sessions"))
+    }
+
+    async fn pty_get_session(
+        &self,
+        _sandbox_id: String,
+        _session_id: String,
+    ) -> SandboxResult<Option<cmux_sandbox::models::PtySessionInfo>> {
+        Err(self.error("get pty session"))
+    }
+
+    async fn pty_capture_session(
+        &self,
+        _sandbox_id: String,
+        _session_id: String,
+    ) -> SandboxResult<cmux_sandbox::models::PtyCaptureResponse> {
+        Err(self.error("capture pty session"))
+    }
+
+    async fn pty_resize_session(
+        &self,
+        _sandbox_id: String,
+        _session_id: String,
+        _request: cmux_sandbox::models::PtyResizeRequest,
+    ) -> SandboxResult<()> {
+        Err(self.error("resize pty session"))
+    }
+
+    async fn pty_send_input(
+        &self,
+        _sandbox_id: String,
+        _session_id: String,
+        _data: Vec<u8>,
+    ) -> SandboxResult<()> {
+        Err(self.error("send pty input"))
+    }
+
+    async fn pty_delete_session(
+        &self,
+        _sandbox_id: String,
+        _session_id: String,
+    ) -> SandboxResult<()> {
+        Err(self.error("delete pty session"))
     }
 }

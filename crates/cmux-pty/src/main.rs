@@ -48,7 +48,7 @@ use uuid::Uuid;
 #[command(about = "PTY server and client for terminal session management")]
 #[command(version)]
 struct Cli {
-    /// Server URL for client commands
+    /// Server URL for client commands (fallback if socket unavailable)
     #[arg(
         short = 'S',
         long,
@@ -56,6 +56,18 @@ struct Cli {
         default_value = "http://localhost:39383"
     )]
     server: String,
+
+    /// Path to the Unix socket for bridge requests
+    #[arg(
+        long,
+        env = "CMUX_BRIDGE_SOCKET",
+        default_value = "/run/cmux/bridge.sock"
+    )]
+    socket: String,
+
+    /// Sandbox ID for socket-based operations
+    #[arg(long, env = "CMUX_SANDBOX_ID")]
+    sandbox_id: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -1692,33 +1704,78 @@ async fn main() -> Result<()> {
             run_server(&host, port).await
         }
 
-        // Client commands
-        Some(Commands::List { json }) => cli::cmd_list(&cli.server, json).await,
+        // Client commands - create config for socket + HTTP fallback
+        Some(Commands::List { json }) => {
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_list(config, json).await
+        }
 
         Some(Commands::New {
             name,
             shell,
             cwd,
             detached,
-        }) => cli::cmd_new(&cli.server, name, shell, cwd, detached).await,
+        }) => {
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_new(config, name, shell, cwd, detached).await
+        }
 
-        Some(Commands::Attach { session }) => cli::cmd_attach(&cli.server, &session).await,
+        Some(Commands::Attach { session }) => {
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_attach(config, &session).await
+        }
 
-        Some(Commands::Kill { sessions }) => cli::cmd_kill(&cli.server, &sessions).await,
+        Some(Commands::Kill { sessions }) => {
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_kill(config, &sessions).await
+        }
 
         Some(Commands::SendKeys { session, keys }) => {
-            cli::cmd_send_keys(&cli.server, &session, &keys).await
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_send_keys(config, &session, &keys).await
         }
 
         Some(Commands::CapturePane { session, print }) => {
-            cli::cmd_capture_pane(&cli.server, &session, print).await
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_capture_pane(config, &session, print).await
         }
 
         Some(Commands::Resize {
             session,
             cols,
             rows,
-        }) => cli::cmd_resize(&cli.server, &session, cols, rows).await,
+        }) => {
+            let config = cli::PtyClientConfig::new(
+                cli.server.clone(),
+                cli.socket.clone(),
+                cli.sandbox_id.clone(),
+            );
+            cli::cmd_resize(config, &session, cols, rows).await
+        }
     }
 }
 

@@ -1,11 +1,14 @@
 //! CLI client for cmux-pty server
 //!
 //! Provides tmux-like commands for managing PTY sessions.
+//! Uses bridge socket when available, falls back to HTTP.
 
 use std::io::Write;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
@@ -13,7 +16,12 @@ use crossterm::{
 };
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 
 // =============================================================================
 // Types (shared with server)
@@ -59,28 +67,235 @@ pub struct ResizeRequest {
 }
 
 // =============================================================================
+// Bridge Socket Types (from sandboxd models)
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BridgeRequest {
+    PtyList {
+        sandbox_id: String,
+    },
+    PtyGet {
+        sandbox_id: String,
+        session_id: String,
+    },
+    PtyCreate {
+        sandbox_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        command: String,
+        args: Vec<String>,
+        cols: u16,
+        rows: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        env: Option<std::collections::HashMap<String, String>>,
+    },
+    PtyInput {
+        sandbox_id: String,
+        session_id: String,
+        data: String, // base64 encoded
+    },
+    PtyResize {
+        sandbox_id: String,
+        session_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    PtyCapture {
+        sandbox_id: String,
+        session_id: String,
+    },
+    PtyDelete {
+        sandbox_id: String,
+        session_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BridgeResponse {
+    Ok,
+    Error {
+        message: String,
+    },
+    PtyList {
+        sessions: Vec<BridgeSessionInfo>,
+    },
+    PtySession {
+        session: Option<BridgeSessionInfo>,
+    },
+    PtyCreated {
+        session: BridgeSessionInfo,
+    },
+    PtyCapture {
+        content: String,
+        cursor_x: u16,
+        cursor_y: u16,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeSessionInfo {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub exited: bool,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub pid: Option<u32>,
+}
+
+impl BridgeSessionInfo {
+    /// Convert to the HTTP-style SessionInfo for display
+    pub fn to_session_info(&self, index: usize) -> SessionInfo {
+        SessionInfo {
+            id: self.id.clone(),
+            name: self
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("session-{}", index)),
+            index,
+            shell: self.command.clone(),
+            cwd: self.cwd.clone(),
+            cols: self.cols,
+            rows: self.rows,
+            created_at: 0.0,
+            alive: !self.exited,
+            pid: self.pid.unwrap_or(0),
+        }
+    }
+}
+
+// =============================================================================
+// Socket Helper
+// =============================================================================
+
+fn socket_available(path: &str) -> bool {
+    #[cfg(unix)]
+    {
+        let path = Path::new(path);
+        if let Ok(metadata) = std::fs::metadata(path) {
+            return metadata.file_type().is_socket();
+        }
+    }
+    false
+}
+
+async fn send_bridge_request(socket_path: &str, request: &BridgeRequest) -> Result<BridgeResponse> {
+    let mut stream = UnixStream::connect(socket_path)
+        .await
+        .with_context(|| format!("failed to connect to socket {socket_path}"))?;
+
+    let payload = serde_json::to_string(request)?;
+    stream.write_all(payload.as_bytes()).await?;
+    stream.write_all(b"\n").await?;
+    stream.flush().await?;
+
+    let mut reader = BufReader::new(stream);
+    let mut response_line = String::new();
+    reader.read_line(&mut response_line).await?;
+
+    let response: BridgeResponse =
+        serde_json::from_str(response_line.trim()).context("failed to parse bridge response")?;
+
+    Ok(response)
+}
+
+// =============================================================================
+// Client Configuration
+// =============================================================================
+
+#[derive(Clone)]
+pub struct PtyClientConfig {
+    pub server_url: String,
+    pub socket_path: String,
+    pub sandbox_id: Option<String>,
+}
+
+impl PtyClientConfig {
+    pub fn new(server_url: String, socket_path: String, sandbox_id: Option<String>) -> Self {
+        Self {
+            server_url,
+            socket_path,
+            sandbox_id,
+        }
+    }
+
+    /// Check if socket is available and sandbox_id is set
+    pub fn can_use_socket(&self) -> bool {
+        self.sandbox_id.is_some() && socket_available(&self.socket_path)
+    }
+}
+
+// =============================================================================
 // Client
 // =============================================================================
 
 pub struct PtyClient {
     base_url: String,
     client: reqwest::Client,
+    config: PtyClientConfig,
 }
 
 impl PtyClient {
     pub fn new(server_url: &str) -> Self {
-        let base_url = server_url.trim_end_matches('/').to_string();
+        Self::with_config(PtyClientConfig::new(
+            server_url.to_string(),
+            "/run/cmux/bridge.sock".to_string(),
+            std::env::var("CMUX_SANDBOX_ID").ok(),
+        ))
+    }
+
+    pub fn with_config(config: PtyClientConfig) -> Self {
+        let base_url = config.server_url.trim_end_matches('/').to_string();
         Self {
-            base_url,
+            base_url: base_url.clone(),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
                 .build()
                 .expect("Failed to create HTTP client"),
+            config,
         }
     }
 
     /// List all sessions
     pub async fn list_sessions(&self) -> Result<Vec<SessionInfo>> {
+        // Try socket first
+        if self.config.can_use_socket() {
+            let sandbox_id = self.config.sandbox_id.as_ref().expect("sandbox_id checked");
+            let request = BridgeRequest::PtyList {
+                sandbox_id: sandbox_id.clone(),
+            };
+            match send_bridge_request(&self.config.socket_path, &request).await {
+                Ok(BridgeResponse::PtyList { sessions }) => {
+                    return Ok(sessions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| s.to_session_info(i))
+                        .collect());
+                }
+                Ok(BridgeResponse::Error { message }) => {
+                    anyhow::bail!("Socket error: {}", message);
+                }
+                Ok(resp) => {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+                Err(e) => {
+                    eprintln!("Socket failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP
         let url = format!("{}/sessions", self.base_url);
         let resp = self
             .client
@@ -108,6 +323,36 @@ impl PtyClient {
         cols: Option<u16>,
         rows: Option<u16>,
     ) -> Result<SessionInfo> {
+        // Try socket first
+        if self.config.can_use_socket() {
+            let sandbox_id = self.config.sandbox_id.as_ref().expect("sandbox_id checked");
+            let request = BridgeRequest::PtyCreate {
+                sandbox_id: sandbox_id.clone(),
+                name: name.clone(),
+                command: shell.clone().unwrap_or_else(|| "/bin/zsh".to_string()),
+                args: vec![],
+                cols: cols.unwrap_or(80),
+                rows: rows.unwrap_or(24),
+                cwd: cwd.clone(),
+                env: None,
+            };
+            match send_bridge_request(&self.config.socket_path, &request).await {
+                Ok(BridgeResponse::PtyCreated { session }) => {
+                    return Ok(session.to_session_info(0));
+                }
+                Ok(BridgeResponse::Error { message }) => {
+                    anyhow::bail!("Socket error: {}", message);
+                }
+                Ok(resp) => {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+                Err(e) => {
+                    eprintln!("Socket failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP
         let url = format!("{}/sessions", self.base_url);
         let request = CreateSessionRequest {
             shell,
@@ -137,19 +382,30 @@ impl PtyClient {
 
     /// Kill/delete a session
     pub async fn kill_session(&self, session_id: &str) -> Result<()> {
-        // First try to find by name if it's not a UUID
-        let actual_id = if session_id.contains('-') && session_id.len() > 30 {
-            session_id.to_string()
-        } else {
-            // Try to find by name
-            let sessions = self.list_sessions().await?;
-            sessions
-                .iter()
-                .find(|s| s.name == session_id || s.id == session_id)
-                .map(|s| s.id.clone())
-                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?
-        };
+        let actual_id = self.resolve_session_id(session_id).await?;
 
+        // Try socket first
+        if self.config.can_use_socket() {
+            let sandbox_id = self.config.sandbox_id.as_ref().expect("sandbox_id checked");
+            let request = BridgeRequest::PtyDelete {
+                sandbox_id: sandbox_id.clone(),
+                session_id: actual_id.clone(),
+            };
+            match send_bridge_request(&self.config.socket_path, &request).await {
+                Ok(BridgeResponse::Ok) => return Ok(()),
+                Ok(BridgeResponse::Error { message }) => {
+                    anyhow::bail!("Socket error: {}", message);
+                }
+                Ok(resp) => {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+                Err(e) => {
+                    eprintln!("Socket failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP
         let url = format!("{}/sessions/{}", self.base_url, actual_id);
         let resp = self
             .client
@@ -167,9 +423,33 @@ impl PtyClient {
         Ok(())
     }
 
-    /// Send keys to a session via WebSocket
+    /// Send keys to a session
     pub async fn send_keys(&self, session_id: &str, keys: &str) -> Result<()> {
         let actual_id = self.resolve_session_id(session_id).await?;
+
+        // Try socket first
+        if self.config.can_use_socket() {
+            let sandbox_id = self.config.sandbox_id.as_ref().expect("sandbox_id checked");
+            let request = BridgeRequest::PtyInput {
+                sandbox_id: sandbox_id.clone(),
+                session_id: actual_id.clone(),
+                data: base64::engine::general_purpose::STANDARD.encode(keys.as_bytes()),
+            };
+            match send_bridge_request(&self.config.socket_path, &request).await {
+                Ok(BridgeResponse::Ok) => return Ok(()),
+                Ok(BridgeResponse::Error { message }) => {
+                    anyhow::bail!("Socket error: {}", message);
+                }
+                Ok(resp) => {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+                Err(e) => {
+                    eprintln!("Socket failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP via WebSocket
         let ws_url = self.get_ws_url(&format!("/sessions/{}/ws", actual_id))?;
 
         let (mut ws_stream, _) = connect_async(&ws_url)
@@ -191,6 +471,31 @@ impl PtyClient {
     /// Capture pane content (scrollback buffer)
     pub async fn capture_pane(&self, session_id: &str) -> Result<String> {
         let actual_id = self.resolve_session_id(session_id).await?;
+
+        // Try socket first
+        if self.config.can_use_socket() {
+            let sandbox_id = self.config.sandbox_id.as_ref().expect("sandbox_id checked");
+            let request = BridgeRequest::PtyCapture {
+                sandbox_id: sandbox_id.clone(),
+                session_id: actual_id.clone(),
+            };
+            match send_bridge_request(&self.config.socket_path, &request).await {
+                Ok(BridgeResponse::PtyCapture { content, .. }) => {
+                    return Ok(content);
+                }
+                Ok(BridgeResponse::Error { message }) => {
+                    anyhow::bail!("Socket error: {}", message);
+                }
+                Ok(resp) => {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+                Err(e) => {
+                    eprintln!("Socket failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP
         let url = format!("{}/sessions/{}/capture", self.base_url, actual_id);
 
         let resp = self
@@ -218,6 +523,31 @@ impl PtyClient {
     /// Resize a session
     pub async fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
         let actual_id = self.resolve_session_id(session_id).await?;
+
+        // Try socket first
+        if self.config.can_use_socket() {
+            let sandbox_id = self.config.sandbox_id.as_ref().expect("sandbox_id checked");
+            let request = BridgeRequest::PtyResize {
+                sandbox_id: sandbox_id.clone(),
+                session_id: actual_id.clone(),
+                cols,
+                rows,
+            };
+            match send_bridge_request(&self.config.socket_path, &request).await {
+                Ok(BridgeResponse::Ok) => return Ok(()),
+                Ok(BridgeResponse::Error { message }) => {
+                    anyhow::bail!("Socket error: {}", message);
+                }
+                Ok(resp) => {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+                Err(e) => {
+                    eprintln!("Socket failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP
         let url = format!("{}/sessions/{}/resize", self.base_url, actual_id);
 
         let request = ResizeRequest { cols, rows };
@@ -480,8 +810,8 @@ fn key_event_to_bytes(key: &event::KeyEvent) -> Vec<u8> {
 // CLI Commands
 // =============================================================================
 
-pub async fn cmd_list(server: &str, json: bool) -> Result<()> {
-    let client = PtyClient::new(server);
+pub async fn cmd_list(config: PtyClientConfig, json: bool) -> Result<()> {
+    let client = PtyClient::with_config(config);
     let sessions = client.list_sessions().await?;
 
     if json {
@@ -526,13 +856,13 @@ pub async fn cmd_list(server: &str, json: bool) -> Result<()> {
 }
 
 pub async fn cmd_new(
-    server: &str,
+    config: PtyClientConfig,
     name: Option<String>,
     shell: Option<String>,
     cwd: Option<String>,
     detached: bool,
 ) -> Result<()> {
-    let client = PtyClient::new(server);
+    let client = PtyClient::with_config(config);
 
     // Get terminal size
     let (cols, rows) = terminal::size().unwrap_or((80, 24));
@@ -550,13 +880,13 @@ pub async fn cmd_new(
     Ok(())
 }
 
-pub async fn cmd_attach(server: &str, session: &str) -> Result<()> {
-    let client = PtyClient::new(server);
+pub async fn cmd_attach(config: PtyClientConfig, session: &str) -> Result<()> {
+    let client = PtyClient::with_config(config);
     client.attach(session).await
 }
 
-pub async fn cmd_kill(server: &str, sessions: &[String]) -> Result<()> {
-    let client = PtyClient::new(server);
+pub async fn cmd_kill(config: PtyClientConfig, sessions: &[String]) -> Result<()> {
+    let client = PtyClient::with_config(config);
 
     for session_id in sessions {
         match client.kill_session(session_id).await {
@@ -568,8 +898,8 @@ pub async fn cmd_kill(server: &str, sessions: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub async fn cmd_send_keys(server: &str, session: &str, keys: &[String]) -> Result<()> {
-    let client = PtyClient::new(server);
+pub async fn cmd_send_keys(config: PtyClientConfig, session: &str, keys: &[String]) -> Result<()> {
+    let client = PtyClient::with_config(config);
 
     // Join keys with spaces and process escape sequences
     let text = keys.join(" ");
@@ -581,8 +911,8 @@ pub async fn cmd_send_keys(server: &str, session: &str, keys: &[String]) -> Resu
     Ok(())
 }
 
-pub async fn cmd_capture_pane(server: &str, session: &str, print: bool) -> Result<()> {
-    let client = PtyClient::new(server);
+pub async fn cmd_capture_pane(config: PtyClientConfig, session: &str, print: bool) -> Result<()> {
+    let client = PtyClient::with_config(config);
     let content = client.capture_pane(session).await?;
 
     if print {
@@ -594,8 +924,13 @@ pub async fn cmd_capture_pane(server: &str, session: &str, print: bool) -> Resul
     Ok(())
 }
 
-pub async fn cmd_resize(server: &str, session: &str, cols: u16, rows: u16) -> Result<()> {
-    let client = PtyClient::new(server);
+pub async fn cmd_resize(
+    config: PtyClientConfig,
+    session: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<()> {
+    let client = PtyClient::with_config(config);
     client.resize(session, cols, rows).await?;
     println!("Resized session {} to {}x{}", session, cols, rows);
     Ok(())

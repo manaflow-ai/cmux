@@ -37,6 +37,8 @@ export default tseslint.config(
     'packages/morphcloud-openapi-client/src/client/**',
     'packages/www-openapi-client/src/client/**',
     'packages/convex/convex/_generated/**',
+    // Reference docs (external code, not ours)
+    'dev-docs/**',
     // Directories not previously linted (maintain backward compatibility)
     // TODO: Enable linting for these directories and fix errors
     'apps/server/**',
@@ -50,6 +52,7 @@ export default tseslint.config(
     'packages/cmux/**',
     'packages/host-screenshot-collector/**',
     'packages/sandbox/**',
+    'packages/sandbox-client/**',
     'scripts/**',
     'evals/**',
     'configs/**',

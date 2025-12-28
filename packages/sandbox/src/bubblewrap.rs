@@ -3,7 +3,8 @@ use crate::ip_pool::{IpLease, IpPool};
 use crate::models::{
     AwaitReadyRequest, AwaitReadyResponse, CreateSandboxRequest, EnvVar, ExecRequest, ExecResponse,
     HostEvent, MuxClientMessage, MuxServerMessage, PruneRequest, PruneResponse, PrunedItem,
-    PtySessionId, SandboxDisplay, SandboxNetwork, SandboxStatus, SandboxSummary, ServiceReadiness,
+    PtyCaptureResponse, PtyCreateRequest, PtyResizeRequest, PtySessionId, PtySessionInfo,
+    SandboxDisplay, SandboxNetwork, SandboxStatus, SandboxSummary, ServiceReadiness,
 };
 use crate::mux::terminal::{DaFilter, VirtualTerminal};
 use crate::service::SandboxService;
@@ -37,7 +38,7 @@ const HOST_IF_PREFIX: &str = "vethh";
 const NS_IF_PREFIX: &str = "vethn";
 const DOCKER_CONTAINER_SOCKET: &str = "/run/docker.sock";
 
-/// Handle for a multiplexed PTY session.
+/// Handle for a multiplexed PTY session (WebSocket-based).
 struct PtySessionHandle {
     input_tx: mpsc::UnboundedSender<Vec<u8>>,
     /// Channel to send resize events to the reader thread's VirtualTerminal
@@ -47,6 +48,27 @@ struct PtySessionHandle {
     child: Box<dyn portable_pty::Child + Send + Sync>,
     /// Child process ID for signal forwarding
     child_pid: Option<u32>,
+}
+
+/// Handle for an HTTP-based PTY session.
+/// Unlike PtySessionHandle which streams output via WebSocket,
+/// this buffers output in a VirtualTerminal for capture via HTTP.
+struct HttpPtySession {
+    input_tx: mpsc::UnboundedSender<Vec<u8>>,
+    resize_tx: std::sync::mpsc::Sender<(u16, u16)>,
+    terminal: Arc<Mutex<VirtualTerminal>>,
+    #[allow(dead_code)]
+    master: Box<dyn MasterPty + Send>,
+    #[allow(dead_code)]
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    child_pid: Option<u32>,
+    created_at: DateTime<Utc>,
+    name: Option<String>,
+    command: String,
+    args: Vec<String>,
+    cwd: String,
+    cols: u16,
+    rows: u16,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +98,8 @@ struct SandboxEntry {
     child: Arc<Mutex<Child>>,
     inner_pid: u32,
     env: Vec<EnvVar>,
+    /// HTTP PTY sessions for this sandbox (keyed by session ID)
+    http_pty_sessions: Arc<Mutex<HashMap<String, HttpPtySession>>>,
 }
 
 #[derive(Clone)]
@@ -136,14 +160,25 @@ fn nsenter_args(pid: u32, workdir: Option<&str>, command: &[String]) -> Vec<Stri
         "--pid".to_string(),
     ];
 
-    if let Some(dir) = workdir {
-        args.push(format!("--wd={}", dir));
-    } else {
-        args.push("--wd".to_string());
-    }
-
+    // Note: We cannot use --wd with --mount because nsenter opens the directory
+    // BEFORE entering the mount namespace. Since /workspace only exists inside
+    // the bubblewrap namespace, we must use shell cd instead.
     args.push("--".to_string());
-    args.extend_from_slice(command);
+
+    if let Some(dir) = workdir {
+        // Wrap command in shell that changes to workdir first
+        // Use exec to replace shell process with the actual command
+        let escaped_command = command
+            .iter()
+            .map(|s| shell_escape::escape(std::borrow::Cow::Borrowed(s)).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        args.push("sh".to_string());
+        args.push("-c".to_string());
+        args.push(format!("cd {} && exec {}", dir, escaped_command));
+    } else {
+        args.extend_from_slice(command);
+    }
 
     args
 }
@@ -362,76 +397,6 @@ async fn start_vscode_background(
         workspace = %workspace_path,
         "cmux-code started"
     );
-    Ok(())
-}
-
-/// Start cmux-pty server inside the sandbox (background process).
-/// This is the unified PTY server that handles terminal sessions.
-async fn start_cmux_pty_background(
-    nsenter_path: &str,
-    inner_pid: u32,
-    pty_port: u16,
-) -> Result<(), String> {
-    use tokio::time::timeout;
-    let cmd_timeout = Duration::from_secs(10);
-
-    // Start cmux-pty server
-    // --host 0.0.0.0: Listen on all interfaces (needed for proxy access)
-    // --port: The port to listen on
-    // Use nohup to prevent SIGHUP when nsenter shell exits
-    let pty_cmd = vec![
-        "/bin/sh".to_string(),
-        "-c".to_string(),
-        format!(
-            "nohup /usr/local/bin/cmux-pty server --host 0.0.0.0 --port {} > /tmp/cmux-pty.log 2>&1 &",
-            pty_port
-        ),
-    ];
-
-    let result = timeout(
-        cmd_timeout,
-        Command::new(nsenter_path)
-            .args(nsenter_args(inner_pid, None, &pty_cmd))
-            .output(),
-    )
-    .await;
-
-    match result {
-        Ok(Ok(output)) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                debug!("cmux-pty start warning: {}", stderr);
-            }
-        }
-        Ok(Err(e)) => return Err(format!("cmux-pty command error: {}", e)),
-        Err(_) => {
-            debug!("cmux-pty command timed out (expected for backgrounded process)");
-        }
-    }
-
-    // Wait for cmux-pty to start listening
-    sleep(Duration::from_millis(300)).await;
-
-    // Verify cmux-pty is running by checking if it's listening on the port
-    let verify_cmd = vec![
-        "/bin/sh".to_string(),
-        "-c".to_string(),
-        format!("pgrep -f 'cmux-pty.*--port {}'", pty_port),
-    ];
-    let verify_result = timeout(
-        Duration::from_secs(5),
-        Command::new(nsenter_path)
-            .args(nsenter_args(inner_pid, None, &verify_cmd))
-            .output(),
-    )
-    .await;
-
-    let pty_running = matches!(verify_result, Ok(Ok(ref output)) if output.status.success());
-    if !pty_running {
-        return Err(format!("cmux-pty failed to start on port {}", pty_port));
-    }
-
-    info!(pty_port = pty_port, "cmux-pty started");
     Ok(())
 }
 
@@ -1256,6 +1221,160 @@ fi
             child_pid,
         })
     }
+
+    /// Spawn an HTTP PTY session that buffers output in a VirtualTerminal.
+    /// Unlike spawn_mux_pty_session which streams to WebSocket, this allows
+    /// clients to capture terminal content via HTTP at any time.
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_http_pty_session(
+        &self,
+        inner_pid: u32,
+        command: String,
+        args: Vec<String>,
+        cwd: String,
+        cols: u16,
+        rows: u16,
+        env: std::collections::HashMap<String, String>,
+        name: Option<String>,
+    ) -> SandboxResult<HttpPtySession> {
+        let system = NativePtySystem::default();
+        let pair = system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| SandboxError::Internal(format!("failed to open pty: {e}")))?;
+
+        // Build command: nsenter into sandbox and run command with args in cwd
+        // Escape all user-supplied values to prevent command injection
+        let escaped_cwd =
+            shell_escape::escape(std::borrow::Cow::Borrowed(cwd.as_str())).to_string();
+        let escaped_command =
+            shell_escape::escape(std::borrow::Cow::Borrowed(command.as_str())).to_string();
+        let shell_cmd = if args.is_empty() {
+            escaped_command
+        } else {
+            // Quote args for shell execution
+            let quoted_args: Vec<String> = args
+                .iter()
+                .map(|a| shell_escape::escape(std::borrow::Cow::Borrowed(a)).to_string())
+                .collect();
+            format!("{} {}", escaped_command, quoted_args.join(" "))
+        };
+        let nsenter_command = vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            format!("cd {} && exec {}", escaped_cwd, shell_cmd),
+        ];
+        let mut cmd = CommandBuilder::new(&self.nsenter_path);
+        cmd.args(nsenter_args(inner_pid, None, &nsenter_command));
+        cmd.env("HOME", "/root");
+        cmd.env("SHELL", &command);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        cmd.env("LANG", "C.UTF-8");
+        cmd.env("LC_ALL", "C.UTF-8");
+        cmd.env("IS_SANDBOX", "1");
+        cmd.env("DOCKER_HOST", self.docker.docker_host_env());
+
+        // SSH agent forwarding
+        let ssh_socket_path = Path::new("/ssh-agent.sock");
+        if ssh_socket_path.exists() {
+            cmd.env("SSH_AUTH_SOCK", "/ssh-agent.sock");
+        }
+
+        // Apply custom env vars
+        for (key, value) in &env {
+            cmd.env(key, value);
+        }
+
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| SandboxError::Internal(format!("failed to spawn pty command: {e}")))?;
+        let child_pid = child.process_id();
+        drop(pair.slave);
+
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| SandboxError::Internal(format!("failed to clone pty reader: {e}")))?;
+        let mut writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| SandboxError::Internal(format!("failed to take pty writer: {e}")))?;
+
+        let (input_tx, mut input_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (resize_tx, resize_rx) = std::sync::mpsc::channel::<(u16, u16)>();
+
+        // Shared terminal for capturing output
+        let terminal = Arc::new(Mutex::new(VirtualTerminal::new(
+            rows as usize,
+            cols as usize,
+        )));
+        let terminal_clone = Arc::clone(&terminal);
+        let input_tx_clone = input_tx.clone();
+
+        // Reader thread: PTY -> VirtualTerminal (buffered, not streamed)
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                // Check for resize events (non-blocking)
+                // Use blocking_lock to ensure resize is applied (resize is rare)
+                while let Ok((new_rows, new_cols)) = resize_rx.try_recv() {
+                    let mut term = terminal_clone.blocking_lock();
+                    term.resize(new_rows as usize, new_cols as usize);
+                }
+
+                match reader.read(&mut buf) {
+                    Ok(0) => break, // PTY closed
+                    Ok(n) => {
+                        let data = &buf[..n];
+
+                        // Process through VirtualTerminal (this buffers the content)
+                        // Use blocking_lock to ensure no output is dropped
+                        let mut term = terminal_clone.blocking_lock();
+                        term.process(data);
+
+                        // Send any pending responses back to PTY
+                        let responses = term.drain_responses();
+                        for response in responses {
+                            let _ = input_tx_clone.send(response);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Writer thread: input channel -> PTY
+        std::thread::spawn(move || {
+            while let Some(data) = input_rx.blocking_recv() {
+                if writer.write_all(&data).is_err() {
+                    break;
+                }
+                let _ = writer.flush();
+            }
+        });
+
+        Ok(HttpPtySession {
+            input_tx,
+            resize_tx,
+            terminal,
+            master: pair.master,
+            child,
+            child_pid,
+            created_at: Utc::now(),
+            name,
+            command,
+            args,
+            cwd,
+            cols,
+            rows,
+        })
+    }
 }
 
 fn find_binary(name: &str) -> SandboxResult<String> {
@@ -1465,13 +1584,14 @@ impl SandboxService for BubblewrapService {
         // Calculate display configuration for isolated X11/VNC desktop and VS Code
         // Display numbers start at 10 to avoid conflicts with system displays (:0, :1, etc.)
         // All sandboxes use fixed ports internally, accessed via subdomain routing:
-        //   {index}-39380.host -> noVNC, {index}-39378.host -> VS Code, {index}-39383.host -> cmux-pty
+        //   {index}-39380.host -> noVNC, {index}-39378.host -> VS Code
+        // PTY is handled directly by sandboxd via HTTP API (port 39383 is kept for metadata)
         let display_number = (10 + index) as u16;
         let vnc_port = 5900 + display_number;
         let novnc_port = 39380_u16; // Fixed port, accessed via subdomain routing
         let cdp_port = 39381_u16; // Fixed port, accessed via subdomain routing
         let vscode_port = 39378_u16; // Fixed port for cmux-code
-        let pty_port = 39383_u16; // Fixed port for cmux-pty
+        let pty_port = 39383_u16; // PTY port (metadata only - handled directly by sandboxd)
 
         // Display config is set immediately (ports are known upfront)
         // Services start in background - use await_services_ready to wait for VNC/VS Code/PTY
@@ -1539,28 +1659,13 @@ impl SandboxService for BubblewrapService {
                     });
                 }
 
-                // Start cmux-pty FIRST (PTY server) - must be ready before VS Code extension activates
-                let pty_result =
-                    start_cmux_pty_background(&nsenter_path, inner_pid, pty_port).await;
-
-                let pty_ready = match pty_result {
-                    Ok(()) => {
-                        info!(
-                            sandbox_id = %sandbox_id,
-                            pty_port = pty_port,
-                            "cmux-pty ready (background)"
-                        );
-                        true
-                    }
-                    Err(e) => {
-                        warn!(
-                            sandbox_id = %sandbox_id,
-                            error = %e,
-                            "cmux-pty failed in background - PTY will be unavailable"
-                        );
-                        false
-                    }
-                };
+                // PTY is always ready - sandboxd handles PTY sessions directly via HTTP API
+                // (no separate cmux-pty process needed)
+                let pty_ready = true;
+                info!(
+                    sandbox_id = %sandbox_id,
+                    "HTTP PTY ready (handled by sandboxd)"
+                );
 
                 // Update readiness with VNC and PTY status
                 if let Some(ref tx) = readiness {
@@ -1571,7 +1676,7 @@ impl SandboxService for BubblewrapService {
                     });
                 }
 
-                // Start cmux-code (VS Code server) AFTER cmux-pty is ready
+                // Start cmux-code (VS Code server)
                 let vscode_result =
                     start_vscode_background(&nsenter_path, inner_pid, vscode_port, &workspace_path)
                         .await;
@@ -1623,6 +1728,7 @@ impl SandboxService for BubblewrapService {
             child: Arc::new(Mutex::new(child)),
             inner_pid,
             env: effective_env,
+            http_pty_sessions: Arc::new(Mutex::new(HashMap::new())),
         };
 
         // Phase: finalize
@@ -2850,6 +2956,281 @@ impl SandboxService for BubblewrapService {
             }
         }
     }
+
+    // =========================================================================
+    // PTY Session Methods (HTTP API)
+    // =========================================================================
+
+    async fn pty_create_session(
+        &self,
+        sandbox_id: String,
+        request: PtyCreateRequest,
+    ) -> SandboxResult<PtySessionInfo> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        // Get sandbox info
+        let (inner_pid, http_pty_sessions) = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            (entry.inner_pid, Arc::clone(&entry.http_pty_sessions))
+        };
+
+        // Create the PTY session
+        let session = self
+            .spawn_http_pty_session(
+                inner_pid,
+                request.command.clone(),
+                request.args.clone(),
+                request.cwd.clone(),
+                request.cols,
+                request.rows,
+                request.env.clone(),
+                request.name.clone(),
+            )
+            .await?;
+
+        let session_id = Uuid::new_v4().to_string();
+
+        let info = PtySessionInfo {
+            id: session_id.clone(),
+            name: session.name.clone(),
+            command: session.command.clone(),
+            args: session.args.clone(),
+            cwd: session.cwd.clone(),
+            cols: session.cols,
+            rows: session.rows,
+            created_at: session.created_at,
+            exited: false,
+            exit_code: None,
+        };
+
+        // Store the session
+        {
+            let mut sessions = http_pty_sessions.lock().await;
+            sessions.insert(session_id, session);
+        }
+
+        Ok(info)
+    }
+
+    async fn pty_list_sessions(&self, sandbox_id: String) -> SandboxResult<Vec<PtySessionInfo>> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        let http_pty_sessions = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            Arc::clone(&entry.http_pty_sessions)
+        };
+
+        let sessions = http_pty_sessions.lock().await;
+        let mut result = Vec::new();
+
+        for (id, session) in sessions.iter() {
+            // Check if the session has exited by checking if the input channel is closed
+            let exited = session.input_tx.is_closed();
+            result.push(PtySessionInfo {
+                id: id.clone(),
+                name: session.name.clone(),
+                command: session.command.clone(),
+                args: session.args.clone(),
+                cwd: session.cwd.clone(),
+                cols: session.cols,
+                rows: session.rows,
+                created_at: session.created_at,
+                exited,
+                exit_code: None, // TODO: track exit code when process exits
+            });
+        }
+
+        Ok(result)
+    }
+
+    async fn pty_get_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+    ) -> SandboxResult<Option<PtySessionInfo>> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        let http_pty_sessions = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            Arc::clone(&entry.http_pty_sessions)
+        };
+
+        let sessions = http_pty_sessions.lock().await;
+        match sessions.get(&session_id) {
+            Some(session) => {
+                let exited = session.input_tx.is_closed();
+                Ok(Some(PtySessionInfo {
+                    id: session_id,
+                    name: session.name.clone(),
+                    command: session.command.clone(),
+                    args: session.args.clone(),
+                    cwd: session.cwd.clone(),
+                    cols: session.cols,
+                    rows: session.rows,
+                    created_at: session.created_at,
+                    exited,
+                    exit_code: None, // TODO: track exit code when process exits
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn pty_capture_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+    ) -> SandboxResult<PtyCaptureResponse> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        let http_pty_sessions = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            Arc::clone(&entry.http_pty_sessions)
+        };
+
+        let sessions = http_pty_sessions.lock().await;
+        let session = sessions.get(&session_id).ok_or_else(|| {
+            SandboxError::InvalidRequest(format!("PTY session not found: {}", session_id))
+        })?;
+
+        // Capture the terminal content
+        let terminal = session.terminal.lock().await;
+        let content = terminal.capture();
+        let (cursor_x, cursor_y) = terminal.cursor_position();
+
+        Ok(PtyCaptureResponse {
+            content,
+            cursor_x,
+            cursor_y,
+        })
+    }
+
+    async fn pty_resize_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+        request: PtyResizeRequest,
+    ) -> SandboxResult<()> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        let http_pty_sessions = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            Arc::clone(&entry.http_pty_sessions)
+        };
+
+        let mut sessions = http_pty_sessions.lock().await;
+        let session = sessions.get_mut(&session_id).ok_or_else(|| {
+            SandboxError::InvalidRequest(format!("PTY session not found: {}", session_id))
+        })?;
+
+        // Update stored dimensions
+        session.cols = request.cols;
+        session.rows = request.rows;
+
+        // Send resize to the reader thread
+        session
+            .resize_tx
+            .send((request.rows, request.cols))
+            .map_err(|_| SandboxError::Internal("PTY session closed".to_string()))?;
+
+        // Also resize the master PTY
+        session
+            .master
+            .resize(PtySize {
+                rows: request.rows,
+                cols: request.cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| SandboxError::Internal(format!("failed to resize PTY: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn pty_send_input(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+        data: Vec<u8>,
+    ) -> SandboxResult<()> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        let http_pty_sessions = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            Arc::clone(&entry.http_pty_sessions)
+        };
+
+        let sessions = http_pty_sessions.lock().await;
+        let session = sessions.get(&session_id).ok_or_else(|| {
+            SandboxError::InvalidRequest(format!("PTY session not found: {}", session_id))
+        })?;
+
+        session
+            .input_tx
+            .send(data)
+            .map_err(|_| SandboxError::Internal("PTY session closed".to_string()))?;
+
+        Ok(())
+    }
+
+    async fn pty_delete_session(
+        &self,
+        sandbox_id: String,
+        session_id: String,
+    ) -> SandboxResult<()> {
+        let sandbox_uuid = Uuid::parse_str(&sandbox_id).map_err(|_| {
+            SandboxError::InvalidRequest(format!("invalid sandbox id: {}", sandbox_id))
+        })?;
+
+        let http_pty_sessions = {
+            let sandboxes = self.sandboxes.lock().await;
+            let entry = sandboxes
+                .get(&sandbox_uuid)
+                .ok_or(SandboxError::NotFound(sandbox_uuid))?;
+            Arc::clone(&entry.http_pty_sessions)
+        };
+
+        let mut sessions = http_pty_sessions.lock().await;
+        if sessions.remove(&session_id).is_none() {
+            return Err(SandboxError::InvalidRequest(format!(
+                "PTY session not found: {}",
+                session_id
+            )));
+        }
+
+        // Dropping the session will close its channels and clean up resources
+        Ok(())
+    }
 }
 
 impl SandboxHandle {
@@ -2983,26 +3364,34 @@ mod tests {
         let args = nsenter_args(123, None, &["ls".to_string()]);
         assert!(args.contains(&"--target".to_string()));
         assert!(args.contains(&"123".to_string()));
-        assert!(args.contains(&"--wd".to_string()));
 
-        // Verify structure: --target 123 ... --wd -- ls
-        let wd_idx = args.iter().position(|s| s == "--wd").unwrap();
+        // Verify structure: --target 123 ... -- ls
         let double_dash_idx = args.iter().position(|s| s == "--").unwrap();
         let ls_idx = args.iter().position(|s| s == "ls").unwrap();
 
-        assert!(wd_idx < double_dash_idx);
         assert!(double_dash_idx < ls_idx);
     }
 
     #[test]
     fn nsenter_args_custom_workdir() {
+        // When workdir is specified, command is wrapped in sh -c "cd /workdir && exec command"
         let args = nsenter_args(123, Some("/custom"), &["ls".to_string()]);
-        assert!(args.contains(&"--wd=/custom".to_string()));
 
-        let wd_idx = args.iter().position(|s| s == "--wd=/custom").unwrap();
+        // Should not contain --wd (we use shell cd instead)
+        assert!(!args.iter().any(|s| s.starts_with("--wd")));
+
+        // Verify structure: ... -- sh -c "cd /custom && exec ls"
         let double_dash_idx = args.iter().position(|s| s == "--").unwrap();
+        let sh_idx = args.iter().position(|s| s == "sh").unwrap();
+        let c_idx = args.iter().position(|s| s == "-c").unwrap();
 
-        assert!(wd_idx < double_dash_idx);
+        assert!(double_dash_idx < sh_idx);
+        assert!(sh_idx < c_idx);
+
+        // Verify the shell command contains cd and exec
+        let shell_cmd = &args[c_idx + 1];
+        assert!(shell_cmd.starts_with("cd /custom && exec"));
+        assert!(shell_cmd.contains("ls"));
     }
 
     #[test]

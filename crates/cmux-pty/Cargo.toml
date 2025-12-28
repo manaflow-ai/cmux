@@ -44,6 +44,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 thiserror = "1"
 url = "2"
+base64 = "0.22"
 
 # Unix signal handling
 nix = { version = "0.29", features = ["signal"] }

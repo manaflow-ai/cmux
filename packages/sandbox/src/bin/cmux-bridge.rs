@@ -454,6 +454,12 @@ async fn handle_gh(
             Ok(())
         }
         BridgeResponse::Error { message } => Err(anyhow!("gh request failed: {}", message)),
-        BridgeResponse::Ok => Err(anyhow!("unexpected response type for gh request")),
+        BridgeResponse::Ok
+        | BridgeResponse::PtyList { .. }
+        | BridgeResponse::PtySession { .. }
+        | BridgeResponse::PtyCreated { .. }
+        | BridgeResponse::PtyCapture { .. } => {
+            Err(anyhow!("unexpected response type for gh request"))
+        }
     }
 }

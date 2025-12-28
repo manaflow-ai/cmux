@@ -11,6 +11,11 @@ import type {
 } from "@cmux/shared/worker-schemas";
 import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import { parse as parseDotenv } from "dotenv";
+import {
+  BubblewrapSandbox,
+  Sandbox,
+  type SandboxInfo,
+} from "@cmux/sandbox-client";
 import { sanitizeTmuxSessionName } from "./sanitizeTmuxSessionName";
 import {
   generateNewBranchName,
@@ -30,11 +35,13 @@ import { env } from "./utils/server-env";
 import { getWwwClient } from "./utils/wwwClient";
 import { getWwwOpenApiModule } from "./utils/wwwOpenApiModule";
 import { CmuxVSCodeInstance } from "./vscode/CmuxVSCodeInstance";
-import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
 import { VSCodeInstance } from "./vscode/VSCodeInstance";
 import { getWorktreePath, setupProjectWorkspace } from "./workspace";
 import { workerExec } from "./utils/workerExec";
 import rawSwitchBranchScript from "./utils/switch-branch.ts?raw";
+
+// Default sandboxd URL for local mode
+const LOCAL_SANDBOXD_URL = "http://localhost:46831";
 
 const SWITCH_BRANCH_BUN_SCRIPT = rawSwitchBranchScript;
 
@@ -395,7 +402,9 @@ export async function spawnAgent(
     serverLogger.info(`  Agent command: ${agentCommand}`);
     serverLogger.info(`  Tmux session name: ${tmuxSessionName}`);
 
-    let vscodeInstance: VSCodeInstance;
+    // Instance can be either VSCodeInstance (cloud/Morph) or Sandbox (local/bubblewrap)
+    let vscodeInstance: VSCodeInstance | null = null;
+    let sandbox: Sandbox | null = null;
     let worktreePath: string;
 
     console.log("[AgentSpawner] [isCloudMode]", options.isCloudMode);
@@ -417,7 +426,7 @@ export async function spawnAgent(
 
       worktreePath = "/root/workspace";
     } else {
-      // For Docker, set up worktree as before
+      // For local mode, set up worktree on host
       const worktreeInfo = await getWorktreePath(
         {
           repoUrl: options.repoUrl!,
@@ -447,15 +456,16 @@ export async function spawnAgent(
 
       worktreePath = workspaceResult.worktreePath;
 
+      // Use BubblewrapSandbox via cmux-sandboxd HTTP API
       serverLogger.info(
-        `[AgentSpawner] Creating DockerVSCodeInstance for ${agent.name}`
+        `[AgentSpawner] Creating BubblewrapSandbox for ${agent.name} (sandboxdUrl: ${LOCAL_SANDBOXD_URL})`
       );
-      vscodeInstance = new DockerVSCodeInstance({
+      sandbox = new BubblewrapSandbox({
+        sandboxdUrl: LOCAL_SANDBOXD_URL,
         workspacePath: worktreePath,
         agentName: agent.name,
         taskRunId,
         taskId,
-        theme: options.theme,
         teamSlugOrId,
         envVars,
       });
@@ -470,82 +480,110 @@ export async function spawnAgent(
       })
     );
 
-    // Store the VSCode instance
+    // Store the instance
     // VSCodeInstance.getInstances().set(vscodeInstance.getInstanceId(), vscodeInstance);
 
-    serverLogger.info(`Starting VSCode instance for agent ${agent.name}...`);
+    serverLogger.info(`Starting sandbox/instance for agent ${agent.name}...`);
 
-    // Start the VSCode instance
-    const vscodeInfo = await vscodeInstance.start();
-    const vscodeUrl = vscodeInfo.workspaceUrl;
+    // Start the instance (either VSCodeInstance or Sandbox)
+    let vscodeUrl: string;
+    let sandboxInfo: SandboxInfo | null = null;
 
-    serverLogger.info(
-      `VSCode instance spawned for agent ${agent.name}: ${vscodeUrl}`
-    );
-
-    if (options.isCloudMode && vscodeInstance instanceof CmuxVSCodeInstance) {
-      console.log("[AgentSpawner] [isCloudMode] Setting up devcontainer");
-      void vscodeInstance
-        .setupDevcontainer()
-        .catch((err) =>
-          serverLogger.error(
-            "[AgentSpawner] setupDevcontainer encountered an error",
-            err
-          )
-        );
-    }
-
-    // Start file watching for real-time diff updates
-    serverLogger.info(
-      `[AgentSpawner] Starting file watch for ${agent.name} at ${worktreePath}`
-    );
-    vscodeInstance.startFileWatch(worktreePath);
-
-    // Set up file change event handler for real-time diff updates
-    vscodeInstance.on("file-changes", async (data) => {
+    if (sandbox) {
+      // BubblewrapSandbox mode
+      sandboxInfo = await sandbox.start();
+      vscodeUrl = sandboxInfo.workspaceUrl;
       serverLogger.info(
-        `[AgentSpawner] File changes detected for ${agent.name}:`,
-        { changeCount: data.changes.length, taskRunId: data.taskRunId }
+        `BubblewrapSandbox started for agent ${agent.name}: ${vscodeUrl}`
       );
-    });
 
-    // Set up terminal-failed event handler
-    vscodeInstance.on("terminal-failed", async (data: WorkerTerminalFailed) => {
-      try {
-        serverLogger.error(
-          `[AgentSpawner] Terminal failed for ${agent.name}:`,
-          data
-        );
-        if (data.taskRunId !== taskRunId) {
-          serverLogger.warn(
-            `[AgentSpawner] Failure event taskRunId mismatch; ignoring`
-          );
-          return;
-        }
+      // Start file watching
+      serverLogger.info(
+        `[AgentSpawner] Starting file watch for ${agent.name} at ${worktreePath}`
+      );
+      sandbox.startFileWatch(worktreePath);
 
-        // Mark the run as failed with error message
-        await runWithAuth(capturedAuthToken, capturedAuthHeaderJson, async () =>
-          retryOnOptimisticConcurrency(() =>
-            getConvex().mutation(api.taskRuns.fail, {
-              teamSlugOrId,
-              id: runId,
-              errorMessage: data.errorMessage || "Terminal failed",
-              // WorkerTerminalFailed does not include exitCode in schema; default to 1
-              exitCode: 1,
-            })
-          )
-        );
-
+      // Set up file change event handler
+      sandbox.on("file-changes", async (data) => {
         serverLogger.info(
-          `[AgentSpawner] Marked taskRun ${runId} as failed`
+          `[AgentSpawner] File changes detected for ${agent.name}:`,
+          { changeCount: data.changes.length, taskRunId: data.taskRunId }
         );
-      } catch (error) {
-        serverLogger.error(
-          `[AgentSpawner] Error handling terminal-failed:`,
-          error
-        );
+      });
+    } else if (vscodeInstance) {
+      // VSCodeInstance mode (Docker or CmuxVSCodeInstance)
+      const vscodeInfo = await vscodeInstance.start();
+      vscodeUrl = vscodeInfo.workspaceUrl;
+      serverLogger.info(
+        `VSCode instance spawned for agent ${agent.name}: ${vscodeUrl}`
+      );
+
+      if (options.isCloudMode && vscodeInstance instanceof CmuxVSCodeInstance) {
+        console.log("[AgentSpawner] [isCloudMode] Setting up devcontainer");
+        void vscodeInstance
+          .setupDevcontainer()
+          .catch((err) =>
+            serverLogger.error(
+              "[AgentSpawner] setupDevcontainer encountered an error",
+              err
+            )
+          );
       }
-    });
+
+      // Start file watching for real-time diff updates
+      serverLogger.info(
+        `[AgentSpawner] Starting file watch for ${agent.name} at ${worktreePath}`
+      );
+      vscodeInstance.startFileWatch(worktreePath);
+
+      // Set up file change event handler for real-time diff updates
+      vscodeInstance.on("file-changes", async (data) => {
+        serverLogger.info(
+          `[AgentSpawner] File changes detected for ${agent.name}:`,
+          { changeCount: data.changes.length, taskRunId: data.taskRunId }
+        );
+      });
+
+      // Set up terminal-failed event handler
+      vscodeInstance.on("terminal-failed", async (data: WorkerTerminalFailed) => {
+        try {
+          serverLogger.error(
+            `[AgentSpawner] Terminal failed for ${agent.name}:`,
+            data
+          );
+          if (data.taskRunId !== taskRunId) {
+            serverLogger.warn(
+              `[AgentSpawner] Failure event taskRunId mismatch; ignoring`
+            );
+            return;
+          }
+
+          // Mark the run as failed with error message
+          await runWithAuth(capturedAuthToken, capturedAuthHeaderJson, async () =>
+            retryOnOptimisticConcurrency(() =>
+              getConvex().mutation(api.taskRuns.fail, {
+                teamSlugOrId,
+                id: runId,
+                errorMessage: data.errorMessage || "Terminal failed",
+                // WorkerTerminalFailed does not include exitCode in schema; default to 1
+                exitCode: 1,
+              })
+            )
+          );
+
+          serverLogger.info(
+            `[AgentSpawner] Marked taskRun ${runId} as failed`
+          );
+        } catch (error) {
+          serverLogger.error(
+            `[AgentSpawner] Error handling terminal-failed:`,
+            error
+          );
+        }
+      });
+    } else {
+      throw new Error("No sandbox or vscodeInstance created");
+    }
 
     // Get ports if it's a Docker instance
     let ports:
@@ -557,34 +595,26 @@ export async function spawnAgent(
           vnc?: string;
         }
       | undefined;
-    if (vscodeInstance instanceof DockerVSCodeInstance) {
-      const dockerPorts = vscodeInstance.getPorts();
-      if (dockerPorts && dockerPorts.vscode && dockerPorts.worker) {
-        ports = {
-          vscode: dockerPorts.vscode,
-          worker: dockerPorts.worker,
-          ...(dockerPorts.extension
-            ? { extension: dockerPorts.extension }
-            : {}),
-          ...(dockerPorts.proxy ? { proxy: dockerPorts.proxy } : {}),
-          ...(dockerPorts.vnc ? { vnc: dockerPorts.vnc } : {}),
-        };
-      }
-    }
 
     // Update VSCode instance information in Convex (retry on OCC)
     // Skip if www already persisted the VSCode info (cloud mode optimization)
-    if (!vscodeInfo.vscodePersisted) {
+    const instanceInfo = sandboxInfo || (vscodeInstance ? await vscodeInstance.getStatus().then(s => s.info) : null);
+    const vscodePersisted = sandbox ? false : (instanceInfo as { vscodePersisted?: boolean } | null)?.vscodePersisted;
+
+    if (!vscodePersisted) {
+      const instanceName = sandbox ? sandbox.getName() : vscodeInstance!.getName();
+      const provider = sandbox ? "bubblewrap" : (instanceInfo?.provider || "docker");
+
       await retryOnOptimisticConcurrency(() =>
         getConvex().mutation(api.taskRuns.updateVSCodeInstance, {
           teamSlugOrId,
           id: runId,
           vscode: {
-            provider: vscodeInfo.provider,
-            containerName: vscodeInstance.getName(),
+            provider: provider as "docker" | "morph" | "daytona" | "bubblewrap",
+            containerName: instanceName,
             status: "running",
-            url: vscodeInfo.url,
-            workspaceUrl: vscodeInfo.workspaceUrl,
+            url: vscodeUrl.replace(/\?.*$/, ""), // Strip query params for base URL
+            workspaceUrl: vscodeUrl,
             startedAt: Date.now(),
             ...(ports ? { ports } : {}),
           },
@@ -628,158 +658,57 @@ export async function spawnAgent(
       }
     })();
 
-    // Wait for worker connection if not already connected
-    if (!vscodeInstance.isWorkerConnected()) {
-      serverLogger.info(`[AgentSpawner] Waiting for worker connection...`);
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          serverLogger.error(
-            `[AgentSpawner] Timeout waiting for worker connection`
-          );
-          resolve();
-        }, 30000); // 30 second timeout
+    // For BubblewrapSandbox, we use HTTP API instead of socket.io
+    // For VSCodeInstance, we need to wait for worker connection
+    type WorkerSocket = NonNullable<ReturnType<VSCodeInstance["getWorkerSocket"]>>;
+    let workerSocket: WorkerSocket | null = null;
 
-        vscodeInstance.once("worker-connected", () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-      });
-    }
-
-    // Get the worker socket
-    const workerSocket = vscodeInstance.getWorkerSocket();
-    if (!workerSocket) {
-      serverLogger.error(
-        `[AgentSpawner] No worker socket available for ${agent.name}`
+    if (sandbox) {
+      // BubblewrapSandbox uses HTTP API - no socket needed
+      serverLogger.info(
+        `[AgentSpawner] Using BubblewrapSandbox HTTP API for ${agent.name}`
       );
-      return {
-        agentName: agent.name,
-        terminalId,
-        taskRunId,
-        worktreePath,
-        vscodeUrl,
-        success: false,
-        error: "No worker connection available",
-      };
-    }
-    if (!vscodeInstance.isWorkerConnected()) {
-      throw new Error("Worker socket not available");
-    }
-
-    // Run maintenance script for Docker containers in a cmux-pty session (fire-and-forget)
-    if (!options.isCloudMode && vscodeInstance instanceof DockerVSCodeInstance) {
-      void (async () => {
-        try {
-          // Use pre-fetched workspace config
-          const workspaceConfigResult = await workspaceConfigPromise;
-          if (!workspaceConfigResult?.config?.maintenanceScript?.trim()) {
-            return;
-          }
-
-          const { config: workspaceConfig, projectFullName } = workspaceConfigResult;
-          serverLogger.info(
-            `[AgentSpawner] Running maintenance script for ${projectFullName} via cmux-pty`
-          );
-
-          // Write maintenance script to a file first (like cloud mode does)
-          const CMUX_RUNTIME_DIR = "/var/tmp/cmux-scripts";
-          const maintenanceScriptPath = `${CMUX_RUNTIME_DIR}/maintenance.sh`;
-          const maintenanceScriptContent = `#!/bin/zsh
-set -eu
-
-cd /root/workspace
-
-echo "=== Maintenance Script Started at \\$(date) ==="
-${workspaceConfig.maintenanceScript}
-echo "=== Maintenance Script Completed at \\$(date) ==="
-`;
-
-          // Create directory and write script file using heredoc
-          const writeScriptCommand = `mkdir -p ${CMUX_RUNTIME_DIR} && cat > ${maintenanceScriptPath} <<'MAINTENANCE_SCRIPT_EOF'
-${maintenanceScriptContent}
-MAINTENANCE_SCRIPT_EOF
-chmod +x ${maintenanceScriptPath}`;
-
-          const writeScriptResult = await workerExec({
-            workerSocket,
-            command: "bash",
-            args: ["-c", writeScriptCommand],
-            cwd: "/root/workspace",
-            env: {},
-            timeout: 10000,
-          });
-
-          if (writeScriptResult.exitCode !== 0) {
+    } else if (vscodeInstance) {
+      // Wait for worker connection if not already connected
+      if (!vscodeInstance.isWorkerConnected()) {
+        serverLogger.info(`[AgentSpawner] Waiting for worker connection...`);
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
             serverLogger.error(
-              `[AgentSpawner] Failed to write maintenance script file`,
-              { exitCode: writeScriptResult.exitCode, stdout: writeScriptResult.stdout, stderr: writeScriptResult.stderr }
+              `[AgentSpawner] Timeout waiting for worker connection`
             );
-            return;
-          }
+            resolve();
+          }, 30000); // 30 second timeout
 
-          serverLogger.info(`[AgentSpawner] Wrote maintenance script to ${maintenanceScriptPath}`);
-
-          // Create a cmux-pty session for the maintenance script
-          const createResult = await workerExec({
-            workerSocket,
-            command: "cmux-pty",
-            args: ["new", "--name", "maintenance", "--cwd", "/root/workspace", "--detached"],
-            cwd: "/root/workspace",
-            env: {},
-            timeout: 10000,
+          vscodeInstance.once("worker-connected", () => {
+            clearTimeout(timeout);
+            resolve();
           });
+        });
+      }
 
-          if (createResult.exitCode !== 0) {
-            serverLogger.error(
-              `[AgentSpawner] Failed to create maintenance PTY session`,
-              { exitCode: createResult.exitCode, stdout: createResult.stdout, stderr: createResult.stderr }
-            );
-            return;
-          }
-
-          serverLogger.info(`[AgentSpawner] Created maintenance PTY session`);
-
-          // Send command to run the script file
-          const sendResult = await workerExec({
-            workerSocket,
-            command: "cmux-pty",
-            args: ["send-keys", "maintenance", maintenanceScriptPath, "Enter"],
-            cwd: "/root/workspace",
-            env: {},
-            timeout: 10000,
-          });
-
-          if (sendResult.exitCode !== 0) {
-            serverLogger.error(
-              `[AgentSpawner] Failed to send maintenance script to PTY`,
-              { exitCode: sendResult.exitCode, stdout: sendResult.stdout, stderr: sendResult.stderr }
-            );
-            await getConvex().mutation(api.taskRuns.updateEnvironmentError, {
-              teamSlugOrId,
-              id: runId,
-              maintenanceError: `Failed to send maintenance script: ${sendResult.stderr || sendResult.stdout}`,
-              devError: undefined,
-            });
-          } else {
-            serverLogger.info(
-              `[AgentSpawner] Maintenance script sent to PTY for ${projectFullName}`
-            );
-            // Clear any previous error (script is now running in PTY)
-            await getConvex().mutation(api.taskRuns.updateEnvironmentError, {
-              teamSlugOrId,
-              id: runId,
-              maintenanceError: undefined,
-              devError: undefined,
-            });
-          }
-        } catch (error) {
-          serverLogger.error(
-            `[AgentSpawner] Failed to run maintenance script`,
-            error
-          );
-        }
-      })();
+      // Get the worker socket
+      workerSocket = vscodeInstance.getWorkerSocket();
+      if (!workerSocket) {
+        serverLogger.error(
+          `[AgentSpawner] No worker socket available for ${agent.name}`
+        );
+        return {
+          agentName: agent.name,
+          terminalId,
+          taskRunId,
+          worktreePath,
+          vscodeUrl,
+          success: false,
+          error: "No worker connection available",
+        };
+      }
+      if (!vscodeInstance.isWorkerConnected()) {
+        throw new Error("Worker socket not available");
+      }
     }
+
+    // TODO: Add maintenance script support for BubblewrapSandbox
 
     const actualCommand = agent.command;
     const actualArgs = processedArgs;
@@ -881,16 +810,43 @@ rm -f ${scriptPath}
 exit $EXIT_CODE
 `;
 
-      const { exitCode, stdout, stderr } = await workerExec({
-        workerSocket,
-        command: "bash",
-        args: ["-lc", command],
-        cwd: "/root/workspace",
-        env: {
-          CMUX_BRANCH_NAME: newBranch,
-        },
-        timeout: 60000,
-      });
+      // Execute branch switch using sandbox.exec() or workerExec()
+      let exitCode: number;
+      let stdout: string;
+      let stderr: string;
+
+      if (sandbox) {
+        // Use BubblewrapSandbox HTTP API
+        const result = await sandbox.exec({
+          command: "bash",
+          args: ["-lc", command],
+          cwd: "/workspace", // bubblewrap mounts at /workspace
+          env: {
+            CMUX_BRANCH_NAME: newBranch,
+          },
+          timeout: 60000,
+        });
+        exitCode = result.exitCode;
+        stdout = result.stdout;
+        stderr = result.stderr;
+      } else if (workerSocket) {
+        // Use socket.io workerExec
+        const result = await workerExec({
+          workerSocket,
+          command: "bash",
+          args: ["-lc", command],
+          cwd: "/root/workspace",
+          env: {
+            CMUX_BRANCH_NAME: newBranch,
+          },
+          timeout: 60000,
+        });
+        exitCode = result.exitCode;
+        stdout = result.stdout;
+        stderr = result.stderr;
+      } else {
+        throw new Error("No sandbox or workerSocket available for branch switch");
+      }
 
       if (exitCode !== 0) {
         const truncatedStdout = stdout?.slice(0, 2000) ?? "";
@@ -935,12 +891,22 @@ exit $EXIT_CODE
         `[AgentSpawner] Branch switch command errored for ${newBranch}`,
         err
       );
-      await vscodeInstance.stop().catch((stopError) => {
-        serverLogger.error(
-          `[AgentSpawner] Failed to stop VSCode instance after branch switch failure`,
-          stopError
-        );
-      });
+      // Stop the sandbox/instance on failure
+      if (sandbox) {
+        await sandbox.stop().catch((stopError) => {
+          serverLogger.error(
+            `[AgentSpawner] Failed to stop sandbox after branch switch failure`,
+            stopError
+          );
+        });
+      } else if (vscodeInstance) {
+        await vscodeInstance.stop().catch((stopError) => {
+          serverLogger.error(
+            `[AgentSpawner] Failed to stop VSCode instance after branch switch failure`,
+            stopError
+          );
+        });
+      }
       throw err;
     }
 
@@ -968,142 +934,215 @@ exit $EXIT_CODE
         `[AgentSpawner] Creating ${imageFiles.length} image files...`
       );
 
-      // First create the prompt directory
-      await new Promise<void>((resolve) => {
+      if (sandbox) {
+        // BubblewrapSandbox: use sandbox.exec() and sandbox.uploadFile()
+        // Create the prompt directory
         try {
-          workerSocket.timeout(10000).emit(
-            "worker:exec",
-            {
-              command: "mkdir",
-              args: ["-p", "/root/prompt"],
-              cwd: "/root",
-              env: {},
-            },
-            (timeoutError, result) => {
-              if (timeoutError) {
-                // Handle timeout errors gracefully
-                if (
-                  timeoutError instanceof Error &&
-                  timeoutError.message === "operation has timed out"
-                ) {
-                  serverLogger.error(
-                    "Socket timeout while creating prompt directory",
-                    timeoutError
-                  );
-                } else {
-                  serverLogger.error(
-                    "Failed to create prompt directory",
-                    timeoutError
-                  );
-                }
-              } else if (result?.error) {
-                serverLogger.error(
-                  "Failed to create prompt directory",
-                  result.error
-                );
-              }
-              resolve();
-            }
-          );
+          await sandbox.exec({
+            command: "mkdir",
+            args: ["-p", "/root/prompt"],
+            cwd: "/",
+          });
         } catch (err) {
           serverLogger.error(
-            "Error emitting command to create prompt directory",
+            "Error creating prompt directory via sandbox.exec()",
             err
           );
-          resolve();
         }
-      });
 
-      // Upload each image file using HTTP endpoint
-      for (const imageFile of imageFiles) {
-        try {
-          // Convert base64 to buffer
-          const base64Data = imageFile.base64.includes(",")
-            ? imageFile.base64.split(",")[1]
-            : imageFile.base64;
-          const buffer = Buffer.from(base64Data, "base64");
+        // Upload each image file
+        for (const imageFile of imageFiles) {
+          try {
+            const base64Data = imageFile.base64.includes(",")
+              ? imageFile.base64.split(",")[1]
+              : imageFile.base64;
+            const buffer = Buffer.from(base64Data, "base64");
 
-          // Create form data
-          const formData = new FormData();
-          const blob = new Blob([buffer], { type: "image/png" });
-          formData.append("image", blob, "image.png");
-          formData.append("path", imageFile.path);
-
-          // Get worker port from VSCode instance
-          const workerPort =
-            vscodeInstance instanceof DockerVSCodeInstance
-              ? (vscodeInstance as DockerVSCodeInstance).getPorts()?.worker
-              : "39377";
-
-          const uploadUrl = `http://localhost:${workerPort}/upload-image`;
-
-          serverLogger.info(`[AgentSpawner] Uploading image to ${uploadUrl}`);
-
-          const response = await fetch(uploadUrl, {
-            method: "POST",
-            headers: {
-              "x-cmux-token": taskRunJwt,
-            },
-            body: formData,
-          });
-
-          if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Upload failed: ${error}`);
+            await sandbox.uploadFile(imageFile.path, buffer);
+            serverLogger.info(
+              `[AgentSpawner] Successfully uploaded image: ${imageFile.path} (${buffer.length} bytes)`
+            );
+          } catch (error) {
+            serverLogger.error(
+              `[AgentSpawner] Failed to upload image ${imageFile.path}:`,
+              error
+            );
           }
+        }
+      } else if (workerSocket) {
+        // VSCodeInstance: use socket.io and HTTP endpoint
+        // First create the prompt directory
+        await new Promise<void>((resolve) => {
+          try {
+            workerSocket.timeout(10000).emit(
+              "worker:exec",
+              {
+                command: "mkdir",
+                args: ["-p", "/root/prompt"],
+                cwd: "/root",
+                env: {},
+              },
+              (timeoutError, result) => {
+                if (timeoutError) {
+                  // Handle timeout errors gracefully
+                  if (
+                    timeoutError instanceof Error &&
+                    timeoutError.message === "operation has timed out"
+                  ) {
+                    serverLogger.error(
+                      "Socket timeout while creating prompt directory",
+                      timeoutError
+                    );
+                  } else {
+                    serverLogger.error(
+                      "Failed to create prompt directory",
+                      timeoutError
+                    );
+                  }
+                } else if (result?.error) {
+                  serverLogger.error(
+                    "Failed to create prompt directory",
+                    result.error
+                  );
+                }
+                resolve();
+              }
+            );
+          } catch (err) {
+            serverLogger.error(
+              "Error emitting command to create prompt directory",
+              err
+            );
+            resolve();
+          }
+        });
 
-          const result = await response.json();
-          serverLogger.info(
-            `[AgentSpawner] Successfully uploaded image: ${result.path} (${result.size} bytes)`
-          );
-        } catch (error) {
-          serverLogger.error(
-            `[AgentSpawner] Failed to upload image ${imageFile.path}:`,
-            error
-          );
+        // Upload each image file using HTTP endpoint
+        for (const imageFile of imageFiles) {
+          try {
+            // Convert base64 to buffer
+            const base64Data = imageFile.base64.includes(",")
+              ? imageFile.base64.split(",")[1]
+              : imageFile.base64;
+            const buffer = Buffer.from(base64Data, "base64");
+
+            // Create form data
+            const formData = new FormData();
+            const blob = new Blob([buffer], { type: "image/png" });
+            formData.append("image", blob, "image.png");
+            formData.append("path", imageFile.path);
+
+            // Use default worker port for cloud mode
+            const workerPort = "39377";
+            const uploadUrl = `http://localhost:${workerPort}/upload-image`;
+
+            serverLogger.info(`[AgentSpawner] Uploading image to ${uploadUrl}`);
+
+            const response = await fetch(uploadUrl, {
+              method: "POST",
+              headers: {
+                "x-cmux-token": taskRunJwt,
+              },
+              body: formData,
+            });
+
+            if (!response.ok) {
+              const error = await response.text();
+              throw new Error(`Upload failed: ${error}`);
+            }
+
+            const result = await response.json();
+            serverLogger.info(
+              `[AgentSpawner] Successfully uploaded image: ${result.path} (${result.size} bytes)`
+            );
+          } catch (error) {
+            serverLogger.error(
+              `[AgentSpawner] Failed to upload image ${imageFile.path}:`,
+              error
+            );
+          }
         }
       }
     }
 
     // Send the terminal creation command
-    serverLogger.info(
-      `[AgentSpawner] About to emit worker:create-terminal at ${new Date().toISOString()}`
-    );
-    serverLogger.info(
-      `[AgentSpawner] Socket connected:`,
-      workerSocket.connected
-    );
-    serverLogger.info(`[AgentSpawner] Socket id:`, workerSocket.id);
+    if (sandbox) {
+      // BubblewrapSandbox: use sandbox.createTerminal()
+      serverLogger.info(
+        `[AgentSpawner] Creating terminal via sandbox.createTerminal() at ${new Date().toISOString()}`
+      );
 
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        serverLogger.error(
-          `[AgentSpawner] Timeout waiting for terminal creation response after 30s`
-        );
-        reject(new Error("Timeout waiting for terminal creation"));
-      }, 30000);
+      // Convert authFiles format for sandbox.createTerminal
+      const sandboxAuthFiles = terminalCreationCommand.authFiles?.map((file) => ({
+        path: file.destinationPath,
+        content: Buffer.from(file.contentBase64, "base64").toString("utf-8"),
+        mode: file.mode ? parseInt(file.mode, 8) : undefined,
+      }));
 
-      workerSocket.emit(
-        "worker:create-terminal",
-        terminalCreationCommand,
-        (result) => {
-          clearTimeout(timeout);
-          serverLogger.info(
-            `[AgentSpawner] Got response from worker:create-terminal at ${new Date().toISOString()}:`,
-            result
-          );
-          if (result.error) {
-            reject(result.error);
-            return;
-          }
-          serverLogger.info("Terminal created successfully", result);
-          resolve(result.data);
-        }
+      await sandbox.createTerminal({
+        terminalId: tmuxSessionName,
+        command: terminalCreationCommand.ptyCommand ? "bash" : terminalCreationCommand.command,
+        args: terminalCreationCommand.ptyCommand
+          ? ["-c", terminalCreationCommand.ptyCommand]
+          : terminalCreationCommand.args,
+        cols: terminalCreationCommand.cols,
+        rows: terminalCreationCommand.rows,
+        env: terminalCreationCommand.env,
+        cwd: "/workspace", // bubblewrap mounts at /workspace
+        taskRunId: String(terminalCreationCommand.taskRunId),
+        agentModel: terminalCreationCommand.agentModel,
+        authFiles: sandboxAuthFiles,
+        startupCommands: terminalCreationCommand.startupCommands,
+        postStartCommands: terminalCreationCommand.postStartCommands,
+        backend: terminalCreationCommand.backend,
+        ptyCommand: terminalCreationCommand.ptyCommand,
+        taskRunContext: terminalCreationCommand.taskRunContext,
+      });
+
+      serverLogger.info("Terminal created successfully via sandbox.createTerminal()");
+    } else if (workerSocket) {
+      // VSCodeInstance: use socket.io
+      serverLogger.info(
+        `[AgentSpawner] About to emit worker:create-terminal at ${new Date().toISOString()}`
       );
       serverLogger.info(
-        `[AgentSpawner] Emitted worker:create-terminal at ${new Date().toISOString()}`
+        `[AgentSpawner] Socket connected:`,
+        workerSocket.connected
       );
-    });
+      serverLogger.info(`[AgentSpawner] Socket id:`, workerSocket.id);
+
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          serverLogger.error(
+            `[AgentSpawner] Timeout waiting for terminal creation response after 30s`
+          );
+          reject(new Error("Timeout waiting for terminal creation"));
+        }, 30000);
+
+        workerSocket.emit(
+          "worker:create-terminal",
+          terminalCreationCommand,
+          (result) => {
+            clearTimeout(timeout);
+            serverLogger.info(
+              `[AgentSpawner] Got response from worker:create-terminal at ${new Date().toISOString()}:`,
+              result
+            );
+            if (result.error) {
+              reject(result.error);
+              return;
+            }
+            serverLogger.info("Terminal created successfully", result);
+            resolve(result.data);
+          }
+        );
+        serverLogger.info(
+          `[AgentSpawner] Emitted worker:create-terminal at ${new Date().toISOString()}`
+        );
+      });
+    } else {
+      throw new Error("No sandbox or workerSocket available for terminal creation");
+    }
 
     return {
       agentName: agent.name,

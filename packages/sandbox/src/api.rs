@@ -2,7 +2,9 @@ use crate::errors::{ErrorBody, SandboxError, SandboxResult};
 use crate::models::{
     AwaitReadyRequest, AwaitReadyResponse, CreateSandboxRequest, ExecRequest, ExecResponse,
     HealthResponse, HostEvent, NotificationLevel, NotificationLogEntry, NotificationRequest,
-    OpenUrlRequest, PruneRequest, PruneResponse, PrunedItem, SandboxSummary, ServiceReadiness,
+    OpenUrlRequest, PruneRequest, PruneResponse, PrunedItem, PtyCaptureResponse, PtyCreateRequest,
+    PtyInputRequest, PtyResizeRequest, PtySessionInfo, PtySessionList, SandboxSummary,
+    ServiceReadiness,
 };
 use crate::notifications::NotificationStore;
 use crate::service::{AppState, GhResponseRegistry, HostEventSender, SandboxService};
@@ -56,6 +58,13 @@ fn default_tty() -> bool {
         send_notification,
         prune_orphaned,
         await_ready,
+        pty_list_sessions,
+        pty_create_session,
+        pty_get_session,
+        pty_delete_session,
+        pty_resize_session,
+        pty_capture_session,
+        pty_send_input,
     ),
     components(schemas(
         CreateSandboxRequest,
@@ -75,9 +84,18 @@ fn default_tty() -> bool {
         PrunedItem,
         AwaitReadyRequest,
         AwaitReadyResponse,
-        ServiceReadiness
+        ServiceReadiness,
+        PtyCreateRequest,
+        PtySessionInfo,
+        PtySessionList,
+        PtyCaptureResponse,
+        PtyResizeRequest,
+        PtyInputRequest
     )),
-    tags((name = "sandboxes", description = "Manage bubblewrap-based sandboxes"))
+    tags(
+        (name = "sandboxes", description = "Manage bubblewrap-based sandboxes"),
+        (name = "pty", description = "PTY session management")
+    )
 )]
 pub struct ApiDoc;
 
@@ -111,7 +129,7 @@ pub fn build_router(
         .route("/sandboxes/{id}/attach", any(attach_sandbox))
         .route("/sandboxes/{id}/proxy", any(proxy_sandbox))
         .route("/sandboxes/{id}/await-ready", post(await_ready))
-        // PTY proxy endpoints - direct access to sandbox's cmux-pty
+        // HTTP PTY session management - handled directly by sandboxd
         .route(
             "/sandboxes/{id}/pty/sessions",
             get(pty_list_sessions).post(pty_create_session),
@@ -127,6 +145,10 @@ pub fn build_router(
         .route(
             "/sandboxes/{id}/pty/sessions/{session_id}/capture",
             get(pty_capture_session),
+        )
+        .route(
+            "/sandboxes/{id}/pty/sessions/{session_id}/input",
+            post(pty_send_input),
         )
         .route(
             "/sandboxes/{id}/pty/sessions/{session_id}/attach",
@@ -874,232 +896,224 @@ async fn await_ready(
     Ok(Json(response))
 }
 
-// =============================================================================
-// PTY Proxy Endpoints - Direct access to sandbox's cmux-pty service
-// =============================================================================
-
-const PTY_PORT: u16 = 39383;
-
-/// Get the sandbox IP address from the service.
-async fn get_sandbox_ip(state: &AppState, id: &str) -> SandboxResult<String> {
-    let sandbox = state
-        .service
-        .get(id.to_string())
-        .await?
-        .ok_or_else(|| SandboxError::NotFound(Uuid::nil()))?;
-    Ok(sandbox.network.sandbox_ip)
-}
-
-/// Helper to proxy HTTP requests to a sandbox's cmux-pty service.
-async fn proxy_pty_request(
-    sandbox_ip: &str,
-    method: reqwest::Method,
-    path: &str,
-    body: Option<Vec<u8>>,
-    content_type: Option<&str>,
-) -> Response {
-    let target_url = format!("http://{}:{}{}", sandbox_ip, PTY_PORT, path);
-
-    tracing::debug!(
-        sandbox_ip = %sandbox_ip,
-        target_url = %target_url,
-        method = %method,
-        "PTY proxy request"
-    );
-
-    let client = reqwest::Client::builder()
-        .http1_only()
-        .timeout(std::time::Duration::from_secs(30))
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
-
-    let mut req = client.request(method, &target_url);
-
-    if let Some(ct) = content_type {
-        req = req.header("Content-Type", ct);
-    }
-
-    if let Some(body_bytes) = body {
-        req = req.body(body_bytes);
-    }
-
-    match req.send().await {
-        Ok(resp) => {
-            let status = StatusCode::from_u16(resp.status().as_u16())
-                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-
-            let mut response = Response::builder().status(status);
-
-            // Copy content-type header
-            if let Some(ct) = resp.headers().get("content-type") {
-                if let Ok(val) = axum::http::header::HeaderValue::from_bytes(ct.as_bytes()) {
-                    response = response.header("Content-Type", val);
-                }
-            }
-
-            match resp.bytes().await {
-                Ok(body) => response
-                    .body(Body::from(body))
-                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
-                Err(e) => {
-                    tracing::error!("Failed to read PTY proxy response: {e}");
-                    StatusCode::BAD_GATEWAY.into_response()
-                }
-            }
-        }
-        Err(e) => {
-            tracing::error!("PTY proxy request failed: {e}");
-            (StatusCode::BAD_GATEWAY, format!("PTY proxy error: {e}")).into_response()
-        }
-    }
-}
+// ============================================================================
+// HTTP PTY Session Handlers
+// ============================================================================
 
 /// List all PTY sessions in a sandbox.
+#[utoipa::path(
+    get,
+    path = "/sandboxes/{id}/pty/sessions",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID")
+    ),
+    responses(
+        (status = 200, description = "List of PTY sessions", body = PtySessionList),
+        (status = 404, description = "Sandbox not found", body = ErrorBody)
+    )
+)]
 async fn pty_list_sessions(
     state: axum::extract::State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    proxy_pty_request(&sandbox_ip, reqwest::Method::GET, "/sessions", None, None).await
+    match state.service.pty_list_sessions(id).await {
+        Ok(sessions) => Json(PtySessionList { sessions }).into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Create a new PTY session in a sandbox.
+#[utoipa::path(
+    post,
+    path = "/sandboxes/{id}/pty/sessions",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID")
+    ),
+    request_body = PtyCreateRequest,
+    responses(
+        (status = 200, description = "Created PTY session", body = PtySessionInfo),
+        (status = 404, description = "Sandbox not found", body = ErrorBody),
+        (status = 400, description = "Invalid request", body = ErrorBody)
+    )
+)]
 async fn pty_create_session(
     state: axum::extract::State<AppState>,
     Path(id): Path<String>,
-    body: axum::body::Bytes,
+    Json(request): Json<PtyCreateRequest>,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    proxy_pty_request(
-        &sandbox_ip,
-        reqwest::Method::POST,
-        "/sessions",
-        Some(body.to_vec()),
-        Some("application/json"),
-    )
-    .await
+    match state.service.pty_create_session(id, request).await {
+        Ok(session) => Json(session).into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Get a specific PTY session.
+#[utoipa::path(
+    get,
+    path = "/sandboxes/{id}/pty/sessions/{session_id}",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID"),
+        ("session_id" = String, Path, description = "PTY session ID")
+    ),
+    responses(
+        (status = 200, description = "PTY session info", body = PtySessionInfo),
+        (status = 404, description = "Sandbox or session not found", body = ErrorBody)
+    )
+)]
 async fn pty_get_session(
     state: axum::extract::State<AppState>,
     Path((id, session_id)): Path<(String, String)>,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    let path = format!("/sessions/{}", session_id);
-    proxy_pty_request(&sandbox_ip, reqwest::Method::GET, &path, None, None).await
+    match state.service.pty_get_session(id, session_id).await {
+        Ok(Some(session)) => Json(session).into_response(),
+        Ok(None) => {
+            SandboxError::InvalidRequest("PTY session not found".to_string()).into_response()
+        }
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Delete a PTY session.
+#[utoipa::path(
+    delete,
+    path = "/sandboxes/{id}/pty/sessions/{session_id}",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID"),
+        ("session_id" = String, Path, description = "PTY session ID")
+    ),
+    responses(
+        (status = 204, description = "Session deleted"),
+        (status = 404, description = "Sandbox or session not found", body = ErrorBody)
+    )
+)]
 async fn pty_delete_session(
     state: axum::extract::State<AppState>,
     Path((id, session_id)): Path<(String, String)>,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    let path = format!("/sessions/{}", session_id);
-    proxy_pty_request(&sandbox_ip, reqwest::Method::DELETE, &path, None, None).await
+    match state.service.pty_delete_session(id, session_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Resize a PTY session.
+#[utoipa::path(
+    post,
+    path = "/sandboxes/{id}/pty/sessions/{session_id}/resize",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID"),
+        ("session_id" = String, Path, description = "PTY session ID")
+    ),
+    request_body = PtyResizeRequest,
+    responses(
+        (status = 204, description = "Session resized"),
+        (status = 404, description = "Sandbox or session not found", body = ErrorBody)
+    )
+)]
 async fn pty_resize_session(
     state: axum::extract::State<AppState>,
     Path((id, session_id)): Path<(String, String)>,
-    body: axum::body::Bytes,
+    Json(request): Json<PtyResizeRequest>,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    let path = format!("/sessions/{}/resize", session_id);
-    proxy_pty_request(
-        &sandbox_ip,
-        reqwest::Method::POST,
-        &path,
-        Some(body.to_vec()),
-        Some("application/json"),
-    )
-    .await
+    match state
+        .service
+        .pty_resize_session(id, session_id, request)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Capture PTY session content.
+#[utoipa::path(
+    get,
+    path = "/sandboxes/{id}/pty/sessions/{session_id}/capture",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID"),
+        ("session_id" = String, Path, description = "PTY session ID")
+    ),
+    responses(
+        (status = 200, description = "Terminal content", body = PtyCaptureResponse),
+        (status = 404, description = "Sandbox or session not found", body = ErrorBody)
+    )
+)]
 async fn pty_capture_session(
     state: axum::extract::State<AppState>,
     Path((id, session_id)): Path<(String, String)>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
+    match state.service.pty_capture_session(id, session_id).await {
+        Ok(capture) => Json(capture).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
 
-    let query_string = if params.is_empty() {
-        String::new()
-    } else {
-        let qs: Vec<String> = params.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-        format!("?{}", qs.join("&"))
-    };
-
-    let path = format!("/sessions/{}/capture{}", session_id, query_string);
-    proxy_pty_request(&sandbox_ip, reqwest::Method::GET, &path, None, None).await
+/// Send input to a PTY session.
+#[utoipa::path(
+    post,
+    path = "/sandboxes/{id}/pty/sessions/{session_id}/input",
+    tag = "pty",
+    params(
+        ("id" = String, Path, description = "Sandbox ID"),
+        ("session_id" = String, Path, description = "PTY session ID")
+    ),
+    request_body = PtyInputRequest,
+    responses(
+        (status = 204, description = "Input sent"),
+        (status = 404, description = "Sandbox or session not found", body = ErrorBody)
+    )
+)]
+async fn pty_send_input(
+    state: axum::extract::State<AppState>,
+    Path((id, session_id)): Path<(String, String)>,
+    Json(request): Json<PtyInputRequest>,
+) -> Response {
+    match state
+        .service
+        .pty_send_input(id, session_id, request.data)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// WebSocket attach to a PTY session.
+/// Note: For HTTP PTY sessions, prefer using input/capture endpoints.
+/// This endpoint is kept for compatibility but requires cmux-pty to be running.
 async fn pty_attach_session(
-    state: axum::extract::State<AppState>,
-    Path((id, session_id)): Path<(String, String)>,
-    ws: WebSocketUpgrade,
+    _state: axum::extract::State<AppState>,
+    Path((_id, _session_id)): Path<(String, String)>,
+    _ws: WebSocketUpgrade,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    let path = format!("/sessions/{}/attach", session_id);
-
-    ws.on_upgrade(move |socket| async move {
-        if let Err(e) = proxy_websocket(socket, &sandbox_ip, PTY_PORT, &path).await {
-            tracing::error!("PTY WebSocket proxy error: {e}");
-        }
-    })
+    // HTTP PTY sessions use input/capture endpoints instead of WebSocket attach
+    // For real-time streaming, use the /mux/attach endpoint instead
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        "WebSocket attach not supported for HTTP PTY sessions. Use /mux/attach for streaming or input/capture endpoints for polling.",
+    )
+        .into_response()
 }
 
 /// Send a signal to PTY processes in a sandbox.
+/// Note: Signal sending is not yet implemented for HTTP PTY sessions.
 async fn pty_signal(
-    state: axum::extract::State<AppState>,
-    Path(id): Path<String>,
-    body: axum::body::Bytes,
+    _state: axum::extract::State<AppState>,
+    Path(_id): Path<String>,
+    _body: axum::body::Bytes,
 ) -> Response {
-    let sandbox_ip = match get_sandbox_ip(&state, &id).await {
-        Ok(ip) => ip,
-        Err(e) => return e.into_response(),
-    };
-
-    proxy_pty_request(
-        &sandbox_ip,
-        reqwest::Method::POST,
-        "/signal",
-        Some(body.to_vec()),
-        Some("application/json"),
+    // TODO: Implement signal sending for HTTP PTY sessions
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        "Signal sending not yet implemented for HTTP PTY sessions",
     )
-    .await
+        .into_response()
 }
 
 #[cfg(test)]
@@ -1202,6 +1216,67 @@ mod tests {
                 },
                 timed_out: vec![],
             })
+        }
+
+        async fn pty_create_session(
+            &self,
+            _sandbox_id: String,
+            _request: PtyCreateRequest,
+        ) -> SandboxResult<PtySessionInfo> {
+            unimplemented!("mock pty_create_session")
+        }
+
+        async fn pty_list_sessions(
+            &self,
+            _sandbox_id: String,
+        ) -> SandboxResult<Vec<PtySessionInfo>> {
+            Ok(vec![])
+        }
+
+        async fn pty_get_session(
+            &self,
+            _sandbox_id: String,
+            _session_id: String,
+        ) -> SandboxResult<Option<PtySessionInfo>> {
+            Ok(None)
+        }
+
+        async fn pty_capture_session(
+            &self,
+            _sandbox_id: String,
+            _session_id: String,
+        ) -> SandboxResult<PtyCaptureResponse> {
+            Ok(PtyCaptureResponse {
+                content: String::new(),
+                cursor_x: 0,
+                cursor_y: 0,
+            })
+        }
+
+        async fn pty_resize_session(
+            &self,
+            _sandbox_id: String,
+            _session_id: String,
+            _request: PtyResizeRequest,
+        ) -> SandboxResult<()> {
+            Ok(())
+        }
+
+        async fn pty_send_input(
+            &self,
+            _sandbox_id: String,
+            _session_id: String,
+            _data: Vec<u8>,
+        ) -> SandboxResult<()> {
+            Ok(())
+        }
+
+        async fn pty_delete_session(
+            &self,
+            _sandbox_id: String,
+            _session_id: String,
+        ) -> SandboxResult<()> {
+            Ok(())
         }
     }
 

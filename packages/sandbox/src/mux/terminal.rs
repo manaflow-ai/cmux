@@ -866,6 +866,39 @@ impl VirtualTerminal {
         self.internal_grid.cursor_col
     }
 
+    /// Get cursor position as (col, row) tuple
+    #[inline]
+    pub fn cursor_position(&self) -> (u16, u16) {
+        (
+            self.internal_grid.cursor_col as u16,
+            self.internal_grid.cursor_row as u16,
+        )
+    }
+
+    /// Capture the current terminal content as plain text.
+    /// Returns the visible screen content with each line separated by newlines.
+    pub fn capture(&self) -> String {
+        let mut result = String::new();
+        let rows = self.rows();
+        let lines = self.visible_lines(rows, 0);
+
+        for (i, row) in lines.iter().enumerate() {
+            if i > 0 {
+                result.push('\n');
+            }
+            // Build the row content
+            let mut row_content = String::new();
+            for cell in row.iter() {
+                row_content.push(cell.character);
+            }
+            // Trim trailing spaces from this row
+            let trimmed = row_content.trim_end_matches(' ');
+            result.push_str(trimmed);
+        }
+
+        result
+    }
+
     /// Set cursor row
     #[inline]
     pub fn set_cursor_row(&mut self, row: usize) {

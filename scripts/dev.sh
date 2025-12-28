@@ -63,6 +63,11 @@ SKIP_CONVEX="${SKIP_CONVEX:-true}"
 RUN_ELECTRON=false
 SKIP_DOCKER_BUILD="${SKIP_DOCKER_BUILD:-true}"
 CONVEX_AGENT_MODE=false
+# cmux-sandboxd container settings
+SANDBOXD_CONTAINER_NAME="cmux-sandboxd"
+# Use locally-built image by default, fall back to GHCR if not available
+SANDBOXD_IMAGE="cmux-sandbox:local"
+SANDBOXD_PORT=46831
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -159,9 +164,10 @@ if [ "$IS_DEVCONTAINER" = "false" ]; then
     clean_ports $PORTS_TO_CHECK
 fi
 
-# Build Docker image (different logic for devcontainer vs host)
-# Allow overriding the build platform for cross-architecture builds
-DOCKER_BUILD_ARGS=(-t cmux-worker:0.0.1)
+# Build cmux-sandbox Docker image from packages/sandbox/Dockerfile
+# This builds the sandboxd container that runs bubblewrap sandboxes
+SANDBOX_IMAGE_NAME="cmux-sandbox:local"
+DOCKER_BUILD_ARGS=(-t "$SANDBOX_IMAGE_NAME" -f packages/sandbox/Dockerfile)
 if [ -n "${CMUX_DOCKER_PLATFORM:-}" ]; then
     DOCKER_BUILD_ARGS+=(--platform "${CMUX_DOCKER_PLATFORM}")
 fi
@@ -188,13 +194,13 @@ fi
 DOCKER_BUILD_PID=""
 if [ "$IS_DEVCONTAINER" = "true" ]; then
     # In devcontainer, always build since we have access to docker socket
-    echo "Building Docker image..."
-    docker build "${DOCKER_BUILD_ARGS[@]}" "$APP_DIR" &
+    echo "Building sandbox Docker image from packages/sandbox/Dockerfile..."
+    docker build "${DOCKER_BUILD_ARGS[@]}" . &
     DOCKER_BUILD_PID=$!
 else
     # On host, build by default unless explicitly skipped
     if [ "$SKIP_DOCKER_BUILD" != "true" ] || [ "$FORCE_DOCKER_BUILD" = "true" ]; then
-        echo "Building Docker image..."
+        echo "Building sandbox Docker image from packages/sandbox/Dockerfile..."
         docker build "${DOCKER_BUILD_ARGS[@]}" . &
         DOCKER_BUILD_PID=$!
     else
@@ -230,6 +236,9 @@ cleanup() {
     [ -n "$SERVER_GLOBAL_PID" ] && kill $SERVER_GLOBAL_PID 2>/dev/null
     [ -n "$OPENAPI_CLIENT_PID" ] && kill $OPENAPI_CLIENT_PID 2>/dev/null
     [ -n "$ELECTRON_PID" ] && kill $ELECTRON_PID 2>/dev/null
+    # Stop cmux-sandboxd container (leave it running for development)
+    # Uncomment the following line to stop the container on exit:
+    # docker stop "$SANDBOXD_CONTAINER_NAME" 2>/dev/null
     # Give processes time to cleanup
     sleep 1
     # Force kill any remaining processes
@@ -265,6 +274,83 @@ if [ -n "$DOCKER_BUILD_PID" ]; then
         exit 1
     fi
     echo -e "${GREEN}Docker build completed${NC}"
+fi
+
+# Start cmux-sandboxd container for local sandbox mode
+# This container runs bubblewrap-based sandboxes for agent isolation
+start_sandboxd() {
+    echo -e "${BLUE}Setting up cmux-sandboxd container...${NC}"
+
+    # Check if Docker is available
+    if ! command -v docker >/dev/null 2>&1; then
+        echo -e "${YELLOW}Docker not found, skipping cmux-sandboxd setup${NC}"
+        return 0
+    fi
+
+    # Check if Docker daemon is running
+    if ! docker info >/dev/null 2>&1; then
+        echo -e "${YELLOW}Docker daemon not running, skipping cmux-sandboxd setup${NC}"
+        return 0
+    fi
+
+    # Check if container already exists and is running
+    if docker ps -q -f "name=$SANDBOXD_CONTAINER_NAME" 2>/dev/null | grep -q .; then
+        echo -e "${GREEN}cmux-sandboxd container already running${NC}"
+        return 0
+    fi
+
+    # Remove stopped container if it exists
+    if docker ps -aq -f "name=$SANDBOXD_CONTAINER_NAME" 2>/dev/null | grep -q .; then
+        echo -e "${YELLOW}Removing stopped cmux-sandboxd container...${NC}"
+        docker rm "$SANDBOXD_CONTAINER_NAME" 2>/dev/null || true
+    fi
+
+    # Create cmux data directory for workspaces
+    CMUX_DATA_DIR="${HOME}/cmux"
+    mkdir -p "$CMUX_DATA_DIR"
+
+    # Determine which image to use: local build or GHCR fallback
+    local image_to_use="$SANDBOXD_IMAGE"
+    if ! docker image inspect "$SANDBOXD_IMAGE" >/dev/null 2>&1; then
+        echo -e "${YELLOW}Local image $SANDBOXD_IMAGE not found, falling back to GHCR...${NC}"
+        image_to_use="ghcr.io/manaflow-ai/cmux-sandbox:latest"
+    fi
+
+    # Start the sandboxd container with systemd
+    # Uses same flags as `cmux sandbox start` for proper cgroup/systemd support
+    # Pass CMUX_SANDBOX_PORT so the internal server listens on the correct port
+    echo -e "${BLUE}Starting cmux-sandboxd container on port $SANDBOXD_PORT using $image_to_use...${NC}"
+    if ! docker run -d --privileged \
+        --cgroupns=host \
+        -e "CMUX_SANDBOX_PORT=$SANDBOXD_PORT" \
+        -p "$SANDBOXD_PORT:$SANDBOXD_PORT" \
+        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+        -v "$CMUX_DATA_DIR:/var/lib/cmux:rw" \
+        --tmpfs /run:mode=755 \
+        --tmpfs /run/lock:mode=755 \
+        --name "$SANDBOXD_CONTAINER_NAME" \
+        "$image_to_use"; then
+        echo -e "${YELLOW}Failed to start cmux-sandboxd container, local sandbox mode may not work${NC}"
+        return 0
+    fi
+
+    # Wait for sandboxd to be ready
+    echo -e "${BLUE}Waiting for cmux-sandboxd to be ready...${NC}"
+    for i in {1..30}; do
+        if curl -s -f "http://localhost:$SANDBOXD_PORT/healthz" > /dev/null 2>&1; then
+            echo -e "${GREEN}cmux-sandboxd is ready${NC}"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo -e "${YELLOW}cmux-sandboxd may not be fully ready, continuing...${NC}"
+    return 0
+}
+
+# Only start sandboxd on host (not in devcontainer where Docker-in-Docker may be limited)
+if [ "$IS_DEVCONTAINER" = "false" ]; then
+    start_sandboxd
 fi
 
 # Function to prefix output with colored labels
@@ -437,6 +523,9 @@ echo -e "${BLUE}Backend: http://localhost:9776${NC}"
 echo -e "${BLUE}WWW: http://localhost:9779${NC}"
 if [ "$SKIP_CONVEX" != "true" ]; then
     echo -e "${BLUE}Convex: http://localhost:$CONVEX_PORT${NC}"
+fi
+if [ "$IS_DEVCONTAINER" = "false" ]; then
+    echo -e "${BLUE}Sandboxd: http://localhost:$SANDBOXD_PORT${NC}"
 fi
 if [ "$RUN_ELECTRON" = "true" ]; then
     echo -e "${BLUE}Electron app is starting...${NC}"

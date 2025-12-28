@@ -317,6 +317,71 @@ pub enum BridgeRequest {
         #[serde(default)]
         pane_id: Option<String>,
     },
+    /// List PTY sessions in the sandbox
+    PtyList { sandbox_id: String },
+    /// Get a specific PTY session
+    PtyGet {
+        sandbox_id: String,
+        session_id: String,
+    },
+    /// Create a new PTY session
+    PtyCreate {
+        sandbox_id: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default = "default_bridge_command")]
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default = "default_bridge_cols")]
+        cols: u16,
+        #[serde(default = "default_bridge_rows")]
+        rows: u16,
+        #[serde(default = "default_bridge_cwd")]
+        cwd: String,
+        #[serde(default)]
+        env: std::collections::HashMap<String, String>,
+    },
+    /// Send input to a PTY session
+    PtyInput {
+        sandbox_id: String,
+        session_id: String,
+        /// Base64-encoded input data
+        data: String,
+    },
+    /// Resize a PTY session
+    PtyResize {
+        sandbox_id: String,
+        session_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    /// Capture PTY session content
+    PtyCapture {
+        sandbox_id: String,
+        session_id: String,
+    },
+    /// Delete a PTY session
+    PtyDelete {
+        sandbox_id: String,
+        session_id: String,
+    },
+}
+
+fn default_bridge_command() -> String {
+    "/bin/bash".to_string()
+}
+
+fn default_bridge_cols() -> u16 {
+    80
+}
+
+fn default_bridge_rows() -> u16 {
+    24
+}
+
+fn default_bridge_cwd() -> String {
+    "/workspace".to_string()
 }
 
 /// Response from the bridge socket.
@@ -333,6 +398,18 @@ pub enum BridgeResponse {
         exit_code: i32,
         stdout: String,
         stderr: String,
+    },
+    /// Response to PTY list request
+    PtyList { sessions: Vec<PtySessionInfo> },
+    /// Response to PTY get request
+    PtySession { session: Option<PtySessionInfo> },
+    /// Response to PTY create request
+    PtyCreated { session: PtySessionInfo },
+    /// Response to PTY capture request
+    PtyCapture {
+        content: String,
+        cursor_x: u16,
+        cursor_y: u16,
     },
 }
 
@@ -480,6 +557,101 @@ pub enum MuxServerMessage {
 
 fn default_tty() -> bool {
     true
+}
+
+// ============================================================================
+// HTTP PTY Session Types
+// ============================================================================
+
+/// Request to create a new PTY session in a sandbox.
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct PtyCreateRequest {
+    /// Optional session name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Command to run (default: /bin/bash)
+    #[serde(default = "default_command")]
+    pub command: String,
+    /// Command arguments
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Terminal columns (default: 80)
+    #[serde(default = "default_cols")]
+    pub cols: u16,
+    /// Terminal rows (default: 24)
+    #[serde(default = "default_rows")]
+    pub rows: u16,
+    /// Working directory (default: /workspace)
+    #[serde(default = "default_cwd")]
+    pub cwd: String,
+    /// Environment variables as key-value pairs
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+}
+
+fn default_command() -> String {
+    "/bin/bash".to_string()
+}
+
+fn default_cwd() -> String {
+    "/workspace".to_string()
+}
+
+fn default_cols() -> u16 {
+    80
+}
+
+fn default_rows() -> u16 {
+    24
+}
+
+/// Information about a PTY session.
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+pub struct PtySessionInfo {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cols: u16,
+    pub rows: u16,
+    pub cwd: String,
+    pub created_at: DateTime<Utc>,
+    pub exited: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
+/// List of PTY sessions.
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct PtySessionList {
+    pub sessions: Vec<PtySessionInfo>,
+}
+
+/// Response from capturing PTY terminal content.
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct PtyCaptureResponse {
+    /// Terminal content as text
+    pub content: String,
+    /// Cursor X position (column)
+    pub cursor_x: u16,
+    /// Cursor Y position (row)
+    pub cursor_y: u16,
+}
+
+/// Request to resize a PTY session.
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct PtyResizeRequest {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// Request to send input to a PTY session.
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct PtyInputRequest {
+    /// Base64-encoded input data
+    #[serde(with = "base64_bytes")]
+    pub data: Vec<u8>,
 }
 
 /// Helper module for base64 encoding/decoding of byte vectors in JSON.

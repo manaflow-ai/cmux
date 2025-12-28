@@ -7,7 +7,7 @@ import { rewriteLocalWorkspaceUrlIfNeeded } from "@/lib/toProxyWorkspaceUrl";
 import { useLocalVSCodeServeWebQuery } from "@/queries/local-vscode-serve-web";
 
 type NetworkingInfo = Doc<"taskRuns">["networking"];
-type VSCodeProvider = "docker" | "morph" | "daytona" | "other" | undefined;
+type VSCodeProvider = "docker" | "morph" | "daytona" | "bubblewrap" | "other" | undefined;
 
 type OpenWithAction = {
   id: EditorType;
