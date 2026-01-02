@@ -18,6 +18,13 @@
         "naumovs.color-highlight"
       ],
       "settings": {
+        "security.workspace.trust.enabled": false,
+        "security.workspace.trust.untrustedFiles": "open",
+        "security.workspace.trust.startupPrompt": "never",
+        "security.workspace.trust.emptyWindow": true,
+        "security.workspace.trust.banner": "never",
+        "chat.agent.enabled": false,
+        "github.copilot.chat.agent.runTasks": false,
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
         "editor.codeActionsOnSave": {
@@ -43,7 +50,7 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "CI=1 bun install --frozen-lockfile",
+  "postCreateCommand": "CI=1 bun install --frozen-lockfile && (command -v claude && claude completions zsh > ~/.zsh/completions/_claude 2>/dev/null || true)",
   "postStartCommand": "bash /root/workspace/scripts/dev.sh",
   "remoteUser": "root",
   "features": {

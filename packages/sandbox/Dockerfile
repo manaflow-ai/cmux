@@ -260,10 +260,26 @@ RUN arch="$(uname -m)"; \
     "https://github.com/manaflow-ai/vscode-1/releases/download/v${CMUX_CODE_RELEASE}/vscode-server-linux-${ARCH}-web.tar.gz"; \
   tar xf /tmp/cmux-code.tar.gz -C /app/cmux-code/ --strip-components=1; \
   rm -rf /tmp/cmux-code.tar.gz; \
-  # Create VS Code settings directory with default config
+  # Create VS Code settings directory with default config (trust disabled, no agent prompts)
   mkdir -p /root/.vscode-server-oss/data/User /root/.vscode-server-oss/extensions; \
-  echo '{"workbench.startupEditor":"none","security.workspace.trust.enabled":false,"extensions.verifySignature":false,"telemetry.telemetryLevel":"off"}' \
+  echo '{"workbench.startupEditor":"none","security.workspace.trust.enabled":false,"security.workspace.trust.untrustedFiles":"open","security.workspace.trust.startupPrompt":"never","security.workspace.trust.emptyWindow":true,"security.workspace.trust.banner":"never","chat.agent.enabled":false,"github.copilot.chat.agent.runTasks":false,"extensions.verifySignature":false,"telemetry.telemetryLevel":"off"}' \
     > /root/.vscode-server-oss/data/User/settings.json
+
+# Set up VS Code settings for all common server directories (code-server, openvscode-server, vscode-server)
+RUN SETTINGS='{"security.workspace.trust.enabled":false,"security.workspace.trust.untrustedFiles":"open","security.workspace.trust.startupPrompt":"never","security.workspace.trust.emptyWindow":true,"security.workspace.trust.banner":"never","chat.agent.enabled":false,"github.copilot.chat.agent.runTasks":false}' && \
+    for dir in \
+      /root/.code-server/User /root/.code-server/Machine \
+      /root/.openvscode-server/data/User /root/.openvscode-server/data/Machine \
+      /root/.vscode-server/data/User /root/.vscode-server/data/Machine; do \
+      mkdir -p "$dir" && echo "$SETTINGS" > "$dir/settings.json"; \
+    done
+
+# Set up zsh completions directory and compinit
+RUN mkdir -p /root/.zsh/completions && \
+    echo 'fpath=(~/.zsh/completions $fpath)' >> /root/.zshrc && \
+    echo 'autoload -Uz compinit && compinit -C' >> /root/.zshrc && \
+    # Generate claude completions
+    claude completions zsh > /root/.zsh/completions/_claude 2>/dev/null || true
 
 # Configure sshd for sandbox access
 RUN mkdir -p /run/sshd && \
