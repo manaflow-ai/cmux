@@ -117,6 +117,18 @@
     "./hooks/use-network": {
       "import": "./src/hooks/use-network.ts",
       "types": "./src/hooks/use-network.ts"
+    },
+    "./components/use-vnc-recorder": {
+      "import": "./src/components/use-vnc-recorder.ts",
+      "types": "./src/components/use-vnc-recorder.ts"
+    },
+    "./components/use-vnc-recording-session": {
+      "import": "./src/components/use-vnc-recording-session.ts",
+      "types": "./src/components/use-vnc-recording-session.ts"
+    },
+    "./components/use-auto-checkpoints": {
+      "import": "./src/components/use-auto-checkpoints.ts",
+      "types": "./src/components/use-auto-checkpoints.ts"
     }
   },
   "peerDependencies": {

@@ -1,8 +1,5 @@
 import type { AvailableEditors } from "@cmux/shared";
-import {
-  connectToMainServer,
-  type MainServerSocket,
-} from "@cmux/shared/socket";
+import { connectToMainServer } from "@cmux/shared/socket";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import React, { useEffect, useMemo } from "react";
@@ -12,12 +9,7 @@ import { authJsonQueryOptions } from "../convex/authJsonQueryOptions";
 import { setGlobalSocket, socketBoot } from "./socket-boot";
 import { WebSocketContext } from "./socket-context";
 import { env } from "@/client-env";
-
-export interface SocketContextType {
-  socket: MainServerSocket | null;
-  isConnected: boolean;
-  availableEditors: AvailableEditors | null;
-}
+import type { SocketContextType, CmuxSocket } from "./types";
 
 interface SocketProviderProps {
   children: React.ReactNode;
@@ -31,9 +23,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   const authJsonQuery = useQuery(authJsonQueryOptions());
   const authToken = authJsonQuery.data?.accessToken;
   const location = useLocation();
-  const [socket, setSocket] = React.useState<
-    SocketContextType["socket"] | null
-  >(null);
+  const [socket, setSocket] = React.useState<CmuxSocket | null>(null);
   const [isConnected, setIsConnected] = React.useState(false);
   const [availableEditors, setAvailableEditors] =
     React.useState<SocketContextType["availableEditors"]>(null);
@@ -52,7 +42,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       return;
     }
     let disposed = false;
-    let createdSocket: MainServerSocket | null = null;
+    let createdSocket: CmuxSocket | null = null;
     (async () => {
       // Fetch full auth JSON for server to forward as x-stack-auth
       const user = await cachedGetUser(stackClientApp);

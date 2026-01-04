@@ -1,0 +1,27 @@
+{
+  "name": "bd-tui",
+  "version": "1.0.0",
+  "module": "index.tsx",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "bd-tui": "./index.tsx"
+  },
+  "scripts": {
+    "start": "bun run index.tsx",
+    "dev": "bun --watch run index.tsx"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ink": "^6.6.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.3",
+    "zod": "^4.2.1"
+  }
+}

@@ -1,5 +1,10 @@
 #!/bin/bash
-# Runs bun check and reports errors to Claude
+# ============================================================================
+# HOOK: bun-check.sh
+# EVENT: Stop (2nd in chain)
+# PURPOSE: Runs `bun check` for TypeScript type errors and linting
+# DISABLE: BUN_CHECK_DISABLED=1
+# ============================================================================
 
 set -euo pipefail
 

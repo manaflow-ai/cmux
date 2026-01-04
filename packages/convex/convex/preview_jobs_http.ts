@@ -394,22 +394,7 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
           }
         );
 
-        if (updateResult.ok) {
-          console.log("[preview-jobs-http] Successfully updated GitHub comment", {
-            taskRunId,
-            previewRunId: previewRun._id,
-            commentId: commentIdToUpdate,
-          });
-
-          const taskCompletion = await markPreviewTaskCompleted(ctx, taskRun, task);
-
-          return jsonResponse({
-            success: true,
-            commentUrl: previewRun.githubCommentUrl,
-            runStatusUpdated: taskCompletion.runStatusUpdated,
-            alreadyCompleted: taskCompletion.taskAlreadyCompleted,
-          });
-        } else {
+        if (updateResult.ok === false) {
           console.error("[preview-jobs-http] Failed to update GitHub comment", {
             taskRunId,
             previewRunId: previewRun._id,
@@ -421,6 +406,21 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
             error: `Failed to update GitHub comment: ${updateResult.error}`,
           }, 500);
         }
+
+        console.log("[preview-jobs-http] Successfully updated GitHub comment", {
+          taskRunId,
+          previewRunId: previewRun._id,
+          commentId: commentIdToUpdate,
+        });
+
+        const taskCompletion = await markPreviewTaskCompleted(ctx, taskRun, task);
+
+        return jsonResponse({
+          success: true,
+          commentUrl: previewRun.githubCommentUrl,
+          runStatusUpdated: taskCompletion.runStatusUpdated,
+          alreadyCompleted: taskCompletion.taskAlreadyCompleted,
+        });
       } else {
         // No stored githubCommentId - create a new comment
         console.log("[preview-jobs-http] Posting new GitHub comment (no stored githubCommentId)", {
@@ -441,22 +441,7 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
           }
         );
 
-        if (commentResult.ok) {
-          console.log("[preview-jobs-http] Successfully posted GitHub comment", {
-            taskRunId,
-            previewRunId: previewRun._id,
-            commentUrl: commentResult.commentUrl,
-          });
-
-          const taskCompletion = await markPreviewTaskCompleted(ctx, taskRun, task);
-
-          return jsonResponse({
-            success: true,
-            commentUrl: commentResult.commentUrl,
-            runStatusUpdated: taskCompletion.runStatusUpdated,
-            alreadyCompleted: taskCompletion.taskAlreadyCompleted,
-          });
-        } else {
+        if (commentResult.ok === false) {
           console.error("[preview-jobs-http] Failed to post GitHub comment", {
             taskRunId,
             previewRunId: previewRun._id,
@@ -467,6 +452,21 @@ export const completePreviewJob = httpAction(async (ctx, req) => {
             error: `Failed to post GitHub comment: ${commentResult.error}`,
           }, 500);
         }
+
+        console.log("[preview-jobs-http] Successfully posted GitHub comment", {
+          taskRunId,
+          previewRunId: previewRun._id,
+          commentUrl: commentResult.commentUrl,
+        });
+
+        const taskCompletion = await markPreviewTaskCompleted(ctx, taskRun, task);
+
+        return jsonResponse({
+          success: true,
+          commentUrl: commentResult.commentUrl,
+          runStatusUpdated: taskCompletion.runStatusUpdated,
+          alreadyCompleted: taskCompletion.taskAlreadyCompleted,
+        });
       }
     } else {
       console.log("[preview-jobs-http] No GitHub installation ID, skipping comment", {

@@ -1279,15 +1279,15 @@ export async function runPreviewJob(
         },
       );
 
-      if (initialCommentResult.ok) {
-        console.log("[preview-jobs] Posted initial GitHub comment", {
-          previewRunId,
-          commentId: initialCommentResult.commentId,
-        });
-      } else {
+      if (initialCommentResult.ok === false) {
         console.warn("[preview-jobs] Failed to post initial GitHub comment", {
           previewRunId,
           error: initialCommentResult.error,
+        });
+      } else {
+        console.log("[preview-jobs] Posted initial GitHub comment", {
+          previewRunId,
+          commentId: initialCommentResult.commentId,
         });
       }
     } catch (error) {

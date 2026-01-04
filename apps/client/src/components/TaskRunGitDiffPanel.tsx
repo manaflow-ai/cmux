@@ -3,6 +3,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useQuery } from "convex/react";
 import { MonacoGitDiffViewer } from "./monaco/monaco-git-diff-viewer";
 import { RunScreenshotGallery } from "./RunScreenshotGallery";
+import { RunVideoGallery } from "./RunVideoGallery";
 import { gitDiffQueryOptions } from "@/queries/git-diff";
 import { normalizeGitRef } from "@/lib/refWithOrigin";
 import type { TaskRunWithChildren } from "@/types/task";
@@ -78,7 +79,8 @@ export function TaskRunGitDiffPanel({ task, selectedRun, teamSlugOrId, taskId, s
   );
 
   const screenshotSets = runDiffContext?.screenshotSets ?? [];
-  const screenshotSetsLoading = runDiffContext === undefined && screenshotSets.length === 0;
+  const videoRecordings = runDiffContext?.videoRecordings ?? [];
+  const mediaLoading = runDiffContext === undefined;
 
   if (!selectedRun || !normalizedHeadBranch) {
     return (
@@ -114,15 +116,21 @@ export function TaskRunGitDiffPanel({ task, selectedRun, teamSlugOrId, taskId, s
 
   return (
     <div className="relative h-full min-h-0 overflow-auto">
-      {screenshotSetsLoading ? (
+      {mediaLoading ? (
         <div className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-950/40 px-3.5 py-3 text-sm text-neutral-500 dark:text-neutral-400">
-          Loading screenshots...
+          Loading media...
         </div>
       ) : (
-        <RunScreenshotGallery
-          screenshotSets={screenshotSets}
-          highlightedSetId={selectedRun?.latestScreenshotSetId ?? null}
-        />
+        <>
+          <RunVideoGallery
+            videoRecordings={videoRecordings}
+            highlightedRecordingId={selectedRun?.latestVideoRecordingId ?? null}
+          />
+          <RunScreenshotGallery
+            screenshotSets={screenshotSets}
+            highlightedSetId={selectedRun?.latestScreenshotSetId ?? null}
+          />
+        </>
       )}
       <MonacoGitDiffViewer diffs={allDiffs} />
     </div>

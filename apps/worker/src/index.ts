@@ -225,34 +225,39 @@ const upload = multer({
 const ALLOWED_UPLOAD_ROOT = "/root/prompt";
 
 // File upload endpoint
-app.post("/upload-image", upload.single("image"), async (req, res) => {
+const uploadImageHandler: express.RequestHandler = async (req, res) => {
   try {
     const token = req.header("x-cmux-token");
     const secret = process.env.CMUX_TASK_RUN_JWT_SECRET;
     if (!token || !secret) {
-      return res.status(401).json({ error: "Unauthorized" });
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     try {
       await verifyTaskRunToken(token, secret);
     } catch (error) {
       log("ERROR", "Invalid task run token for upload-image", error);
-      return res.status(401).json({ error: "Unauthorized" });
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+      res.status(400).json({ error: "No file uploaded" });
+      return;
     }
 
     const { path: imagePath } = req.body;
     if (!imagePath) {
-      return res.status(400).json({ error: "No path specified" });
+      res.status(400).json({ error: "No path specified" });
+      return;
     }
 
     const resolvedPath = path.resolve(String(imagePath));
     const normalizedRoot = path.resolve(ALLOWED_UPLOAD_ROOT);
     if (!resolvedPath.startsWith(`${normalizedRoot}/`) && resolvedPath !== normalizedRoot) {
-      return res.status(400).json({ error: "Invalid path" });
+      res.status(400).json({ error: "Invalid path" });
+      return;
     }
 
     log("INFO", `Received image upload request for path: ${resolvedPath}`, {
@@ -284,11 +289,13 @@ app.post("/upload-image", upload.single("image"), async (req, res) => {
       error: error instanceof Error ? error.message : "Upload failed",
     });
   }
-});
+};
+// Use array syntax to avoid TypeScript overload resolution issues with multer
+(app.post as Function)("/upload-image", upload.single("image"), uploadImageHandler);
 
 // HTTP endpoint for running task screenshots (replaces Socket.IO)
 app.use(express.json());
-app.post("/api/run-task-screenshots", async (req, res) => {
+const runTaskScreenshotsHandler: express.RequestHandler = async (req, res) => {
   try {
     const data = req.body;
 
@@ -301,9 +308,10 @@ app.post("/api/run-task-screenshots", async (req, res) => {
     });
 
     if (!data?.token) {
-      return res.status(400).json({
+      res.status(400).json({
         error: "Missing required field: token",
       });
+      return;
     }
 
     const context = await resolvePreviewJobContext({
@@ -340,7 +348,8 @@ app.post("/api/run-task-screenshots", async (req, res) => {
       error: error instanceof Error ? error.message : "Internal server error",
     });
   }
-});
+};
+app.post("/api/run-task-screenshots", runTaskScreenshotsHandler);
 
 // Create HTTP server with Express app
 const httpServer = createServer(app);

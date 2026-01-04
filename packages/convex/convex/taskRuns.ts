@@ -595,6 +595,7 @@ export const getRunDiffContext = authQuery({
         taskRuns,
         branchMetadataByRepo: {} as Record<string, Doc<"branches">[]>,
         screenshotSets: [],
+        videoRecordings: [],
       };
     }
 
@@ -672,11 +673,47 @@ export const getRunDiffContext = authQuery({
       );
     })();
 
+    // Fetch video recordings for this run
+    const videoRecordings = await (async () => {
+      const runDoc = await ctx.db.get(args.runId);
+      // Prevent leaking video recordings for runs outside the authenticated task/team
+      if (
+        !runDoc ||
+        runDoc.teamId !== teamId ||
+        runDoc.taskId !== args.taskId
+      ) {
+        return [];
+      }
+
+      const recordingDocs = await ctx.db
+        .query("taskRunVideoRecordings")
+        .withIndex("by_run", (q) => q.eq("runId", args.runId))
+        .collect();
+
+      recordingDocs.sort((a, b) => b.createdAt - a.createdAt);
+
+      const trimmedRecordings = recordingDocs.slice(0, 10);
+
+      return Promise.all(
+        trimmedRecordings.map(async (recording) => {
+          let videoUrl: string | null = null;
+          if (recording.storageId && recording.status === "completed") {
+            videoUrl = await ctx.storage.getUrl(recording.storageId);
+          }
+          return {
+            ...recording,
+            videoUrl,
+          };
+        }),
+      );
+    })();
+
     return {
       task: taskWithImages,
       taskRuns,
       branchMetadataByRepo,
       screenshotSets,
+      videoRecordings,
     };
   },
 });

@@ -1,5 +1,4 @@
 import { CmuxIpcSocketClient } from "@/lib/cmux-ipc-socket-client";
-import { type MainServerSocket } from "@cmux/shared/socket";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import React, { useEffect, useMemo } from "react";
@@ -8,7 +7,7 @@ import { stackClientApp } from "../../lib/stack";
 import { authJsonQueryOptions } from "../convex/authJsonQueryOptions";
 import { setGlobalSocket, socketBoot } from "./socket-boot";
 import { ElectronSocketContext } from "./socket-context";
-import type { SocketContextType } from "./types";
+import type { SocketContextType, CmuxSocket } from "./types";
 
 export const ElectronSocketProvider: React.FC<React.PropsWithChildren> = ({
   children,
@@ -80,8 +79,8 @@ export const ElectronSocketProvider: React.FC<React.PropsWithChildren> = ({
 
       if (!disposed) {
         // Cast to Socket type to satisfy type requirement
-        setSocket(createdSocket as unknown as MainServerSocket);
-        setGlobalSocket(createdSocket as unknown as MainServerSocket);
+        setSocket(createdSocket as unknown as CmuxSocket);
+        setGlobalSocket(createdSocket as unknown as CmuxSocket);
         // Signal that the provider has created the socket instance
         socketBoot.resolve();
       }

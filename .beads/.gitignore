@@ -1,5 +1,6 @@
-# SQLite databases (runtime cache, not source of truth)
+# SQLite databases
 *.db
+*.db?*
 *.db-journal
 *.db-wal
 *.db-shm
@@ -9,15 +10,25 @@ daemon.lock
 daemon.log
 daemon.pid
 bd.sock
-bd.sock.*
+sync-state.json
 
-# Merge artifacts
+# Local version tracking (prevents upgrade notification spam after git ops)
+.local_version
+
+# Legacy database files
+db.sqlite
+bd.db
+
+# Merge artifacts (temporary files from 3-way merge)
 beads.base.jsonl
 beads.base.meta.json
 beads.left.jsonl
 beads.left.meta.json
+beads.right.jsonl
+beads.right.meta.json
 
-# Keep JSONL and config (source of truth for git)
-!issues.jsonl
-!metadata.json
-!config.json
+# NOTE: Do NOT add negation patterns (e.g., !issues.jsonl) here.
+# They would override fork protection in .git/info/exclude, allowing
+# contributors to accidentally commit upstream issue databases.
+# The JSONL files (issues.jsonl, interactions.jsonl) and config files
+# are tracked by git by default since no pattern above ignores them.

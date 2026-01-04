@@ -9,6 +9,16 @@
       {
         "hooks": [
           {
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/continue-check.sh",
+            "type": "command",
+            "timeout": 30
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bun-check.sh",
             "type": "command",
             "timeout": 60
@@ -19,7 +29,17 @@
       {
         "hooks": [
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codex-review.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/test-verification.sh",
+            "type": "command",
+            "timeout": 120
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/multi-agent-review.sh",
             "type": "command",
             "timeout": 300
           }
@@ -44,6 +64,18 @@
           {
             "command": "bd prime",
             "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ralph-sync.sh",
+            "type": "command",
+            "timeout": 30
           }
         ],
         "matcher": ""

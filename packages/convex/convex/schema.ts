@@ -244,6 +244,8 @@ const convexSchema = defineSchema({
     screenshotFileName: v.optional(v.string()),
     screenshotCommitSha: v.optional(v.string()),
     latestScreenshotSetId: v.optional(v.id("taskRunScreenshotSets")),
+    // Video recording reference
+    latestVideoRecordingId: v.optional(v.id("taskRunVideoRecordings")),
     // VSCode instance information
     vscode: v.optional(
       v.object({
@@ -347,6 +349,56 @@ const convexSchema = defineSchema({
   })
     .index("by_task_capturedAt", ["taskId", "capturedAt"])
     .index("by_run_capturedAt", ["runId", "capturedAt"]),
+
+  // Video recordings of agent sessions with chapter navigation
+  taskRunVideoRecordings: defineTable({
+    taskId: v.id("tasks"),
+    runId: v.id("taskRuns"),
+    // Video file stored in Convex storage
+    storageId: v.optional(v.id("_storage")), // Optional while recording
+    mimeType: v.string(), // "video/webm"
+    durationMs: v.optional(v.number()), // Total duration in milliseconds
+    fileSizeBytes: v.optional(v.number()),
+    // Checkpoints for chapter navigation (like YouTube chapters)
+    checkpoints: v.array(
+      v.object({
+        timestampMs: v.number(), // Position in video (milliseconds)
+        label: v.string(), // Short label, e.g., "Installing dependencies"
+        description: v.optional(v.string()), // Longer description
+        type: v.optional(
+          v.union(
+            v.literal("commit"),
+            v.literal("command"),
+            v.literal("file_change"),
+            v.literal("error"),
+            v.literal("milestone"),
+            v.literal("manual"),
+          ),
+        ),
+      }),
+    ),
+    // Recording status
+    status: v.union(
+      v.literal("recording"), // Currently recording
+      v.literal("processing"), // Upload/processing in progress
+      v.literal("completed"), // Ready for playback
+      v.literal("failed"), // Recording failed
+    ),
+    error: v.optional(v.string()), // Error message if failed
+    // Metadata
+    commitSha: v.optional(v.string()),
+    recordingStartedAt: v.number(),
+    recordingCompletedAt: v.optional(v.number()),
+    // Team/user context
+    userId: v.string(),
+    teamId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task", ["taskId", "createdAt"])
+    .index("by_run", ["runId", "createdAt"])
+    .index("by_team_user", ["teamId", "userId", "createdAt"])
+    .index("by_status", ["status", "createdAt"]),
   taskVersions: defineTable({
     taskId: v.id("tasks"),
     version: v.number(),

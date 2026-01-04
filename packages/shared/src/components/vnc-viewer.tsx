@@ -163,6 +163,8 @@ export interface VncViewerHandle {
   blur: () => void;
   /** Get the underlying RFB instance */
   getRfb: () => RFBInstance | null;
+  /** Get the canvas element used for rendering */
+  getCanvas: () => HTMLCanvasElement | null;
   /** Machine power actions */
   machineShutdown: () => void;
   machineReboot: () => void;
@@ -801,6 +803,11 @@ export const VncViewer = forwardRef<VncViewerHandle, VncViewerProps>(
     const blur = useCallback(() => {
       rfbRef.current?.blur();
     }, []);
+    const getCanvas = useCallback((): HTMLCanvasElement | null => {
+      // noVNC creates a canvas element inside the container
+      return containerRef.current?.querySelector("canvas") ?? null;
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -815,11 +822,12 @@ export const VncViewer = forwardRef<VncViewerHandle, VncViewerProps>(
         focus,
         blur,
         getRfb: () => rfbRef.current,
+        getCanvas,
         machineShutdown: () => rfbRef.current?.machineShutdown(),
         machineReboot: () => rfbRef.current?.machineReboot(),
         machineReset: () => rfbRef.current?.machineReset(),
       }),
-      [connect, disconnect, status, clipboardPaste, focus, blur]
+      [connect, disconnect, status, clipboardPaste, focus, blur, getCanvas]
     );
 
     useEffect(() => {

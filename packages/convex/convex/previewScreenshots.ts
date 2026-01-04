@@ -366,10 +366,12 @@ export const uploadAndComment = action({
             }
           );
 
-          if (!updateResult?.ok) {
+          if (updateResult?.ok === false) {
             throw new Error(
               updateResult.error ?? "Failed to update GitHub comment"
             );
+          } else if (!updateResult) {
+            throw new Error("Failed to update GitHub comment");
           }
         } else {
           // No existing comment - create a new one
@@ -393,10 +395,12 @@ export const uploadAndComment = action({
             }
           );
 
-          if (!commentResult?.ok) {
+          if (commentResult?.ok === false) {
             throw new Error(
               commentResult.error ?? "Failed to post GitHub comment"
             );
+          } else if (!commentResult) {
+            throw new Error("Failed to post GitHub comment");
           }
 
           if (commentResult.commentUrl) {

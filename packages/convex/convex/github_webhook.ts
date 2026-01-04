@@ -511,11 +511,14 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
           ]);
 
           // Add eyes emoji reaction when a new PR is opened
+          // Extract pull_request before action narrowing to avoid TypeScript never type issue
+          // (PullRequestOpenedEvent intersection reduces to never due to closed_at type conflict)
+          const pullRequest = prPayload.pull_request;
           if (
             FEATURE_FLAGS.githubEyesReactionOnPrOpen &&
             prPayload.action === "opened"
           ) {
-            const prNumber = Number(prPayload.pull_request?.number ?? 0);
+            const prNumber = Number(pullRequest?.number ?? 0);
             if (prNumber) {
               await _ctx.runAction(internal.github_pr_comments.addPrReaction, {
                 installationId: installation,

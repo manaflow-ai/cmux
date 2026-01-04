@@ -12,6 +12,33 @@ export type ScreenshotCollectionStatus = z.infer<
   typeof ScreenshotCollectionStatusSchema
 >;
 
+// Video recording types
+export const VideoRecordingStatusSchema = z.enum([
+  "recording",
+  "processing",
+  "completed",
+  "failed",
+]);
+export type VideoRecordingStatus = z.infer<typeof VideoRecordingStatusSchema>;
+
+export const VideoCheckpointTypeSchema = z.enum([
+  "commit",
+  "command",
+  "file_change",
+  "error",
+  "milestone",
+  "manual",
+]);
+export type VideoCheckpointType = z.infer<typeof VideoCheckpointTypeSchema>;
+
+export const VideoCheckpointSchema = z.object({
+  timestampMs: z.number(), // Position in video (milliseconds)
+  label: z.string(), // Short label, e.g., "Installing dependencies"
+  description: z.string().optional(), // Longer description
+  type: VideoCheckpointTypeSchema.optional(),
+});
+export type VideoCheckpoint = z.infer<typeof VideoCheckpointSchema>;
+
 export const ScreenshotStoredImageSchema = z.object({
   storageId: z.string(),
   mimeType: z.string(),
@@ -83,4 +110,71 @@ export const PreviewScreenshotUploadResponseSchema = z.object({
 });
 export type PreviewScreenshotUploadResponse = z.infer<
   typeof PreviewScreenshotUploadResponseSchema
+>;
+
+// Video recording upload schemas
+export const VideoRecordingStartPayloadSchema = z.object({
+  taskId: typedZid("tasks"),
+  runId: typedZid("taskRuns"),
+  commitSha: z.string().optional(),
+});
+export type VideoRecordingStartPayload = z.infer<
+  typeof VideoRecordingStartPayloadSchema
+>;
+
+export const VideoRecordingStartResponseSchema = z.object({
+  ok: z.literal(true),
+  recordingId: typedZid("taskRunVideoRecordings"),
+});
+export type VideoRecordingStartResponse = z.infer<
+  typeof VideoRecordingStartResponseSchema
+>;
+
+export const VideoRecordingUploadPayloadSchema = z.object({
+  recordingId: typedZid("taskRunVideoRecordings"),
+  storageId: z.string(),
+  durationMs: z.number(),
+  fileSizeBytes: z.number().optional(),
+  checkpoints: z.array(VideoCheckpointSchema).optional(),
+});
+export type VideoRecordingUploadPayload = z.infer<
+  typeof VideoRecordingUploadPayloadSchema
+>;
+
+export const VideoRecordingUploadResponseSchema = z.object({
+  ok: z.literal(true),
+  recordingId: typedZid("taskRunVideoRecordings"),
+});
+export type VideoRecordingUploadResponse = z.infer<
+  typeof VideoRecordingUploadResponseSchema
+>;
+
+export const VideoRecordingAddCheckpointPayloadSchema = z.object({
+  recordingId: typedZid("taskRunVideoRecordings"),
+  checkpoint: VideoCheckpointSchema,
+});
+export type VideoRecordingAddCheckpointPayload = z.infer<
+  typeof VideoRecordingAddCheckpointPayloadSchema
+>;
+
+export const VideoRecordingAddCheckpointResponseSchema = z.object({
+  ok: z.literal(true),
+});
+export type VideoRecordingAddCheckpointResponse = z.infer<
+  typeof VideoRecordingAddCheckpointResponseSchema
+>;
+
+export const VideoRecordingUploadUrlRequestSchema = z.object({
+  contentType: z.string(), // Should be "video/webm" or similar
+});
+export type VideoRecordingUploadUrlRequest = z.infer<
+  typeof VideoRecordingUploadUrlRequestSchema
+>;
+
+export const VideoRecordingUploadUrlResponseSchema = z.object({
+  ok: z.literal(true),
+  uploadUrl: z.string(),
+});
+export type VideoRecordingUploadUrlResponse = z.infer<
+  typeof VideoRecordingUploadUrlResponseSchema
 >;

@@ -67,6 +67,8 @@ import type * as teams from "../teams.js";
 import type * as users from "../users.js";
 import type * as users_utils_getWorkerAuth from "../users/utils/getWorkerAuth.js";
 import type * as users_utils_index from "../users/utils/index.js";
+import type * as videoRecordings from "../videoRecordings.js";
+import type * as video_recordings_http from "../video_recordings_http.js";
 import type * as workspaceConfigs from "../workspaceConfigs.js";
 import type * as workspaceSettings from "../workspaceSettings.js";
 
@@ -136,6 +138,8 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   "users/utils/getWorkerAuth": typeof users_utils_getWorkerAuth;
   "users/utils/index": typeof users_utils_index;
+  videoRecordings: typeof videoRecordings;
+  video_recordings_http: typeof video_recordings_http;
   workspaceConfigs: typeof workspaceConfigs;
   workspaceSettings: typeof workspaceSettings;
 }>;

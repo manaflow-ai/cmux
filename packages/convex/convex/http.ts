@@ -26,6 +26,13 @@ import {
   syncRelease as syncHostScreenshotCollectorRelease,
   getLatest as getLatestHostScreenshotCollector,
 } from "./hostScreenshotCollector_http";
+import {
+  startVideoRecording,
+  uploadVideoRecording,
+  addVideoCheckpoint,
+  createVideoUploadUrl,
+  failVideoRecording,
+} from "./video_recordings_http";
 
 const http = httpRouter();
 
@@ -147,6 +154,37 @@ http.route({
   path: "/api/host-screenshot-collector/latest",
   method: "GET",
   handler: getLatestHostScreenshotCollector,
+});
+
+// Video recording routes
+http.route({
+  path: "/api/video-recordings/start",
+  method: "POST",
+  handler: startVideoRecording,
+});
+
+http.route({
+  path: "/api/video-recordings/upload",
+  method: "POST",
+  handler: uploadVideoRecording,
+});
+
+http.route({
+  path: "/api/video-recordings/checkpoint",
+  method: "POST",
+  handler: addVideoCheckpoint,
+});
+
+http.route({
+  path: "/api/video-recordings/upload-url",
+  method: "POST",
+  handler: createVideoUploadUrl,
+});
+
+http.route({
+  path: "/api/video-recordings/fail",
+  method: "POST",
+  handler: failVideoRecording,
 });
 
 export default http;
