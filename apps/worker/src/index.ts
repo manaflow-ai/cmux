@@ -224,6 +224,11 @@ const upload = multer({
 
 const ALLOWED_UPLOAD_ROOT = "/root/prompt";
 
+// Additional paths that can be uploaded via /upload-file endpoint
+const ALLOWED_FILE_PATHS = new Set([
+  "/root/.zsh_history",
+]);
+
 // File upload endpoint
 app.post("/upload-image", upload.single("image"), async (req, res) => {
   try {
@@ -280,6 +285,69 @@ app.post("/upload-image", upload.single("image"), async (req, res) => {
     });
   } catch (error) {
     log("ERROR", "Failed to upload image", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Upload failed",
+    });
+  }
+});
+
+// Generic file upload endpoint for allowed paths (e.g., zsh history)
+app.post("/upload-file", upload.single("file"), async (req, res) => {
+  try {
+    const token = req.header("x-cmux-token");
+    const secret = process.env.CMUX_TASK_RUN_JWT_SECRET;
+    if (!token || !secret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    try {
+      await verifyTaskRunToken(token, secret);
+    } catch (error) {
+      log("ERROR", "Invalid task run token for upload-file", error);
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const { path: filePath } = req.body;
+    if (!filePath) {
+      return res.status(400).json({ error: "No path specified" });
+    }
+
+    const resolvedPath = path.resolve(String(filePath));
+
+    // Only allow specific whitelisted paths
+    if (!ALLOWED_FILE_PATHS.has(resolvedPath)) {
+      return res.status(400).json({ error: "Path not allowed" });
+    }
+
+    log("INFO", `Received file upload request for path: ${resolvedPath}`, {
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+      originalname: req.file.originalname,
+    });
+
+    // Ensure directory exists
+    const dir = path.dirname(resolvedPath);
+    await fs.mkdir(dir, { recursive: true });
+
+    // Write the file
+    await fs.writeFile(resolvedPath, req.file.buffer);
+
+    log("INFO", `Successfully wrote file: ${resolvedPath}`);
+
+    // Verify file was created
+    const stats = await fs.stat(resolvedPath);
+
+    res.json({
+      success: true,
+      path: resolvedPath,
+      size: stats.size,
+    });
+  } catch (error) {
+    log("ERROR", "Failed to upload file", error);
     res.status(500).json({
       error: error instanceof Error ? error.message : "Upload failed",
     });

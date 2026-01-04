@@ -185,4 +185,8 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
   getName(): string {
     return this.sandboxId || this.instanceId;
   }
+
+  getWorkerUrl(): string | null {
+    return this.workerUrl;
+  }
 }
