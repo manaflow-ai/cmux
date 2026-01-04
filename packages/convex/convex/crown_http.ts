@@ -233,6 +233,14 @@ export const crownEvaluate = httpAction(async (ctx, req) => {
     return jsonResponse({ code: 500, message: "Team resolution failed" }, 500);
   }
 
+  const workspaceSettings = await ctx.runQuery(
+    internal.workspaceSettings.getByTeamAndUserInternal,
+    {
+      teamId: teamContext.teamId,
+      userId: teamContext.userId,
+    }
+  );
+
   let targetTaskId: Id<"tasks"> | null = null;
 
   const candidateWithRunId = data.candidates.find(
@@ -316,6 +324,9 @@ export const crownEvaluate = httpAction(async (ctx, req) => {
       prompt: data.prompt,
       candidates,
       teamSlugOrId,
+      crownModel: data.crownModel ?? workspaceSettings?.crownModel,
+      crownSystemPrompt:
+        data.crownSystemPrompt ?? workspaceSettings?.crownSystemPrompt,
     });
     return jsonResponse(result);
   } catch (error) {
@@ -346,14 +357,28 @@ export const crownSummarize = httpAction(async (ctx, req) => {
   }
 
   const data = validation.data;
+  let teamContext: { teamId: string; userId: string } | null = null;
 
   let teamSlugOrId = data.teamSlugOrId;
   if (workerAuth) {
     teamSlugOrId = workerAuth.payload.teamId;
+    teamContext = {
+      teamId: workerAuth.payload.teamId,
+      userId: workerAuth.payload.userId,
+    };
   } else {
     const resolvedTeam = await resolveTeamSlugOrId(ctx, teamSlugOrId);
     if (resolvedTeam instanceof Response) return resolvedTeam;
     teamSlugOrId = resolvedTeam.teamSlugOrId;
+
+    const membership = await ensureTeamMembership(ctx, teamSlugOrId);
+    if (membership instanceof Response) return membership;
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      console.warn("[convex.crown] Missing identity during summarization request");
+      return jsonResponse({ code: 401, message: "Unauthorized" }, 401);
+    }
+    teamContext = { teamId: membership.teamId, userId: identity.subject };
   }
 
   if (!teamSlugOrId) {
@@ -364,10 +389,20 @@ export const crownSummarize = httpAction(async (ctx, req) => {
   }
 
   try {
+    const workspaceSettings = teamContext
+      ? await ctx.runQuery(
+          internal.workspaceSettings.getByTeamAndUserInternal,
+          {
+            teamId: teamContext.teamId,
+            userId: teamContext.userId,
+          }
+        )
+      : null;
     const result = await ctx.runAction(api.crown.actions.summarize, {
       prompt: data.prompt,
       gitDiff: data.gitDiff,
       teamSlugOrId,
+      crownModel: data.crownModel ?? workspaceSettings?.crownModel,
     });
     return jsonResponse(result);
   } catch (error) {

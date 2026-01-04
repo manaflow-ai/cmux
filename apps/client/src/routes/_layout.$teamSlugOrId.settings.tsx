@@ -98,6 +98,11 @@ function SettingsComponent() {
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [originalAutoPrEnabled, setOriginalAutoPrEnabled] =
     useState<boolean>(false);
+  const [crownModel, setCrownModel] = useState<string>("");
+  const [originalCrownModel, setOriginalCrownModel] = useState<string>("");
+  const [crownSystemPrompt, setCrownSystemPrompt] = useState<string>("");
+  const [originalCrownSystemPrompt, setOriginalCrownSystemPrompt] =
+    useState<string>("");
   // const [isSaveButtonVisible, setIsSaveButtonVisible] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveButtonRef = useRef<HTMLDivElement>(null);
@@ -172,6 +177,16 @@ function SettingsComponent() {
 
   // Global mapping of envVar -> models (from shared)
   const apiKeyModelsByEnv = API_KEY_MODELS_BY_ENV;
+  const hasAnthropicKey =
+    (apiKeyValues["CLAUDE_CODE_OAUTH_TOKEN"] ?? "").trim().length > 0 ||
+    (apiKeyValues["ANTHROPIC_API_KEY"] ?? "").trim().length > 0;
+  const hasOpenAiKey =
+    (apiKeyValues["OPENAI_API_KEY"] ?? "").trim().length > 0;
+  const defaultCrownModelLabel = hasAnthropicKey
+    ? "Default (Claude Sonnet 4.5)"
+    : hasOpenAiKey
+      ? "Default (GPT-5 Mini)"
+      : "Default (Claude Sonnet 4.5)";
 
   // Query existing API keys
   const { data: existingKeys } = useQuery(
@@ -235,7 +250,7 @@ function SettingsComponent() {
     return "";
   };
 
-  // Initialize worktree path and heatmap settings when data loads
+  // Initialize worktree path, crown settings, and heatmap settings when data loads
   useEffect(() => {
     if (workspaceSettings === undefined) {
       return;
@@ -257,6 +272,21 @@ function SettingsComponent() {
       prev === nextAutoPrEnabled ? prev : nextAutoPrEnabled
     );
 
+    // Crown settings
+    const nextCrownModel = workspaceSettings?.crownModel ?? "";
+    setCrownModel((prev) => (prev === nextCrownModel ? prev : nextCrownModel));
+    setOriginalCrownModel((prev) =>
+      prev === nextCrownModel ? prev : nextCrownModel
+    );
+    const nextCrownSystemPrompt = workspaceSettings?.crownSystemPrompt ?? "";
+    setCrownSystemPrompt((prev) =>
+      prev === nextCrownSystemPrompt ? prev : nextCrownSystemPrompt
+    );
+    setOriginalCrownSystemPrompt((prev) =>
+      prev === nextCrownSystemPrompt ? prev : nextCrownSystemPrompt
+    );
+
+    // Heatmap settings
     if (workspaceSettings?.heatmapModel) {
       const nextModel = workspaceSettings.heatmapModel;
       setHeatmapModel((prev) => (prev === nextModel ? prev : nextModel));
@@ -389,6 +419,11 @@ function SettingsComponent() {
     // Auto PR toggle changes
     const autoPrChanged = autoPrEnabled !== originalAutoPrEnabled;
 
+    // Crown settings changes
+    const crownModelChanged = crownModel !== originalCrownModel;
+    const crownSystemPromptChanged =
+      crownSystemPrompt !== originalCrownSystemPrompt;
+
     // Heatmap settings changes
     const heatmapModelChanged = heatmapModel !== originalHeatmapModel;
     const heatmapThresholdChanged = heatmapThreshold !== originalHeatmapThreshold;
@@ -401,6 +436,8 @@ function SettingsComponent() {
       autoPrChanged ||
       apiKeysChanged ||
       containerSettingsChanged ||
+      crownModelChanged ||
+      crownSystemPromptChanged ||
       heatmapModelChanged ||
       heatmapThresholdChanged ||
       heatmapTooltipLanguageChanged ||
@@ -414,11 +451,16 @@ function SettingsComponent() {
     try {
       let savedCount = 0;
       let deletedCount = 0;
+      const crownModelValue = crownModel.trim();
+      const crownSystemPromptValue =
+        crownSystemPrompt.trim().length > 0 ? crownSystemPrompt : "";
 
-      // Save worktree path / auto PR / heatmap settings if changed
+      // Save worktree path / auto PR / crown / heatmap settings if changed
       const workspaceSettingsChanged =
         worktreePath !== originalWorktreePath ||
         autoPrEnabled !== originalAutoPrEnabled ||
+        crownModel !== originalCrownModel ||
+        crownSystemPrompt !== originalCrownSystemPrompt ||
         heatmapModel !== originalHeatmapModel ||
         heatmapThreshold !== originalHeatmapThreshold ||
         heatmapTooltipLanguage !== originalHeatmapTooltipLanguage ||
@@ -429,6 +471,8 @@ function SettingsComponent() {
           teamSlugOrId,
           worktreePath: worktreePath || undefined,
           autoPrEnabled,
+          crownModel: crownModelValue,
+          crownSystemPrompt: crownSystemPromptValue,
           heatmapModel,
           heatmapThreshold,
           heatmapTooltipLanguage,
@@ -436,6 +480,10 @@ function SettingsComponent() {
         });
         setOriginalWorktreePath(worktreePath);
         setOriginalAutoPrEnabled(autoPrEnabled);
+        setCrownModel(crownModelValue);
+        setOriginalCrownModel(crownModelValue);
+        setCrownSystemPrompt(crownSystemPromptValue);
+        setOriginalCrownSystemPrompt(crownSystemPromptValue);
         setOriginalHeatmapModel(heatmapModel);
         setOriginalHeatmapThreshold(heatmapThreshold);
         setOriginalHeatmapTooltipLanguage(heatmapTooltipLanguage);
@@ -488,23 +536,21 @@ function SettingsComponent() {
       // After successful save, hide all API key inputs
       setShowKeys({});
 
-      if (savedCount > 0 || deletedCount > 0) {
-        const actions = [];
-        if (savedCount > 0) {
-          actions.push(`saved ${savedCount} key${savedCount > 1 ? "s" : ""}`);
-        }
-        if (deletedCount > 0) {
-          actions.push(
-            `removed ${deletedCount} key${deletedCount > 1 ? "s" : ""}`
-          );
-        }
-        toast.success(`Successfully ${actions.join(" and ")}`);
+      // Check if container settings were saved
+      const containerSettingsSaved =
+        containerSettingsData &&
+        originalContainerSettingsData &&
+        JSON.stringify(containerSettingsData) !==
+          JSON.stringify(originalContainerSettingsData);
+
+      if (savedCount > 0 || deletedCount > 0 || workspaceSettingsChanged || containerSettingsSaved) {
+        toast.success("Settings saved");
       } else {
         toast.info("No changes to save");
       }
     } catch (error) {
-      toast.error("Failed to save API keys. Please try again.");
-      console.error("Error saving API keys:", error);
+      toast.error("Failed to save settings. Please try again.");
+      console.error("Error saving settings:", error);
     } finally {
       setIsSaving(false);
     }
@@ -789,7 +835,7 @@ function SettingsComponent() {
                   Crown Evaluator
                 </h2>
               </div>
-              <div className="p-4">
+              <div className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -806,6 +852,64 @@ function SettingsComponent() {
                     color="primary"
                     isSelected={autoPrEnabled}
                     onValueChange={setAutoPrEnabled}
+                  />
+                </div>
+
+                {/* Crown Model Selection */}
+                <div>
+                  <label
+                    htmlFor="crownModel"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Evaluation Model
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    Select which model to use for evaluating and comparing agent outputs.
+                    Leave empty to use the default model.
+                  </p>
+                  <select
+                    id="crownModel"
+                    value={crownModel}
+                    onChange={(e) => setCrownModel(e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+                  >
+                    <option value="">{defaultCrownModelLabel}</option>
+                    <optgroup label="OpenAI">
+                      <option value="gpt-5-mini">GPT-5 Mini</option>
+                      <option value="gpt-5">GPT-5</option>
+                      <option value="gpt-4.1">GPT-4.1</option>
+                      <option value="o3">O3</option>
+                      <option value="o4-mini">O4 Mini</option>
+                    </optgroup>
+                    <optgroup label="Anthropic">
+                      <option value="claude-opus-4">Claude Opus 4</option>
+                      <option value="claude-sonnet-4-5">Claude Sonnet 4.5 (Extended Thinking)</option>
+                      <option value="claude-sonnet-4">Claude Sonnet 4</option>
+                      <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                      <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                {/* Crown System Prompt */}
+                <div>
+                  <label
+                    htmlFor="crownSystemPrompt"
+                    className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2"
+                  >
+                    Custom System Prompt
+                  </label>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+                    Customize the system prompt used when evaluating agent outputs.
+                    Leave empty to use the default evaluation criteria.
+                  </p>
+                  <textarea
+                    id="crownSystemPrompt"
+                    value={crownSystemPrompt}
+                    onChange={(e) => setCrownSystemPrompt(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 font-mono text-xs"
+                    placeholder="You select the best implementation from structured diff inputs and explain briefly why."
                   />
                 </div>
               </div>

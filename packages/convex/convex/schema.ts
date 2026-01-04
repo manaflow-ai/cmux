@@ -570,6 +570,9 @@ const convexSchema = defineSchema({
     worktreePath: v.optional(v.string()), // Custom path for git worktrees
     autoPrEnabled: v.optional(v.boolean()), // Auto-create PR for crown winner (default: false)
     nextLocalWorkspaceSequence: v.optional(v.number()), // Counter for local workspace naming
+    // Crown evaluator settings
+    crownModel: v.optional(v.string()), // Model to use for crown evaluation (e.g., "gpt-5-mini", "claude-sonnet-4")
+    crownSystemPrompt: v.optional(v.string()), // Custom system prompt for crown evaluation
     // Heatmap review settings
     heatmapModel: v.optional(v.string()), // Model to use for heatmap review (e.g., "anthropic-opus-4-5", "cmux-heatmap-2")
     heatmapThreshold: v.optional(v.number()), // Score threshold for filtering (0-1, default: 0)
