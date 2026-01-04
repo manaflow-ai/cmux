@@ -818,7 +818,7 @@ function MockGitHubPRBrowser() {
   return (
     <div className="pt-12 pb-4 h-dvh w-screen relative left-1/2 -translate-x-1/2 px-4 flex flex-col">
       {/* Browser window frame - Chrome Dark Mode style */}
-      <div className="rounded-2xl border border-[#35363A] bg-[#202124] overflow-hidden shadow-2xl w-full flex-1 flex flex-col min-h-0 max-w-[500px] sm:max-w-[600px] md:max-w-[700px] lg:max-w-[900px] xl:max-w-[1100px] 2xl:max-w-[1300px] mx-auto">
+      <div className="rounded-2xl border border-[#35363A] bg-[#202124] overflow-hidden shadow-2xl w-full flex-1 flex flex-col min-h-0 mx-auto aspect-[16/10] max-h-[calc(100dvh-6rem)]">
         {/* Tab strip */}
         <div className="flex items-end h-[38px] bg-[#202124] px-2 select-none">
           {/* Traffic lights */}
