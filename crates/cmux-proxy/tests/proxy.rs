@@ -280,7 +280,8 @@ async fn start_proxy(
             let _ = rx.await;
         }
         .boxed(),
-    );
+    )
+    .expect("failed to spawn proxy");
     sleep(Duration::from_millis(25)).await;
     (bound, tx, handle)
 }
