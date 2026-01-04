@@ -184,6 +184,20 @@ pub const SYNC_FILES: &[SyncFileDef] = &[
         sandbox_path: "/root/.zsh",
         is_dir: true,
     },
+    // Zsh completions - common locations for user-installed completions
+    // These contain completion scripts (_command files) that provide tab-completion
+    SyncFileDef {
+        name: "Zsh Completions (zfunc)",
+        host_path: ".zfunc",
+        sandbox_path: "/root/.zfunc",
+        is_dir: true,
+    },
+    SyncFileDef {
+        name: "Zsh Completions (XDG)",
+        host_path: ".local/share/zsh/completions",
+        sandbox_path: "/root/.local/share/zsh/completions",
+        is_dir: true,
+    },
 ];
 
 pub fn detect_sync_files() -> Vec<SyncFileToUpload> {
