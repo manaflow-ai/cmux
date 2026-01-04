@@ -52,6 +52,7 @@ import type * as preview_jobs_worker from "../preview_jobs_worker.js";
 import type * as preview_screenshots_http from "../preview_screenshots_http.js";
 import type * as screenshots_http from "../screenshots_http.js";
 import type * as seed from "../seed.js";
+import type * as shellHistorySettings from "../shellHistorySettings.js";
 import type * as stack from "../stack.js";
 import type * as stack_webhook from "../stack_webhook.js";
 import type * as stack_webhook_actions from "../stack_webhook_actions.js";
@@ -121,6 +122,7 @@ declare const fullApi: ApiFromModules<{
   preview_screenshots_http: typeof preview_screenshots_http;
   screenshots_http: typeof screenshots_http;
   seed: typeof seed;
+  shellHistorySettings: typeof shellHistorySettings;
   stack: typeof stack;
   stack_webhook: typeof stack_webhook;
   stack_webhook_actions: typeof stack_webhook_actions;

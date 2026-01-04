@@ -794,13 +794,89 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     return logs;
   }
 
-  // Bootstrap container environment including GitHub auth and devcontainer
+  // Bootstrap container environment including GitHub auth, shell history, and devcontainer
   private async bootstrapContainerEnvironment(): Promise<void> {
     // First, set up GitHub authentication
     await this.bootstrapGitHubAuth();
 
+    // Write shell history for zsh-autosuggestions (non-blocking)
+    await this.bootstrapShellHistory();
+
     // Then, bootstrap devcontainer if present
     await this.bootstrapDevcontainerIfPresent();
+  }
+
+  // Write sanitized shell history to container for zsh-autosuggestions
+  private async bootstrapShellHistory(): Promise<void> {
+    try {
+      if (!this.container) {
+        dockerLogger.debug(
+          `bootstrapShellHistory: container not available for ${this.containerName}`
+        );
+        return;
+      }
+
+      // Fetch shell history settings from Convex
+      const shellHistorySettings = await getConvex().query(
+        api.shellHistorySettings.get,
+        { teamSlugOrId: this.teamSlugOrId }
+      );
+
+      if (
+        !shellHistorySettings?.enabled ||
+        !shellHistorySettings?.sanitizedHistory
+      ) {
+        dockerLogger.debug(
+          `bootstrapShellHistory: shell history sync not enabled for ${this.containerName}`
+        );
+        return;
+      }
+
+      const lineCount = shellHistorySettings.sanitizedHistory.split("\n").length;
+      dockerLogger.info(
+        `Writing shell history (${lineCount} lines) to container ${this.containerName}...`
+      );
+
+      // Write history using heredoc
+      const historyCmd = [
+        "bash",
+        "-c",
+        `cat >> ~/.zsh_history << 'SHELL_HISTORY_EOF'
+${shellHistorySettings.sanitizedHistory}
+SHELL_HISTORY_EOF
+chmod 600 ~/.zsh_history`,
+      ];
+
+      const exec = await this.container.exec({
+        Cmd: historyCmd,
+        AttachStdout: true,
+        AttachStderr: true,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        exec.start({}, (err: Error | null, stream?: NodeJS.ReadableStream) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          if (stream) {
+            stream.on("end", () => resolve());
+            stream.resume();
+          } else {
+            resolve();
+          }
+        });
+      });
+
+      dockerLogger.info(
+        `Shell history written successfully to container ${this.containerName}`
+      );
+    } catch (error) {
+      dockerLogger.warn(
+        `Shell history bootstrap error for ${this.containerName}:`,
+        error
+      );
+    }
   }
 
   // Authenticate GitHub CLI using token from host
