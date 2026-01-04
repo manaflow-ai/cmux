@@ -2983,6 +2983,236 @@ export type GetApiPreviewConfigsByPreviewConfigIdRunsResponses = {
 
 export type GetApiPreviewConfigsByPreviewConfigIdRunsResponse = GetApiPreviewConfigsByPreviewConfigIdRunsResponses[keyof GetApiPreviewConfigsByPreviewConfigIdRunsResponses];
 
+export type GetApiPreviewTestJobsData = {
+    body?: never;
+    path?: never;
+    query: {
+        teamSlugOrId: string;
+        limit?: number;
+    };
+    url: '/api/preview/test/jobs';
+};
+
+export type GetApiPreviewTestJobsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+};
+
+export type GetApiPreviewTestJobsResponses = {
+    /**
+     * Test jobs listed
+     */
+    200: {
+        jobs: Array<{
+            _id: string;
+            prNumber: number;
+            prUrl: string;
+            prTitle?: string | null;
+            repoFullName: string;
+            headSha: string;
+            status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+            stateReason?: string | null;
+            taskRunId?: string | null;
+            createdAt: number;
+            updatedAt: number;
+            dispatchedAt?: number | null;
+            startedAt?: number | null;
+            completedAt?: number | null;
+            configRepoFullName?: string | null;
+            screenshotSet?: {
+                _id: string;
+                status: 'completed' | 'failed' | 'skipped';
+                hasUiChanges?: boolean | null;
+                capturedAt: number;
+                error?: string | null;
+                images: Array<{
+                    storageId: string;
+                    mimeType: string;
+                    fileName?: string | null;
+                    description?: string | null;
+                    url?: string | null;
+                }>;
+            } | null;
+        }>;
+    };
+};
+
+export type GetApiPreviewTestJobsResponse = GetApiPreviewTestJobsResponses[keyof GetApiPreviewTestJobsResponses];
+
+export type PostApiPreviewTestJobsData = {
+    body: {
+        teamSlugOrId: string;
+        prUrl: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/preview/test/jobs';
+};
+
+export type PostApiPreviewTestJobsErrors = {
+    /**
+     * Invalid PR URL
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Preview config not found
+     */
+    404: unknown;
+};
+
+export type PostApiPreviewTestJobsResponses = {
+    /**
+     * Test job created
+     */
+    200: {
+        previewRunId: string;
+        taskId: string;
+        taskRunId: string;
+        prNumber: number;
+        repoFullName: string;
+    };
+};
+
+export type PostApiPreviewTestJobsResponse = PostApiPreviewTestJobsResponses[keyof PostApiPreviewTestJobsResponses];
+
+export type PostApiPreviewTestJobsByPreviewRunIdDispatchData = {
+    body?: never;
+    path: {
+        previewRunId: string;
+    };
+    query: {
+        teamSlugOrId: string;
+    };
+    url: '/api/preview/test/jobs/{previewRunId}/dispatch';
+};
+
+export type PostApiPreviewTestJobsByPreviewRunIdDispatchErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Preview run not found
+     */
+    404: unknown;
+};
+
+export type PostApiPreviewTestJobsByPreviewRunIdDispatchResponses = {
+    /**
+     * Job dispatched
+     */
+    200: {
+        dispatched: boolean;
+    };
+};
+
+export type PostApiPreviewTestJobsByPreviewRunIdDispatchResponse = PostApiPreviewTestJobsByPreviewRunIdDispatchResponses[keyof PostApiPreviewTestJobsByPreviewRunIdDispatchResponses];
+
+export type DeleteApiPreviewTestJobsByPreviewRunIdData = {
+    body?: never;
+    path: {
+        previewRunId: string;
+    };
+    query: {
+        teamSlugOrId: string;
+    };
+    url: '/api/preview/test/jobs/{previewRunId}';
+};
+
+export type DeleteApiPreviewTestJobsByPreviewRunIdErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Preview run not found
+     */
+    404: unknown;
+};
+
+export type DeleteApiPreviewTestJobsByPreviewRunIdResponses = {
+    /**
+     * Test job deleted
+     */
+    200: {
+        deleted: boolean;
+    };
+};
+
+export type DeleteApiPreviewTestJobsByPreviewRunIdResponse = DeleteApiPreviewTestJobsByPreviewRunIdResponses[keyof DeleteApiPreviewTestJobsByPreviewRunIdResponses];
+
+export type GetApiPreviewTestJobsByPreviewRunIdData = {
+    body?: never;
+    path: {
+        previewRunId: string;
+    };
+    query: {
+        teamSlugOrId: string;
+    };
+    url: '/api/preview/test/jobs/{previewRunId}';
+};
+
+export type GetApiPreviewTestJobsByPreviewRunIdErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Preview run not found
+     */
+    404: unknown;
+};
+
+export type GetApiPreviewTestJobsByPreviewRunIdResponses = {
+    /**
+     * Test job details
+     */
+    200: {
+        _id: string;
+        prNumber: number;
+        prUrl: string;
+        prTitle?: string | null;
+        repoFullName: string;
+        headSha: string;
+        status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+        stateReason?: string | null;
+        taskRunId?: string | null;
+        createdAt: number;
+        updatedAt: number;
+        dispatchedAt?: number | null;
+        startedAt?: number | null;
+        completedAt?: number | null;
+        configRepoFullName?: string | null;
+        screenshotSet?: {
+            _id: string;
+            status: 'completed' | 'failed' | 'skipped';
+            hasUiChanges?: boolean | null;
+            capturedAt: number;
+            error?: string | null;
+            images: Array<{
+                storageId: string;
+                mimeType: string;
+                fileName?: string | null;
+                description?: string | null;
+                url?: string | null;
+            }>;
+        } | null;
+        prDescription?: string | null;
+        baseSha?: string | null;
+        headRef?: string | null;
+        taskId?: string | null;
+        environmentId?: string | null;
+    };
+};
+
+export type GetApiPreviewTestJobsByPreviewRunIdResponse = GetApiPreviewTestJobsByPreviewRunIdResponses[keyof GetApiPreviewTestJobsByPreviewRunIdResponses];
+
 export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };

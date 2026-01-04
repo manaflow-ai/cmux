@@ -49,6 +49,31 @@ await createClient({
 });
 log(`[${(performance.now() - genStart).toFixed(2)}ms] generate client`);
 
+// Post-process: Remove .js extensions from imports for Turbopack compatibility
+// The generated files use ESM-style .js extensions, but Turbopack in Next.js
+// doesn't properly resolve these when importing from a workspace TypeScript package
+const postStart = performance.now();
+const removeJsExtensions = (dir: string) => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removeJsExtensions(fullPath);
+    } else if (entry.name.endsWith(".ts")) {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      // Replace .js extensions in import/export from statements
+      const updated = content.replace(
+        /from\s+(['"])(.+?)\.js\1/g,
+        "from $1$2$1"
+      );
+      if (content !== updated) {
+        fs.writeFileSync(fullPath, updated);
+      }
+    }
+  }
+};
+removeJsExtensions(outputPath);
+log(`[${(performance.now() - postStart).toFixed(2)}ms] post-process imports`);
+
 try {
   fs.unlinkSync(tmpFile);
 } catch {
