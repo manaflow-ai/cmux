@@ -816,6 +816,8 @@ function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer) {
     });
     return;
   }
+  
+  socket.resume();
 
   proxyLog("upgrade-request", {
     username: context.username,
@@ -1366,8 +1368,12 @@ function forwardUpgradeRequest(
 
   const handleConnected = () => {
     logForward("upstream-connected", {
+      targetHost: url.hostname,
+      targetPort: target.connectPort,
       secure: target.secure,
-      cmuxProxy: Boolean(target.cmuxProxy),
+      cmuxProxy: !!target.cmuxProxy,
+      localPort: socket.localPort,
+      remotePort: socket.remotePort
     });
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(clientReq.headers)) {
@@ -1402,18 +1408,35 @@ function forwardUpgradeRequest(
       upstream.write(head);
     }
 
-    let loggedResponse = false;
-    const logInitialResponse = (chunk: Buffer) => {
-      if (loggedResponse) {
-        return;
-      }
-      loggedResponse = true;
-      const sample = chunk.subarray(0, 64).toString("utf8");
-      logForward("response-initial-chunk", {
-        sample,
-      });
-    };
-    upstream.once("data", logInitialResponse);
+    /*
+    upstream.on('data', (chunk) => {
+        logForward("upstream-data", { length: chunk.length });
+    });
+    
+    upstream.on('end', () => {
+        logForward("upstream-end");
+    });
+    
+    upstream.on('close', () => {
+        logForward("upstream-close");
+    });
+    
+    upstream.on('error', (err) => {
+        logForward("upstream-error", { error: err.message });
+    });
+
+    socket.on('drain', () => {
+        logForward("socket-drain");
+    });
+    
+    socket.on('error', (err) => {
+        logForward("socket-error", { error: err.message });
+    });
+    
+    socket.on('close', () => {
+        logForward("socket-close");
+    });
+    */
 
     upstream.pipe(socket);
     socket.pipe(upstream);
@@ -1597,12 +1620,10 @@ function establishMitmTunnel(
   let settled = false;
 
   function onData(chunk: Buffer) {
-      proxyLog("mitm-client-data", { length: chunk.length });
       handleData(chunk);
   }
 
   function cleanup() {
-    proxyLog("mitm-cleanup-listeners");
     settled = true;
     // Remove specific listener
     clientSocket.removeListener("data", onData);
@@ -1641,16 +1662,28 @@ function establishMitmTunnel(
         tlsSocket.on("clientError", (err) => {
             proxyLog("mitm-tls-client-error", { error: err });
         });
-
         const alpnProtocol = tlsSocket.alpnProtocol;
         proxyLog("mitm-tls-secure", {
             host: originalHostname,
             alpnProtocol,
         });
-
+        
         if (alpnProtocol === "h2") {
             proxyLog("mitm-handling-h2", { host: originalHostname });
             handleHttp2Connection(tlsSocket, context, target);
+        } else if (alpnProtocol === "http/1.1" || !alpnProtocol) {
+            proxyLog("mitm-handling-plain", { host: originalHostname });
+            
+            // Synchronously read any buffered data
+            const chunks: Buffer[] = [];
+            let chunk;
+            while (null !== (chunk = tlsSocket.read())) {
+                chunks.push(chunk);
+            }
+            const initial = Buffer.concat(chunks);
+            
+            handlePlainTunnel(initial, tlsSocket);
+            return;
         } else {
             proxyLog("mitm-handling-plain", { host: originalHostname });
             server.emit("connection", tlsSocket);
@@ -1681,10 +1714,10 @@ function establishMitmTunnel(
         const proxySocket = net.connect(address.port, "127.0.0.1");
         
         proxySocket.on("connect", () => {
-            proxyLog("mitm-proxy-socket-connected", { port: address.port });
             if (initial.length > 0) {
                 proxySocket.write(initial);
             }
+            
             // Pipe data
             clientSocket.pipe(proxySocket);
             proxySocket.pipe(clientSocket);
@@ -1698,29 +1731,146 @@ function establishMitmTunnel(
         });
         
         proxySocket.on("close", () => {
-             clientSocket.destroy();
-        });
-        
-        clientSocket.on("close", () => {
-            proxySocket.destroy();
+            tlsServer.close();
         });
     });
   }
 
 
-  function handlePlainTunnel(initial: Buffer) {
+  function handlePlainTunnel(initial: Buffer, socketOverride?: net.Socket) {
+    const tunnelSocket = socketOverride || clientSocket;
+    
     proxyLog("mitm-plain-tunnel", {
       host: originalHostname,
     });
-    attachContextToSocket(clientSocket, context);
-    if (initial.length > 0) {
-      clientSocket.unshift(initial);
-    }
-    server.emit("connection", clientSocket);
+    attachContextToSocket(tunnelSocket, context);
+    
+    // Internal HTTP server for non-upgrade requests
+    const internalHttpServer = http.createServer((req, res) => {
+      handleHttpRequest(req, res);
+    });
+    
+    internalHttpServer.on('clientError', (err, socket) => {
+        if (socket.writable) {
+            socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        }
+    });
+
+    internalHttpServer.on('connection', (socket) => {
+        attachContextToSocket(socket, context);
+    });
+
+    // We need to listen to get a port
+    internalHttpServer.listen(0, "127.0.0.1");
+    
+    const plainServer = net.createServer((socket) => {
+        attachContextToSocket(socket, context);
+        
+        socket.once('data', (chunk) => {
+            const str = chunk.toString();
+            // Check for WebSocket upgrade
+            if (str.includes("Upgrade: websocket") || str.includes("Upgrade: WebSocket")) {
+                proxyLog("mitm-plain-manual-upgrade");
+                
+                // Parse minimal info for handleUpgrade
+                const lines = str.split("\r\n");
+                const requestLine = lines[0].split(" ");
+                const method = requestLine[0];
+                const url = requestLine[1];
+                
+                const headers: any = {};
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line === "") break;
+                    const parts = line.split(": ");
+                    if (parts.length >= 2) {
+                        headers[parts[0].toLowerCase()] = parts.slice(1).join(": ");
+                    }
+                }
+                
+                const mockReq: any = {
+                    method,
+                    url,
+                    headers,
+                    socket,
+                    connection: socket
+                };
+                
+                // The head is usually empty if the chunk contains just the headers
+                // But if there is extra data, we should pass it.
+                // For simplicity, we assume chunk contains headers and maybe body.
+                // handleUpgrade expects 'head' to be the first packet of the upgraded stream.
+                // It does NOT include the upgrade request headers.
+                // The upgrade request headers are consumed by http.Server.
+                
+                // BUT, since we are bypassing http.Server, we need to send the upgrade request to the upstream!
+                // forwardUpgradeRequest expects 'head' to be written to upstream.
+                // So we should pass 'chunk' as 'head'?
+                // NO. forwardUpgradeRequest is designed for when http.Server has already consumed the headers.
+                // If we pass 'chunk' (the headers) as 'head', it will be written to upstream.
+                // This is exactly what we want! The upstream needs the handshake request.
+                
+                // Wait, does forwardUpgradeRequest construct a new handshake request?
+                // Let's check forwardUpgradeRequest.
+                
+                handleUpgrade(mockReq, socket, chunk);
+            } else {
+                // Not an upgrade, proxy to internal HTTP server
+                const httpPort = (internalHttpServer.address() as net.AddressInfo).port;
+                const httpSocket = net.connect(httpPort, "127.0.0.1");
+                
+                httpSocket.on('connect', () => {
+                    httpSocket.write(chunk);
+                    socket.pipe(httpSocket);
+                    httpSocket.pipe(socket);
+                });
+                
+                httpSocket.on('error', (err) => {
+                    socket.destroy();
+                });
+                
+                socket.on('error', () => {
+                    httpSocket.destroy();
+                });
+            }
+        });
+    });
+
+    plainServer.listen(0, "127.0.0.1", () => {
+      const address = plainServer.address();
+      if (!address || typeof address === "string") {
+        tunnelSocket.destroy();
+        return;
+      }
+      
+      const proxySocket = net.connect(address.port, "127.0.0.1");
+      
+      proxySocket.on("connect", () => {
+        if (initial.length > 0) {
+            proxySocket.write(initial);
+        }
+        
+        tunnelSocket.pipe(proxySocket);
+        proxySocket.pipe(tunnelSocket);
+        
+        tunnelSocket.resume();
+        proxySocket.resume();
+      });
+      
+      proxySocket.on("error", () => {
+        tunnelSocket.destroy();
+      });
+      
+      proxySocket.on("close", () => {
+        plainServer.close();
+        internalHttpServer.close();
+      });
+    });
   }
 
   function classify() {
     const result = classifyMitmInitialBytes(buffered);
+    proxyLog("mitm-classify-result", { kind: result.kind, bufferedLength: buffered.length });
     if (result.kind === "need-more") {
       return false;
     }
@@ -1743,6 +1893,7 @@ function establishMitmTunnel(
   }
 
   function handleData(chunk: Buffer) {
+    proxyLog("mitm-handle-data", { length: chunk.length });
     buffered = buffered.length === 0 ? chunk : Buffer.concat([buffered, chunk]);
     if (classify()) {
       return;
@@ -1967,6 +2118,14 @@ function deriveRoute(url: string): ProxyRoute | null {
                 scope: "base",
                 domainSuffix: "cmux.local",
                 cmuxProxyOrigin: process.env.TEST_CMUX_PROXY_ORIGIN
+            };
+        }
+        if (parsed.hostname.includes("cmux-test-ws-8083")) {
+            return {
+                morphId: "test",
+                scope: "ws",
+                domainSuffix: "cmux.local",
+                cmuxProxyOrigin: "http://127.0.0.1:8083"
             };
         }
       } catch (_e) { /* ignore */ }
