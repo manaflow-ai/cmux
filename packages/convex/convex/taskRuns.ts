@@ -2086,3 +2086,68 @@ export const createForPreview = internalMutation({
     return { taskRunId, jwt };
   },
 });
+
+// Get screenshot sets for a pull request (looks up via taskRunPullRequests junction table)
+export const getScreenshotSetsForPr = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+
+    // Find task runs associated with this PR via the junction table
+    const junctionEntries = await ctx.db
+      .query("taskRunPullRequests")
+      .withIndex("by_pr", (q) =>
+        q
+          .eq("teamId", teamId)
+          .eq("repoFullName", args.repoFullName)
+          .eq("prNumber", args.prNumber)
+      )
+      .collect();
+
+    if (junctionEntries.length === 0) {
+      return [];
+    }
+
+    // Get unique run IDs
+    const runIds = Array.from(new Set(junctionEntries.map((e) => e.taskRunId)));
+
+    // Fetch screenshot sets for all associated runs
+    const screenshotSetPromises = runIds.map(async (runId) => {
+      const sets = await ctx.db
+        .query("taskRunScreenshotSets")
+        .withIndex("by_run_capturedAt", (q) => q.eq("runId", runId))
+        .collect();
+      return sets;
+    });
+
+    const screenshotSetsArrays = await Promise.all(screenshotSetPromises);
+    const allScreenshotSets = screenshotSetsArrays.flat();
+
+    // Sort by capturedAt descending (most recent first), limit to 20
+    allScreenshotSets.sort((a, b) => b.capturedAt - a.capturedAt);
+    const trimmedSets = allScreenshotSets.slice(0, 20);
+
+    // Resolve storage URLs for images
+    return Promise.all(
+      trimmedSets.map(async (set) => {
+        const imagesWithUrls = await Promise.all(
+          set.images.map(async (image) => {
+            const url = await ctx.storage.getUrl(image.storageId);
+            return {
+              ...image,
+              url: url ?? undefined,
+            };
+          })
+        );
+        return {
+          ...set,
+          images: imagesWithUrls,
+        };
+      })
+    );
+  },
+});

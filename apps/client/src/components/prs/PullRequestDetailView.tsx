@@ -1,4 +1,5 @@
 import { RunDiffHeatmapReviewSection } from "@/components/RunDiffHeatmapReviewSection";
+import { RunScreenshotGallery } from "@/components/RunScreenshotGallery";
 import type { DiffViewerControls, StreamFileState, StreamFileStatus } from "@/components/heatmap-diff-viewer";
 import type { HeatmapColorSettings } from "@/components/heatmap-diff-viewer/heatmap-gradient";
 import { Dropdown } from "@/components/ui/dropdown";
@@ -278,6 +279,18 @@ export function PullRequestDetailView({
     prNumber: currentPR?.number || 0,
     headSha: currentPR?.headSha,
   });
+
+  // Fetch screenshot sets for this PR
+  const screenshotSets = useConvexQuery(
+    api.taskRuns.getScreenshotSetsForPr,
+    currentPR?.repoFullName && currentPR?.number
+      ? {
+          teamSlugOrId,
+          repoFullName: currentPR.repoFullName,
+          prNumber: currentPR.number,
+        }
+      : "skip"
+  );
 
   const hasAnyFailure = useMemo(() => {
     return workflowData.allRuns.some(
@@ -1017,6 +1030,16 @@ export function PullRequestDetailView({
                 onToggle={handleToggleChecks}
               />
             </Suspense>
+            {screenshotSets === undefined ? (
+              <div className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-950/40 px-3.5 py-3 text-sm text-neutral-500 dark:text-neutral-400">
+                Loading screenshots...
+              </div>
+            ) : (
+              <RunScreenshotGallery
+                screenshotSets={screenshotSets}
+                highlightedSetId={null}
+              />
+            )}
             <Suspense
               fallback={
                 <div className="flex items-center justify-center h-full">

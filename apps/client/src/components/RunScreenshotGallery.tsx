@@ -9,6 +9,8 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  Camera,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Maximize2,
@@ -28,6 +30,7 @@ interface ScreenshotImage {
   fileName?: string | null;
   commitSha?: string | null;
   url?: string | null;
+  description?: string | null;
 }
 
 interface RunScreenshotSet {
@@ -35,6 +38,7 @@ interface RunScreenshotSet {
   taskId: Id<"tasks">;
   runId: Id<"taskRuns">;
   status: ScreenshotStatus;
+  hasUiChanges?: boolean | null;
   commitSha?: string | null;
   capturedAt: number;
   error?: string | null;
@@ -49,20 +53,6 @@ interface RunScreenshotGalleryProps {
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 40;
 
-const STATUS_LABELS: Record<ScreenshotStatus, string> = {
-  completed: "Completed",
-  failed: "Failed",
-  skipped: "Skipped",
-};
-
-const STATUS_STYLES: Record<ScreenshotStatus, string> = {
-  completed:
-    "bg-emerald-100/70 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
-  failed: "bg-rose-100/70 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300",
-  skipped:
-    "bg-neutral-200/70 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-};
-
 const getImageKey = (
   setId: Id<"taskRunScreenshotSets">,
   image: ScreenshotImage,
@@ -70,7 +60,7 @@ const getImageKey = (
 ) => `${setId}:${image.storageId}:${indexInSet}`;
 
 export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
-  const { screenshotSets, highlightedSetId } = props;
+  const { screenshotSets, highlightedSetId: _highlightedSetId } = props;
   const sortedScreenshotSets = useMemo(
     () =>
       [...screenshotSets].sort((a, b) => {
@@ -216,10 +206,6 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
     currentEntry?.globalIndex !== undefined
       ? currentEntry.globalIndex + 1
       : null;
-
-  const effectiveHighlight =
-    highlightedSetId ??
-    sortedScreenshotSets[sortedScreenshotSets.length - 1]?._id ?? null;
 
   useEffect(() => {
     if (activeImageKey === null) {
@@ -420,23 +406,59 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
     };
   }, [goNext, goPrev, isSlideshowOpen]);
 
-  if (sortedScreenshotSets.length === 0) {
+  const isEmpty = sortedScreenshotSets.length === 0;
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Count total images across all sets
+  const totalImages = useMemo(() => {
+    return sortedScreenshotSets.reduce((acc, set) => acc + set.images.filter(img => img.url).length, 0);
+  }, [sortedScreenshotSets]);
+
+  // Check if any set has no UI changes
+  const hasNoUiChanges = sortedScreenshotSets.some(set => set.hasUiChanges === false);
+  const hasFailures = sortedScreenshotSets.some(set => set.status === "failed");
+
+  // Generate summary text
+  const summaryText = useMemo(() => {
+    if (isEmpty) return "No screenshots";
+    if (hasFailures && totalImages === 0) return "Screenshot capture failed";
+    if (hasNoUiChanges && totalImages === 0) return "No UI changes detected";
+    if (totalImages === 0) return "No screenshots captured";
+    return `${totalImages} ${totalImages === 1 ? "screenshot" : "screenshots"}`;
+  }, [isEmpty, hasFailures, hasNoUiChanges, totalImages]);
+
+  // Don't render anything if empty
+  if (isEmpty) {
     return null;
   }
 
   return (
-    <section className="border-b border-neutral-200 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-950/40">
-      <div className="px-3.5 pt-3 pb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-          Screenshots
-        </h2>
-        <span className="text-xs text-neutral-600 dark:text-neutral-400">
-          {sortedScreenshotSets.length}{" "}
-          {sortedScreenshotSets.length === 1 ? "capture" : "captures"}
+    <section className="border-b border-neutral-200 dark:border-neutral-800">
+      {/* Collapsible header row - matches WorkflowRunsSection style */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-2 pl-3 pr-2.5 py-1.5 bg-neutral-50 dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors text-left"
+      >
+        <div className="flex items-center justify-center" style={{ width: "20px" }}>
+          {isExpanded ? (
+            <ChevronDown className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+          )}
+        </div>
+        <div className="flex items-center justify-center" style={{ width: "20px" }}>
+          <Camera className="w-3 h-3 text-neutral-500 dark:text-neutral-400" />
+        </div>
+        <span className="text-xs text-neutral-700 dark:text-neutral-300">
+          {summaryText}
         </span>
-      </div>
-      <div className="px-3.5 pb-4 space-y-4">
-        {currentEntry ? (
+      </button>
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <div className="px-3.5 py-3 space-y-3 bg-white dark:bg-neutral-950">
+          {currentEntry ? (
           <Dialog.Root
             open={isSlideshowOpen}
             onOpenChange={(open) => !open && closeSlideshow()}
@@ -445,7 +467,7 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
               <Dialog.Overlay className="fixed inset-0 bg-neutral-950/60 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in data-[state=closed]:fade-out z-[var(--z-floating-high-overlay)]" />
               <Dialog.Content className="fixed left-1/2 top-1/2 z-[var(--z-floating-high)] flex max-h-[calc(100vh-4rem)] w-[min(2600px,calc(100vw-4rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-3xl border border-neutral-200 bg-white/95 p-4 shadow-2xl focus:outline-none dark:border-neutral-800 dark:bg-neutral-950/95 sm:max-h-[calc(100vh-6rem)] sm:w-[min(2600px,calc(100vw-6rem))] sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1 min-w-0">
                     <Dialog.Title className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
                       {activeOverallIndex !== null ? `${activeOverallIndex}. ` : ""}
                       {currentEntry.image.fileName ?? "Screenshot"}
@@ -457,6 +479,11 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
                         addSuffix: true,
                       })}
                     </Dialog.Description>
+                    {currentEntry.image.description && (
+                      <p className="text-sm text-neutral-700 dark:text-neutral-300 mt-2 max-w-2xl">
+                        {currentEntry.image.description}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1 rounded-full border border-neutral-200 bg-white/90 px-2 py-1 text-xs font-medium text-neutral-600 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/70 dark:text-neutral-200">
@@ -603,119 +630,46 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
             </Dialog.Portal>
           </Dialog.Root>
         ) : null}
-        {sortedScreenshotSets.map((set) => {
-          const capturedAtDate = new Date(set.capturedAt);
-          const relativeCapturedAt = formatDistanceToNow(capturedAtDate, {
-            addSuffix: true,
-          });
-          const shortCommit = set.commitSha?.slice(0, 12);
-          const isHighlighted = effectiveHighlight === set._id;
+          {/* Simple horizontal scroll of all images */}
+          {flattenedImages.length > 0 ? (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {flattenedImages.map((entry) => {
+                const displayName = entry.image.fileName ?? "Screenshot";
+                const isActive = activeImageKey === entry.key;
 
-          return (
-            <article
-              key={set._id}
-              className={cn(
-                "rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950/70 p-3 transition-shadow",
-                isHighlighted &&
-                "border-emerald-400/70 dark:border-emerald-400/60 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={cn(
-                    "px-2 py-0.5 text-xs font-medium rounded-full",
-                    STATUS_STYLES[set.status]
-                  )}
-                >
-                  {STATUS_LABELS[set.status]}
-                </span>
-                {isHighlighted && (
-                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
-                    Latest
-                  </span>
-                )}
-                <span
-                  className="text-xs text-neutral-600 dark:text-neutral-400"
-                  title={capturedAtDate.toLocaleString()}
-                >
-                  {relativeCapturedAt}
-                </span>
-                {shortCommit && (
-                  <span className="text-xs font-mono text-neutral-600 dark:text-neutral-400">
-                    {shortCommit.toLowerCase()}
-                  </span>
-                )}
-                {set.images.length > 0 && (
-                  <span className="text-xs text-neutral-500 dark:text-neutral-500">
-                    {set.images.length}{" "}
-                    {set.images.length === 1 ? "image" : "images"}
-                  </span>
-                )}
-              </div>
-              {set.error && (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">
-                  {set.error}
-                </p>
-              )}
-              {set.images.length > 0 ? (
-                <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                  {set.images.map((image, indexInSet) => {
-                    const displayName = image.fileName ?? "Screenshot";
-                    const stableKey = getImageKey(set._id, image, indexInSet);
-                    if (!image.url) {
-                      return (
-                        <div
-                          key={stableKey}
-                          className="flex h-48 min-w-[200px] items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-neutral-100 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
-                        >
-                          URL expired
-                        </div>
-                      );
-                    }
-                    const flatIndex = globalIndexByKey.get(stableKey) ?? null;
-                    const humanIndex = flatIndex !== null ? flatIndex + 1 : null;
-                    const isActive = activeImageKey === stableKey;
-
-                    return (
-                      <button
-                        key={stableKey}
-                        type="button"
-                        onClick={() => setActiveImageKey(stableKey)}
-                        className={cn(
-                          "group relative flex w-[220px] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 text-left transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900/70 dark:hover:border-neutral-500",
-                          isActive &&
-                          "border-emerald-400/70 shadow-[0_0_0_1px_rgba(16,185,129,0.25)] dark:border-emerald-400/60",
-                        )}
-                        aria-label={`Open ${displayName} in slideshow`}
-                      >
-                        <img
-                          src={image.url}
-                          alt={displayName}
-                          className="h-48 w-[220px] object-contain bg-neutral-100 dark:bg-neutral-950"
-                          loading="lazy"
-                        />
-                        <div className="absolute top-2 right-2 text-neutral-600 opacity-0 transition group-hover:opacity-100 dark:text-neutral-300">
-                          <Maximize2 className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="border-t border-neutral-200 px-2 py-1 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-300 truncate">
-                          {humanIndex !== null ? `${humanIndex}. ` : ""}
-                          {displayName}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-                  {set.status === "failed"
-                    ? "Screenshot capture failed before any images were saved."
-                    : "No screenshots were captured for this attempt."}
-                </p>
-              )}
-            </article>
-          );
-        })}
-      </div>
+                return (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    onClick={() => setActiveImageKey(entry.key)}
+                    className={cn(
+                      "group relative flex-shrink-0 overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-500",
+                      isActive && "ring-2 ring-neutral-900 dark:ring-neutral-100"
+                    )}
+                    aria-label={`View ${displayName}`}
+                  >
+                    <img
+                      src={entry.image.url ?? undefined}
+                      alt={entry.image.description || displayName}
+                      className="h-32 w-48 object-contain"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/0 opacity-0 transition group-hover:bg-neutral-950/20 group-hover:opacity-100">
+                      <Maximize2 className="h-4 w-4 text-white drop-shadow-md" />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {hasFailures
+                ? "Screenshot capture failed."
+                : "No screenshots available."}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }
