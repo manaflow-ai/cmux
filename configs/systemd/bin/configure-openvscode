@@ -16,7 +16,8 @@ case "${VSCODE_THEME:-}" in
     ;;
 esac
 
-SETTINGS=$(jq -n \
+# Base settings that should always be applied
+BASE_SETTINGS=$(jq -n \
   --arg theme "$color" \
   '{
     "workbench.startupEditor": "none",
@@ -39,7 +40,21 @@ SETTINGS=$(jq -n \
     "scm.defaultViewMode": "tree",
     "git.showPushSuccessNotification": true,
     "git.autorefresh": true,
-    "git.branchCompareWith": "main"
+    "git.branchCompareWith": "main",
+    "security.workspace.trust.enabled": false,
+    "security.workspace.trust.startupPrompt": "never",
+    "security.workspace.trust.untrustedFiles": "open",
+    "security.workspace.trust.emptyWindow": false,
+    "workbench.editor.restoreViewState": true,
+    "workbench.editor.preserveOpenEditors": true,
+    "window.restoreWindows": "preserve",
+    "window.reopenFolders": "one",
+    "editor.minimap.enabled": false,
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000,
+    "workbench.activityBar.visible": true,
+    "workbench.statusBar.visible": true,
+    "workbench.sideBar.location": "left"
   } + (if $theme != "" then {"workbench.colorTheme": $theme} else {} end)')
 
 home="${HOME:-/root}"
@@ -50,6 +65,34 @@ machine_dir="${user_base}/data/Machine"
 
 mkdir -p "${user_dir}" "${default_profile_dir}" "${machine_dir}"
 
-printf '%s' "$SETTINGS" > "${user_dir}/settings.json"
-printf '%s' "$SETTINGS" > "${default_profile_dir}/settings.json"
-printf '%s' "$SETTINGS" > "${machine_dir}/settings.json"
+# Function to merge settings - preserves existing user settings and adds/updates base settings
+merge_settings() {
+  local target_file="$1"
+  local base_settings="$2"
+  local temp_file="${target_file}.tmp"
+
+  if [[ -f "$target_file" ]] && [[ -s "$target_file" ]]; then
+    # File exists and is not empty - merge base settings with existing (base settings take precedence for managed settings)
+    local existing
+    existing=$(cat "$target_file" 2>/dev/null || echo '{}')
+    # Validate existing is valid JSON, otherwise use empty object
+    if ! echo "$existing" | jq empty 2>/dev/null; then
+      existing='{}'
+    fi
+    # Merge: existing settings first, then base settings on top (so base settings win for managed keys)
+    # Write to temp file first, then atomically move to target
+    printf '%s' "$existing" | jq --argjson base "$base_settings" '. * $base' > "$temp_file"
+    mv "$temp_file" "$target_file"
+  else
+    # File doesn't exist or is empty - write base settings directly
+    printf '%s' "$base_settings" > "$target_file"
+  fi
+}
+
+merge_settings "${user_dir}/settings.json" "$BASE_SETTINGS"
+merge_settings "${default_profile_dir}/settings.json" "$BASE_SETTINGS"
+merge_settings "${machine_dir}/settings.json" "$BASE_SETTINGS"
+
+# Ensure workspace state directory exists for UI state persistence
+mkdir -p "${user_base}/data/User/workspaceStorage"
+mkdir -p "${user_base}/data/User/globalStorage"
