@@ -1232,19 +1232,34 @@ const FileDiffCard = memo(function FileDiffCardComponent({
       return;
     }
 
-    const targetCell = currentCard.querySelector<HTMLElement>(
-      `[data-change-key="${focusedChangeKey}"]`
-    );
-    if (!targetCell) {
-      return;
-    }
+    // Use a double requestAnimationFrame to ensure DOM has fully laid out
+    // after the card expands. The first frame schedules the work, the second
+    // ensures the layout pass is complete before scrolling.
+    const frameId = window.requestAnimationFrame(() => {
+      const innerFrameId = window.requestAnimationFrame(() => {
+        const targetCell = currentCard.querySelector<HTMLElement>(
+          `[data-change-key="${focusedChangeKey}"]`
+        );
+        if (!targetCell) {
+          return;
+        }
 
-    const targetRow = targetCell.closest("tr");
-    const scrollTarget =
-      targetRow instanceof HTMLElement ? targetRow : targetCell;
-    window.requestAnimationFrame(() => {
-      scrollElementToViewportCenter(scrollTarget, { scrollContainer });
+        const targetRow = targetCell.closest("tr");
+        const scrollTarget =
+          targetRow instanceof HTMLElement ? targetRow : targetCell;
+        scrollElementToViewportCenter(scrollTarget, { scrollContainer });
+      });
+      // Store inner frame ID for cleanup
+      (currentCard as HTMLDivElement & { _innerFrameId?: number })._innerFrameId = innerFrameId;
     });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      const innerFrameId = (currentCard as HTMLDivElement & { _innerFrameId?: number })._innerFrameId;
+      if (innerFrameId !== undefined) {
+        window.cancelAnimationFrame(innerFrameId);
+      }
+    };
   }, [focusedChangeKey, scrollContainer]);
 
   return (
@@ -2162,15 +2177,23 @@ export function GitDiffHeatmapReviewViewer({
       return;
     }
 
+    // Use double requestAnimationFrame to ensure DOM is fully laid out
+    // before attempting scroll, preventing flash/jitter
+    let innerFrameId: number | undefined;
     const frame = window.requestAnimationFrame(() => {
-      const article = document.getElementById(focusedError.anchorId);
-      if (article) {
-        scrollElementToViewportCenter(article, { scrollContainer });
-      }
+      innerFrameId = window.requestAnimationFrame(() => {
+        const article = document.getElementById(focusedError.anchorId);
+        if (article) {
+          scrollElementToViewportCenter(article, { scrollContainer });
+        }
+      });
     });
 
     return () => {
       window.cancelAnimationFrame(frame);
+      if (innerFrameId !== undefined) {
+        window.cancelAnimationFrame(innerFrameId);
+      }
     };
   }, [focusedError, handleNavigate, scrollContainer]);
 
