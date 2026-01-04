@@ -1041,6 +1041,125 @@ export const addPrComment = internalAction({
   },
 });
 
+/**
+ * Updates an existing preview comment (or posts a new one) to indicate the preview run was cancelled
+ * because a newer commit was pushed to the PR.
+ */
+export const postCancellationComment = internalAction({
+  args: {
+    installationId: v.number(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    previewRunId: v.id("previewRuns"),
+    cancelledHeadSha: v.string(),
+    newHeadSha: v.string(),
+    existingCommentId: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const {
+      installationId,
+      repoFullName,
+      prNumber,
+      previewRunId,
+      cancelledHeadSha,
+      newHeadSha,
+      existingCommentId,
+    } = args;
+
+    try {
+      const accessToken = await fetchInstallationAccessToken(installationId);
+      if (!accessToken) {
+        console.error(
+          "[github_pr_comments] Failed to get access token for cancellation comment",
+          { installationId },
+        );
+        return { ok: false, error: "Failed to get access token" };
+      }
+
+      const repo = parseRepoFullName(repoFullName);
+      if (!repo) {
+        console.error("[github_pr_comments] Invalid repo full name", {
+          repoFullName,
+        });
+        return { ok: false, error: "Invalid repository name" };
+      }
+
+      const octokit = createOctokit(accessToken);
+
+      const commentBody = [
+        "## Preview Screenshots",
+        "",
+        `⚠️ **Preview cancelled** - A newer commit (\`${newHeadSha.slice(0, 7)}\`) was pushed to this PR.`,
+        "",
+        `The preview for commit \`${cancelledHeadSha.slice(0, 7)}\` was cancelled. A new preview will be generated for the latest commit.`,
+        "",
+        "---",
+        PREVIEW_SIGNATURE,
+      ].join("\n");
+
+      if (existingCommentId) {
+        // Update existing comment
+        await octokit.rest.issues.updateComment({
+          owner: repo.owner,
+          repo: repo.repo,
+          comment_id: existingCommentId,
+          body: commentBody,
+        });
+
+        console.log("[github_pr_comments] Updated preview comment with cancellation notice", {
+          installationId,
+          repoFullName,
+          prNumber,
+          commentId: existingCommentId,
+          cancelledHeadSha: cancelledHeadSha.slice(0, 7),
+          newHeadSha: newHeadSha.slice(0, 7),
+        });
+      } else {
+        // Post new comment
+        const { data } = await octokit.rest.issues.createComment({
+          owner: repo.owner,
+          repo: repo.repo,
+          issue_number: prNumber,
+          body: commentBody,
+        });
+
+        // Update the preview run with the comment info
+        await ctx.runMutation(internal.previewRuns.updateStatus, {
+          previewRunId,
+          status: "superseded",
+          githubCommentUrl: data.html_url,
+          githubCommentId: data.id,
+        });
+
+        console.log("[github_pr_comments] Posted cancellation comment", {
+          installationId,
+          repoFullName,
+          prNumber,
+          commentId: data.id,
+          cancelledHeadSha: cancelledHeadSha.slice(0, 7),
+          newHeadSha: newHeadSha.slice(0, 7),
+        });
+      }
+
+      return { ok: true };
+    } catch (error) {
+      console.error(
+        "[github_pr_comments] Unexpected error posting cancellation comment",
+        {
+          installationId,
+          repoFullName,
+          prNumber,
+          error,
+        },
+      );
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
 async function getScreenshotsForPr(
   ctx: ActionCtx,
   {
