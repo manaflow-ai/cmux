@@ -38,6 +38,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use vte::Parser as VteParser;
 
 // =============================================================================
 // CLI Argument Parsing
@@ -345,6 +346,8 @@ struct PtySession {
     /// Virtual terminal emulator for tracking terminal state.
     /// Provides server-side ANSI sequence parsing and grid-based storage.
     terminal: Mutex<VirtualTerminal>,
+    /// Persistent parser to handle escape sequences split across reads.
+    parser: Mutex<VteParser>,
 }
 
 impl PtySession {
@@ -378,11 +381,15 @@ impl PtySession {
     /// Uses a bounded channel for backpressure - if the PTY can't keep up,
     /// this will block (which is correct behavior for flow control).
     fn write_input(&self, data: &str) -> Result<()> {
+        self.write_input_bytes(data.as_bytes().to_vec())
+    }
+
+    fn write_input_bytes(&self, data: Vec<u8>) -> Result<()> {
         let len = data.len();
         if len > 100 {
             info!("[session:{}] Queueing large input: {} bytes", self.id, len);
         }
-        self.input_tx.send(data.as_bytes().to_vec()).map_err(|e| {
+        self.input_tx.send(data).map_err(|e| {
             error!("[session:{}] Input channel send failed: {}", self.id, e);
             anyhow::anyhow!("PTY input channel closed")
         })?;
@@ -456,7 +463,15 @@ impl PtySession {
     /// Updates the terminal's internal grid state.
     fn process_terminal(&self, data: &[u8]) {
         let mut terminal = self.terminal.lock();
-        terminal.process(data);
+        let mut parser = self.parser.lock();
+        for byte in data {
+            parser.advance(&mut *terminal, *byte);
+        }
+    }
+
+    fn drain_terminal_responses(&self) -> Vec<Vec<u8>> {
+        let mut terminal = self.terminal.lock();
+        terminal.drain_responses()
     }
 
     /// Resize the virtual terminal emulator.
@@ -739,6 +754,15 @@ async fn spawn_pty_reader(
 
                 // Process through virtual terminal emulator for state tracking
                 session.process_terminal(&filtered_bytes);
+                let responses = session.drain_terminal_responses();
+                for response in responses {
+                    if let Err(error) = session.write_input_bytes(response) {
+                        error!(
+                            "[reader:{}] Failed to send terminal response: {}",
+                            session_id, error
+                        );
+                    }
+                }
 
                 // Combine any leftover bytes from previous read with filtered data
                 utf8_buffer.extend_from_slice(&filtered_bytes);
@@ -921,6 +945,7 @@ fn create_pty_session_inner(
             request.rows as usize,
             request.cols as usize,
         )),
+        parser: Mutex::new(VteParser::new()),
     });
 
     Ok((session, reader))

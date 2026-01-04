@@ -34,6 +34,7 @@ crossterm = "0.28"
 
 # Terminal emulation
 cmux-terminal = { path = "../cmux-terminal" }
+vte = "0.13"
 
 # Utilities
 uuid = { version = "1", features = ["v4"] }
