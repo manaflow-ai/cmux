@@ -310,12 +310,16 @@ export const crownEvaluate = httpAction(async (ctx, req) => {
         `candidate-${candidate.index ?? index}`,
       gitDiff: candidate.gitDiff,
       index: candidate.index ?? index,
+      // Pass through parallel reviews if available
+      parallelReviews: candidate.parallelReviews,
     }));
 
     const result = await ctx.runAction(api.crown.actions.evaluate, {
       prompt: data.prompt,
       candidates,
       teamSlugOrId,
+      // Pass through aggregated review summary if available
+      parallelReviewSummary: data.parallelReviewSummary,
     });
     return jsonResponse(result);
   } catch (error) {
@@ -570,7 +574,7 @@ async function handleCrownCheckRequest(
   let currentStatus = task.crownEvaluationStatus ?? null;
   let currentError = task.crownEvaluationError ?? null;
 
-  const [runsForTeam, workspaceSettings, existingEvaluation] =
+  const [runsForTeam, workspaceSettings, existingEvaluation, reviewSet] =
     await Promise.all([
       ctx.runQuery(internal.taskRuns.listByTaskAndTeamInternal, {
         taskId,
@@ -585,6 +589,9 @@ async function handleCrownCheckRequest(
         taskId,
         teamId: workerAuth.payload.teamId,
         userId: workerAuth.payload.userId,
+      }),
+      ctx.runQuery(internal.parallelReviews.getReviewSetByTaskInternal, {
+        taskId,
       }),
     ]);
 
@@ -632,6 +639,12 @@ async function handleCrownCheckRequest(
     }
   }
 
+  // Determine if parallel reviews are ready
+  const parallelReviewsReady =
+    reviewSet?.status === "completed" || reviewSet?.status === "failed";
+  const parallelReviewsPending = reviewSet?.status === "pending" || reviewSet?.status === "in_progress";
+  const shouldTriggerReviews = allRunsFinished && completedRuns.length >= 2 && !reviewSet;
+
   const response = {
     ok: true,
     taskId,
@@ -645,6 +658,15 @@ async function handleCrownCheckRequest(
           evaluatedAt: existingEvaluation.evaluatedAt,
         }
       : null,
+    // Parallel reviews status
+    parallelReviews: {
+      hasReviewSet: Boolean(reviewSet),
+      status: reviewSet?.status ?? null,
+      ready: parallelReviewsReady,
+      pending: parallelReviewsPending,
+      shouldTrigger: shouldTriggerReviews,
+      aggregatedSummary: reviewSet?.aggregatedSummary ?? null,
+    },
     task: {
       text: task.text,
       crownEvaluationStatus: currentStatus,

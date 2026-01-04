@@ -1128,6 +1128,75 @@ const convexSchema = defineSchema({
     lastResumedAt: v.optional(v.number()), // When instance was last resumed via UI
     stoppedAt: v.optional(v.number()), // When instance was permanently stopped
   }).index("by_instanceId", ["instanceId"]),
+
+  // Parallel code reviews for crown evaluation
+  // Each task run can have multiple parallel reviews from different agents (Claude, Codex, Gemini)
+  parallelReviews: defineTable({
+    taskId: v.id("tasks"),
+    taskRunId: v.id("taskRuns"), // The run being reviewed
+    teamId: v.string(),
+    userId: v.string(),
+    // Review agent info
+    reviewerAgent: v.union(
+      v.literal("claude"),
+      v.literal("codex"),
+      v.literal("gemini")
+    ),
+    // Review job state
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    // Review content
+    reviewOutput: v.optional(v.string()), // Markdown review content
+    score: v.optional(v.number()), // Optional numeric score (0-100)
+    strengths: v.optional(v.array(v.string())), // What the reviewer liked
+    weaknesses: v.optional(v.array(v.string())), // Issues found
+    suggestions: v.optional(v.array(v.string())), // Improvement suggestions
+    // Error tracking
+    errorCode: v.optional(v.string()),
+    errorDetail: v.optional(v.string()),
+    // Sandbox info for running the review
+    sandboxInstanceId: v.optional(v.string()),
+    // Timing
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task_run", ["taskRunId", "createdAt"])
+    .index("by_task", ["taskId", "createdAt"])
+    .index("by_task_run_agent", ["taskRunId", "reviewerAgent"])
+    .index("by_task_status", ["taskId", "status"])
+    .index("by_team_user", ["teamId", "userId"]),
+
+  // Aggregate reviews for a task (used by crown evaluator)
+  parallelReviewSets: defineTable({
+    taskId: v.id("tasks"),
+    teamId: v.string(),
+    userId: v.string(),
+    // Status of the overall review set
+    status: v.union(
+      v.literal("pending"), // Reviews being created/dispatched
+      v.literal("in_progress"), // Some reviews running
+      v.literal("completed"), // All reviews done
+      v.literal("failed") // Something went wrong
+    ),
+    // Which runs are being reviewed
+    taskRunIds: v.array(v.id("taskRuns")),
+    // Summary after all reviews complete
+    aggregatedSummary: v.optional(v.string()), // Combined review summary for crown evaluator
+    // Timing
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_team_user", ["teamId", "userId"])
+    .index("by_status", ["status", "updatedAt"]),
 });
 
 export default convexSchema;

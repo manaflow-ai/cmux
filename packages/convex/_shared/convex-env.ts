@@ -17,6 +17,7 @@ export const env = createEnv({
     CMUX_TASK_RUN_JWT_SECRET: z.string().min(1),
     OPENAI_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
+    GEMINI_API_KEY: z.string().min(1).optional(),
     MORPH_API_KEY: z.string().min(1).optional(),
     CMUX_IS_STAGING: z.string().optional(),
     CONVEX_IS_PRODUCTION: z.string().optional(),

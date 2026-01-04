@@ -18,6 +18,19 @@ import { action } from "../_generated/server";
 const OPENAI_CROWN_MODEL = "gpt-5-mini";
 const ANTHROPIC_CROWN_MODEL = "claude-3-5-sonnet-20241022";
 
+const ParallelReviewResultValidator = v.object({
+  reviewerAgent: v.union(
+    v.literal("claude"),
+    v.literal("codex"),
+    v.literal("gemini")
+  ),
+  score: v.optional(v.number()),
+  strengths: v.optional(v.array(v.string())),
+  weaknesses: v.optional(v.array(v.string())),
+  suggestions: v.optional(v.array(v.string())),
+  reviewOutput: v.optional(v.string()),
+});
+
 const CrownEvaluationCandidateValidator = v.object({
   runId: v.optional(v.string()),
   agentName: v.optional(v.string()),
@@ -25,6 +38,7 @@ const CrownEvaluationCandidateValidator = v.object({
   gitDiff: v.string(),
   newBranch: v.optional(v.union(v.string(), v.null())),
   index: v.optional(v.number()),
+  parallelReviews: v.optional(v.array(ParallelReviewResultValidator)),
 });
 
 function resolveCrownModel(): {
@@ -56,7 +70,8 @@ function resolveCrownModel(): {
 
 export async function performCrownEvaluation(
   prompt: string,
-  candidates: CrownEvaluationCandidate[]
+  candidates: CrownEvaluationCandidate[],
+  parallelReviewSummary?: string
 ): Promise<CrownEvaluationResponse> {
   const { model, provider } = resolveCrownModel();
 
@@ -73,6 +88,8 @@ export async function performCrownEvaluation(
         `candidate-${resolvedIndex}`,
       gitDiff: candidate.gitDiff,
       newBranch: candidate.newBranch ?? null,
+      // Include parallel reviews if available
+      parallelReviews: candidate.parallelReviews ?? [],
     };
   });
 
@@ -81,18 +98,43 @@ export async function performCrownEvaluation(
     candidates: normalizedCandidates,
   };
 
+  // Build review summary section if we have parallel reviews
+  let reviewSection = "";
+  if (parallelReviewSummary) {
+    reviewSection = `
+## Expert Code Reviews
+The following reviews were conducted by independent AI reviewers (Claude, Codex, Gemini) who analyzed each implementation:
+
+${parallelReviewSummary}
+
+Consider these reviews carefully when making your decision.
+`;
+  } else {
+    // Check if any candidates have inline reviews
+    const hasInlineReviews = normalizedCandidates.some(
+      (c) => c.parallelReviews && c.parallelReviews.length > 0
+    );
+    if (hasInlineReviews) {
+      reviewSection = `
+## Expert Code Reviews
+Each candidate includes reviews from independent AI reviewers. Consider these when evaluating.
+`;
+    }
+  }
+
   const evaluationPrompt = `You are evaluating code implementations from different AI models.
 
 Here are the candidates to evaluate:
 ${JSON.stringify(evaluationData, null, 2)}
 
 NOTE: The git diffs shown contain only actual code changes. Lock files, build artifacts, and other non-essential files have been filtered out.
-
+${reviewSection}
 Analyze these implementations and select the best one based on:
 1. Code quality and correctness
 2. Completeness of the solution
 3. Following best practices
 4. Actually having meaningful code changes (if one has no changes, prefer the one with changes)
+5. Review scores and feedback from expert reviewers (if available)
 
 Respond with a JSON object containing:
 - "winner": the index (0-based) of the best implementation
@@ -108,7 +150,7 @@ IMPORTANT: Respond ONLY with the JSON object, no other text.`;
       model,
       schema: CrownEvaluationResponseSchema,
       system:
-        "You select the best implementation from structured diff inputs and explain briefly why.",
+        "You select the best implementation from structured diff inputs and explain briefly why. Consider any expert reviews provided.",
       prompt: evaluationPrompt,
       ...(provider === "openai" ? {} : { temperature: 0 }),
       maxRetries: 2,
@@ -177,9 +219,10 @@ export const evaluate = action({
     prompt: v.string(),
     candidates: v.array(CrownEvaluationCandidateValidator),
     teamSlugOrId: v.string(),
+    parallelReviewSummary: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
-    return performCrownEvaluation(args.prompt, args.candidates);
+    return performCrownEvaluation(args.prompt, args.candidates, args.parallelReviewSummary);
   },
 });
 

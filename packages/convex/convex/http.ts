@@ -26,6 +26,15 @@ import {
   syncRelease as syncHostScreenshotCollectorRelease,
   getLatest as getLatestHostScreenshotCollector,
 } from "./hostScreenshotCollector_http";
+import {
+  triggerParallelReviews,
+  startReview,
+  completeParallelReview,
+  failParallelReview,
+  listParallelReviews,
+  checkParallelReviews,
+  getReviewsForCrown,
+} from "./parallelReviews_http";
 
 const http = httpRouter();
 
@@ -147,6 +156,49 @@ http.route({
   path: "/api/host-screenshot-collector/latest",
   method: "GET",
   handler: getLatestHostScreenshotCollector,
+});
+
+// Parallel reviews endpoints
+http.route({
+  path: "/api/parallel-reviews/trigger",
+  method: "POST",
+  handler: triggerParallelReviews,
+});
+
+http.route({
+  path: "/api/parallel-reviews/start",
+  method: "POST",
+  handler: startReview,
+});
+
+http.route({
+  path: "/api/parallel-reviews/complete",
+  method: "POST",
+  handler: completeParallelReview,
+});
+
+http.route({
+  path: "/api/parallel-reviews/fail",
+  method: "POST",
+  handler: failParallelReview,
+});
+
+http.route({
+  path: "/api/parallel-reviews/list",
+  method: "POST",
+  handler: listParallelReviews,
+});
+
+http.route({
+  path: "/api/parallel-reviews/check",
+  method: "POST",
+  handler: checkParallelReviews,
+});
+
+http.route({
+  path: "/api/parallel-reviews/get-for-crown",
+  method: "POST",
+  handler: getReviewsForCrown,
 });
 
 export default http;

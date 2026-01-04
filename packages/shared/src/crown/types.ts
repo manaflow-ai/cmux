@@ -29,6 +29,14 @@ export type CrownEvaluationStatus = z.infer<
   typeof CrownEvaluationStatusSchema
 >;
 
+export const ParallelReviewStatusSchema = z.enum([
+  "pending",
+  "in_progress",
+  "completed",
+  "failed",
+]);
+export type ParallelReviewStatus = z.infer<typeof ParallelReviewStatusSchema>;
+
 export const CrownWorkerCheckResponseSchema = z.object({
   ok: z.literal(true),
   taskId: z.string(),
@@ -42,6 +50,15 @@ export const CrownWorkerCheckResponseSchema = z.object({
       evaluatedAt: z.number(),
     })
     .nullable(),
+  // Parallel reviews status - worker uses this to coordinate review flow
+  parallelReviews: z.object({
+    hasReviewSet: z.boolean(),
+    status: ParallelReviewStatusSchema.nullable(),
+    ready: z.boolean(), // true if reviews are completed or failed
+    pending: z.boolean(), // true if reviews are pending or in_progress
+    shouldTrigger: z.boolean(), // true if worker should trigger reviews
+    aggregatedSummary: z.string().nullable(), // combined review summary for crown evaluator
+  }),
   task: z.object({
     text: z.string(),
     crownEvaluationStatus: CrownEvaluationStatusSchema.nullable(),
@@ -145,6 +162,17 @@ export const PullRequestMetadataSchema = z.object({
 });
 export type PullRequestMetadata = z.infer<typeof PullRequestMetadataSchema>;
 
+// Review from a single reviewer agent
+export const ParallelReviewResultSchema = z.object({
+  reviewerAgent: z.enum(["claude", "codex", "gemini"]),
+  score: z.number().min(0).max(100).optional(),
+  strengths: z.array(z.string()).optional(),
+  weaknesses: z.array(z.string()).optional(),
+  suggestions: z.array(z.string()).optional(),
+  reviewOutput: z.string().optional(),
+});
+export type ParallelReviewResult = z.infer<typeof ParallelReviewResultSchema>;
+
 export const CrownEvaluationCandidateSchema = z.object({
   runId: z.string().optional(),
   agentName: z.string().optional(),
@@ -152,6 +180,8 @@ export const CrownEvaluationCandidateSchema = z.object({
   gitDiff: z.string(),
   newBranch: z.string().nullable().optional(),
   index: z.number().optional(),
+  // Reviews from parallel review agents (Claude, Codex, Gemini)
+  parallelReviews: z.array(ParallelReviewResultSchema).optional(),
 });
 export type CrownEvaluationCandidate = z.infer<
   typeof CrownEvaluationCandidateSchema
@@ -161,6 +191,8 @@ export const CrownEvaluationRequestSchema = z.object({
   prompt: z.string(),
   candidates: z.array(CrownEvaluationCandidateSchema).min(1),
   teamSlugOrId: z.string(),
+  // Aggregated summary from all parallel reviews (optional)
+  parallelReviewSummary: z.string().optional(),
 });
 export type CrownEvaluationRequest = z.infer<
   typeof CrownEvaluationRequestSchema
