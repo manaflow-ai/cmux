@@ -48,7 +48,7 @@ const PreviewRunSchema = z
     prUrl: z.string(),
     headSha: z.string(),
     baseSha: z.string().optional().nullable(),
-    status: z.enum(["pending", "running", "completed", "failed", "skipped"]),
+    status: z.enum(["pending", "running", "completed", "failed", "skipped", "superseded"]),
     createdAt: z.number(),
     updatedAt: z.number(),
     dispatchedAt: z.number().optional().nullable(),

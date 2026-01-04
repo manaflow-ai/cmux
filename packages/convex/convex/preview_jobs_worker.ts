@@ -1034,6 +1034,16 @@ export async function runPreviewJob(
     return;
   }
 
+  // Check if this run was superseded by a newer commit before we start expensive operations
+  if (payload.run.status === "superseded") {
+    console.log("[preview-jobs] Preview run was superseded; aborting job execution", {
+      previewRunId,
+      headSha: payload.run.headSha?.slice(0, 7),
+      supersededBy: payload.run.supersededBy,
+    });
+    return;
+  }
+
   const convexUrl = resolveConvexUrl();
   if (!convexUrl) {
     console.error("[preview-jobs] Convex URL not configured; cannot trigger screenshots", {

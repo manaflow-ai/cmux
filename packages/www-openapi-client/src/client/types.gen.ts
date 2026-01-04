@@ -785,7 +785,7 @@ export type PreviewRun = {
     prUrl: string;
     headSha: string;
     baseSha?: string | null;
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'superseded';
     createdAt: number;
     updatedAt: number;
     dispatchedAt?: number | null;

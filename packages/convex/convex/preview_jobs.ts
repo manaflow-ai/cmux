@@ -122,24 +122,17 @@ export const requestDispatch = internalAction({
       status: payload.run.status,
     });
 
-    // Check if there's already an active preview run for this PR
-    // Skip dispatch if another run is already running (prevents duplicate jobs)
-    const activeRun = await ctx.runQuery(internal.previewRuns.getActiveByConfigAndPr, {
-      previewConfigId: payload.config._id,
-      prNumber: payload.run.prNumber,
-    });
-
-    if (activeRun && activeRun._id !== args.previewRunId) {
-      console.log("[preview-jobs] Another preview run is already active for this PR; skipping dispatch", {
+    // Skip if this run was superseded by a newer commit
+    if (payload.run.status === "superseded") {
+      console.log("[preview-jobs] Preview run was superseded; skipping dispatch", {
         previewRunId: args.previewRunId,
-        activeRunId: activeRun._id,
-        activeStatus: activeRun.status,
-        prNumber: payload.run.prNumber,
+        headSha: payload.run.headSha?.slice(0, 7),
+        supersededBy: payload.run.supersededBy,
       });
       return;
     }
 
-    // Also skip if this specific run is not pending (e.g., already running or completed)
+    // Skip if this specific run is not pending (e.g., already running or completed)
     if (payload.run.status !== "pending") {
       console.log("[preview-jobs] Preview run is not pending; skipping dispatch", {
         previewRunId: args.previewRunId,
@@ -147,6 +140,10 @@ export const requestDispatch = internalAction({
       });
       return;
     }
+
+    // Note: We no longer block on other active runs for the same PR.
+    // Each commit gets its own preview run. Older commits are marked as "superseded"
+    // by enqueueFromWebhook when a new commit arrives, so they won't run.
 
     try {
       await ctx.runMutation(internal.previewRuns.markDispatched, {

@@ -639,7 +639,9 @@ const convexSchema = defineSchema({
       v.literal("completed"),
       v.literal("failed"),
       v.literal("skipped"),
+      v.literal("superseded"), // Marked when a newer commit's preview run replaces this one
     ),
+    supersededBy: v.optional(v.id("previewRuns")), // Reference to the newer run that superseded this one
     stateReason: v.optional(v.string()),
     dispatchedAt: v.optional(v.number()),
     startedAt: v.optional(v.number()),
@@ -653,6 +655,7 @@ const convexSchema = defineSchema({
     .index("by_config_status", ["previewConfigId", "status", "createdAt"])
     .index("by_config_head", ["previewConfigId", "headSha"])
     .index("by_config_pr", ["previewConfigId", "prNumber", "createdAt"])
+    .index("by_config_pr_head", ["previewConfigId", "prNumber", "headSha"]) // For commit-aware duplicate detection
     .index("by_team_created", ["teamId", "createdAt"]),
   crownEvaluations: defineTable({
     taskId: v.id("tasks"),
