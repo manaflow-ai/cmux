@@ -220,6 +220,17 @@ exit 0`;
       ? { anthropicApiKey: ctx.apiKeys?.ANTHROPIC_API_KEY }
       : {}),
     hooks: {
+      Notification: [
+        {
+          matcher: ".*",
+          hooks: [
+            {
+              type: "command",
+              command: `jq -r '.message // "Awaiting input"' | xargs -I{} cmux-bridge notify "Claude Code: {}" 2>>/tmp/claude-hook-error.log`,
+            },
+          ],
+        },
+      ],
       Stop: [
         {
           hooks: [
