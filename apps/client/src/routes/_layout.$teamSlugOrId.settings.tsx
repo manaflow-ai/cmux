@@ -14,6 +14,7 @@ import { Switch } from "@heroui/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useConvex } from "convex/react";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -23,7 +24,7 @@ export const Route = createFileRoute("/_layout/$teamSlugOrId/settings")({
 
 interface ProviderInfo {
   url?: string;
-  helpText?: string;
+  helpText?: ReactNode;
 }
 
 type HeatmapColors = {
@@ -54,8 +55,11 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
     url: "https://platform.openai.com/api-keys",
   },
   CODEX_AUTH_JSON: {
-    helpText:
-      "Paste the contents of ~/.codex/auth.json here. This allows Codex to use your OpenAI authentication.",
+    helpText: (
+      <>
+        Paste the contents of <span className="select-all">~/.codex/auth.json</span> here. This allows Codex to use your OpenAI authentication.
+      </>
+    ),
   },
   OPENROUTER_API_KEY: {
     url: "https://openrouter.ai/keys",
