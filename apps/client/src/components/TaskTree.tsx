@@ -1,3 +1,4 @@
+import { env } from "@/client-env";
 import { Dropdown } from "@/components/ui/dropdown";
 import {
   Tooltip,
@@ -1576,10 +1577,12 @@ function TaskRunTreeInner({
     });
   }, [refreshGitHubAuth, run._id, teamSlugOrId]);
 
-  const shouldRenderPullRequestLink = Boolean(
-    (run.pullRequestUrl && run.pullRequestUrl !== "pending") ||
-      run.pullRequests?.some((pr) => pr.url)
-  );
+  const shouldRenderPullRequestLink =
+    !env.NEXT_PUBLIC_WEB_MODE &&
+    Boolean(
+      (run.pullRequestUrl && run.pullRequestUrl !== "pending") ||
+        run.pullRequests?.some((pr) => pr.url)
+    );
   const hasOpenWithActions = openWithActions.length > 0;
   const hasPortActions = portActions.length > 0;
   const canCopyBranch = Boolean(copyRunBranch);
