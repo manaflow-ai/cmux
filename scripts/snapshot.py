@@ -1572,7 +1572,6 @@ async def task_configure_zsh(ctx: TaskContext) -> None:
           fi
         fi
         mkdir -p /root
-        autosuggestions="/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
         cat > /root/.zshrc <<EOF
 export SHELL="${zsh_path}"
 export PATH="/usr/local/bin:/usr/local/cargo/bin:\$HOME/.local/bin:\$HOME/.bun/bin:\$PATH"
@@ -1600,19 +1599,17 @@ precmd() {
 }
 
 PROMPT='%F{cyan}%n%f %F{green}%~%f\${vcs_info_msg_0_:+ \${vcs_info_msg_0_}} %# '
-EOF
-        if [ -f "${autosuggestions}" ]; then
-          cat >> /root/.zshrc <<'EOF'
 
-if [ -f "${autosuggestions}" ]; then
-  source "${autosuggestions}"
+# zsh-autosuggestions
+if [ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
   bindkey '^ ' autosuggest-accept
 fi
-EOF
-        fi
-        cat >> /root/.zshrc <<'EOF'
+
 HISTFILE=~/.zsh_history
-setopt HIST_IGNORE_DUPS HIST_VERIFY
+HISTSIZE=10000
+SAVEHIST=10000
+setopt APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_DUPS HIST_VERIFY
 EOF
         cat > /root/.zprofile <<'EOF'
 [[ -f ~/.zshrc ]] && source ~/.zshrc
