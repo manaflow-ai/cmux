@@ -1,6 +1,5 @@
 "use client";
 
-import CmuxLogo from "@/components/logo/cmux-logo";
 import { MacDownloadLink } from "@/components/mac-download-link";
 import type { MacDownloadUrls } from "@/lib/releases";
 import clsx from "clsx";
@@ -98,8 +97,11 @@ export function SiteHeader({
         )}
       >
         <Link aria-label="cmux" href="/">
-          <div className="flex items-center gap-3">
-            <CmuxLogo height={36} label="cmux" showWordmark />
+          <div className="flex items-center gap-2">
+            <CmuxIcon className="h-7 w-7" aria-hidden />
+            <span className="text-xl font-bold tracking-wide text-white font-mono">
+              cmux
+            </span>
           </div>
         </Link>
         <nav className="hidden items-center gap-8 text-sm font-medium md:flex">
