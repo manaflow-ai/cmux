@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/electron/renderer";
 Sentry.init();
 
 import { electronAPI } from "@electron-toolkit/preload";
+import { is } from "@electron-toolkit/utils";
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   ElectronDevToolsMode,
@@ -57,6 +58,9 @@ const describeIpcError = (event: string, error: unknown) => {
 };
 
 const cmuxAPI = {
+  // Whether the app is running in development mode
+  isDev: is.dev,
+
   // Get the current webContents ID
   getCurrentWebContentsId: () => {
     return ipcRenderer.sendSync("cmux:get-current-webcontents-id") as number;
