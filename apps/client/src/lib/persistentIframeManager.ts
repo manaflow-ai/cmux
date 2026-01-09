@@ -161,6 +161,11 @@ class PersistentIframeManager {
 
     // Create wrapper div
     const wrapper = document.createElement("div");
+    // GPU compositing hints and containment to reduce flickering:
+    // - will-change: transform promotes to compositor layer
+    // - contain: strict prevents unnecessary repaints from ancestors
+    // - background: matches loading overlay to prevent white flash during transitions
+    //   (neutral-50 in light mode, neutral-950 in dark mode via color-scheme)
     wrapper.style.cssText = `
       position: fixed;
       top: 0;
@@ -174,18 +179,25 @@ class PersistentIframeManager {
       backface-visibility: hidden;
       z-index: var(--z-iframe);
       isolation: isolate;
+      will-change: transform, visibility;
+      contain: strict;
+      background: light-dark(#fafafa, #0a0a0a);
+      color-scheme: light dark;
     `;
     wrapper.setAttribute("data-iframe-key", key);
     wrapper.setAttribute("data-drag-disable-pointer", "");
 
     // Create iframe
     const iframe = document.createElement("iframe");
+    // Use transparent background initially; inherit from wrapper to avoid white flash
+    // colorScheme ensures dark mode support for the iframe background
     iframe.style.cssText = `
       width: 100%;
       height: 100%;
       border: 0;
-      background: white;
+      background: transparent;
       display: block;
+      color-scheme: light dark;
     `;
 
     // Apply permissions if provided
@@ -248,53 +260,59 @@ class PersistentIframeManager {
       entry.wrapper.className = options.className;
     }
 
-    // First sync position while hidden
-    this.syncIframePosition(key);
+    // Reset content-visibility to allow rendering (was set to hidden when off-screen)
+    entry.wrapper.style.contentVisibility = "visible";
 
-    // Then make visible after a microtask to ensure position is set
+    // Sync position immediately (synchronously) to get correct placement
+    this.syncIframePositionImmediate(key);
+
+    // Use double-RAF to ensure position is painted before visibility change
+    // First RAF: browser processes the position update
+    // Second RAF: we make it visible after the position is committed
     requestAnimationFrame(() => {
-      // Apply base styles without clobbering layout-related properties (width/height/transform)
-      entry.wrapper.style.position = "fixed";
-      entry.wrapper.style.top = "0";
-      entry.wrapper.style.left = "0";
-      entry.wrapper.style.right = "";
-      entry.wrapper.style.bottom = "";
-      entry.wrapper.style.visibility = "visible";
-      entry.wrapper.style.pointerEvents = "auto";
-      entry.wrapper.style.overflow = "hidden";
-      entry.wrapper.style.backfaceVisibility = "hidden";
+      requestAnimationFrame(() => {
+        // Apply base styles without clobbering layout-related properties (width/height/transform)
+        entry.wrapper.style.position = "fixed";
+        entry.wrapper.style.top = "0";
+        entry.wrapper.style.left = "0";
+        entry.wrapper.style.right = "";
+        entry.wrapper.style.bottom = "";
+        entry.wrapper.style.overflow = "hidden";
+        entry.wrapper.style.backfaceVisibility = "hidden";
 
-      // Apply custom styles (including z-index if provided)
-      if (options?.style) {
-        for (const [styleKey, styleValue] of Object.entries(options.style)) {
-          if (styleValue === undefined || styleValue === null) {
-            continue;
+        // Apply custom styles (including z-index if provided)
+        if (options?.style) {
+          for (const [styleKey, styleValue] of Object.entries(options.style)) {
+            if (styleValue === undefined || styleValue === null) {
+              continue;
+            }
+
+            const cssKey = styleKey.replace(
+              /[A-Z]/g,
+              (match) => `-${match.toLowerCase()}`
+            );
+            const cssValue =
+              typeof styleValue === "number" &&
+              !UNITLESS_CSS_PROPERTIES.has(cssKey)
+                ? `${styleValue}px`
+                : String(styleValue);
+            entry.wrapper.style.setProperty(cssKey, cssValue);
           }
-
-          const cssKey = styleKey.replace(
-            /[A-Z]/g,
-            (match) => `-${match.toLowerCase()}`
-          );
-          const cssValue =
-            typeof styleValue === "number" &&
-            !UNITLESS_CSS_PROPERTIES.has(cssKey)
-              ? `${styleValue}px`
-              : String(styleValue);
-          entry.wrapper.style.setProperty(cssKey, cssValue);
         }
-      }
 
-      // Set default z-index if not provided in options
-      if (!options?.style?.zIndex) {
-        entry.wrapper.style.zIndex = "var(--z-iframe)";
-        entry.wrapper.style.isolation = "isolate";
-      }
+        // Set default z-index if not provided in options
+        if (!options?.style?.zIndex) {
+          entry.wrapper.style.zIndex = "var(--z-iframe)";
+          entry.wrapper.style.isolation = "isolate";
+        }
 
-      // Ensure the iframe wrapper reflects any layout changes triggered by new styles
-      this.syncIframePosition(key);
+        // Make visible AFTER position is set to prevent flash at wrong location
+        entry.wrapper.style.visibility = "visible";
+        entry.wrapper.style.pointerEvents = "auto";
 
-      entry.isVisible = true;
-      if (this.debugMode) console.log(`[Mount] Iframe ${key} is now visible`);
+        entry.isVisible = true;
+        if (this.debugMode) console.log(`[Mount] Iframe ${key} is now visible`);
+      });
     });
 
     entry.lastUsed = Date.now();
@@ -322,6 +340,8 @@ class PersistentIframeManager {
       targetElement.removeAttribute("data-iframe-target");
       entry.wrapper.style.visibility = "hidden";
       entry.wrapper.style.pointerEvents = "none";
+      // Use content-visibility: hidden for better off-screen performance
+      entry.wrapper.style.contentVisibility = "hidden";
       entry.isVisible = false;
 
       this.resizeObserver.unobserve(targetElement);
@@ -333,7 +353,7 @@ class PersistentIframeManager {
   }
 
   /**
-   * Sync iframe position with target element
+   * Sync iframe position with target element (batched with RAF)
    */
   private syncIframePosition(key: string) {
     const entry = this.iframes.get(key);
@@ -381,6 +401,44 @@ class PersistentIframeManager {
   }
 
   /**
+   * Sync iframe position immediately (synchronous, no RAF batching)
+   * Used when mounting to ensure position is set before visibility change
+   */
+  private syncIframePositionImmediate(key: string) {
+    const entry = this.iframes.get(key);
+    if (!entry) return;
+
+    const targetElement = document.querySelector(
+      `[data-iframe-target="${key}"]`
+    );
+    if (!targetElement || !(targetElement instanceof HTMLElement)) {
+      this.moveIframeOffscreen(entry);
+      return;
+    }
+
+    const rect = targetElement.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(targetElement);
+
+    const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
+    const borderRight = parseFloat(computedStyle.borderRightWidth) || 0;
+    const borderTop = parseFloat(computedStyle.borderTopWidth) || 0;
+    const borderBottom = parseFloat(computedStyle.borderBottomWidth) || 0;
+
+    const width = Math.max(0, rect.width - borderLeft - borderRight);
+    const height = Math.max(0, rect.height - borderTop - borderBottom);
+
+    if (width < 1 || height < 1) {
+      this.moveIframeOffscreen(entry);
+      return;
+    }
+
+    // Set position synchronously - no RAF batching
+    entry.wrapper.style.transform = `translate(${rect.left + borderLeft}px, ${rect.top + borderTop}px)`;
+    entry.wrapper.style.width = `${width}px`;
+    entry.wrapper.style.height = `${height}px`;
+  }
+
+  /**
    * Get all scrollable parent elements
    */
   private getScrollableParents(element: HTMLElement): HTMLElement[] {
@@ -424,6 +482,8 @@ class PersistentIframeManager {
 
     entry.wrapper.style.visibility = "hidden";
     entry.wrapper.style.pointerEvents = "none";
+    // Use content-visibility: hidden for better off-screen performance
+    entry.wrapper.style.contentVisibility = "hidden";
     this.moveIframeOffscreen(entry);
     entry.isVisible = false;
   }
@@ -582,6 +642,9 @@ class PersistentIframeManager {
     entry.wrapper.style.width = `${viewportWidth}px`;
     entry.wrapper.style.height = `${viewportHeight}px`;
     entry.wrapper.style.transform = `translate(-${viewportWidth}px, -${viewportHeight}px)`;
+    // Use content-visibility: hidden to allow browser to skip rendering entirely
+    // This is more aggressive than visibility: hidden and improves perf with many iframes
+    entry.wrapper.style.contentVisibility = "hidden";
   }
 
   isIframeFocused(key: string): boolean {
