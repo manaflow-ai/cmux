@@ -9,6 +9,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Maximize2,
@@ -216,10 +217,6 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
     currentEntry?.globalIndex !== undefined
       ? currentEntry.globalIndex + 1
       : null;
-
-  const effectiveHighlight =
-    highlightedSetId ??
-    sortedScreenshotSets[sortedScreenshotSets.length - 1]?._id ?? null;
 
   useEffect(() => {
     if (activeImageKey === null) {
@@ -603,119 +600,240 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
             </Dialog.Portal>
           </Dialog.Root>
         ) : null}
-        {sortedScreenshotSets.map((set) => {
-          const capturedAtDate = new Date(set.capturedAt);
-          const relativeCapturedAt = formatDistanceToNow(capturedAtDate, {
-            addSuffix: true,
-          });
-          const shortCommit = set.commitSha?.slice(0, 12);
-          const isHighlighted = effectiveHighlight === set._id;
-
+        {/* Render the most recent (latest) set prominently */}
+        {(() => {
+          const latestSet = sortedScreenshotSets[sortedScreenshotSets.length - 1];
+          const isLatestHighlighted =
+            !highlightedSetId || highlightedSetId === latestSet._id;
           return (
-            <article
-              key={set._id}
-              className={cn(
-                "rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950/70 p-3 transition-shadow",
-                isHighlighted &&
-                "border-emerald-400/70 dark:border-emerald-400/60 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={cn(
-                    "px-2 py-0.5 text-xs font-medium rounded-full",
-                    STATUS_STYLES[set.status]
-                  )}
-                >
-                  {STATUS_LABELS[set.status]}
-                </span>
-                {isHighlighted && (
-                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
-                    Latest
-                  </span>
-                )}
-                <span
-                  className="text-xs text-neutral-600 dark:text-neutral-400"
-                  title={capturedAtDate.toLocaleString()}
-                >
-                  {relativeCapturedAt}
-                </span>
-                {shortCommit && (
-                  <span className="text-xs font-mono text-neutral-600 dark:text-neutral-400">
-                    {shortCommit.toLowerCase()}
-                  </span>
-                )}
-                {set.images.length > 0 && (
-                  <span className="text-xs text-neutral-500 dark:text-neutral-500">
-                    {set.images.length}{" "}
-                    {set.images.length === 1 ? "image" : "images"}
-                  </span>
-                )}
-              </div>
-              {set.error && (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">
-                  {set.error}
-                </p>
-              )}
-              {set.images.length > 0 ? (
-                <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                  {set.images.map((image, indexInSet) => {
-                    const displayName = image.fileName ?? "Screenshot";
-                    const stableKey = getImageKey(set._id, image, indexInSet);
-                    if (!image.url) {
-                      return (
-                        <div
-                          key={stableKey}
-                          className="flex h-48 min-w-[200px] items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-neutral-100 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
-                        >
-                          URL expired
-                        </div>
-                      );
-                    }
-                    const flatIndex = globalIndexByKey.get(stableKey) ?? null;
-                    const humanIndex = flatIndex !== null ? flatIndex + 1 : null;
-                    const isActive = activeImageKey === stableKey;
-
-                    return (
-                      <button
-                        key={stableKey}
-                        type="button"
-                        onClick={() => setActiveImageKey(stableKey)}
-                        className={cn(
-                          "group relative flex w-[220px] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 text-left transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900/70 dark:hover:border-neutral-500",
-                          isActive &&
-                          "border-emerald-400/70 shadow-[0_0_0_1px_rgba(16,185,129,0.25)] dark:border-emerald-400/60",
-                        )}
-                        aria-label={`Open ${displayName} in slideshow`}
-                      >
-                        <img
-                          src={image.url}
-                          alt={displayName}
-                          className="h-48 w-[220px] object-contain bg-neutral-100 dark:bg-neutral-950"
-                          loading="lazy"
-                        />
-                        <div className="absolute top-2 right-2 text-neutral-600 opacity-0 transition group-hover:opacity-100 dark:text-neutral-300">
-                          <Maximize2 className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="border-t border-neutral-200 px-2 py-1 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-300 truncate">
-                          {humanIndex !== null ? `${humanIndex}. ` : ""}
-                          {displayName}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-                  {set.status === "failed"
-                    ? "Screenshot capture failed before any images were saved."
-                    : "No screenshots were captured for this attempt."}
-                </p>
-              )}
-            </article>
+            <ScreenshotSetCard
+              set={latestSet}
+              isHighlighted={isLatestHighlighted}
+              globalIndexByKey={globalIndexByKey}
+              activeImageKey={activeImageKey}
+              setActiveImageKey={setActiveImageKey}
+            />
           );
-        })}
+        })()}
+
+        {/* Older sets in a collapsible section */}
+        {sortedScreenshotSets.length > 1 && (
+          <OlderScreenshotSets
+            sets={sortedScreenshotSets.slice(0, -1).reverse()}
+            globalIndexByKey={globalIndexByKey}
+            activeImageKey={activeImageKey}
+            setActiveImageKey={setActiveImageKey}
+            highlightedSetId={highlightedSetId}
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+interface ScreenshotSetCardProps {
+  set: RunScreenshotSet;
+  isHighlighted: boolean;
+  globalIndexByKey: Map<string, number>;
+  activeImageKey: string | null;
+  setActiveImageKey: (key: string | null) => void;
+  compact?: boolean;
+}
+
+function ScreenshotSetCard({
+  set,
+  isHighlighted,
+  globalIndexByKey,
+  activeImageKey,
+  setActiveImageKey,
+  compact = false,
+}: ScreenshotSetCardProps) {
+  const capturedAtDate = new Date(set.capturedAt);
+  const relativeCapturedAt = formatDistanceToNow(capturedAtDate, {
+    addSuffix: true,
+  });
+  const shortCommit = set.commitSha?.slice(0, 12);
+
+  return (
+    <article
+      className={cn(
+        "rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950/70 p-3 transition-shadow",
+        isHighlighted &&
+          "border-emerald-400/70 dark:border-emerald-400/60 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={cn(
+            "px-2 py-0.5 text-xs font-medium rounded-full",
+            STATUS_STYLES[set.status]
+          )}
+        >
+          {STATUS_LABELS[set.status]}
+        </span>
+        {isHighlighted && (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+            Latest
+          </span>
+        )}
+        <span
+          className="text-xs text-neutral-600 dark:text-neutral-400"
+          title={capturedAtDate.toLocaleString()}
+        >
+          {relativeCapturedAt}
+        </span>
+        {shortCommit && (
+          <span className="text-xs font-mono text-neutral-600 dark:text-neutral-400">
+            {shortCommit.toLowerCase()}
+          </span>
+        )}
+        {set.images.length > 0 && (
+          <span className="text-xs text-neutral-500 dark:text-neutral-500">
+            {set.images.length} {set.images.length === 1 ? "image" : "images"}
+          </span>
+        )}
+      </div>
+      {set.error && (
+        <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">
+          {set.error}
+        </p>
+      )}
+      {set.images.length > 0 ? (
+        <div
+          className={cn(
+            "mt-3 flex gap-3 overflow-x-auto pb-1",
+            compact && "gap-2"
+          )}
+        >
+          {set.images.map((image, indexInSet) => {
+            const displayName = image.fileName ?? "Screenshot";
+            const stableKey = getImageKey(set._id, image, indexInSet);
+            if (!image.url) {
+              return (
+                <div
+                  key={stableKey}
+                  className={cn(
+                    "flex items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-neutral-100 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400",
+                    compact ? "h-32 min-w-[140px]" : "h-48 min-w-[200px]"
+                  )}
+                >
+                  URL expired
+                </div>
+              );
+            }
+            const flatIndex = globalIndexByKey.get(stableKey) ?? null;
+            const humanIndex = flatIndex !== null ? flatIndex + 1 : null;
+            const isActive = activeImageKey === stableKey;
+
+            return (
+              <button
+                key={stableKey}
+                type="button"
+                onClick={() => setActiveImageKey(stableKey)}
+                className={cn(
+                  "group relative flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 text-left transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900/70 dark:hover:border-neutral-500",
+                  compact ? "w-[160px]" : "w-[220px]",
+                  isActive &&
+                    "border-emerald-400/70 shadow-[0_0_0_1px_rgba(16,185,129,0.25)] dark:border-emerald-400/60"
+                )}
+                aria-label={`Open ${displayName} in slideshow`}
+              >
+                <img
+                  src={image.url}
+                  alt={displayName}
+                  className={cn(
+                    "object-contain bg-neutral-100 dark:bg-neutral-950",
+                    compact ? "h-32 w-[160px]" : "h-48 w-[220px]"
+                  )}
+                  loading="lazy"
+                />
+                <div className="absolute top-2 right-2 text-neutral-600 opacity-0 transition group-hover:opacity-100 dark:text-neutral-300">
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </div>
+                <div className="border-t border-neutral-200 px-2 py-1 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-300 truncate">
+                  {humanIndex !== null ? `${humanIndex}. ` : ""}
+                  {displayName}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+          {set.status === "failed"
+            ? "Screenshot capture failed before any images were saved."
+            : "No screenshots were captured for this attempt."}
+        </p>
+      )}
+    </article>
+  );
+}
+
+interface OlderScreenshotSetsProps {
+  sets: RunScreenshotSet[];
+  globalIndexByKey: Map<string, number>;
+  activeImageKey: string | null;
+  setActiveImageKey: (key: string | null) => void;
+  highlightedSetId?: Id<"taskRunScreenshotSets"> | null;
+}
+
+function OlderScreenshotSets({
+  sets,
+  globalIndexByKey,
+  activeImageKey,
+  setActiveImageKey,
+  highlightedSetId,
+}: OlderScreenshotSetsProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (sets.length === 0) return null;
+
+  const totalImages = sets.reduce((acc, set) => acc + set.images.length, 0);
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-neutral-500 transition-transform",
+              isExpanded && "rotate-180"
+            )}
+          />
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            {sets.length} older {sets.length === 1 ? "capture" : "captures"}
+          </span>
+          {totalImages > 0 && (
+            <span className="text-xs text-neutral-500 dark:text-neutral-500">
+              ({totalImages} {totalImages === 1 ? "image" : "images"})
+            </span>
+          )}
+        </div>
+        <span className="text-xs text-neutral-500 dark:text-neutral-500">
+          {isExpanded ? "Hide" : "Show"}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="px-3 pb-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800">
+          <div className="pt-3" />
+          {sets.map((set) => (
+            <ScreenshotSetCard
+              key={set._id}
+              set={set}
+              isHighlighted={highlightedSetId === set._id}
+              globalIndexByKey={globalIndexByKey}
+              activeImageKey={activeImageKey}
+              setActiveImageKey={setActiveImageKey}
+              compact
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

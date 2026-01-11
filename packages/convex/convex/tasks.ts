@@ -226,6 +226,120 @@ export const getPreviewTasks = authQuery({
   },
 });
 
+/**
+ * Get preview tasks grouped by pull request.
+ * Returns most recent task per PR, with count of total runs.
+ */
+export const getPreviewTasksGroupedByPR = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    const take = Math.max(1, Math.min(args.limit ?? 20, 50));
+
+    // Get all preview runs for this team, ordered by creation time desc
+    const previewRuns = await ctx.db
+      .query("previewRuns")
+      .withIndex("by_team_created", (q) => q.eq("teamId", teamId))
+      .order("desc")
+      .take(200); // Fetch more to group properly
+
+    // Group by PR identity (repoFullName + prNumber)
+    const prGroups = new Map<
+      string,
+      {
+        repoFullName: string;
+        prNumber: number;
+        prUrl: string;
+        runs: typeof previewRuns;
+        latestTaskId?: Id<"tasks">;
+        latestTask?: Awaited<ReturnType<typeof ctx.db.get>>;
+      }
+    >();
+
+    for (const run of previewRuns) {
+      const prKey = `${run.repoFullName}#${run.prNumber}`;
+      const existing = prGroups.get(prKey);
+      if (existing) {
+        existing.runs.push(run);
+      } else {
+        prGroups.set(prKey, {
+          repoFullName: run.repoFullName,
+          prNumber: run.prNumber,
+          prUrl: run.prUrl,
+          runs: [run],
+        });
+      }
+    }
+
+    // For each group, get the latest task
+    const enrichedGroups = await Promise.all(
+      Array.from(prGroups.values())
+        .slice(0, take)
+        .map(async (group) => {
+          // Find the most recent run with a linked taskRun
+          let latestTask = null;
+          for (const run of group.runs) {
+            if (run.taskRunId) {
+              const taskRun = await ctx.db.get(run.taskRunId);
+              if (taskRun) {
+                const task = await ctx.db.get(taskRun.taskId);
+                if (task && !task.isArchived) {
+                  latestTask = task;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Count screenshots across all runs
+          let totalScreenshots = 0;
+          for (const run of group.runs) {
+            if (run.screenshotSetId) {
+              const screenshotSet = await ctx.db.get(run.screenshotSetId);
+              if (screenshotSet) {
+                totalScreenshots += screenshotSet.images?.length ?? 0;
+              }
+            }
+          }
+
+          // Get status of most recent run
+          const latestRun = group.runs[0];
+          const hasRunningRun = group.runs.some(
+            (r) => r.status === "pending" || r.status === "running"
+          );
+
+          return {
+            prKey: `${group.repoFullName}#${group.prNumber}`,
+            repoFullName: group.repoFullName,
+            prNumber: group.prNumber,
+            prUrl: group.prUrl,
+            totalRuns: group.runs.length,
+            totalScreenshots,
+            latestTask,
+            latestRunStatus: latestRun?.status ?? "pending",
+            hasRunningRun,
+            latestRunAt: latestRun?.createdAt ?? 0,
+          };
+        })
+    );
+
+    // Filter out groups without any visible task and sort
+    const filtered = enrichedGroups.filter((g) => g.latestTask !== null);
+    filtered.sort((a, b) => {
+      // Running first
+      if (a.hasRunningRun && !b.hasRunningRun) return -1;
+      if (!a.hasRunningRun && b.hasRunningRun) return 1;
+      // Then by latest run time
+      return b.latestRunAt - a.latestRunAt;
+    });
+
+    return filtered;
+  },
+});
+
 export const getPinned = authQuery({
   args: {
     teamSlugOrId: v.string(),

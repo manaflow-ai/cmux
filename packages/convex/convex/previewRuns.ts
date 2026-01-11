@@ -753,6 +753,74 @@ export const listByTeamPaginated = authQuery({
 });
 
 /**
+ * Get preview runs for a specific pull request.
+ * Returns runs sorted by creation date (most recent first).
+ */
+export const listByPullRequest = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+    const repoFullName = normalizeRepoFullName(args.repoFullName);
+    const take = Math.max(1, Math.min(args.limit ?? 20, 100));
+
+    // Find the preview config for this repo
+    const config = await ctx.db
+      .query("previewConfigs")
+      .withIndex("by_team_repo", (q) =>
+        q.eq("teamId", teamId).eq("repoFullName", repoFullName),
+      )
+      .first();
+
+    if (!config) {
+      return [];
+    }
+
+    const runs = await ctx.db
+      .query("previewRuns")
+      .withIndex("by_config_pr", (q) =>
+        q.eq("previewConfigId", config._id).eq("prNumber", args.prNumber),
+      )
+      .order("desc")
+      .take(take);
+
+    // Enrich with taskId and screenshot info
+    const enrichedRuns = await Promise.all(
+      runs.map(async (run) => {
+        let taskId: Id<"tasks"> | undefined;
+        let screenshotCount = 0;
+
+        if (run.taskRunId) {
+          const taskRun = await ctx.db.get(run.taskRunId);
+          if (taskRun) {
+            taskId = taskRun.taskId;
+          }
+        }
+
+        if (run.screenshotSetId) {
+          const screenshotSet = await ctx.db.get(run.screenshotSetId);
+          if (screenshotSet) {
+            screenshotCount = screenshotSet.images?.length ?? 0;
+          }
+        }
+
+        return {
+          ...run,
+          taskId,
+          screenshotCount,
+        };
+      })
+    );
+
+    return enrichedRuns;
+  },
+});
+
+/**
  * Create a preview run manually (for local preview scripts).
  * Follows the same flow as the GitHub webhook handler:
  * 1. Creates or reuses a preview run
