@@ -236,7 +236,205 @@ async function runTests() {
         tlsSocket3.end();
         socket3.destroy();
 
+        console.log("\n--- Test 4: Plain HTTP Connect (MITM) ---");
+        // Start a plain HTTP server
+        const plainServer = http.createServer((req, res) => {
+            console.log("[Plain Upstream] Received request:", req.method, req.url);
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('Hello from plain upstream!');
+        });
+        await new Promise<void>(resolve => plainServer.listen(8082, () => resolve()));
+        console.log("Plain upstream started on port 8082");
+
+        // Manually connect to proxy and establish tunnel without TLS
+        const plainSocket = net.connect(port, "127.0.0.1");
+        await new Promise<void>((resolve, reject) => {
+            plainSocket.once('connect', resolve);
+            plainSocket.once('error', reject);
+        });
+        
+        // Send CONNECT
+        const auth = Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64");
+        const connectReq = `CONNECT 127.0.0.1:8082 HTTP/1.1\r\nHost: 127.0.0.1:8082\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`;
+        console.log("Sending CONNECT request:\n" + connectReq);
+        plainSocket.write(connectReq);
+
+        // Wait for 200 Connection Established
+        await new Promise<void>((resolve, reject) => {
+            let buffer = Buffer.alloc(0);
+            const onData = (chunk: Buffer) => {
+                buffer = Buffer.concat([buffer, chunk]);
+                const idx = buffer.indexOf("\r\n\r\n");
+                if (idx !== -1) {
+                    const header = buffer.subarray(0, idx).toString();
+                    console.log("Received CONNECT response header:\n" + header);
+                    if (header.includes("200 Connection Established")) {
+                        plainSocket.removeListener('data', onData);
+                        // Put back any remaining data? Usually none for CONNECT response.
+                        const remaining = buffer.subarray(idx + 4);
+                        if (remaining.length > 0) {
+                            plainSocket.unshift(remaining);
+                        }
+                        resolve();
+                    } else {
+                        reject(new Error("Failed to establish tunnel: " + header));
+                    }
+                }
+            };
+            plainSocket.on('data', onData);
+            plainSocket.on('error', reject);
+        });
+        console.log("Tunnel established for plain HTTP");
+
+        // Send plain HTTP request in chunks
+        plainSocket.write("GET / HTTP/1.1\r\n");
+        await new Promise(r => setTimeout(r, 500));
+        plainSocket.write("Host: 127.0.0.1:8082\r\nConnection: close\r\n\r\n");
+        
+        await new Promise<void>((resolve, reject) => {
+            let response = ''; // Initialize response outside to accumulate chunks
+            plainSocket.on('data', (chunk) => {
+                response += chunk.toString();
+                console.log("[Client] Received plain response chunk:", chunk.toString());
+                // The proxy rewrites the port to 8081 (test:base), so we get the HTTP/2 upstream response
+                if (response.includes("Hello from dummy upstream!")) {
+                    resolve();
+                }
+            });
+            plainSocket.on('error', reject);
+            plainSocket.on('close', () => reject(new Error("Socket closed before response")));
+            
+            // Timeout
+            setTimeout(() => reject(new Error("Timeout waiting for plain response")), 2000);
+        });
+        console.log("Plain HTTP MITM test passed!");
+        
+        plainServer.close();
+        plainSocket.destroy();
+
+        console.log("\n--- Test 5: WebSocket (Plain & TLS) ---");
+        const WebSocket = await import("ws");
+        
+        // Start a dummy WebSocket server
+        const wsServer = new WebSocket.WebSocketServer({ port: 8083 });
+        wsServer.on('connection', (ws) => {
+            console.log("[WS Server] Client connected");
+            ws.on('message', (message) => {
+                console.log("[WS Server] Received:", message.toString());
+                if (message.toString() === "ping") {
+                    ws.send("pong");
+                }
+            });
+        });
+        console.log("WebSocket server started on port 8083");
+
+        // Test Plain WebSocket (ws://)
+        // Note: We need to manually construct the CONNECT request for plain WS because 'ws' lib doesn't support CONNECT proxies easily with custom headers/auth in the same way
+        // But for simplicity, we can try to use the 'ws' client with an agent if possible, or just use our existing tunnel helper.
+        // Actually, let's use the 'ws' client with a custom agent that establishes the tunnel first.
+        
+        // Helper to create a WebSocket connection through the proxy
+        async function testWebSocket(protocol: "ws" | "wss", targetHost: string, targetPort: number, creds: {username: string, password: string}) {
+            console.log(`Testing ${protocol}://${targetHost}:${targetPort}...`);
+            
+            // Establish tunnel first
+            const proxySocket = net.connect(port, "127.0.0.1");
+            await new Promise<void>((resolve, reject) => {
+                proxySocket.once('connect', resolve);
+                proxySocket.once('error', reject);
+            });
+
+            const auth = Buffer.from(`${creds.username}:${creds.password}`).toString("base64");
+            const connectReq = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`;
+            proxySocket.write(connectReq);
+
+            await new Promise<void>((resolve, reject) => {
+                let buffer = Buffer.alloc(0);
+                const onData = (chunk: Buffer) => {
+                    buffer = Buffer.concat([buffer, chunk]);
+                    const idx = buffer.indexOf("\r\n\r\n");
+                    if (idx !== -1) {
+                        const header = buffer.subarray(0, idx).toString();
+                        if (header.includes("200 Connection Established")) {
+                            proxySocket.removeListener('data', onData);
+                            resolve();
+                        } else {
+                            reject(new Error("Failed to establish tunnel: " + header));
+                        }
+                    }
+                };
+                proxySocket.on('data', onData);
+                proxySocket.on('error', reject);
+            });
+
+            // Now we have a raw socket to the upstream (or MITM). 
+            // For WSS, we need to upgrade to TLS. For WS, it's just the raw socket.
+            let socket = proxySocket;
+            if (protocol === "wss") {
+                socket = tls.connect({
+                    socket: proxySocket,
+                    rejectUnauthorized: false,
+                    servername: targetHost
+                });
+                await new Promise<void>((resolve) => socket.once('secureConnect', resolve));
+            }
+
+            // Manual handshake to verify proxy
+            const handshake = `GET / HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`;
+            console.log(`[Client] Writing handshake: ${handshake.length} bytes`);
+            socket.write(handshake, (err) => {
+                if (err) console.error(`[Client] Write error:`, err);
+                else console.log(`[Client] Write success`);
+            });
+
+            await new Promise<void>((resolve, reject) => {
+                const onData = (chunk: Buffer) => {
+                    const str = chunk.toString();
+                    // console.log(`[Client] Received from proxy:`, str);
+                    if (str.includes("101 Switching Protocols")) {
+                        socket.removeListener('data', onData);
+                        resolve();
+                    }
+                };
+                socket.on('data', onData);
+                socket.on('error', reject);
+                socket.on('close', () => console.log("[Client] Socket closed"));
+                socket.resume();
+                setTimeout(() => reject(new Error(`${protocol} handshake timeout`)), 2000);
+            });
+            
+            console.log(`${protocol} handshake successful!`);
+            
+            socket.destroy();
+            console.log(`${protocol} test passed!`);
+        }
+
+        try {
+            const testHost = "cmux-test-ws-8083.cmux.local";
+            
+            // Configure proxy for WS test route
+            await configurePreviewProxyForView({
+                webContents: mockWebContents as any,
+                initialUrl: `ws://${testHost}`,
+                persistKey: "test:ws",
+                logger
+            });
+            const wsCredentials = getProxyCredentialsForWebContents(MOCK_WEB_CONTENTS_ID);
+            if (!wsCredentials) throw new Error("No credentials for test:ws");
+            
+            // Test Plain WS
+            await testWebSocket("ws", testHost, 8083, wsCredentials);
+            
+            // Test WSS (TLS)
+            // Note: The proxy terminates TLS and forwards to plain WS (8083) because our route maps to http://127.0.0.1:8083
+            await testWebSocket("wss", testHost, 8083, wsCredentials);
+            
+        } finally {
+            wsServer.close();
+        }
+
         console.log("\nTests completed.");
+        process.exit(0);
     } catch (err) {
         console.error("\nTest failed:", err);
         process.exit(1);
