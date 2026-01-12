@@ -132,27 +132,42 @@ export const upsertWorkflowRunFromWebhook = internalMutation({
     };
 
 
-    // Upsert the workflow run - fetch all matching records to handle duplicates
-    const existingRecords = await ctx.db
-      .query("githubWorkflowRuns")
-      .withIndex("by_runId", (q) => q.eq("runId", runId))
-      .collect();
+    // Upsert the workflow run using .unique() to reduce OCC contention
+    // .unique() is more atomic and creates less contention than .collect()
+    let existingRecord;
+    try {
+      existingRecord = await ctx.db
+        .query("githubWorkflowRuns")
+        .withIndex("by_runId", (q) => q.eq("runId", runId))
+        .unique();
+    } catch (error) {
+      // .unique() throws if multiple documents match - handle duplicates
+      console.warn("[upsertWorkflowRun] Multiple records found for runId, cleaning up", {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
 
-    if (existingRecords.length > 0) {
-      // Update the first record
-      await ctx.db.patch(existingRecords[0]._id, workflowRunDoc);
+      // Fall back to collect to handle duplicates
+      const existingRecords = await ctx.db
+        .query("githubWorkflowRuns")
+        .withIndex("by_runId", (q) => q.eq("runId", runId))
+        .collect();
 
-      // Delete any duplicates
-      if (existingRecords.length > 1) {
-        console.warn("[upsertWorkflowRun] Found duplicates, cleaning up", {
-          runId,
-          count: existingRecords.length,
-          duplicateIds: existingRecords.slice(1).map(r => r._id),
-        });
+      if (existingRecords.length > 0) {
+        // Update the first record
+        await ctx.db.patch(existingRecords[0]._id, workflowRunDoc);
+
+        // Delete duplicates
         for (const duplicate of existingRecords.slice(1)) {
           await ctx.db.delete(duplicate._id);
         }
       }
+      return;
+    }
+
+    if (existingRecord) {
+      // Update existing record
+      await ctx.db.patch(existingRecord._id, workflowRunDoc);
     } else {
       // Insert new run
       await ctx.db.insert("githubWorkflowRuns", workflowRunDoc);
