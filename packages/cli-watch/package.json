@@ -1,0 +1,23 @@
+{
+  "name": "@cmux/cli-watch",
+  "version": "0.0.1",
+  "description": "CLI for micromanaging Claude Code sessions",
+  "type": "module",
+  "bin": {
+    "cmux-watch": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "watch": "bun run src/index.ts watch",
+    "status": "bun run src/index.ts status",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cmux/orchestrator": "workspace:*",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
