@@ -169,8 +169,22 @@ export function TaskRunTerminalSession({
     if (!terminal || !fitAddon) {
       return;
     }
-    fitAddon.fit();
-    queueResize();
+
+    // Guard against calling fit() when terminal is not fully initialized or is being disposed
+    // This prevents "Cannot read properties of undefined (reading 'dimensions')" errors
+    const element = terminal.element;
+    if (!element || !element.isConnected) {
+      return;
+    }
+
+    try {
+      fitAddon.fit();
+      queueResize();
+    } catch (error) {
+      // Silently ignore fit errors during mount/unmount transitions
+      // This can happen when the viewport is not yet initialized or already disposed
+      console.debug("[TaskRunTerminalSession] fitAddon.fit() failed, likely during mount/unmount", error);
+    }
   }, [queueResize, terminal]);
 
   const flushPendingResize = useCallback(() => {

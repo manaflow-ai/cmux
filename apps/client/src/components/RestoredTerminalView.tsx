@@ -45,14 +45,28 @@ export function RestoredTerminalView({
     xterm.loadAddon(webLinksAddon);
 
     xterm.open(terminalRef.current);
-    fitAddon.fit();
+
+    // Guard against calling fit() when terminal is not fully initialized
+    if (xterm.element?.isConnected) {
+      try {
+        fitAddon.fit();
+      } catch (error) {
+        console.debug("[RestoredTerminalView] fitAddon.fit() failed during mount", error);
+      }
+    }
 
     xtermRef.current = xterm;
     fitAddonRef.current = fitAddon;
 
     // Handle resize
     const handleResize = () => {
-      fitAddon.fit();
+      if (xterm.element?.isConnected) {
+        try {
+          fitAddon.fit();
+        } catch (error) {
+          console.debug("[RestoredTerminalView] fitAddon.fit() failed during resize", error);
+        }
+      }
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
