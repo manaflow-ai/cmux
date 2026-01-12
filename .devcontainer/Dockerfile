@@ -57,6 +57,42 @@ RUN echo 'export PATH="/home/node/.bun/bin:$PATH"' >> /home/node/.zshrc && \
     echo 'export PATH="/home/node/.bun/bin:$PATH"' >> /home/node/.bashrc && \
     chown node:node /home/node/.zshrc /home/node/.bashrc
 
+# Set up zsh completions directory and config for root user
+RUN mkdir -p /root/.zsh/completions && \
+    echo 'fpath=(~/.zsh/completions $fpath)' >> /root/.zshrc && \
+    echo 'autoload -Uz compinit && compinit -C' >> /root/.zshrc
+
+# Set up zsh completions for node user
+RUN mkdir -p /home/node/.zsh/completions && \
+    echo 'fpath=(~/.zsh/completions $fpath)' >> /home/node/.zshrc && \
+    echo 'autoload -Uz compinit && compinit -C' >> /home/node/.zshrc && \
+    chown -R node:node /home/node/.zsh
+
+# Pre-create VS Code server settings directories with trust disabled
+RUN mkdir -p /root/.code-server/User /root/.code-server/Machine \
+             /root/.openvscode-server/data/User /root/.openvscode-server/data/Machine \
+             /root/.vscode-server/data/User /root/.vscode-server/data/Machine && \
+    SETTINGS='{"security.workspace.trust.enabled":false,"security.workspace.trust.untrustedFiles":"open","security.workspace.trust.startupPrompt":"never","security.workspace.trust.emptyWindow":true,"security.workspace.trust.banner":"never","chat.agent.enabled":false,"github.copilot.chat.agent.runTasks":false}' && \
+    echo "$SETTINGS" > /root/.code-server/User/settings.json && \
+    echo "$SETTINGS" > /root/.code-server/Machine/settings.json && \
+    echo "$SETTINGS" > /root/.openvscode-server/data/User/settings.json && \
+    echo "$SETTINGS" > /root/.openvscode-server/data/Machine/settings.json && \
+    echo "$SETTINGS" > /root/.vscode-server/data/User/settings.json && \
+    echo "$SETTINGS" > /root/.vscode-server/data/Machine/settings.json
+
+# Also set up VS Code settings for node user
+RUN mkdir -p /home/node/.code-server/User /home/node/.code-server/Machine \
+             /home/node/.openvscode-server/data/User /home/node/.openvscode-server/data/Machine \
+             /home/node/.vscode-server/data/User /home/node/.vscode-server/data/Machine && \
+    SETTINGS='{"security.workspace.trust.enabled":false,"security.workspace.trust.untrustedFiles":"open","security.workspace.trust.startupPrompt":"never","security.workspace.trust.emptyWindow":true,"security.workspace.trust.banner":"never","chat.agent.enabled":false,"github.copilot.chat.agent.runTasks":false}' && \
+    echo "$SETTINGS" > /home/node/.code-server/User/settings.json && \
+    echo "$SETTINGS" > /home/node/.code-server/Machine/settings.json && \
+    echo "$SETTINGS" > /home/node/.openvscode-server/data/User/settings.json && \
+    echo "$SETTINGS" > /home/node/.openvscode-server/data/Machine/settings.json && \
+    echo "$SETTINGS" > /home/node/.vscode-server/data/User/settings.json && \
+    echo "$SETTINGS" > /home/node/.vscode-server/data/Machine/settings.json && \
+    chown -R node:node /home/node/.code-server /home/node/.openvscode-server /home/node/.vscode-server
+
 # Set up the workspace
 WORKDIR /workspaces/cmux
 
