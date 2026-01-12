@@ -1152,6 +1152,134 @@ const convexSchema = defineSchema({
     lastResumedAt: v.optional(v.number()), // When instance was last resumed via UI
     stoppedAt: v.optional(v.number()), // When instance was permanently stopped
   }).index("by_instanceId", ["instanceId"]),
+
+  // ACP (Agent Client Protocol) conversations for iOS app
+  conversations: defineTable({
+    teamId: v.string(),
+    userId: v.optional(v.string()),
+    sessionId: v.string(), // ACP SessionId - unique identifier for the conversation session
+    providerId: v.string(), // "claude" | "codex" | "gemini" | "opencode"
+    cwd: v.string(), // Working directory for the session
+    status: v.union(
+      v.literal("active"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+      v.literal("error")
+    ),
+    stopReason: v.optional(
+      v.union(
+        v.literal("end_turn"),
+        v.literal("max_tokens"),
+        v.literal("max_turn_requests"),
+        v.literal("refusal"),
+        v.literal("cancelled")
+      )
+    ), // ACP StopReason
+    namespaceId: v.optional(v.string()), // Bubblewrap namespace identifier
+    sandboxInstanceId: v.optional(v.string()), // morphvm_ or container ID
+    isolationMode: v.optional(
+      v.union(
+        v.literal("none"), // No bubblewrap, direct container
+        v.literal("shared_namespace"), // Multiple conversations in single bubblewrap
+        v.literal("dedicated_namespace") // Isolated bubblewrap per conversation
+      )
+    ),
+    // Session modes from ACP
+    modes: v.optional(
+      v.object({
+        currentModeId: v.string(),
+        availableModes: v.array(
+          v.object({
+            id: v.string(),
+            name: v.string(),
+            description: v.optional(v.string()),
+          })
+        ),
+      })
+    ),
+    // Agent/Client info from initialization
+    agentInfo: v.optional(
+      v.object({
+        name: v.string(),
+        version: v.string(),
+        title: v.optional(v.string()),
+      })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId", "createdAt"])
+    .index("by_user", ["userId", "createdAt"])
+    .index("by_session", ["sessionId"])
+    .index("by_namespace", ["namespaceId"])
+    .index("by_sandbox", ["sandboxInstanceId"])
+    .index("by_team_status", ["teamId", "status", "updatedAt"]),
+
+  // Messages within ACP conversations
+  conversationMessages: defineTable({
+    conversationId: v.id("conversations"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    // ACP ContentBlock array - supports text, image, audio, resource_link, resource
+    content: v.array(
+      v.object({
+        type: v.union(
+          v.literal("text"),
+          v.literal("image"),
+          v.literal("audio"),
+          v.literal("resource_link"),
+          v.literal("resource")
+        ),
+        // Text content
+        text: v.optional(v.string()),
+        // Image/Audio content (base64 encoded)
+        data: v.optional(v.string()),
+        mimeType: v.optional(v.string()),
+        uri: v.optional(v.string()),
+        // Resource content (embedded)
+        resource: v.optional(
+          v.object({
+            uri: v.string(),
+            text: v.optional(v.string()),
+            blob: v.optional(v.string()),
+            mimeType: v.optional(v.string()),
+          })
+        ),
+        // Resource link properties
+        name: v.optional(v.string()),
+        description: v.optional(v.string()),
+        size: v.optional(v.number()),
+        title: v.optional(v.string()),
+        // Annotations (shared across content types)
+        annotations: v.optional(
+          v.object({
+            audience: v.optional(v.array(v.string())),
+            lastModified: v.optional(v.string()),
+            priority: v.optional(v.number()),
+          })
+        ),
+      })
+    ),
+    // Tool call tracking for assistant messages
+    toolCalls: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          name: v.string(),
+          arguments: v.string(), // JSON string of tool arguments
+          status: v.union(
+            v.literal("pending"),
+            v.literal("running"),
+            v.literal("completed"),
+            v.literal("failed")
+          ),
+          result: v.optional(v.string()), // JSON string of tool result
+        })
+      )
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_conversation", ["conversationId", "createdAt"])
+    .index("by_conversation_desc", ["conversationId"]), // For reverse chronological queries
 });
 
 export default convexSchema;

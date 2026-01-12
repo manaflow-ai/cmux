@@ -1,0 +1,703 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0BEB4F58E65C35CE4E4EE942 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE5CB8A89417C399DB8D166 /* ChatView.swift */; };
+		1AB68DA70F76F585B6332F68 /* KeyboardSyncUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18818FD4536DFDC6D6FA1D5 /* KeyboardSyncUITests.swift */; };
+		20A59B687D0399C43C985B31 /* DebugInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B87CA70AD58D024077E85845 /* DebugInputBar.swift */; };
+		2283F03332355B2A6F811710 /* ChatApproachI_Fix1Default.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3A23AD3BA4B17B7605CCBC /* ChatApproachI_Fix1Default.swift */; };
+		24D8752AB97DB126660D8F81 /* ConvexTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A61F42F94D17993038F637 /* ConvexTestView.swift */; };
+		2CE5BEC0FE0F92E3F298C570 /* StackAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DEEADB25149C285A0422125 /* StackAuthClient.swift */; };
+		35DD00750B94902B2CF0CDF6 /* ShortThreadLayoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F680356269E010CC8DDF11B /* ShortThreadLayoutUITests.swift */; };
+		361B05C412BFA1E44BDCAD39 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9BA577D046F9E3C331F4986 /* Models.swift */; };
+		3A6FD7E27F3723EF627744A9 /* StackAuthProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF2848CBEF6B2A130DF4C9D2 /* StackAuthProvider.swift */; };
+		5479917679421FDD8C3C2995 /* ChatFix4_ScrollViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2371E50D0E3E362104DE9177 /* ChatFix4_ScrollViewDelegate.swift */; };
+		6A5960808C1C40C3C1DEEA2E /* ChatFix5_ReducePadding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C74190A1F266AB5E2C38455 /* ChatFix5_ReducePadding.swift */; };
+		6ED3832765AAB169F7254054 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B8CDE2F6CDCAB37E3107C76 /* ContentView.swift */; };
+		7E0146088B71697EB516611F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B005E08ACAAF83F6A13F9D8C /* Assets.xcassets */; };
+		8030869706BE8FD94533D58A /* ChatApproachI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9788FAF68766BFAA9A451A8D /* ChatApproachI.swift */; };
+		83357B66D3EF312F35A86BB1 /* CMuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E20F7A729081D044495605 /* CMuxApp.swift */; };
+		8B6A74AEAD4EC07300279462 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 2AB0CD82D816F53E55B1E103 /* Sentry */; };
+		8C11E78F09BA811A5EBC33CC /* ChatFix1MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4296ACD1C15CC2E35AE162CC /* ChatFix1MainView.swift */; };
+		8DF015A1566E9F288F30C460 /* DebugSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAECD9944A3CB4779597B8A3 /* DebugSettings.swift */; };
+		8FB1CB1D89D93D703FFE61BA /* ChatFix3_AdjustedContentInset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4E7CFD0EE433DFB9F348A0 /* ChatFix3_AdjustedContentInset.swift */; };
+		C9E3B69A93DD87E682311505 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88ED9D7168B6FC097B490637 /* SignInView.swift */; };
+		D593A476423097F95F227570 /* ChatFix2_InputBarHeightOnly.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AB960D917D344F2BB227AC /* ChatFix2_InputBarHeightOnly.swift */; };
+		D71540B39A0E33807FB77410 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79D367AC3D322118AE559DBF /* AuthManager.swift */; };
+		DCEF7D27D2624C7E3F7B4E14 /* ChatDebugMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80C3A9D5662A04DE39FD3844 /* ChatDebugMenu.swift */; };
+		E3FA94BC78BB51AAFD61D055 /* ConvexMobile in Frameworks */ = {isa = PBXBuildFile; productRef = 4C0C333BDE07456C757877E2 /* ConvexMobile */; };
+		E53E64DA59BFCB7E396E0865 /* AuthPersistenceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D3C06944393B0EE29C331C /* AuthPersistenceUITests.swift */; };
+		E9D2BFC8E39842DB720CAD9D /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCD6DF60D6756BE09A1CFEE9 /* ConversationListView.swift */; };
+		EC388CAF55CB58BE5B5D2654 /* Environment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8732D7AB61D4190BACAAB03 /* Environment.swift */; };
+		F024C0FD39B57208895F9153 /* ConvexClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6679E0C9833E77D4A4295D4C /* ConvexClient.swift */; };
+		F51147F292563E8B2503D43E /* ChatFix1_ContentInsetNever.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A50394379F40101C8A95FC /* ChatFix1_ContentInsetNever.swift */; };
+		F6098AD7DB98B95086FD932A /* ChatKeyboardContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA367B39118F09C4A8989FF /* ChatKeyboardContainer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5309AA5CCAC5CAADF68B53C4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0BC297CC62DC5C500BBEB719 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D6E5ED0C8EADF9B00BC1627F;
+			remoteInfo = cmux;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0BE5CB8A89417C399DB8D166 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		1B8CDE2F6CDCAB37E3107C76 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		1C74190A1F266AB5E2C38455 /* ChatFix5_ReducePadding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix5_ReducePadding.swift; sourceTree = "<group>"; };
+		2371E50D0E3E362104DE9177 /* ChatFix4_ScrollViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix4_ScrollViewDelegate.swift; sourceTree = "<group>"; };
+		2DEEADB25149C285A0422125 /* StackAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthClient.swift; sourceTree = "<group>"; };
+		38A50394379F40101C8A95FC /* ChatFix1_ContentInsetNever.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix1_ContentInsetNever.swift; sourceTree = "<group>"; };
+		4296ACD1C15CC2E35AE162CC /* ChatFix1MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix1MainView.swift; sourceTree = "<group>"; };
+		46410B90D2F45E6882E585AD /* cmux.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6679E0C9833E77D4A4295D4C /* ConvexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexClient.swift; sourceTree = "<group>"; };
+		72E20F7A729081D044495605 /* CMuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMuxApp.swift; sourceTree = "<group>"; };
+		79D367AC3D322118AE559DBF /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
+		80C3A9D5662A04DE39FD3844 /* ChatDebugMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDebugMenu.swift; sourceTree = "<group>"; };
+		88ED9D7168B6FC097B490637 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		8B4E7CFD0EE433DFB9F348A0 /* ChatFix3_AdjustedContentInset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix3_AdjustedContentInset.swift; sourceTree = "<group>"; };
+		8E3A23AD3BA4B17B7605CCBC /* ChatApproachI_Fix1Default.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatApproachI_Fix1Default.swift; sourceTree = "<group>"; };
+		9788FAF68766BFAA9A451A8D /* ChatApproachI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatApproachI.swift; sourceTree = "<group>"; };
+		9F680356269E010CC8DDF11B /* ShortThreadLayoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortThreadLayoutUITests.swift; sourceTree = "<group>"; };
+		AEA367B39118F09C4A8989FF /* ChatKeyboardContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatKeyboardContainer.swift; sourceTree = "<group>"; };
+		B005E08ACAAF83F6A13F9D8C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B87CA70AD58D024077E85845 /* DebugInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugInputBar.swift; sourceTree = "<group>"; };
+		BCD6DF60D6756BE09A1CFEE9 /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
+		BF2848CBEF6B2A130DF4C9D2 /* StackAuthProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthProvider.swift; sourceTree = "<group>"; };
+		C18818FD4536DFDC6D6FA1D5 /* KeyboardSyncUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSyncUITests.swift; sourceTree = "<group>"; };
+		CAECD9944A3CB4779597B8A3 /* DebugSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugSettings.swift; sourceTree = "<group>"; };
+		D8732D7AB61D4190BACAAB03 /* Environment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Environment.swift; sourceTree = "<group>"; };
+		D9BA577D046F9E3C331F4986 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		E6A61F42F94D17993038F637 /* ConvexTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexTestView.swift; sourceTree = "<group>"; };
+		EF7C1F4696125951D2F69BC0 /* cmuxUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1AB960D917D344F2BB227AC /* ChatFix2_InputBarHeightOnly.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix2_InputBarHeightOnly.swift; sourceTree = "<group>"; };
+		F7D3C06944393B0EE29C331C /* AuthPersistenceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthPersistenceUITests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		619D11C7B9AB804217EA26D4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E3FA94BC78BB51AAFD61D055 /* ConvexMobile in Frameworks */,
+				8B6A74AEAD4EC07300279462 /* Sentry in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0F1AEEAEEF55364C5E4029D3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				46410B90D2F45E6882E585AD /* cmux.app */,
+				EF7C1F4696125951D2F69BC0 /* cmuxUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3EC041CE7CBA01395A239037 /* cmuxUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F7D3C06944393B0EE29C331C /* AuthPersistenceUITests.swift */,
+				C18818FD4536DFDC6D6FA1D5 /* KeyboardSyncUITests.swift */,
+				9F680356269E010CC8DDF11B /* ShortThreadLayoutUITests.swift */,
+			);
+			path = cmuxUITests;
+			sourceTree = "<group>";
+		};
+		4C3A73493721EACC742CE8ED /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				79D367AC3D322118AE559DBF /* AuthManager.swift */,
+				88ED9D7168B6FC097B490637 /* SignInView.swift */,
+				2DEEADB25149C285A0422125 /* StackAuthClient.swift */,
+				BF2848CBEF6B2A130DF4C9D2 /* StackAuthProvider.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		83C0A40B17FEEB2EA02D156B = {
+			isa = PBXGroup;
+			children = (
+				B005E08ACAAF83F6A13F9D8C /* Assets.xcassets */,
+				3EC041CE7CBA01395A239037 /* cmuxUITests */,
+				F80B6A470B95146C17D0BE5A /* Sources */,
+				0F1AEEAEEF55364C5E4029D3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A13C99D002491553C349AD58 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				D8732D7AB61D4190BACAAB03 /* Environment.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		BBE2BE334F53D4E47636EF15 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				8E3A23AD3BA4B17B7605CCBC /* ChatApproachI_Fix1Default.swift */,
+				9788FAF68766BFAA9A451A8D /* ChatApproachI.swift */,
+				80C3A9D5662A04DE39FD3844 /* ChatDebugMenu.swift */,
+				38A50394379F40101C8A95FC /* ChatFix1_ContentInsetNever.swift */,
+				F1AB960D917D344F2BB227AC /* ChatFix2_InputBarHeightOnly.swift */,
+				8B4E7CFD0EE433DFB9F348A0 /* ChatFix3_AdjustedContentInset.swift */,
+				2371E50D0E3E362104DE9177 /* ChatFix4_ScrollViewDelegate.swift */,
+				1C74190A1F266AB5E2C38455 /* ChatFix5_ReducePadding.swift */,
+				E6A61F42F94D17993038F637 /* ConvexTestView.swift */,
+				B87CA70AD58D024077E85845 /* DebugInputBar.swift */,
+			);
+			path = Debug;
+			sourceTree = "<group>";
+		};
+		F58C4F0A497799570589D124 /* Convex */ = {
+			isa = PBXGroup;
+			children = (
+				6679E0C9833E77D4A4295D4C /* ConvexClient.swift */,
+			);
+			path = Convex;
+			sourceTree = "<group>";
+		};
+		F80B6A470B95146C17D0BE5A /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				4296ACD1C15CC2E35AE162CC /* ChatFix1MainView.swift */,
+				AEA367B39118F09C4A8989FF /* ChatKeyboardContainer.swift */,
+				0BE5CB8A89417C399DB8D166 /* ChatView.swift */,
+				72E20F7A729081D044495605 /* CMuxApp.swift */,
+				1B8CDE2F6CDCAB37E3107C76 /* ContentView.swift */,
+				BCD6DF60D6756BE09A1CFEE9 /* ConversationListView.swift */,
+				CAECD9944A3CB4779597B8A3 /* DebugSettings.swift */,
+				D9BA577D046F9E3C331F4986 /* Models.swift */,
+				4C3A73493721EACC742CE8ED /* Auth */,
+				A13C99D002491553C349AD58 /* Config */,
+				F58C4F0A497799570589D124 /* Convex */,
+				BBE2BE334F53D4E47636EF15 /* Debug */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D6E5ED0C8EADF9B00BC1627F /* cmux */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B8D38E764907D8415FC65997 /* Build configuration list for PBXNativeTarget "cmux" */;
+			buildPhases = (
+				35CFA4F0D45E49F370ECBCDF /* Sources */,
+				59260B41E0AD3DA23B6DF09F /* Resources */,
+				619D11C7B9AB804217EA26D4 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = cmux;
+			packageProductDependencies = (
+				4C0C333BDE07456C757877E2 /* ConvexMobile */,
+				2AB0CD82D816F53E55B1E103 /* Sentry */,
+			);
+			productName = cmux;
+			productReference = 46410B90D2F45E6882E585AD /* cmux.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E59D9C58D7245568106A1197 /* cmuxUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5D5BA1E628F7B00E5FE18887 /* Build configuration list for PBXNativeTarget "cmuxUITests" */;
+			buildPhases = (
+				8CE346D1E01CF18FB8F7F811 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FC82B0E8F8C678BDC002C842 /* PBXTargetDependency */,
+			);
+			name = cmuxUITests;
+			packageProductDependencies = (
+			);
+			productName = cmuxUITests;
+			productReference = EF7C1F4696125951D2F69BC0 /* cmuxUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0BC297CC62DC5C500BBEB719 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					D6E5ED0C8EADF9B00BC1627F = {
+						DevelopmentTeam = 7WLXT3NR37;
+					};
+					E59D9C58D7245568106A1197 = {
+						TestTargetID = D6E5ED0C8EADF9B00BC1627F;
+					};
+				};
+			};
+			buildConfigurationList = 0F77D843AF9DF75B9AC7D9B7 /* Build configuration list for PBXProject "cmux" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 83C0A40B17FEEB2EA02D156B;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				7C6D10429B3DC21D021B1E06 /* XCRemoteSwiftPackageReference "convex-swift" */,
+				6483AD9AFDD51874D0F6EECF /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D6E5ED0C8EADF9B00BC1627F /* cmux */,
+				E59D9C58D7245568106A1197 /* cmuxUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		59260B41E0AD3DA23B6DF09F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E0146088B71697EB516611F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		35CFA4F0D45E49F370ECBCDF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D71540B39A0E33807FB77410 /* AuthManager.swift in Sources */,
+				83357B66D3EF312F35A86BB1 /* CMuxApp.swift in Sources */,
+				8030869706BE8FD94533D58A /* ChatApproachI.swift in Sources */,
+				2283F03332355B2A6F811710 /* ChatApproachI_Fix1Default.swift in Sources */,
+				DCEF7D27D2624C7E3F7B4E14 /* ChatDebugMenu.swift in Sources */,
+				8C11E78F09BA811A5EBC33CC /* ChatFix1MainView.swift in Sources */,
+				F51147F292563E8B2503D43E /* ChatFix1_ContentInsetNever.swift in Sources */,
+				D593A476423097F95F227570 /* ChatFix2_InputBarHeightOnly.swift in Sources */,
+				8FB1CB1D89D93D703FFE61BA /* ChatFix3_AdjustedContentInset.swift in Sources */,
+				5479917679421FDD8C3C2995 /* ChatFix4_ScrollViewDelegate.swift in Sources */,
+				6A5960808C1C40C3C1DEEA2E /* ChatFix5_ReducePadding.swift in Sources */,
+				F6098AD7DB98B95086FD932A /* ChatKeyboardContainer.swift in Sources */,
+				0BEB4F58E65C35CE4E4EE942 /* ChatView.swift in Sources */,
+				6ED3832765AAB169F7254054 /* ContentView.swift in Sources */,
+				E9D2BFC8E39842DB720CAD9D /* ConversationListView.swift in Sources */,
+				F024C0FD39B57208895F9153 /* ConvexClient.swift in Sources */,
+				24D8752AB97DB126660D8F81 /* ConvexTestView.swift in Sources */,
+				20A59B687D0399C43C985B31 /* DebugInputBar.swift in Sources */,
+				8DF015A1566E9F288F30C460 /* DebugSettings.swift in Sources */,
+				EC388CAF55CB58BE5B5D2654 /* Environment.swift in Sources */,
+				361B05C412BFA1E44BDCAD39 /* Models.swift in Sources */,
+				C9E3B69A93DD87E682311505 /* SignInView.swift in Sources */,
+				2CE5BEC0FE0F92E3F298C570 /* StackAuthClient.swift in Sources */,
+				3A6FD7E27F3723EF627744A9 /* StackAuthProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CE346D1E01CF18FB8F7F811 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E53E64DA59BFCB7E396E0865 /* AuthPersistenceUITests.swift in Sources */,
+				1AB68DA70F76F585B6332F68 /* KeyboardSyncUITests.swift in Sources */,
+				35DD00750B94902B2CF0CDF6 /* ShortThreadLayoutUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FC82B0E8F8C678BDC002C842 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D6E5ED0C8EADF9B00BC1627F /* cmux */;
+			targetProxy = 5309AA5CCAC5CAADF68B53C4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		066BAB781528BE0F431B5A66 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = cmux;
+			};
+			name = Debug;
+		};
+		1553B07068B96981191CC8DF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		193F40ACF34DCB0905D44DCF /* Beta */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Beta";
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta;
+				PRODUCT_NAME = "cmux Beta";
+				PROVISIONING_PROFILE_SPECIFIER = "cmux Beta Distribution";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = BETA;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Beta;
+		};
+		6E9CF3EFB0808AD4B2DD0469 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9BA58E73AEA870BAB62DC847 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Dev";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev;
+				PRODUCT_NAME = "cmux DEV";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A7C26788CC5F8B4C130CC476 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app;
+				PRODUCT_NAME = cmux;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = RELEASE;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B4D1D4CD67E1F8391FA76A24 /* Beta */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Beta;
+		};
+		D05301475DE3EE35DBCB081E /* Beta */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = cmux;
+			};
+			name = Beta;
+		};
+		DF1B16901F2B7FBB801F5AB4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = cmux;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0F77D843AF9DF75B9AC7D9B7 /* Build configuration list for PBXProject "cmux" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B4D1D4CD67E1F8391FA76A24 /* Beta */,
+				1553B07068B96981191CC8DF /* Debug */,
+				6E9CF3EFB0808AD4B2DD0469 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+		5D5BA1E628F7B00E5FE18887 /* Build configuration list for PBXNativeTarget "cmuxUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D05301475DE3EE35DBCB081E /* Beta */,
+				066BAB781528BE0F431B5A66 /* Debug */,
+				DF1B16901F2B7FBB801F5AB4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+		B8D38E764907D8415FC65997 /* Build configuration list for PBXNativeTarget "cmux" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				193F40ACF34DCB0905D44DCF /* Beta */,
+				9BA58E73AEA870BAB62DC847 /* Debug */,
+				A7C26788CC5F8B4C130CC476 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6483AD9AFDD51874D0F6EECF /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
+		7C6D10429B3DC21D021B1E06 /* XCRemoteSwiftPackageReference "convex-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/get-convex/convex-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2AB0CD82D816F53E55B1E103 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6483AD9AFDD51874D0F6EECF /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
+		};
+		4C0C333BDE07456C757877E2 /* ConvexMobile */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7C6D10429B3DC21D021B1E06 /* XCRemoteSwiftPackageReference "convex-swift" */;
+			productName = ConvexMobile;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 0BC297CC62DC5C500BBEB719 /* Project object */;
+}

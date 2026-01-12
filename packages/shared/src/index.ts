@@ -9,6 +9,7 @@ export * from "./codeReview/callback-schemas";
 export * from "./socket-schemas";
 export * from "./terminal-config";
 export * from "./verifyTaskRunToken";
+export * from "./verifyConversationToken";
 export * from "./utils/normalize-origin";
 export * from "./utils/normalize-browser-url";
 export * from "./utils/reserved-cmux-ports";

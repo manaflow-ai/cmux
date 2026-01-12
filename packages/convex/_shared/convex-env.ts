@@ -15,6 +15,7 @@ export const env = createEnv({
     CMUX_GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
     BASE_APP_URL: z.string().min(1),
     CMUX_TASK_RUN_JWT_SECRET: z.string().min(1),
+    CMUX_CONVERSATION_JWT_SECRET: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
     MORPH_API_KEY: z.string().min(1).optional(),

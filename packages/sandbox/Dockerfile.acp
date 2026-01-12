@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1.7-labs
+#
+# Dockerfile for cmux-acp-server
+# Standalone ACP server for iOS app integration
+#
+# Build: docker build -f Dockerfile.acp -t cmux-acp-server .
+# Run: docker run -p 39384:39384 -e CONVEX_URL=... -e CMUX_CONVERSATION_JWT_SECRET=... cmux-acp-server
+
+ARG RUST_VERSION=1.91.0
+
+# Build stage
+FROM rust:${RUST_VERSION}-bookworm AS builder
+
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true \
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+  CARGO_TERM_COLOR=never \
+  CARGO_PROFILE_RELEASE_STRIP=symbols
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  apt-get update && apt-get install -y --no-install-recommends \
+  pkg-config \
+  libssl-dev \
+  clang \
+  ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Copy Cargo files for dependency caching
+COPY Cargo.toml Cargo.lock ./
+COPY benches ./benches
+
+# Create dummy src to build dependencies
+RUN mkdir -p src/bin && \
+    echo "fn main() {}" > src/bin/cmux-acp-server.rs && \
+    echo "pub fn dummy() {}" > src/lib.rs
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo build --release --bin cmux-acp-server || true
+
+# Copy actual source
+COPY src ./src
+
+# Build for real
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  touch src/lib.rs src/bin/cmux-acp-server.rs && \
+  cargo build --locked --release --bin cmux-acp-server
+
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  bubblewrap \
+  ca-certificates \
+  curl \
+  git \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js for coding CLIs
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install coding CLIs (will fail gracefully if not available)
+RUN npm install -g @anthropics/claude-code-acp 2>/dev/null || echo "claude-code-acp not available" && \
+    npm install -g @openai/codex-acp 2>/dev/null || echo "codex-acp not available"
+
+# Copy binary from builder
+COPY --from=builder /workspace/target/release/cmux-acp-server /usr/local/bin/
+
+# Create workspace directory
+RUN mkdir -p /workspace
+
+# Environment
+ENV RUST_LOG=info \
+    ACP_PORT=39384 \
+    ACP_WORKING_DIR=/workspace
+
+EXPOSE 39384
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:39384/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/cmux-acp-server"]

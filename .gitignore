@@ -62,3 +62,14 @@ apps/www/scripts/pr-review/evals/results/
 .local_version
 .envrc
 *.tsbuildinfo
+
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.moved-aside/
+*.xcframework/
+*.xcarchive/

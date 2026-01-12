@@ -1,4 +1,5 @@
 pub mod acp_client;
+pub mod acp_server;
 pub mod api;
 pub mod bubblewrap;
 pub mod errors;
