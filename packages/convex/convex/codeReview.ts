@@ -1134,3 +1134,123 @@ export const listFileOutputsForComparison = authQuery({
     }));
   },
 });
+
+// Get code review summary for a PR (for activity bar display)
+export const getReviewSummaryForPr = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+
+    // Get the latest code review job for this PR
+    const jobs = await ctx.db
+      .query("automatedCodeReviewJobs")
+      .withIndex("by_team_repo_pr_updated", (q) =>
+        q
+          .eq("teamId", teamId)
+          .eq("repoFullName", args.repoFullName)
+          .eq("prNumber", args.prNumber),
+      )
+      .order("desc")
+      .take(1);
+
+    if (jobs.length === 0) {
+      return null;
+    }
+
+    const job = jobs[0];
+
+    // Count file outputs for this job to get findings counts
+    const fileOutputs = await ctx.db
+      .query("automatedCodeReviewFileOutputs")
+      .withIndex("by_job", (q) => q.eq("jobId", job._id))
+      .collect();
+
+    // Parse file outputs to count findings
+    let criticalCount = 0;
+    let warningCount = 0;
+    let infoCount = 0;
+
+    for (const output of fileOutputs) {
+      const review = output.codexReviewOutput;
+      if (review && typeof review === "object") {
+        // Try to extract counts from the review output structure
+        // The structure varies, so we handle multiple formats
+        const lines = (review as { lines?: unknown[] }).lines;
+        if (Array.isArray(lines)) {
+          for (const line of lines) {
+            const lineObj = line as { score?: number };
+            if (typeof lineObj.score === "number") {
+              // Higher scores indicate more issues
+              if (lineObj.score >= 8) criticalCount++;
+              else if (lineObj.score >= 5) warningCount++;
+              else if (lineObj.score >= 3) infoCount++;
+            }
+          }
+        }
+      }
+    }
+
+    // Extract file summaries for display
+    const fileSummaries: Array<{
+      filePath: string;
+      summary: string | null;
+      criticalCount: number;
+      warningCount: number;
+    }> = [];
+
+    for (const output of fileOutputs) {
+      const review = output.codexReviewOutput;
+      let summary: string | null = null;
+      let fileCritical = 0;
+      let fileWarning = 0;
+
+      if (review && typeof review === "object") {
+        // Try to extract summary text if available
+        const reviewObj = review as { summary?: string; lines?: unknown[] };
+        summary = reviewObj.summary ?? null;
+
+        // Count findings for this file
+        if (Array.isArray(reviewObj.lines)) {
+          for (const line of reviewObj.lines) {
+            const lineObj = line as { score?: number };
+            if (typeof lineObj.score === "number") {
+              if (lineObj.score >= 8) fileCritical++;
+              else if (lineObj.score >= 5) fileWarning++;
+            }
+          }
+        }
+      }
+
+      fileSummaries.push({
+        filePath: output.filePath,
+        summary,
+        criticalCount: fileCritical,
+        warningCount: fileWarning,
+      });
+    }
+
+    // Sort by most issues first
+    fileSummaries.sort(
+      (a, b) =>
+        b.criticalCount + b.warningCount - (a.criticalCount + a.warningCount),
+    );
+
+    return {
+      jobId: job._id,
+      state: job.state,
+      createdAt: job.createdAt,
+      completedAt: job.completedAt ?? null,
+      filesReviewed: fileOutputs.length,
+      criticalCount,
+      warningCount,
+      infoCount,
+      totalFindings: criticalCount + warningCount + infoCount,
+      // Include top files with issues for display
+      topFiles: fileSummaries.slice(0, 5),
+    };
+  },
+});

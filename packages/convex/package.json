@@ -27,10 +27,11 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.18",
+    "@ai-sdk/amazon-bedrock": "^4.0.17",
+    "@ai-sdk/anthropic": "^3.0.13",
     "@ai-sdk/gateway": "^1.0.28",
-    "@ai-sdk/openai": "^2.0.19",
-    "@ai-sdk/provider-utils": "^3.0.9",
+    "@ai-sdk/openai": "^3.0.10",
+    "@ai-sdk/provider-utils": "^4.0.6",
     "@cmux/morphcloud-openapi-client": "workspace:*",
     "@cmux/shared": "workspace:*",
     "@convex-dev/migrations": "^0.2.9",
@@ -38,7 +39,7 @@
     "@stackframe/js": "^2.8.48",
     "@stackframe/stack": "^2.8.48",
     "@t3-oss/env-core": "^0.13.8",
-    "ai": "^5.0.51",
+    "ai": "^6.0.11",
     "convex": "1.29.3",
     "convex-helpers": "^0.1.104",
     "jose": "^6.0.7",

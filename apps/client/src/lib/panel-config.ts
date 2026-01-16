@@ -1,4 +1,4 @@
-export type PanelType = "chat" | "workspace" | "terminal" | "browser" | "gitDiff";
+export type PanelType = "chat" | "workspace" | "terminal" | "browser" | "gitDiff" | "claims";
 
 export type LayoutMode =
   | "single-panel"    // Single full-width panel
@@ -51,6 +51,7 @@ export const PANEL_LABELS: Record<PanelType, string> = {
   terminal: "Terminal",
   browser: "Browser",
   gitDiff: "Git Diff",
+  claims: "Claims Board",
 };
 
 export const PANEL_ICONS: Record<PanelType, string> = {
@@ -59,6 +60,7 @@ export const PANEL_ICONS: Record<PanelType, string> = {
   terminal: "TerminalSquare",
   browser: "Globe2",
   gitDiff: "GitCompare",
+  claims: "Sparkles",
 };
 
 export const LAYOUT_LABELS: Record<LayoutMode, string> = {
@@ -159,7 +161,7 @@ export function getCurrentLayoutPanels(config: PanelConfig): LayoutPanels {
 }
 
 export function getAvailablePanels(config: PanelConfig): PanelType[] {
-  const allPanels: PanelType[] = ["chat", "workspace", "terminal", "browser", "gitDiff"];
+  const allPanels: PanelType[] = ["chat", "workspace", "terminal", "browser", "gitDiff", "claims"];
   const currentLayout = getCurrentLayoutPanels(config);
 
   // Check all positions (including inactive) to prevent duplicates within current layout

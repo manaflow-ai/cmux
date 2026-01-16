@@ -299,6 +299,32 @@ const convexSchema = defineSchema({
         })
       )
     ),
+    // Claims board: AI-generated claims about what was done with evidence
+    claims: v.optional(
+      v.array(
+        v.object({
+          claim: v.string(), // What the AI claims it did
+          evidence: v.object({
+            type: v.union(
+              v.literal("image"),
+              v.literal("video"),
+              v.literal("codeDiff")
+            ),
+            // For image evidence
+            screenshotIndex: v.optional(v.number()),
+            imageUrl: v.optional(v.string()),
+            // For code diff evidence
+            filePath: v.optional(v.string()),
+            startLine: v.optional(v.number()),
+            endLine: v.optional(v.number()),
+            summary: v.optional(v.string()),
+            patch: v.optional(v.string()),
+          }),
+          timestamp: v.optional(v.number()),
+        })
+      )
+    ),
+    claimsGeneratedAt: v.optional(v.number()),
   })
     .index("by_task", ["taskId", "createdAt"])
     .index("by_parent", ["parentRunId"])

@@ -1,7 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { getTeamId, resolveTeamIdLoose } from "../_shared/team";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { authMutation, authQuery, taskIdWithFake } from "./users/utils";
@@ -915,6 +915,18 @@ export const recordScreenshotResult = internalMutation({
     }
 
     await ctx.db.patch(args.taskId, patch);
+
+    // Trigger claims generation after successful screenshot collection
+    if (args.status === "completed" && screenshots.length > 0) {
+      console.log("[tasks.recordScreenshotResult] Scheduling claims generation", {
+        runId: args.runId,
+        screenshotSetId,
+      });
+      await ctx.scheduler.runAfter(0, internal.claims.generateClaimsForRun, {
+        runId: args.runId,
+        screenshotSetId,
+      });
+    }
 
     return screenshotSetId;
   },

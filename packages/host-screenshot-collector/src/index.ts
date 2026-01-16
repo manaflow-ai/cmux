@@ -269,6 +269,28 @@ If UI changes exist, capture screenshots:
 6. Save screenshots to ${outputDir} with descriptive names like "component-state-${branch}.png"
 </PHASE_2_CAPTURE>
 
+<PHASE_2B_END_TO_END_TESTING>
+CRITICAL: For interactive components, you MUST capture BEFORE and AFTER states to prove functionality works end-to-end.
+
+For EVERY interactive element the PR adds or modifies (buttons, links, forms, toggles, etc.):
+1. Screenshot the INITIAL state BEFORE interaction (e.g., "button-before-click.png")
+2. PERFORM the interaction (click the button, submit the form, toggle the switch)
+3. Screenshot the RESULT state AFTER interaction (e.g., "button-after-click.png")
+
+Examples of proper end-to-end screenshot pairs:
+- Button: "add-to-cart-button.png" → click → "item-added-confirmation.png"
+- Form: "contact-form-empty.png" → fill & submit → "form-success-message.png"
+- Toggle: "dark-mode-off.png" → click toggle → "dark-mode-on.png"
+- Modal: "page-with-trigger.png" → click trigger → "modal-open.png"
+- Dropdown: "dropdown-closed.png" → click → "dropdown-expanded.png"
+- Tab: "tab-1-active.png" → click tab 2 → "tab-2-active.png"
+- Accordion: "accordion-collapsed.png" → click → "accordion-expanded.png"
+- Delete action: "item-in-list.png" → click delete → "item-removed-or-confirmation.png"
+
+A screenshot of just a button existing is NOT sufficient evidence. You must show the button AND what happens when clicked.
+If an interaction fails or produces an error, screenshot that error - it's important evidence.
+</PHASE_2B_END_TO_END_TESTING>
+
 <PHASE_3_QUALITY_VERIFICATION>
 After capturing screenshots, you MUST verify each one for quality. For EACH screenshot file in ${outputDir}:
 
@@ -301,8 +323,13 @@ Screenshot the UI states that the PR actually modifies. Be intentional:
 - If the PR changes a skeleton loader → screenshot the skeleton
 - If the PR changes hover styles → screenshot the hover state
 - If the PR changes a modal → open and screenshot the modal
+- If the PR adds a button → screenshot the button AND click it to show what happens
+- If the PR adds a form → screenshot the empty form AND submit it to show validation/success
+- If the PR adds a link → screenshot the link AND navigate to show the destination
 
 Don't screenshot loading/error states incidentally while waiting for the "real" UI. Screenshot them when they ARE the change.
+
+REMEMBER: Interactive elements require TWO screenshots minimum - before AND after the interaction.
 </WHAT_TO_CAPTURE>
 
 <CRITICAL_MISTAKES>
@@ -319,6 +346,10 @@ WRONG PAGE: Screenshotting pages unrelated to the PR. Only capture components/pa
 DUPLICATE SCREENSHOTS: Taking multiple identical screenshots. Each screenshot should show something distinct.
 
 INCOMPLETE CAPTURE: Missing important UI elements. Ensure full components are visible and not cut off.
+
+MISSING INTERACTION PROOF: Only showing a button/form/toggle exists without showing what happens when you interact with it. A button screenshot without clicking it is incomplete evidence. Always capture before AND after states for interactive elements.
+
+UNTESTED FUNCTIONALITY: Taking a screenshot of a new feature without actually testing it works. Click the button. Submit the form. Toggle the switch. Navigate the link. Prove it works.
 </CRITICAL_MISTAKES>
 
 <OUTPUT_REQUIREMENTS>

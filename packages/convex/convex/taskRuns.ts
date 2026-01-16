@@ -2071,6 +2071,70 @@ export const getRunningContainersByCleanupPriority = authQuery({
   },
 });
 
+// Get latest screenshot URLs for multiple runs
+export const getLatestScreenshotUrls = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    runIds: v.array(v.id("taskRuns")),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await getTeamId(ctx, args.teamSlugOrId);
+
+    // Fetch all runs to get their latestScreenshotSetId
+    const runs = await Promise.all(
+      args.runIds.map((runId) => ctx.db.get(runId)),
+    );
+
+    // Collect screenshot set IDs and verify team access
+    const screenshotSetIds: Array<{
+      runId: Id<"taskRuns">;
+      setId: Id<"taskRunScreenshotSets">;
+    }> = [];
+
+    for (const run of runs) {
+      if (!run || run.teamId !== teamId) continue;
+      if (run.latestScreenshotSetId) {
+        screenshotSetIds.push({
+          runId: run._id,
+          setId: run.latestScreenshotSetId,
+        });
+      }
+    }
+
+    // Fetch screenshot sets
+    const screenshotSets = await Promise.all(
+      screenshotSetIds.map(async ({ runId, setId }) => {
+        const set = await ctx.db.get(setId);
+        return { runId, set };
+      }),
+    );
+
+    // Build result map with URLs
+    const result: Record<
+      string,
+      { url: string | null; capturedAt: number } | null
+    > = {};
+
+    for (const { runId, set } of screenshotSets) {
+      if (!set || set.images.length === 0) {
+        result[runId] = null;
+        continue;
+      }
+
+      // Get the first image's URL
+      const firstImage = set.images[0];
+      const url = await ctx.storage.getUrl(firstImage.storageId);
+
+      result[runId] = {
+        url: url ?? null,
+        capturedAt: set.capturedAt,
+      };
+    }
+
+    return result;
+  },
+});
+
 export const createForPreview = internalMutation({
   args: {
     taskId: v.id("tasks"),

@@ -9,6 +9,7 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Sparkles,
 } from "lucide-react";
 import clsx from "clsx";
 import type { PanelType } from "@/lib/panel-config";
@@ -149,6 +150,8 @@ interface PanelFactoryProps {
     winnerRunId?: Id<"taskRuns">;
     reason?: string;
   } | null;
+  // Claims board props
+  screenshotUrls?: Record<string, { url: string | null; capturedAt: number } | null>;
   // Workspace panel props
   workspaceUrl?: string | null;
   workspacePersistKey?: string | null;
@@ -183,12 +186,27 @@ interface PanelFactoryProps {
   WorkspaceLoadingIndicator?: React.ComponentType<WorkspaceLoadingIndicatorProps>;
   TaskRunTerminalPane?: React.ComponentType<TaskRunTerminalPaneProps>;
   TaskRunGitDiffPanel?: React.ComponentType<TaskRunGitDiffPanelProps>;
+  ClaimsBoardPanel?: React.ComponentType<ClaimsBoardPanelProps>;
   // Constants
   TASK_RUN_IFRAME_ALLOW?: string;
   TASK_RUN_IFRAME_SANDBOX?: string;
   // Git diff panel props
   teamSlugOrId?: string;
   taskId?: Id<"tasks">;
+}
+
+// Props for the Claims Board Panel wrapper
+interface ClaimsBoardPanelProps {
+  task: Doc<"tasks"> | null;
+  taskRuns: TaskRunWithChildren[] | null;
+  crownEvaluation?: {
+    evaluatedAt?: number;
+    winnerRunId?: Id<"taskRuns">;
+    reason?: string;
+  } | null;
+  screenshotUrls?: Record<string, { url: string | null; capturedAt: number } | null>;
+  teamSlugOrId: string;
+  taskId: Id<"tasks">;
 }
 
 const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
@@ -434,7 +452,7 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
 
   switch (type) {
     case "chat": {
-      const { task, taskRuns, crownEvaluation, TaskRunChatPane } = props;
+      const { task, taskRuns, crownEvaluation, screenshotUrls, TaskRunChatPane } = props;
       if (!TaskRunChatPane) return null;
       return (
         <div
@@ -453,6 +471,7 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
             task={task}
             taskRuns={taskRuns}
             crownEvaluation={crownEvaluation}
+            screenshotUrls={screenshotUrls}
             hideHeader={false}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -641,6 +660,27 @@ const RenderPanelComponent = (props: PanelFactoryProps): ReactNode => {
       );
     }
 
+    case "claims": {
+      const { task, taskRuns, crownEvaluation, screenshotUrls, teamSlugOrId, taskId, ClaimsBoardPanel } = props;
+      if (!ClaimsBoardPanel || !teamSlugOrId || !taskId) return null;
+
+      return panelWrapper(
+        <Sparkles className="size-3" aria-hidden />,
+        PANEL_LABELS.claims,
+        <div className="relative flex-1 min-h-0 overflow-hidden">
+          <ClaimsBoardPanel
+            key={task?._id}
+            task={task ?? null}
+            taskRuns={taskRuns ?? null}
+            crownEvaluation={crownEvaluation}
+            screenshotUrls={screenshotUrls}
+            teamSlugOrId={teamSlugOrId}
+            taskId={taskId}
+          />
+        </div>
+      );
+    }
+
     case null:
       return null;
 
@@ -683,7 +723,20 @@ export const RenderPanel = React.memo(RenderPanelComponent, (prevProps, nextProp
   if (prevProps.type === "chat") {
     if (prevProps.task?._id !== nextProps.task?._id ||
       prevProps.taskRuns !== nextProps.taskRuns ||
-      prevProps.crownEvaluation !== nextProps.crownEvaluation) {
+      prevProps.crownEvaluation !== nextProps.crownEvaluation ||
+      prevProps.screenshotUrls !== nextProps.screenshotUrls) {
+      return false;
+    }
+  }
+
+  // For claims panel, check task and run changes
+  if (prevProps.type === "claims") {
+    if (prevProps.task?._id !== nextProps.task?._id ||
+      prevProps.taskRuns !== nextProps.taskRuns ||
+      prevProps.crownEvaluation !== nextProps.crownEvaluation ||
+      prevProps.screenshotUrls !== nextProps.screenshotUrls ||
+      prevProps.teamSlugOrId !== nextProps.teamSlugOrId ||
+      prevProps.taskId !== nextProps.taskId) {
       return false;
     }
   }

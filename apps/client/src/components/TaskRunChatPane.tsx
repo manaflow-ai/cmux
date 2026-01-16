@@ -12,6 +12,7 @@ export interface TaskRunChatPaneProps {
     winnerRunId?: Id<"taskRuns">;
     reason?: string;
   } | null;
+  screenshotUrls?: Record<string, { url: string | null; capturedAt: number } | null>;
   hideHeader?: boolean;
   className?: string;
   onDragStart?: (e: React.DragEvent) => void;
@@ -26,6 +27,7 @@ export function TaskRunChatPane({
   task,
   taskRuns,
   crownEvaluation,
+  screenshotUrls,
   hideHeader = false,
   className,
   onDragStart,
@@ -104,6 +106,7 @@ export function TaskRunChatPane({
             task={task ?? null}
             taskRuns={taskRuns}
             crownEvaluation={crownEvaluation ?? null}
+            screenshotUrls={screenshotUrls}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-neutral-500 dark:text-neutral-400">

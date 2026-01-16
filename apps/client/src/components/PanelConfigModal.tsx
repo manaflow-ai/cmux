@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { LucideIcon } from "lucide-react";
-import { X, RotateCcw, GripVertical, MessageSquare, Code2, TerminalSquare, Globe2, GitCompare, Plus, Grid2x2, Columns2, Rows2, PanelsLeftBottom, PanelsRightBottom, PanelsTopLeft, Trash2, Square } from "lucide-react";
+import { X, RotateCcw, GripVertical, MessageSquare, Code2, TerminalSquare, Globe2, GitCompare, Plus, Grid2x2, Columns2, Rows2, PanelsLeftBottom, PanelsRightBottom, PanelsTopLeft, Trash2, Square, Sparkles } from "lucide-react";
 import clsx from "clsx";
 import type { PanelConfig, PanelType, LayoutMode, PanelPosition } from "@/lib/panel-config";
 import { PANEL_LABELS, DEFAULT_PANEL_CONFIG, LAYOUT_LABELS, LAYOUT_DESCRIPTIONS, getActivePanelPositions, getAvailablePanels, removePanelFromAllPositions } from "@/lib/panel-config";
@@ -19,6 +19,7 @@ const PANEL_ICONS_MAP: Record<PanelType, LucideIcon> = {
   terminal: TerminalSquare,
   browser: Globe2,
   gitDiff: GitCompare,
+  claims: Sparkles,
 };
 
 interface LayoutIconConfig {
