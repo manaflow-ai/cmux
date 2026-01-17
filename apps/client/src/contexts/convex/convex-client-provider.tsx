@@ -3,8 +3,10 @@
 import { getRandomKitty } from "@/components/kitties";
 import CmuxLogoMarkAnimated from "@/components/logo/cmux-logo-mark-animated";
 import { useQuery } from "@tanstack/react-query";
+import { useMatch } from "@tanstack/react-router";
 import { ConvexProvider } from "convex/react";
 import { type ReactNode, useEffect, useState } from "react";
+import { authJsonQueryOptions } from "./authJsonQueryOptions";
 import { convexAuthReadyPromise } from "./convex-auth-ready";
 import { convexQueryClient } from "./convex-query-client";
 import clsx from "clsx";
@@ -15,6 +17,13 @@ function BootLoader({ children }: { children: ReactNode }) {
     queryKey: ["convexAuthReadyPromise"],
     queryFn: () => convexAuthReadyPromise,
   });
+  const authJsonQuery = useQuery(authJsonQueryOptions());
+  const teamRouteMatch = useMatch({
+    from: "/_layout/$teamSlugOrId",
+    shouldThrow: false,
+  });
+  const needsTeamAuth = Boolean(teamRouteMatch?.params.teamSlugOrId);
+  const hasAuthToken = Boolean(authJsonQuery.data?.accessToken);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -23,7 +32,9 @@ function BootLoader({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, []);
 
-  const isReady = convexAuthReadyQuery.data && minimumDelayPassed;
+  const isConvexReady = Boolean(convexAuthReadyQuery.data);
+  const isReady =
+    isConvexReady && minimumDelayPassed && (!needsTeamAuth || hasAuthToken);
   return (
     <>
       <div
