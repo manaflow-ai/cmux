@@ -17,6 +17,8 @@ import {
   type CreateLocalWorkspaceResponse,
   CreateCloudWorkspaceSchema,
   type CreateCloudWorkspaceResponse,
+  PrewarmCloudSandboxSchema,
+  type PrewarmCloudSandboxResponse,
   type AvailableEditors,
   type FileInfo,
   isLoopbackHostname,
@@ -27,6 +29,7 @@ import {
   type PullRequestActionResult,
   type StoredPullRequestInfo,
 } from "@cmux/shared/pull-request-state";
+import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import fuzzysort from "fuzzysort";
 import { parse as parseDotenv } from "dotenv";
 import { minimatch } from "minimatch";
@@ -52,6 +55,7 @@ import { serverLogger } from "./utils/fileLogger";
 import { getGitHubOAuthToken } from "./utils/getGitHubToken";
 import { createDraftPr, fetchPrDetail } from "./utils/githubPr";
 import { getOctokit } from "./utils/octokit";
+import { prewarmCloudSandboxManager } from "./utils/prewarmCloudSandboxes";
 import {
   checkAllProvidersStatus,
   checkAllProvidersStatusWebMode,
@@ -62,6 +66,7 @@ import { extractSandboxStartError } from "./utils/sandboxErrors";
 import { getWwwClient } from "./utils/wwwClient";
 import { getWwwOpenApiModule } from "./utils/wwwOpenApiModule";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
+import type { PrewarmedSandboxInfo } from "./vscode/VSCodeInstance";
 import {
   getVSCodeServeWebBaseUrl,
   getVSCodeServeWebPort,
@@ -262,6 +267,108 @@ export function setupSocketHandlers(
       runWithAuth(currentAuthToken, currentAuthHeaderJson, () => {
         callback?.({ ok: true });
       });
+    });
+
+    socket.on(
+      "prewarm-cloud-sandbox",
+      async (rawData, callback?: (response: PrewarmCloudSandboxResponse) => void) => {
+        if (!callback) {
+          return;
+        }
+
+        try {
+          const data = PrewarmCloudSandboxSchema.parse(rawData);
+          const hasScripts = await (async () => {
+            try {
+              if (data.environmentId) {
+                const environment = await getConvex().query(
+                  api.environments.get,
+                  {
+                    teamSlugOrId: data.teamSlugOrId,
+                    id: data.environmentId,
+                  }
+                );
+                const maintenanceScript = environment?.maintenanceScript ?? "";
+                const devScript = environment?.devScript ?? "";
+                return (
+                  maintenanceScript.trim().length > 0 ||
+                  devScript.trim().length > 0
+                );
+              }
+
+              if (data.repoUrl) {
+                const parsed = parseGithubRepoUrl(data.repoUrl);
+                if (!parsed) {
+                  return false;
+                }
+                const workspaceConfig = await getConvex().query(
+                  api.workspaceConfigs.get,
+                  {
+                    teamSlugOrId: data.teamSlugOrId,
+                    projectFullName: parsed.fullName,
+                  }
+                );
+                const maintenanceScript =
+                  workspaceConfig?.maintenanceScript ?? "";
+                return maintenanceScript.trim().length > 0;
+              }
+
+              return false;
+            } catch (error) {
+              console.error(
+                "[Prewarm] Failed to check scripts for prewarm",
+                error
+              );
+              serverLogger.error(
+                "[Prewarm] Failed to check scripts for prewarm",
+                error
+              );
+              return true;
+            }
+          })();
+
+          if (hasScripts) {
+            callback({
+              success: false,
+              status: "failed",
+              error: "Prewarm skipped for scripted environments",
+            });
+            return;
+          }
+
+          const status = await prewarmCloudSandboxManager.requestPrewarm(
+            socket.id,
+            {
+              teamSlugOrId: data.teamSlugOrId,
+              repoUrl: data.repoUrl,
+              branch: data.branch,
+              environmentId: data.environmentId,
+            }
+          );
+
+          callback({
+            success: status.status !== "failed",
+            status: status.status,
+            instanceId: status.instanceId,
+            error: status.error,
+          });
+        } catch (error) {
+          console.error("[Prewarm] Failed to start prewarm request", error);
+          const message = error instanceof Error ? error.message : String(error);
+          callback({ success: false, status: "failed", error: message });
+        }
+      }
+    );
+
+    socket.on("disconnect", () => {
+      void prewarmCloudSandboxManager
+        .cancelPrewarm(socket.id, "socket-disconnect")
+        .catch((error) => {
+          serverLogger.error(
+            "[Prewarm] Failed to cancel prewarm on disconnect",
+            error
+          );
+        });
     });
 
     // Rust N-API test endpoint
@@ -661,6 +768,87 @@ export function setupSocketHandlers(
             // Spawn all agents in parallel
             // - If taskRunIds provided, uses pre-created runs (fast path)
             // - If branchNames generated above, passes them to avoid re-generating
+            let prewarmedSandboxes: PrewarmedSandboxInfo[] | undefined;
+
+            if (taskData.isCloudMode) {
+              const target = taskData.environmentId
+                ? {
+                    teamSlugOrId: safeTeam,
+                    environmentId: taskData.environmentId,
+                  }
+                : taskData.repoUrl && taskData.branch
+                  ? {
+                      teamSlugOrId: safeTeam,
+                      repoUrl: taskData.repoUrl,
+                      branch: taskData.branch,
+                    }
+                  : null;
+
+              if (target) {
+                const hasScripts = await (async () => {
+                  try {
+                    if (taskData.environmentId) {
+                      const environment = await getConvex().query(
+                        api.environments.get,
+                        {
+                          teamSlugOrId: safeTeam,
+                          id: taskData.environmentId,
+                        }
+                      );
+                      const maintenanceScript = environment?.maintenanceScript ?? "";
+                      const devScript = environment?.devScript ?? "";
+                      return (
+                        maintenanceScript.trim().length > 0 ||
+                        devScript.trim().length > 0
+                      );
+                    }
+
+                    const projectFullName = taskData.projectFullName;
+                    if (!projectFullName || projectFullName.startsWith("env:")) {
+                      return false;
+                    }
+
+                    const workspaceConfig = await getConvex().query(
+                      api.workspaceConfigs.get,
+                      {
+                        teamSlugOrId: safeTeam,
+                        projectFullName,
+                      }
+                    );
+
+                    const maintenanceScript =
+                      workspaceConfig?.maintenanceScript ?? "";
+                    return maintenanceScript.trim().length > 0;
+                  } catch (error) {
+                    console.error(
+                      "[Prewarm] Failed to check scripts; skipping prewarm",
+                      error
+                    );
+                    serverLogger.error(
+                      "[Prewarm] Failed to check scripts; skipping prewarm",
+                      error
+                    );
+                    return true;
+                  }
+                })();
+
+                if (hasScripts) {
+                  await prewarmCloudSandboxManager.cancelPrewarm(
+                    socket.id,
+                    "scripts-present"
+                  );
+                } else {
+                  const prewarmed = await prewarmCloudSandboxManager.claimPrewarm(
+                    socket.id,
+                    target
+                  );
+                  if (prewarmed) {
+                    prewarmedSandboxes = [prewarmed];
+                  }
+                }
+              }
+            }
+
             const agentResults = await spawnAllAgents(
               taskId,
               {
@@ -676,7 +864,8 @@ export function setupSocketHandlers(
                 theme: taskData.theme,
                 environmentId: taskData.environmentId,
               },
-              safeTeam
+              safeTeam,
+              prewarmedSandboxes
             );
 
             // Check if at least one agent spawned successfully

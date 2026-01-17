@@ -43,6 +43,7 @@ import { useDebouncedValue } from "@mantine/hooks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { typedZid } from "@cmux/shared/utils/typed-zid";
 
 export const Route = createFileRoute("/_layout/$teamSlugOrId/dashboard")({
   component: DashboardComponent,
@@ -140,6 +141,7 @@ function DashboardComponent() {
   );
 
   const [taskDescription, setTaskDescription] = useState<string>("");
+  const [debouncedTaskDescription] = useDebouncedValue(taskDescription, 600);
   // In web mode, always force cloud mode
   const [isCloudMode, setIsCloudMode] = useState<boolean>(() => {
     if (env.NEXT_PUBLIC_WEB_MODE) return true;
@@ -158,6 +160,8 @@ function DashboardComponent() {
 
   // Ref to access editor API
   const editorApiRef = useRef<EditorApi | null>(null);
+  const prewarmKeyRef = useRef<string | null>(null);
+  const prewarmPendingRef = useRef(false);
 
   const persistAgentSelection = useCallback((agents: string[]) => {
     try {
@@ -682,6 +686,81 @@ function DashboardComponent() {
     isEnvSelected,
     theme,
     generateUploadUrl,
+  ]);
+
+  useEffect(() => {
+    if (!socket) {
+      return;
+    }
+    if (!isCloudMode) {
+      return;
+    }
+
+    const trimmed = debouncedTaskDescription.trim();
+    if (trimmed.length === 0) {
+      prewarmKeyRef.current = null;
+      return;
+    }
+
+    const selection = selectedProject[0];
+    if (!selection) {
+      return;
+    }
+
+    const isEnv = selection.startsWith("env:");
+    let environmentId: Id<"environments"> | undefined;
+    let repoUrl: string | undefined;
+    let branch: string | undefined;
+
+    if (isEnv) {
+      const parsed = typedZid("environments").safeParse(
+        selection.replace(/^env:/, "")
+      );
+      if (!parsed.success) {
+        return;
+      }
+      environmentId = parsed.data;
+    } else {
+      repoUrl = `https://github.com/${selection}.git`;
+      branch = effectiveSelectedBranch[0];
+      if (!branch) {
+        return;
+      }
+    }
+
+    const nextKey = environmentId
+      ? `env:${environmentId}`
+      : `repo:${repoUrl ?? ""}:${branch ?? ""}`;
+
+    if (prewarmPendingRef.current || prewarmKeyRef.current === nextKey) {
+      return;
+    }
+
+    prewarmPendingRef.current = true;
+    socket.emit(
+      "prewarm-cloud-sandbox",
+      {
+        teamSlugOrId,
+        ...(environmentId ? { environmentId } : {}),
+        ...(repoUrl ? { repoUrl } : {}),
+        ...(branch ? { branch } : {}),
+      },
+      (response) => {
+        prewarmPendingRef.current = false;
+        if (response?.success) {
+          prewarmKeyRef.current = nextKey;
+        } else {
+          prewarmKeyRef.current = null;
+        }
+      }
+    );
+  }, [
+    socket,
+    isCloudMode,
+    debouncedTaskDescription,
+    selectedProject,
+    effectiveSelectedBranch,
+    teamSlugOrId,
   ]);
 
   // Fetch repos on mount if none exist

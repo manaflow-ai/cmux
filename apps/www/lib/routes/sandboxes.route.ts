@@ -594,22 +594,28 @@ sandboxesRouter.openapi(
       }
 
       if (maintenanceScript || devScript) {
-        (async () => {
-          await runMaintenanceAndDevScripts({
-            instance,
-            maintenanceScript: maintenanceScript || undefined,
-            devScript: devScript || undefined,
-            identifiers: scriptIdentifiers ?? undefined,
-            convexUrl: env.NEXT_PUBLIC_CONVEX_URL,
-            taskRunJwt: body.taskRunJwt || undefined,
-            isCloudWorkspace,
-          });
-        })().catch((error) => {
-          console.error(
-            "[sandboxes.start] Background script execution failed:",
-            error,
+        if (!body.taskRunJwt) {
+          console.warn(
+            "[sandboxes.start] Skipping maintenance/dev scripts (missing taskRunJwt)",
           );
-        });
+        } else {
+          (async () => {
+            await runMaintenanceAndDevScripts({
+              instance,
+              maintenanceScript: maintenanceScript || undefined,
+              devScript: devScript || undefined,
+              identifiers: scriptIdentifiers ?? undefined,
+              convexUrl: env.NEXT_PUBLIC_CONVEX_URL,
+              taskRunJwt: body.taskRunJwt,
+              isCloudWorkspace,
+            });
+          })().catch((error) => {
+            console.error(
+              "[sandboxes.start] Background script execution failed:",
+              error,
+            );
+          });
+        }
       }
 
       await configureGitIdentityTask;

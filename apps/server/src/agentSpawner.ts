@@ -34,7 +34,10 @@ import { getWwwClient } from "./utils/wwwClient";
 import { getWwwOpenApiModule } from "./utils/wwwOpenApiModule";
 import { CmuxVSCodeInstance } from "./vscode/CmuxVSCodeInstance";
 import { DockerVSCodeInstance } from "./vscode/DockerVSCodeInstance";
-import { VSCodeInstance } from "./vscode/VSCodeInstance";
+import {
+  VSCodeInstance,
+  type PrewarmedSandboxInfo,
+} from "./vscode/VSCodeInstance";
 import { getWorktreePath, setupProjectWorkspace } from "./workspace";
 import { workerExec } from "./utils/workerExec";
 import rawSwitchBranchScript from "./utils/switch-branch.ts?raw";
@@ -70,6 +73,7 @@ export async function spawnAgent(
     theme?: "dark" | "light" | "system";
     newBranch?: string; // Optional pre-generated branch name
     taskRunId?: Id<"taskRuns">; // Optional pre-created task run ID
+    prewarmedSandbox?: PrewarmedSandboxInfo;
   },
   teamSlugOrId: string
 ): Promise<AgentSpawnResult> {
@@ -455,6 +459,7 @@ export async function spawnAgent(
         newBranch,
         environmentId: options.environmentId,
         taskRunJwt,
+        prewarmedSandbox: options.prewarmedSandbox,
       });
 
       worktreePath = "/root/workspace";
@@ -1243,7 +1248,8 @@ export async function spawnAllAgents(
     }>;
     theme?: "dark" | "light" | "system";
   },
-  teamSlugOrId: string
+  teamSlugOrId: string,
+  prewarmedSandboxes?: PrewarmedSandboxInfo[]
 ): Promise<AgentSpawnResult[]> {
   // If selectedAgents is provided, map each entry to an AgentConfig to preserve duplicates
   const agentsToSpawn = options.selectedAgents
@@ -1286,18 +1292,20 @@ export async function spawnAllAgents(
 
   // Spawn all agents in parallel with their pre-generated branch names
   const results = await Promise.all(
-    agentsToSpawn.map((agent, index) =>
-      spawnAgent(
+    agentsToSpawn.map((agent, index) => {
+      const prewarmedSandbox = prewarmedSandboxes?.[index];
+      return spawnAgent(
         agent,
         taskId,
         {
           ...options,
           newBranch: branchNames[index],
           taskRunId: options.taskRunIds?.[index],
+          ...(prewarmedSandbox ? { prewarmedSandbox } : {}),
         },
         teamSlugOrId
-      )
-    )
+      );
+    })
   );
 
   return results;

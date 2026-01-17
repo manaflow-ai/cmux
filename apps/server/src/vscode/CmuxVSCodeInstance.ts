@@ -6,6 +6,7 @@ import {
   VSCodeInstance,
   type VSCodeInstanceConfig,
   type VSCodeInstanceInfo,
+  type PrewarmedSandboxInfo,
 } from "./VSCodeInstance";
 
 const {
@@ -25,24 +26,56 @@ export class CmuxVSCodeInstance extends VSCodeInstance {
   private newBranch?: string;
   private environmentId?: string;
   private taskRunJwt?: string;
+  private prewarmedSandbox?: PrewarmedSandboxInfo;
 
   constructor(config: VSCodeInstanceConfig) {
     super(config);
-    const cfg = config as VSCodeInstanceConfig & {
-      repoUrl?: string;
-      branch?: string;
-      newBranch?: string;
-      environmentId?: string;
-      taskRunJwt?: string;
-    };
-    this.repoUrl = cfg.repoUrl;
-    this.branch = cfg.branch;
-    this.newBranch = cfg.newBranch;
-    this.environmentId = cfg.environmentId;
-    this.taskRunJwt = cfg.taskRunJwt;
+    this.repoUrl = config.repoUrl;
+    this.branch = config.branch;
+    this.newBranch = config.newBranch;
+    this.environmentId = config.environmentId;
+    this.taskRunJwt = config.taskRunJwt;
+    this.prewarmedSandbox = config.prewarmedSandbox;
   }
 
   async start(): Promise<VSCodeInstanceInfo> {
+    if (this.prewarmedSandbox) {
+      const { instanceId, vscodeUrl, workerUrl, provider } =
+        this.prewarmedSandbox;
+      this.sandboxId = instanceId;
+      this.vscodeBaseUrl = vscodeUrl;
+      this.workerUrl = workerUrl;
+      this.provider = provider ?? "morph";
+
+      const workspaceUrl = this.getWorkspaceUrl(this.vscodeBaseUrl);
+      dockerLogger.info(
+        `[CmuxVSCodeInstance ${this.instanceId}] Attached to prewarmed sandbox ${instanceId}`
+      );
+
+      if (this.workerUrl) {
+        try {
+          await this.connectToWorker(this.workerUrl);
+          dockerLogger.info(
+            `[CmuxVSCodeInstance ${this.instanceId}] Connected to worker (prewarm)`
+          );
+        } catch (error) {
+          dockerLogger.error(
+            `[CmuxVSCodeInstance ${this.instanceId}] Failed to connect to worker (prewarm)`,
+            error
+          );
+        }
+      }
+
+      return {
+        url: this.vscodeBaseUrl,
+        workspaceUrl,
+        instanceId: this.instanceId,
+        taskRunId: this.taskRunId,
+        provider: this.provider,
+        vscodePersisted: false,
+      };
+    }
+
     dockerLogger.info(
       `[CmuxVSCodeInstance ${this.instanceId}] Requesting sandbox start via www API`
     );

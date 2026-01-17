@@ -21,6 +21,8 @@ export interface VSCodeInstanceConfig {
   taskRunJwt?: string;
   // Optional: environment variables to pass to the container
   envVars?: Record<string, string>;
+  // Optional: prewarmed Morph instance to attach instead of starting a new one
+  prewarmedSandbox?: PrewarmedSandboxInfo;
 }
 
 export interface VSCodeInstanceInfo {
@@ -31,6 +33,13 @@ export interface VSCodeInstanceInfo {
   provider: "docker" | "morph" | "daytona";
   /** If true, VSCode URLs were already persisted to Convex by www */
   vscodePersisted?: boolean;
+}
+
+export interface PrewarmedSandboxInfo {
+  instanceId: string;
+  vscodeUrl: string;
+  workerUrl: string;
+  provider?: "morph";
 }
 
 export abstract class VSCodeInstance extends EventEmitter {

@@ -99,6 +99,29 @@ export const CreateCloudWorkspaceResponseSchema = z.object({
   error: z.string().optional(),
 });
 
+export const PrewarmCloudSandboxSchema = z
+  .object({
+    teamSlugOrId: z.string(),
+    repoUrl: z.string().optional(),
+    branch: z.string().optional(),
+    environmentId: typedZid("environments").optional(),
+  })
+  .refine(
+    (value) => Boolean(value.environmentId || value.repoUrl),
+    "Either environmentId or repoUrl is required"
+  )
+  .refine(
+    (value) => (!value.repoUrl ? true : Boolean(value.branch)),
+    "branch is required when repoUrl is provided"
+  );
+
+export const PrewarmCloudSandboxResponseSchema = z.object({
+  success: z.boolean(),
+  status: z.enum(["starting", "ready", "failed"]).optional(),
+  instanceId: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export const AuthenticateSchema = z.object({
   authToken: z.string(),
   authJson: z.string().optional(),
@@ -439,6 +462,10 @@ export type CreateCloudWorkspace = z.infer<typeof CreateCloudWorkspaceSchema>;
 export type CreateCloudWorkspaceResponse = z.infer<
   typeof CreateCloudWorkspaceResponseSchema
 >;
+export type PrewarmCloudSandbox = z.infer<typeof PrewarmCloudSandboxSchema>;
+export type PrewarmCloudSandboxResponse = z.infer<
+  typeof PrewarmCloudSandboxResponseSchema
+>;
 export type Authenticate = z.infer<typeof AuthenticateSchema>;
 export type TerminalCreated = z.infer<typeof TerminalCreatedSchema>;
 export type TerminalOutput = z.infer<typeof TerminalOutputSchema>;
@@ -498,6 +525,10 @@ export interface ClientToServerEvents {
   "start-task": (
     data: StartTask,
     callback: (response: TaskAcknowledged | TaskStarted | TaskError) => void
+  ) => void;
+  "prewarm-cloud-sandbox": (
+    data: PrewarmCloudSandbox,
+    callback: (response: PrewarmCloudSandboxResponse) => void
   ) => void;
   "create-local-workspace": (
     data: CreateLocalWorkspace,
