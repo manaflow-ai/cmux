@@ -11,6 +11,9 @@ import type {
 } from "@cmux/shared/worker-schemas";
 import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import { parse as parseDotenv } from "dotenv";
+import { promises as fs } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { sanitizeTmuxSessionName } from "./sanitizeTmuxSessionName";
 import {
   generateNewBranchName,
@@ -42,6 +45,64 @@ import rawSwitchBranchScript from "./utils/switch-branch.ts?raw";
 const SWITCH_BRANCH_BUN_SCRIPT = rawSwitchBranchScript;
 
 const { getApiEnvironmentsByIdVars } = await getWwwOpenApiModule();
+
+/**
+ * Upload the user's zsh history to the sandbox for autosuggestions.
+ * This is a non-blocking operation that should be called after the terminal is created.
+ * Only runs when NOT in web mode (i.e., when running locally with access to user's home dir).
+ */
+async function uploadZshHistory(params: {
+  workerUrl: string;
+  taskRunJwt: string;
+}): Promise<void> {
+  const { workerUrl, taskRunJwt } = params;
+
+  try {
+    const zshHistoryPath = join(homedir(), ".zsh_history");
+
+    // Check if the file exists
+    try {
+      await fs.access(zshHistoryPath);
+    } catch {
+      serverLogger.info("[AgentSpawner] No zsh history file found, skipping upload");
+      return;
+    }
+
+    // Read the zsh history file
+    const historyContent = await fs.readFile(zshHistoryPath);
+
+    // Create form data for upload
+    const formData = new FormData();
+    const blob = new Blob([historyContent], { type: "application/octet-stream" });
+    formData.append("file", blob, ".zsh_history");
+    formData.append("path", "/root/.zsh_history");
+
+    const uploadUrl = `${workerUrl}/upload-file`;
+
+    serverLogger.info(`[AgentSpawner] Uploading zsh history to ${uploadUrl}`);
+
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        "x-cmux-token": taskRunJwt,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Upload failed: ${error}`);
+    }
+
+    const result = await response.json();
+    serverLogger.info(
+      `[AgentSpawner] Successfully uploaded zsh history: ${result.path} (${result.size} bytes)`
+    );
+  } catch (error) {
+    // Log error but don't throw - this is a non-blocking enhancement
+    serverLogger.error("[AgentSpawner] Failed to upload zsh history:", error);
+  }
+}
 
 export interface AgentSpawnResult {
   agentName: string;
@@ -1176,6 +1237,31 @@ exit $EXIT_CODE
         `[AgentSpawner] Emitted worker:create-terminal at ${new Date().toISOString()}`
       );
     });
+
+    // Upload zsh history for autosuggestions (non-blocking, only when NOT in web mode)
+    // In web mode, we don't have access to the user's local files
+    if (!env.NEXT_PUBLIC_WEB_MODE) {
+      // Get the worker URL for the upload
+      let workerUrl: string | null = null;
+      if (vscodeInstance instanceof CmuxVSCodeInstance) {
+        workerUrl = vscodeInstance.getWorkerUrl();
+      } else if (vscodeInstance instanceof DockerVSCodeInstance) {
+        const workerPort = vscodeInstance.getPorts()?.worker;
+        if (workerPort) {
+          workerUrl = `http://localhost:${workerPort}`;
+        }
+      }
+
+      if (workerUrl) {
+        // Fire-and-forget: don't await, don't block the return
+        void uploadZshHistory({
+          workerUrl,
+          taskRunJwt,
+        }).catch((err) => {
+          serverLogger.error("[AgentSpawner] Zsh history upload failed:", err);
+        });
+      }
+    }
 
     return {
       agentName: agent.name,
