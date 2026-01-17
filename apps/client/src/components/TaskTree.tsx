@@ -1745,6 +1745,7 @@ function TaskRunTreeInner({
         onArchiveToggle={onArchiveToggle}
         showRunNumbers={showRunNumbers}
         isLocalWorkspace={Boolean(isLocalWorkspaceRunEntry)}
+        isCloudWorkspace={Boolean(isCloudWorkspaceRunEntry)}
       />
     </div>
   );
@@ -1888,6 +1889,7 @@ interface TaskRunDetailsProps {
   onArchiveToggle: (runId: Id<"taskRuns">, archive: boolean) => void;
   showRunNumbers: boolean;
   isLocalWorkspace: boolean;
+  isCloudWorkspace: boolean;
 }
 
 function TaskRunDetails({
@@ -1904,6 +1906,7 @@ function TaskRunDetails({
   onArchiveToggle,
   showRunNumbers,
   isLocalWorkspace,
+  isCloudWorkspace,
 }: TaskRunDetailsProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -2141,13 +2144,15 @@ function TaskRunDetails({
         onReload={handleReloadVSCode}
       />
 
-      <TaskRunDetailLink
-        to="/$teamSlugOrId/task/$taskId/run/$runId/diff"
-        params={{ teamSlugOrId, taskId, runId: run._id }}
-        icon={<GitCompare className="w-3 h-3 mr-2 text-neutral-400" />}
-        label="Git diff"
-        indentLevel={indentLevel}
-      />
+      {!isCloudWorkspace ? (
+        <TaskRunDetailLink
+          to="/$teamSlugOrId/task/$taskId/run/$runId/diff"
+          params={{ teamSlugOrId, taskId, runId: run._id }}
+          icon={<GitCompare className="w-3 h-3 mr-2 text-neutral-400" />}
+          label="Git diff"
+          indentLevel={indentLevel}
+        />
+      ) : null}
 
       {!isLocalWorkspace ? (
         <TaskRunDetailLink

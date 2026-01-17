@@ -880,7 +880,7 @@ export function CommandBar({
         // Create task in Convex without task description (it's just a workspace)
         const { taskId } = await createTask({
           teamSlugOrId,
-          text: `Cloud Workspace: ${environmentName}`,
+          text: environmentName,
           projectFullName: undefined, // No repo for cloud environment workspaces
           baseBranch: undefined, // No branch for environments
           environmentId,
@@ -960,7 +960,7 @@ export function CommandBar({
         // Create task in Convex for repo-based cloud workspace
         const { taskId } = await createTask({
           teamSlugOrId,
-          text: `Cloud Workspace: ${projectFullName}`,
+          text: projectFullName,
           projectFullName,
           baseBranch: undefined,
           environmentId: undefined, // No environment for repo-based cloud workspaces
