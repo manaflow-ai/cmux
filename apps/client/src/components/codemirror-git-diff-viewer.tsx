@@ -77,6 +77,31 @@ export function GitDiffViewer({
     () => new Set(diffs.map((diff) => diff.filePath)),
   );
 
+  const diffFilePaths = useMemo(
+    () => diffs.map((diff) => diff.filePath),
+    [diffs],
+  );
+  const diffKey = useMemo(() => diffFilePaths.join("\u0000"), [diffFilePaths]);
+  const lastDiffKeyRef = useRef<string | null>(null);
+  const hasUserToggledRef = useRef(false);
+
+  useEffect(() => {
+    if (diffFilePaths.length === 0) {
+      return;
+    }
+
+    if (lastDiffKeyRef.current !== diffKey) {
+      lastDiffKeyRef.current = diffKey;
+      hasUserToggledRef.current = false;
+      setExpandedFiles(new Set(diffFilePaths));
+      return;
+    }
+
+    if (!hasUserToggledRef.current && expandedFiles.size === 0) {
+      setExpandedFiles(new Set(diffFilePaths));
+    }
+  }, [diffFilePaths, diffKey, expandedFiles.size]);
+
   // Group diffs by file
   const fileGroups: FileGroup[] = useMemo(
     () =>
@@ -98,6 +123,7 @@ export function GitDiffViewer({
     setExpandedFiles((prev) => {
       const newExpanded = new Set(prev);
       const wasExpanded = newExpanded.has(filePath);
+      hasUserToggledRef.current = true;
       if (wasExpanded) newExpanded.delete(filePath);
       else newExpanded.add(filePath);
       debugGitDiffViewerLog("toggled file", {
@@ -117,6 +143,7 @@ export function GitDiffViewer({
     debugGitDiffViewerLog("expandAll invoked", {
       fileCount: fileGroups.length,
     });
+    hasUserToggledRef.current = true;
     setExpandedFiles(new Set(fileGroups.map((f) => f.filePath)));
   };
 
@@ -124,6 +151,7 @@ export function GitDiffViewer({
     debugGitDiffViewerLog("collapseAll invoked", {
       fileCount: fileGroups.length,
     });
+    hasUserToggledRef.current = true;
     setExpandedFiles(new Set());
   };
 

@@ -1051,6 +1051,31 @@ export function MonacoGitDiffViewer({
     () => new Set(diffs.map((diff) => diff.filePath)),
   );
 
+  const diffFilePaths = useMemo(
+    () => diffs.map((diff) => diff.filePath),
+    [diffs],
+  );
+  const diffKey = useMemo(() => diffFilePaths.join("\u0000"), [diffFilePaths]);
+  const lastDiffKeyRef = useRef<string | null>(null);
+  const hasUserToggledRef = useRef(false);
+
+  useEffect(() => {
+    if (diffFilePaths.length === 0) {
+      return;
+    }
+
+    if (lastDiffKeyRef.current !== diffKey) {
+      lastDiffKeyRef.current = diffKey;
+      hasUserToggledRef.current = false;
+      setExpandedFiles(new Set(diffFilePaths));
+      return;
+    }
+
+    if (!hasUserToggledRef.current && expandedFiles.size === 0) {
+      setExpandedFiles(new Set(diffFilePaths));
+    }
+  }, [diffFilePaths, diffKey, expandedFiles.size]);
+
   const fileGroups: MonacoFileGroup[] = useMemo(
     () =>
       diffs.map((diff) => {
@@ -1088,6 +1113,7 @@ export function MonacoGitDiffViewer({
     debugGitDiffViewerLog("expandAll invoked", {
       fileCount: fileGroups.length,
     });
+    hasUserToggledRef.current = true;
     setExpandedFiles(new Set(fileGroups.map((f) => f.filePath)));
   };
 
@@ -1095,6 +1121,7 @@ export function MonacoGitDiffViewer({
     debugGitDiffViewerLog("collapseAll invoked", {
       fileCount: fileGroups.length,
     });
+    hasUserToggledRef.current = true;
     setExpandedFiles(new Set());
   };
 
@@ -1102,6 +1129,7 @@ export function MonacoGitDiffViewer({
     setExpandedFiles((prev) => {
       const next = new Set(prev);
       const wasExpanded = next.has(filePath);
+      hasUserToggledRef.current = true;
       if (wasExpanded) {
         next.delete(filePath);
       } else {
