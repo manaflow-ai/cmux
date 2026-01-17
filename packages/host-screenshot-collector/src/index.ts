@@ -9,14 +9,27 @@ import { formatClaudeMessage } from "./claudeMessageFormatter";
 export const SCREENSHOT_STORAGE_ROOT = "/root/screenshots";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mkv", ".gif"]);
 
 function isScreenshotFile(fileName: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
 }
 
+function isVideoFile(fileName: string): boolean {
+  return VIDEO_EXTENSIONS.has(path.extname(fileName).toLowerCase());
+}
+
 const screenshotOutputSchema = z.object({
   hasUiChanges: z.boolean(),
   images: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        description: z.string().min(1),
+      })
+    )
+    .default([]),
+  videos: z
     .array(
       z.object({
         path: z.string().min(1),
@@ -47,28 +60,46 @@ const screenshotOutputJsonSchema = {
         },
       },
     },
+    videos: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "description"],
+        properties: {
+          path: { type: "string" },
+          description: { type: "string" },
+        },
+      },
+    },
   },
 } as const;
 
-async function collectScreenshotFiles(
+async function collectMediaFiles(
   directory: string
-): Promise<{ files: string[]; hasNestedDirectories: boolean }> {
+): Promise<{ screenshots: string[]; videos: string[]; hasNestedDirectories: boolean }> {
   const entries = await fs.readdir(directory, { withFileTypes: true });
-  const files: string[] = [];
+  const screenshots: string[] = [];
+  const videos: string[] = [];
   let hasNestedDirectories = false;
 
   for (const entry of entries) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       hasNestedDirectories = true;
-      const nested = await collectScreenshotFiles(fullPath);
-      files.push(...nested.files);
-    } else if (entry.isFile() && isScreenshotFile(entry.name)) {
-      files.push(fullPath);
+      const nested = await collectMediaFiles(fullPath);
+      screenshots.push(...nested.screenshots);
+      videos.push(...nested.videos);
+    } else if (entry.isFile()) {
+      if (isScreenshotFile(entry.name)) {
+        screenshots.push(fullPath);
+      } else if (isVideoFile(entry.name)) {
+        videos.push(fullPath);
+      }
     }
   }
 
-  return { files, hasNestedDirectories };
+  return { screenshots, videos, hasNestedDirectories };
 }
 
 export function normalizeScreenshotOutputDir(outputDir: string): string {
@@ -114,6 +145,7 @@ export type CaptureScreenshotsOptions =
 export interface ScreenshotResult {
   status: "completed" | "failed" | "skipped";
   screenshots?: { path: string; description?: string }[];
+  videos?: { path: string; description?: string }[];
   hasUiChanges?: boolean;
   error?: string;
   reason?: string;
@@ -153,6 +185,7 @@ export async function captureScreenshotsForBranch(
   options: BranchCaptureOptions
 ): Promise<{
   screenshots: { path: string; description?: string }[];
+  videos: { path: string; description?: string }[];
   hasUiChanges?: boolean;
 }> {
   const {
@@ -321,10 +354,49 @@ DUPLICATE SCREENSHOTS: Taking multiple identical screenshots. Each screenshot sh
 INCOMPLETE CAPTURE: Missing important UI elements. Ensure full components are visible and not cut off.
 </CRITICAL_MISTAKES>
 
+<VIDEO_RECORDING>
+You can create videos from sequential screenshots to demonstrate workflows. This works on any platform (macOS, Linux).
+
+USE VIDEO WHEN:
+- New buttons or links that navigate to other pages (show: before click → click → destination page)
+- Before/after workflows where you need to show a state transition (e.g., form submission with validation feedback)
+- Multi-step user flows (login → dashboard, checkout process, onboarding wizard)
+- Animation or transition changes that can't be captured in a static image
+- Any clickable element that triggers navigation or state changes
+
+DO NOT USE VIDEO WHEN:
+- Pure styling changes (colors, fonts, spacing) with no interaction
+- Static text or content changes
+- The change has no interactive behavior to demonstrate
+
+HOW TO CREATE A VIDEO from screenshots:
+
+1. Create a frames directory:
+   mkdir -p ${outputDir}/video-frames
+
+2. Capture screenshots at each step of the workflow using the Chrome MCP tools:
+   - Take a screenshot BEFORE the action (e.g., showing the button)
+   - Perform the action (click, navigate, etc.)
+   - Take a screenshot AFTER the action (e.g., showing the result)
+   - Save each screenshot as: ${outputDir}/video-frames/frame-001.png, frame-002.png, etc.
+   - Use sequential numbering: frame-001.png, frame-002.png, frame-003.png...
+
+3. Assemble into a compressed video using ffmpeg (2 seconds per frame for clear viewing):
+   ffmpeg -y -framerate 0.5 -pattern_type glob -i '${outputDir}/video-frames/frame-*.png' -c:v libx264 -preset slow -crf 28 -r 30 -pix_fmt yuv420p -movflags +faststart ${outputDir}/workflow-name.mp4
+
+4. Clean up frames:
+   rm -rf ${outputDir}/video-frames
+
+This creates a slideshow video where each step is shown for 2 seconds.
+
+IMPORTANT: If the PR adds a button, link, or any clickable element, you MUST create a video showing the before/after states.
+</VIDEO_RECORDING>
+
 <OUTPUT_REQUIREMENTS>
-- Set hasUiChanges to true only if the PR modifies UI-rendering code AND you captured screenshots
-- Set hasUiChanges to false if the PR has no UI changes (with zero screenshots)
-- Include every screenshot path with a description of what it shows
+- Set hasUiChanges to true only if the PR modifies UI-rendering code AND you captured screenshots or videos
+- Set hasUiChanges to false if the PR has no UI changes (with zero screenshots and zero videos)
+- Include every screenshot path with a description of what it shows in the "images" array
+- Include every video path with a description of what it demonstrates in the "videos" array
 - Do not close the browser when done
 - Do not create summary documents
 </OUTPUT_REQUIREMENTS>`;
@@ -334,6 +406,7 @@ INCOMPLETE CAPTURE: Missing important UI elements. Ensure full components are vi
   );
 
   const screenshotPaths: string[] = [];
+  const videoPaths: string[] = [];
   let structuredOutput: ScreenshotStructuredOutput | null = null;
 
   if (useTaskRunJwt && !convexSiteUrl) {
@@ -420,25 +493,14 @@ INCOMPLETE CAPTURE: Missing important UI elements. Ensure full components are vi
       for await (const message of query({
         prompt,
         options: {
-          // model: "claude-haiku-4-5",
           model: "claude-opus-4-5",
-          // mcpServers: {
-          //   "playwright": {
-          //     command: "bunx",
-          //     args: [
-          //       "@playwright/mcp",
-          //       "--cdp-endpoint",
-          //       "http://0.0.0.0:39382",
-          //     ],
-          //   },
-          // },
           mcpServers: {
             chrome: {
               command: "bunx",
               args: [
                 "chrome-devtools-mcp",
                 "--browserUrl",
-                "http://0.0.0.0:39382",
+                process.env.CDP_BROWSER_URL || "http://0.0.0.0:39382",
               ],
             },
           },
@@ -497,37 +559,49 @@ INCOMPLETE CAPTURE: Missing important UI elements. Ensure full components are vi
       }
     }
 
-    // Find all screenshot files in the output directory
+    // Find all screenshot and video files in the output directory
     try {
-      const { files, hasNestedDirectories } =
-        await collectScreenshotFiles(outputDir);
+      const { screenshots, videos, hasNestedDirectories } =
+        await collectMediaFiles(outputDir);
 
       if (hasNestedDirectories) {
         await logToScreenshotCollector(
-          `Detected nested screenshot folders under ${outputDir}. Please keep all screenshots directly in the output directory.`
+          `Detected nested media folders under ${outputDir}. Please keep all screenshots and videos directly in the output directory.`
         );
       }
 
       const uniqueScreens = Array.from(
-        new Set(files.map((filePath) => path.normalize(filePath)))
+        new Set(screenshots.map((filePath) => path.normalize(filePath)))
       ).sort();
       screenshotPaths.push(...uniqueScreens);
+
+      const uniqueVideos = Array.from(
+        new Set(videos.map((filePath) => path.normalize(filePath)))
+      ).sort();
+      videoPaths.push(...uniqueVideos);
     } catch (readError) {
-      log("WARN", "Could not read screenshot directory", {
+      log("WARN", "Could not read output directory", {
         outputDir,
         error:
           readError instanceof Error ? readError.message : String(readError),
       });
     }
 
-    const descriptionByPath = new Map<string, string>();
+    const imageDescriptionByPath = new Map<string, string>();
+    const videoDescriptionByPath = new Map<string, string>();
     const resolvedOutputDir = path.resolve(outputDir);
     if (structuredOutput) {
       for (const image of structuredOutput.images) {
         const absolutePath = path.isAbsolute(image.path)
           ? path.normalize(image.path)
           : path.normalize(path.resolve(resolvedOutputDir, image.path));
-        descriptionByPath.set(absolutePath, image.description);
+        imageDescriptionByPath.set(absolutePath, image.description);
+      }
+      for (const video of structuredOutput.videos) {
+        const absolutePath = path.isAbsolute(video.path)
+          ? path.normalize(video.path)
+          : path.normalize(path.resolve(resolvedOutputDir, video.path));
+        videoDescriptionByPath.set(absolutePath, video.description);
       }
     }
 
@@ -535,22 +609,41 @@ INCOMPLETE CAPTURE: Missing important UI elements. Ensure full components are vi
       const normalized = path.normalize(absolutePath);
       return {
         path: absolutePath,
-        description: descriptionByPath.get(normalized),
+        description: imageDescriptionByPath.get(normalized),
+      };
+    });
+
+    const videosWithDescriptions = videoPaths.map((absolutePath) => {
+      const normalized = path.normalize(absolutePath);
+      return {
+        path: absolutePath,
+        description: videoDescriptionByPath.get(normalized),
       };
     });
 
     if (
       structuredOutput &&
       structuredOutput.images.length > 0 &&
-      descriptionByPath.size === 0
+      imageDescriptionByPath.size === 0
     ) {
       await logToScreenshotCollector(
         "Structured output provided image descriptions, but none matched saved files; ensure paths are absolute or relative to the output directory."
       );
     }
 
+    if (
+      structuredOutput &&
+      structuredOutput.videos.length > 0 &&
+      videoDescriptionByPath.size === 0
+    ) {
+      await logToScreenshotCollector(
+        "Structured output provided video descriptions, but none matched saved files; ensure paths are absolute or relative to the output directory."
+      );
+    }
+
     return {
       screenshots: screenshotsWithDescriptions,
+      videos: videosWithDescriptions,
       hasUiChanges: structuredOutput?.hasUiChanges,
     };
   } catch (error) {
@@ -617,6 +710,7 @@ export async function claudeCodeCapturePRScreenshots(
     await fs.mkdir(outputDir, { recursive: true });
 
     const allScreenshots: { path: string; description?: string }[] = [];
+    const allVideos: { path: string; description?: string }[] = [];
     let hasUiChanges: boolean | undefined;
 
     const CAPTURE_BEFORE = false;
@@ -626,43 +720,44 @@ export async function claudeCodeCapturePRScreenshots(
       await logToScreenshotCollector(
         `Capturing 'before' screenshots for base branch: ${baseBranch}`
       );
-      const beforeScreenshots = await captureScreenshotsForBranch(
+      const beforeCapture = await captureScreenshotsForBranch(
         isTaskRunJwtAuth(auth)
           ? {
-          workspaceDir,
-          changedFiles,
-          prTitle,
-          prDescription,
-          branch: baseBranch,
-          outputDir,
-          auth: { taskRunJwt: auth.taskRunJwt },
-          pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
-          setupScript: options.setupScript,
-          installCommand: options.installCommand,
-          devCommand: options.devCommand,
-          convexSiteUrl: options.convexSiteUrl,
-        }
-        : {
-          workspaceDir,
-          changedFiles,
-          prTitle,
-          prDescription,
-          branch: baseBranch,
-          outputDir,
-          auth: { anthropicApiKey: auth.anthropicApiKey },
-          pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
-          setupScript: options.setupScript,
-          installCommand: options.installCommand,
-          devCommand: options.devCommand,
-          convexSiteUrl: options.convexSiteUrl,
-        }
+            workspaceDir,
+            changedFiles,
+            prTitle,
+            prDescription,
+            branch: baseBranch,
+            outputDir,
+            auth: { taskRunJwt: auth.taskRunJwt },
+            pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+            setupScript: options.setupScript,
+            installCommand: options.installCommand,
+            devCommand: options.devCommand,
+            convexSiteUrl: options.convexSiteUrl,
+          }
+          : {
+            workspaceDir,
+            changedFiles,
+            prTitle,
+            prDescription,
+            branch: baseBranch,
+            outputDir,
+            auth: { anthropicApiKey: auth.anthropicApiKey },
+            pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
+            setupScript: options.setupScript,
+            installCommand: options.installCommand,
+            devCommand: options.devCommand,
+            convexSiteUrl: options.convexSiteUrl,
+          }
       );
-      allScreenshots.push(...beforeScreenshots.screenshots);
-      if (beforeScreenshots.hasUiChanges !== undefined) {
-        hasUiChanges = beforeScreenshots.hasUiChanges;
+      allScreenshots.push(...beforeCapture.screenshots);
+      allVideos.push(...beforeCapture.videos);
+      if (beforeCapture.hasUiChanges !== undefined) {
+        hasUiChanges = beforeCapture.hasUiChanges;
       }
       await logToScreenshotCollector(
-        `Captured ${beforeScreenshots.screenshots.length} 'before' screenshots`
+        `Captured ${beforeCapture.screenshots.length} 'before' screenshots and ${beforeCapture.videos.length} videos`
       );
     }
 
@@ -670,7 +765,7 @@ export async function claudeCodeCapturePRScreenshots(
     await logToScreenshotCollector(
       `Capturing 'after' screenshots for head branch: ${headBranch}`
     );
-    const afterScreenshots = await captureScreenshotsForBranch(
+    const afterCapture = await captureScreenshotsForBranch(
       isTaskRunJwtAuth(auth)
         ? {
           workspaceDir,
@@ -701,25 +796,28 @@ export async function claudeCodeCapturePRScreenshots(
           convexSiteUrl: options.convexSiteUrl,
         }
     );
-    allScreenshots.push(...afterScreenshots.screenshots);
-    if (afterScreenshots.hasUiChanges !== undefined) {
-      hasUiChanges = afterScreenshots.hasUiChanges;
+    allScreenshots.push(...afterCapture.screenshots);
+    allVideos.push(...afterCapture.videos);
+    if (afterCapture.hasUiChanges !== undefined) {
+      hasUiChanges = afterCapture.hasUiChanges;
     }
     await logToScreenshotCollector(
-      `Captured ${afterScreenshots.screenshots.length} 'after' screenshots`
+      `Captured ${afterCapture.screenshots.length} 'after' screenshots and ${afterCapture.videos.length} videos`
     );
 
     await logToScreenshotCollector(
-      `Screenshot capture completed. Total: ${allScreenshots.length} screenshots saved to ${outputDir}`
+      `Capture completed. Total: ${allScreenshots.length} screenshots, ${allVideos.length} videos saved to ${outputDir}`
     );
-    log("INFO", "PR screenshot capture completed", {
+    log("INFO", "PR capture completed", {
       screenshotCount: allScreenshots.length,
+      videoCount: allVideos.length,
       outputDir,
     });
 
     return {
       status: "completed",
       screenshots: allScreenshots,
+      videos: allVideos,
       hasUiChanges,
     };
   } catch (error) {
@@ -741,19 +839,19 @@ export { logToScreenshotCollector } from "./logger";
 export { formatClaudeMessage } from "./claudeMessageFormatter";
 
 // CLI entry point - runs when executed directly
-  const cliOptionsSchema = z.object({
-    workspaceDir: z.string(),
-    changedFiles: z.array(z.string()),
-    prTitle: z.string(),
-    prDescription: z.string(),
-    baseBranch: z.string(),
-    headBranch: z.string(),
-    outputDir: z.string(),
-    pathToClaudeCodeExecutable: z.string().optional(),
-    setupScript: z.string().optional(),
-    installCommand: z.string().optional(),
-    devCommand: z.string().optional(),
-    convexSiteUrl: z.string().optional(),
+const cliOptionsSchema = z.object({
+  workspaceDir: z.string(),
+  changedFiles: z.array(z.string()),
+  prTitle: z.string(),
+  prDescription: z.string(),
+  baseBranch: z.string(),
+  headBranch: z.string(),
+  outputDir: z.string(),
+  pathToClaudeCodeExecutable: z.string().optional(),
+  setupScript: z.string().optional(),
+  installCommand: z.string().optional(),
+  devCommand: z.string().optional(),
+  convexSiteUrl: z.string().optional(),
   auth: z.union([
     z.object({ taskRunJwt: z.string() }),
     z.object({ anthropicApiKey: z.string() }),

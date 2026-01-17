@@ -23,6 +23,17 @@ export type ScreenshotStoredImage = z.infer<
   typeof ScreenshotStoredImageSchema
 >;
 
+export const ScreenshotStoredVideoSchema = z.object({
+  storageId: z.string(),
+  mimeType: z.string(),
+  fileName: z.string().optional(),
+  commitSha: z.string(),
+  description: z.string().optional(),
+});
+export type ScreenshotStoredVideo = z.infer<
+  typeof ScreenshotStoredVideoSchema
+>;
+
 export const ScreenshotUploadPayloadSchema = z.object({
   taskId: typedZid("tasks"),
   runId: typedZid("taskRuns"),
@@ -30,6 +41,7 @@ export const ScreenshotUploadPayloadSchema = z.object({
   /** Required for completed status, optional for failed/skipped */
   commitSha: z.string().optional(),
   images: z.array(ScreenshotStoredImageSchema).optional(),
+  videos: z.array(ScreenshotStoredVideoSchema).optional(),
   error: z.string().optional(),
   hasUiChanges: z.boolean().optional(),
 });
@@ -65,10 +77,14 @@ export type ScreenshotUploadUrlResponse = z.infer<
 export const PreviewScreenshotStoredImageSchema = ScreenshotStoredImageSchema;
 export type PreviewScreenshotStoredImage = ScreenshotStoredImage;
 
+export const PreviewScreenshotStoredVideoSchema = ScreenshotStoredVideoSchema;
+export type PreviewScreenshotStoredVideo = ScreenshotStoredVideo;
+
 export const PreviewScreenshotUploadPayloadSchema = z.object({
   previewRunId: typedZid("previewRuns"),
   status: z.enum(["completed", "failed", "skipped"]),
   images: z.array(PreviewScreenshotStoredImageSchema).optional(),
+  videos: z.array(PreviewScreenshotStoredVideoSchema).optional(),
   error: z.string().optional(),
   commitSha: z.string(),
 });

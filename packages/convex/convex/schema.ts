@@ -244,6 +244,23 @@ const convexSchema = defineSchema({
     screenshotFileName: v.optional(v.string()),
     screenshotCommitSha: v.optional(v.string()),
     latestScreenshotSetId: v.optional(v.id("taskRunScreenshotSets")),
+    // AI-generated claims about the run (for verification/review)
+    claims: v.optional(
+      v.array(
+        v.object({
+          claim: v.string(),
+          evidence: v.object({
+            type: v.string(),
+            screenshotIndex: v.optional(v.number()),
+            filePath: v.optional(v.string()),
+            startLine: v.optional(v.number()),
+            endLine: v.optional(v.number()),
+          }),
+          timestamp: v.number(),
+        })
+      )
+    ),
+    claimsGeneratedAt: v.optional(v.number()),
     // VSCode instance information
     vscode: v.optional(
       v.object({
@@ -342,6 +359,16 @@ const convexSchema = defineSchema({
         commitSha: v.optional(v.string()),
         description: v.optional(v.string()),
       }),
+    ),
+    videos: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          mimeType: v.string(),
+          fileName: v.optional(v.string()),
+          description: v.optional(v.string()),
+        }),
+      ),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),

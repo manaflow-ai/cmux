@@ -13,6 +13,7 @@ export type ClaudeCodeAuthConfig =
 export interface ScreenshotResult {
   status: "completed" | "failed" | "skipped";
   screenshots?: { path: string; description?: string }[];
+  videos?: { path: string; description?: string }[];
   hasUiChanges?: boolean;
   error?: string;
   reason?: string;
