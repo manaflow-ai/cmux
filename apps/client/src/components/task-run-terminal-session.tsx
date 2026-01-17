@@ -28,6 +28,8 @@ interface TaskRunTerminalSessionProps {
   terminalId: string;
   isActive: boolean;
   onConnectionStateChange?: (state: TerminalConnectionState) => void;
+  onReconnectAll?: () => void;
+  isReconnecting?: boolean;
 }
 
 function clampDimension(value: number, min: number, max: number, fallback: number) {
@@ -40,6 +42,8 @@ export function TaskRunTerminalSession({
   terminalId,
   isActive,
   onConnectionStateChange,
+  onReconnectAll,
+  isReconnecting,
 }: TaskRunTerminalSessionProps) {
   const callbackRef = useRef<TaskRunTerminalSessionProps["onConnectionStateChange"]>(
     onConnectionStateChange
@@ -354,6 +358,10 @@ export function TaskRunTerminalSession({
     }
   }, [connectionState]);
 
+  const showReconnectButton =
+    (connectionState === "closed" || connectionState === "error") &&
+    Boolean(onReconnectAll);
+
   return (
     <div
       className={clsx("relative w-full h-full", { hidden: !isActive })}
@@ -363,10 +371,22 @@ export function TaskRunTerminalSession({
     >
       <div ref={containerRef} className="absolute inset-0" />
       {statusMessage ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/60 pointer-events-none">
-          <span className="text-sm text-neutral-200 dark:text-neutral-300">
-            {statusMessage}
-          </span>
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/60">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <span className="text-sm text-neutral-200 dark:text-neutral-300">
+              {statusMessage}
+            </span>
+            {showReconnectButton ? (
+              <button
+                type="button"
+                onClick={onReconnectAll}
+                disabled={isReconnecting}
+                className="rounded-md bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+              >
+                {isReconnecting ? "Reconnecting…" : "Reconnect terminals"}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
