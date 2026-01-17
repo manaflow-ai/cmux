@@ -105,6 +105,12 @@ export interface SearchableSelectProps {
   searchLoading?: boolean;
   // Disable client-side filtering (use when server handles filtering)
   disableClientFilter?: boolean;
+  // Callback when the list is near the end to load more options
+  onLoadMore?: () => void;
+  // Whether more options are available
+  canLoadMore?: boolean;
+  // Whether more options are currently loading
+  isLoadingMore?: boolean;
 }
 
 interface WarningIndicatorProps {
@@ -263,6 +269,9 @@ const SearchableSelect = forwardRef<
     onSearchChange,
     searchLoading = false,
     disableClientFilter = false,
+    onLoadMore,
+    canLoadMore = false,
+    isLoadingMore = false,
   },
   ref
 ) {
@@ -448,6 +457,9 @@ const SearchableSelect = forwardRef<
   }, [normOptions, search, disableClientFilter]);
 
   const listRef = useRef<HTMLDivElement | null>(null);
+  // Track the previous isLoadingMore value to detect transitions from loading -> not loading
+  const prevIsLoadingMoreRef = useRef(isLoadingMore);
+  const loadMoreLockRef = useRef(false);
   const rowVirtualizer = useVirtualizer({
     count: filteredOptions.length,
     getScrollElement: () => listRef.current,
@@ -457,6 +469,53 @@ const SearchableSelect = forwardRef<
     // even before ResizeObserver kicks in.
     initialRect: { width: 300, height: 300 },
   });
+
+  const triggerLoadMore = useCallback(() => {
+    if (!onLoadMore || !canLoadMore || isLoadingMore || loadMoreLockRef.current) {
+      return;
+    }
+    const el = listRef.current;
+    if (!el) return;
+    const threshold = 80;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Trigger load more when near bottom OR when content doesn't overflow
+    if (remaining > threshold && el.scrollHeight > el.clientHeight + 10) {
+      return;
+    }
+    loadMoreLockRef.current = true;
+    onLoadMore();
+  }, [canLoadMore, isLoadingMore, onLoadMore]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      triggerLoadMore();
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [open, triggerLoadMore]);
+
+  // Trigger load more when dropdown opens or when options change (to fill viewport if needed)
+  // Note: canLoadMore is already checked inside triggerLoadMore, no need to add as dependency
+  useEffect(() => {
+    if (!open) return;
+    triggerLoadMore();
+  }, [open, filteredOptions.length, triggerLoadMore]);
+
+  // Reset lock when dropdown closes or when loading finishes (isLoadingMore: true → false)
+  useEffect(() => {
+    if (!open) {
+      loadMoreLockRef.current = false;
+      prevIsLoadingMoreRef.current = false;
+      return;
+    }
+    if (prevIsLoadingMoreRef.current && !isLoadingMore) {
+      loadMoreLockRef.current = false;
+    }
+    prevIsLoadingMoreRef.current = isLoadingMore;
+  }, [open, isLoadingMore]);
 
   useEffect(() => {
     if (open) {
@@ -751,7 +810,7 @@ const SearchableSelect = forwardRef<
                       return (
                         <div
                           style={{
-                            height: rowVirtualizer.getTotalSize(),
+                            height: rowVirtualizer.getTotalSize() + (isLoadingMore ? 32 : 0),
                             position: "relative",
                           }}
                         >
@@ -801,6 +860,20 @@ const SearchableSelect = forwardRef<
                               </div>
                             );
                           })}
+                          {isLoadingMore ? (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                width: "100%",
+                                transform: `translateY(${rowVirtualizer.getTotalSize()}px)`,
+                              }}
+                              className="flex items-center justify-center h-8"
+                            >
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })()}

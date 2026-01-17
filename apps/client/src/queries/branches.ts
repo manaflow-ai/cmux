@@ -4,3 +4,5 @@ export {
   getApiIntegrationsGithubDefaultBranchOptions,
   getApiIntegrationsGithubBranchesOptions,
 } from "@cmux/www-openapi-client/react-query";
+
+export { getApiIntegrationsGithubBranches } from "@cmux/www-openapi-client";

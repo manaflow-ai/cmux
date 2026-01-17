@@ -9,6 +9,7 @@ const GithubBranch = z
   .object({
     name: z.string(),
     lastCommitSha: z.string().optional(),
+    lastCommitDate: z.string().optional(),
     isDefault: z.boolean().optional(),
   })
   .openapi("GithubBranch");
@@ -102,6 +103,12 @@ const BranchesQuery = z
       .default(30)
       .optional()
       .openapi({ description: "Max branches to return (default 30, max 100)" }),
+    offset: z.coerce
+      .number()
+      .min(0)
+      .default(0)
+      .optional()
+      .openapi({ description: "Offset for pagination (number of branches to skip)" }),
   })
   .openapi("GithubBranchesQuery");
 
@@ -110,8 +117,19 @@ const BranchesResponse = z
     branches: z.array(GithubBranch),
     defaultBranch: z.string().nullable(),
     error: z.string().nullable(),
+    nextOffset: z.number().optional(),
+    hasMore: z.boolean(),
   })
   .openapi("GithubBranchesResponse");
+
+type BranchesResponseType = z.infer<typeof BranchesResponse>;
+
+const branchesErrorResponse = (error: string): BranchesResponseType => ({
+  branches: [],
+  defaultBranch: null,
+  error,
+  hasMore: false,
+});
 
 githubBranchesRouter.openapi(
   createRoute({
@@ -138,92 +156,170 @@ githubBranchesRouter.openapi(
       return c.text("Unauthorized", 401);
     }
 
-    const { repo, search, limit = 30 } = c.req.valid("query");
+    const { repo, search, limit = 30, offset = 0 } = c.req.valid("query");
 
     try {
       const githubAccount = await user.getConnectedAccount("github");
       if (!githubAccount) {
-        return c.json({ branches: [], defaultBranch: null, error: "GitHub account not connected" }, 200);
+        return c.json(branchesErrorResponse("GitHub account not connected"), 200);
       }
 
       const { accessToken } = await githubAccount.getAccessToken();
       if (!accessToken || accessToken.trim().length === 0) {
-        return c.json({ branches: [], defaultBranch: null, error: "GitHub access token not found" }, 200);
+        return c.json(branchesErrorResponse("GitHub access token not found"), 200);
       }
 
       const octokit = new Octokit({ auth: accessToken.trim() });
       const [owner, repoName] = repo.split("/");
-
-      // Get repo info for default branch
-      let defaultBranchName: string | null = null;
-      try {
-        const { data: repoData } = await octokit.request("GET /repos/{owner}/{repo}", {
-          owner: owner!,
-          repo: repoName!,
-        });
-        defaultBranchName = repoData.default_branch;
-      } catch {
-        // Ignore - we'll continue without default branch info
+      if (!owner || !repoName) {
+        return c.json(branchesErrorResponse("Invalid repository format"), 200);
       }
 
-      type BranchResp = { name: string; commit: { sha: string } };
-      const branches: Array<z.infer<typeof GithubBranch>> = [];
+      const normalizedSearch = search?.trim().toLowerCase() ?? "";
+      const shouldFilter = normalizedSearch.length > 0;
 
-      if (!search) {
-        // No search - just get first page of branches
-        const { data } = await octokit.request("GET /repos/{owner}/{repo}/branches", {
-          owner: owner!,
-          repo: repoName!,
-          per_page: limit,
-        }) as { data: BranchResp[] };
+      const graphqlResponse = z.object({
+        repository: z
+          .object({
+            defaultBranchRef: z.object({ name: z.string() }).nullable(),
+            refs: z.object({
+              edges: z.array(
+                z.object({
+                  cursor: z.string(),
+                  node: z.object({
+                    name: z.string(),
+                    target: z.object({
+                      oid: z.string(),
+                      committedDate: z.string().optional(),
+                    }),
+                  }),
+                })
+              ),
+              pageInfo: z.object({
+                hasNextPage: z.boolean(),
+                endCursor: z.string().nullable(),
+              }),
+            }),
+          })
+          .nullable(),
+      });
 
-        for (const br of data) {
-          branches.push({
-            name: br.name,
-            lastCommitSha: br.commit.sha,
-            isDefault: br.name === defaultBranchName,
-          });
-        }
-      } else {
-        // With search - fetch pages until we find enough matches
-        const searchLower = search.toLowerCase();
-        let page = 1;
-        const perPage = 100;
-
-        while (branches.length < limit) {
-          const { data } = await octokit.request("GET /repos/{owner}/{repo}/branches", {
-            owner: owner!,
-            repo: repoName!,
-            per_page: perPage,
-            page,
-          }) as { data: BranchResp[] };
-
-          if (data.length === 0) break;
-
-          for (const br of data) {
-            if (br.name.toLowerCase().includes(searchLower)) {
-              branches.push({
-                name: br.name,
-                lastCommitSha: br.commit.sha,
-                isDefault: br.name === defaultBranchName,
-              });
-              if (branches.length >= limit) break;
+      // Note: TAG_COMMIT_DATE only works for tag refs. For branch refs (refs/heads/),
+      // it defaults to alphabetical ordering. We fetch without explicit ordering
+      // and sort by commit date ourselves after fetching.
+      const query = `
+        query($owner: String!, $repo: String!, $first: Int!, $after: String) {
+          repository(owner: $owner, name: $repo) {
+            defaultBranchRef {
+              name
+            }
+            refs(refPrefix: "refs/heads/", first: $first, after: $after) {
+              edges {
+                cursor
+                node {
+                  name
+                  target {
+                    oid
+                    ... on Commit {
+                      committedDate
+                    }
+                  }
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
             }
           }
-
-          if (data.length < perPage) break;
-          page++;
         }
+      `;
+
+      // For sorting by commit date, we fetch branches and sort client-side.
+      // We need to fetch at least (offset + limit) branches to return the requested page.
+      const targetCount = offset + limit;
+      const fetchSize = Math.max(targetCount, 50);
+
+      const allBranches: Array<z.infer<typeof GithubBranch>> = [];
+      let defaultBranchName: string | null = null;
+      let afterCursor: string | null = null;
+      let githubHasMore = true;
+
+      // For search, cap at 200 branches max to keep it fast
+      const maxBranchesToFetch = shouldFilter ? 200 : Math.max(fetchSize, 100);
+      let totalFetched = 0;
+
+      while (allBranches.length < targetCount && githubHasMore && totalFetched < maxBranchesToFetch) {
+        const rawResponse: unknown = await octokit.graphql(query, {
+          owner,
+          repo: repoName,
+          first: fetchSize,
+          after: afterCursor ?? null,
+        });
+
+        const parsed = graphqlResponse.parse(rawResponse);
+        const repoData = parsed.repository;
+        if (!repoData) {
+          return c.json(branchesErrorResponse("Repository not found"), 200);
+        }
+
+        if (defaultBranchName === null) {
+          defaultBranchName = repoData.defaultBranchRef?.name ?? null;
+        }
+
+        const edges = repoData.refs.edges;
+        for (const edge of edges) {
+          const name = edge.node.name;
+          if (shouldFilter && !name.toLowerCase().includes(normalizedSearch)) {
+            continue;
+          }
+
+          allBranches.push({
+            name,
+            lastCommitSha: edge.node.target.oid,
+            lastCommitDate: edge.node.target.committedDate,
+            isDefault: name === defaultBranchName,
+          });
+        }
+
+        totalFetched += edges.length;
+        githubHasMore = repoData.refs.pageInfo.hasNextPage;
+        const endCursor = repoData.refs.pageInfo.endCursor;
+
+        if (!githubHasMore || !endCursor) {
+          break;
+        }
+
+        afterCursor = endCursor;
       }
 
-      return c.json({ branches, defaultBranch: defaultBranchName, error: null }, 200);
+      // Sort branches by commit date (most recent first)
+      allBranches.sort((a, b) => {
+        // Put branches without commit date at the end
+        if (!a.lastCommitDate && !b.lastCommitDate) return 0;
+        if (!a.lastCommitDate) return 1;
+        if (!b.lastCommitDate) return -1;
+        // Sort by date descending (most recent first)
+        return new Date(b.lastCommitDate).getTime() - new Date(a.lastCommitDate).getTime();
+      });
+
+      // Return the requested slice (offset to offset+limit)
+      const branches = allBranches.slice(offset, offset + limit);
+
+      const hasMore = allBranches.length > offset + limit || githubHasMore;
+      const nextOffset = hasMore ? offset + limit : undefined;
+
+      return c.json({
+        branches,
+        defaultBranch: defaultBranchName,
+        error: null,
+        nextOffset,
+        hasMore,
+      }, 200);
     } catch (error) {
       console.error("[github.branches] Error fetching branches:", error);
-      return c.json({
-        branches: [],
-        defaultBranch: null,
-        error: error instanceof Error ? error.message : "Failed to fetch branches",
-      }, 200);
+      const message = error instanceof Error ? error.message : "Failed to fetch branches";
+      return c.json(branchesErrorResponse(message), 200);
     }
   }
 );
