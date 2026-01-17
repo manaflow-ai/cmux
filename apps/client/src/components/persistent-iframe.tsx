@@ -292,6 +292,7 @@ export function PersistentIframe({
   });
 
   // Hide non-expanded iframes when another panel is expanded
+  // Use opacity transitions to prevent white flash
   useEffect(() => {
     const wrapper = document.querySelector(
       `[data-iframe-key="${persistKey}"]`
@@ -299,12 +300,23 @@ export function PersistentIframe({
     if (!wrapper) return;
 
     if (isAnyPanelExpanded && !isExpanded) {
-      // Another panel is expanded - hide this iframe completely
-      wrapper.style.visibility = "hidden";
+      // Another panel is expanded - fade out and hide this iframe
+      wrapper.style.transition = "opacity 30ms ease-in";
+      wrapper.style.opacity = "0";
       wrapper.style.pointerEvents = "none";
+      // Fully hide after transition
+      const timeoutId = setTimeout(() => {
+        // Check if still should be hidden
+        if (wrapper.style.opacity === "0") {
+          wrapper.style.visibility = "hidden";
+        }
+      }, 35);
+      return () => clearTimeout(timeoutId);
     } else {
-      // This panel is expanded OR no panel is expanded - show normally
+      // This panel is expanded OR no panel is expanded - fade in
       wrapper.style.visibility = "visible";
+      wrapper.style.transition = "opacity 50ms ease-out";
+      wrapper.style.opacity = "1";
       wrapper.style.pointerEvents = "auto";
     }
   }, [persistKey, isExpanded, isAnyPanelExpanded]);

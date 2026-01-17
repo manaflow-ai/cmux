@@ -160,11 +160,14 @@ class PersistentIframeManager {
     }
 
     // Create wrapper div
+    // Use opacity for transitions to prevent white flash on visibility toggle
+    // will-change and contain promote to compositor layer for smoother rendering
     const wrapper = document.createElement("div");
     wrapper.style.cssText = `
       position: fixed;
       top: 0;
       left: 0;
+      opacity: 0;
       visibility: hidden;
       pointer-events: none;
       overflow: hidden;
@@ -174,18 +177,23 @@ class PersistentIframeManager {
       backface-visibility: hidden;
       z-index: var(--z-iframe);
       isolation: isolate;
+      will-change: transform, opacity;
+      contain: strict;
+      content-visibility: auto;
     `;
     wrapper.setAttribute("data-iframe-key", key);
     wrapper.setAttribute("data-drag-disable-pointer", "");
 
     // Create iframe
+    // Use transparent background to prevent white flash before content loads
     const iframe = document.createElement("iframe");
     iframe.style.cssText = `
       width: 100%;
       height: 100%;
       border: 0;
-      background: white;
+      background: transparent;
       display: block;
+      color-scheme: normal;
     `;
 
     // Apply permissions if provided
@@ -248,53 +256,64 @@ class PersistentIframeManager {
       entry.wrapper.className = options.className;
     }
 
-    // First sync position while hidden
-    this.syncIframePosition(key);
+    // First sync position while hidden (synchronously to ensure correct position)
+    this.syncIframePositionSync(key);
 
-    // Then make visible after a microtask to ensure position is set
-    requestAnimationFrame(() => {
-      // Apply base styles without clobbering layout-related properties (width/height/transform)
-      entry.wrapper.style.position = "fixed";
-      entry.wrapper.style.top = "0";
-      entry.wrapper.style.left = "0";
-      entry.wrapper.style.right = "";
-      entry.wrapper.style.bottom = "";
-      entry.wrapper.style.visibility = "visible";
-      entry.wrapper.style.pointerEvents = "auto";
-      entry.wrapper.style.overflow = "hidden";
-      entry.wrapper.style.backfaceVisibility = "hidden";
+    // Apply base styles without clobbering layout-related properties (width/height/transform)
+    entry.wrapper.style.position = "fixed";
+    entry.wrapper.style.top = "0";
+    entry.wrapper.style.left = "0";
+    entry.wrapper.style.right = "";
+    entry.wrapper.style.bottom = "";
+    entry.wrapper.style.overflow = "hidden";
+    entry.wrapper.style.backfaceVisibility = "hidden";
+    entry.wrapper.style.willChange = "transform, opacity";
+    entry.wrapper.style.contain = "strict";
 
-      // Apply custom styles (including z-index if provided)
-      if (options?.style) {
-        for (const [styleKey, styleValue] of Object.entries(options.style)) {
-          if (styleValue === undefined || styleValue === null) {
-            continue;
-          }
-
-          const cssKey = styleKey.replace(
-            /[A-Z]/g,
-            (match) => `-${match.toLowerCase()}`
-          );
-          const cssValue =
-            typeof styleValue === "number" &&
-            !UNITLESS_CSS_PROPERTIES.has(cssKey)
-              ? `${styleValue}px`
-              : String(styleValue);
-          entry.wrapper.style.setProperty(cssKey, cssValue);
+    // Apply custom styles (including z-index if provided)
+    if (options?.style) {
+      for (const [styleKey, styleValue] of Object.entries(options.style)) {
+        if (styleValue === undefined || styleValue === null) {
+          continue;
         }
+
+        const cssKey = styleKey.replace(
+          /[A-Z]/g,
+          (match) => `-${match.toLowerCase()}`
+        );
+        const cssValue =
+          typeof styleValue === "number" &&
+          !UNITLESS_CSS_PROPERTIES.has(cssKey)
+            ? `${styleValue}px`
+            : String(styleValue);
+        entry.wrapper.style.setProperty(cssKey, cssValue);
       }
+    }
 
-      // Set default z-index if not provided in options
-      if (!options?.style?.zIndex) {
-        entry.wrapper.style.zIndex = "var(--z-iframe)";
-        entry.wrapper.style.isolation = "isolate";
-      }
+    // Set default z-index if not provided in options
+    if (!options?.style?.zIndex) {
+      entry.wrapper.style.zIndex = "var(--z-iframe)";
+      entry.wrapper.style.isolation = "isolate";
+    }
 
-      // Ensure the iframe wrapper reflects any layout changes triggered by new styles
-      this.syncIframePosition(key);
+    // Use double RAF to ensure layout is complete before showing
+    // First RAF: browser processes style changes
+    // Second RAF: safe to make visible with correct position
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Final position sync before becoming visible
+        this.syncIframePositionSync(key);
 
-      entry.isVisible = true;
-      if (this.debugMode) console.log(`[Mount] Iframe ${key} is now visible`);
+        // Make visible with opacity transition to prevent flash
+        entry.wrapper.style.visibility = "visible";
+        entry.wrapper.style.pointerEvents = "auto";
+        // Use a tiny delay before opacity to ensure visibility is processed first
+        entry.wrapper.style.transition = "opacity 50ms ease-out";
+        entry.wrapper.style.opacity = "1";
+
+        entry.isVisible = true;
+        if (this.debugMode) console.log(`[Mount] Iframe ${key} is now visible`);
+      });
     });
 
     entry.lastUsed = Date.now();
@@ -320,9 +339,21 @@ class PersistentIframeManager {
       if (this.debugMode) console.log(`[Unmount] Starting unmount for ${key}`);
 
       targetElement.removeAttribute("data-iframe-target");
-      entry.wrapper.style.visibility = "hidden";
+
+      // Fade out with transition to prevent flash
+      entry.wrapper.style.transition = "opacity 30ms ease-in";
+      entry.wrapper.style.opacity = "0";
       entry.wrapper.style.pointerEvents = "none";
       entry.isVisible = false;
+
+      // After transition, fully hide
+      setTimeout(() => {
+        if (!entry.isVisible) {
+          entry.wrapper.style.visibility = "hidden";
+          entry.wrapper.style.transition = "";
+          this.moveIframeOffscreen(entry);
+        }
+      }, 35);
 
       this.resizeObserver.unobserve(targetElement);
       scrollableParents.forEach((parent) => {
@@ -333,9 +364,30 @@ class PersistentIframeManager {
   }
 
   /**
-   * Sync iframe position with target element
+   * Sync iframe position with target element (async, batched via RAF)
    */
   private syncIframePosition(key: string) {
+    const entry = this.iframes.get(key);
+    if (!entry) return;
+
+    // Use requestAnimationFrame to batch position updates and prevent flashing
+    const existingTimeout = this.syncTimeouts.get(key);
+    if (existingTimeout !== undefined) {
+      cancelAnimationFrame(existingTimeout);
+    }
+
+    const rafId = requestAnimationFrame(() => {
+      this.syncTimeouts.delete(key);
+      this.syncIframePositionSync(key);
+    });
+
+    this.syncTimeouts.set(key, rafId);
+  }
+
+  /**
+   * Sync iframe position with target element (synchronous, for use during mount)
+   */
+  private syncIframePositionSync(key: string) {
     const entry = this.iframes.get(key);
     if (!entry) return;
 
@@ -363,21 +415,10 @@ class PersistentIframeManager {
       return;
     }
 
-    // Use requestAnimationFrame to batch position updates and prevent flashing
-    const existingTimeout = this.syncTimeouts.get(key);
-    if (existingTimeout !== undefined) {
-      cancelAnimationFrame(existingTimeout);
-    }
-
-    const rafId = requestAnimationFrame(() => {
-      this.syncTimeouts.delete(key);
-      // Update wrapper position using transform, keeping resize handles unobstructed
-      entry.wrapper.style.transform = `translate(${rect.left + borderLeft}px, ${rect.top + borderTop}px)`;
-      entry.wrapper.style.width = `${width}px`;
-      entry.wrapper.style.height = `${height}px`;
-    });
-
-    this.syncTimeouts.set(key, rafId);
+    // Update wrapper position using transform, keeping resize handles unobstructed
+    entry.wrapper.style.transform = `translate(${rect.left + borderLeft}px, ${rect.top + borderTop}px)`;
+    entry.wrapper.style.width = `${width}px`;
+    entry.wrapper.style.height = `${height}px`;
   }
 
   /**
@@ -409,7 +450,7 @@ class PersistentIframeManager {
   }
 
   /**
-   * Hide iframe
+   * Hide iframe with opacity transition to prevent flash
    */
   unmountIframe(key: string): void {
     const entry = this.iframes.get(key);
@@ -422,10 +463,21 @@ class PersistentIframeManager {
       this.syncTimeouts.delete(key);
     }
 
-    entry.wrapper.style.visibility = "hidden";
+    // Fade out first, then hide
+    entry.wrapper.style.transition = "opacity 30ms ease-in";
+    entry.wrapper.style.opacity = "0";
     entry.wrapper.style.pointerEvents = "none";
-    this.moveIframeOffscreen(entry);
     entry.isVisible = false;
+
+    // After transition completes, fully hide and move offscreen
+    setTimeout(() => {
+      // Check if still unmounted (not remounted during transition)
+      if (!entry.isVisible) {
+        entry.wrapper.style.visibility = "hidden";
+        entry.wrapper.style.transition = "";
+        this.moveIframeOffscreen(entry);
+      }
+    }, 35);
   }
 
   /**
