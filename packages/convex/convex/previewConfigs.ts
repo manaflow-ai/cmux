@@ -127,7 +127,6 @@ export const upsert = authMutation({
 
     const id = await ctx.db.insert("previewConfigs", {
       teamId,
-      createdByUserId: userId,
       repoFullName,
       repoProvider: "github",
       environmentId: args.environmentId,

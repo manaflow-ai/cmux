@@ -561,6 +561,114 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
               });
 
               if (prNumber && prUrl && headSha) {
+                // ALWAYS check quota before creating any preview run
+                // This blocks ALL new screenshot captures when team is over quota
+                const quotaResult = await _ctx.runAction(
+                  internal.preview_quota_actions.checkPreviewQuota,
+                  { teamId: previewConfig.teamId },
+                );
+
+                if (!quotaResult.allowed) {
+                  console.log("[preview-jobs] Team exceeded preview quota", {
+                    repoFullName,
+                    prNumber,
+                    teamId: previewConfig.teamId,
+                    usedRuns: quotaResult.usedRuns,
+                    limit: quotaResult.limit,
+                  });
+
+                  // Check if we've already posted a paywall comment for this PR
+                  const hasExistingPaywallRun = await _ctx.runQuery(
+                    internal.previewRuns.hasPaywallRunForPullRequest,
+                    {
+                      previewConfigId: previewConfig._id,
+                      prNumber,
+                    },
+                  );
+
+                  if (!hasExistingPaywallRun) {
+                    // Post paywall comment to PR (only once per PR)
+                    console.log("[preview-jobs] Posting paywall comment to PR", {
+                      repoFullName,
+                      prNumber,
+                      installationId: installation,
+                      usedRuns: quotaResult.usedRuns,
+                      limit: quotaResult.limit,
+                    });
+
+                    try {
+                      const paywallResult = await _ctx.runAction(
+                        internal.github_pr_comments.postPaywallComment,
+                        {
+                          installationId: installation,
+                          repoFullName,
+                          prNumber,
+                          usedRuns: quotaResult.usedRuns,
+                          limit: quotaResult.limit,
+                        },
+                      );
+
+                      if (paywallResult.ok) {
+                        console.log("[preview-jobs] Paywall comment posted successfully", {
+                          repoFullName,
+                          prNumber,
+                          commentId: paywallResult.commentId,
+                        });
+                      } else {
+                        console.error("[preview-jobs] Failed to post paywall comment", {
+                          repoFullName,
+                          prNumber,
+                          error: paywallResult.error,
+                        });
+                      }
+                    } catch (paywallError) {
+                      console.error("[preview-jobs] Error posting paywall comment", {
+                        repoFullName,
+                        prNumber,
+                        error: paywallError instanceof Error ? paywallError.message : String(paywallError),
+                      });
+                    }
+
+                    // Create a skipped preview run with paywall reason for tracking
+                    await _ctx.runMutation(
+                      internal.previewRuns.enqueueFromWebhook,
+                      {
+                        previewConfigId: previewConfig._id,
+                        teamId: previewConfig.teamId,
+                        repoFullName,
+                        repoInstallationId: installation,
+                        prNumber,
+                        prUrl,
+                        prTitle,
+                        prDescription,
+                        headSha,
+                        baseSha,
+                        headRef,
+                        headRepoFullName,
+                        headRepoCloneUrl,
+                        status: "skipped",
+                        stateReason: "paywall",
+                      },
+                    );
+                  } else {
+                    console.log("[preview-jobs] Paywall comment already posted for this PR, skipping silently", {
+                      repoFullName,
+                      prNumber,
+                    });
+                  }
+
+                  // Skip creating the preview run and VM workflow - user needs to subscribe
+                  break;
+                }
+
+                console.log("[preview-jobs] Team has preview quota remaining", {
+                  repoFullName,
+                  prNumber,
+                  teamId: previewConfig.teamId,
+                  remainingRuns: quotaResult.remainingRuns,
+                  isPaid: quotaResult.isPaid,
+                });
+
                 try {
                   // Use previewConfig.teamId instead of connection's teamId
                   // The previewConfig was set up with a specific team, so we should use that
@@ -624,13 +732,22 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
                   } else {
                     // Create task and taskRun for screenshot collection
                     // The existing worker infrastructure will pick this up and process it
-                    // Use "system" as fallback for legacy configs without createdByUserId
-                    const previewUserId = previewConfig.createdByUserId ?? "system";
+                    // Use the userId from the connection (who installed the GitHub App)
+                    const userId = conn?.connectedByUserId;
+                    if (!userId) {
+                      console.error("[preview-jobs] No userId available for preview task creation", {
+                        repoFullName,
+                        prNumber,
+                        previewConfigId: previewConfig._id,
+                      });
+                      throw new Error("No userId available for preview task creation");
+                    }
+
                     const taskId = await _ctx.runMutation(
                       internal.tasks.createForPreview,
                       {
                         teamId: previewConfig.teamId,
-                        userId: previewUserId,
+                        userId,
                         previewRunId: runId,
                         repoFullName,
                         prNumber,
@@ -645,7 +762,7 @@ export const githubWebhook = httpAction(async (_ctx, req) => {
                       {
                         taskId,
                         teamId: previewConfig.teamId,
-                        userId: previewUserId,
+                        userId,
                         prUrl,
                         environmentId: previewConfig.environmentId,
                         newBranch: headRef,

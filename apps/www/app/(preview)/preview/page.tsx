@@ -51,6 +51,14 @@ type TeamOption = {
   displayName: string;
 };
 
+type PreviewPaywallState = {
+  isBlocked: boolean;
+  hasPaid: boolean;
+  usedRuns: number;
+  freeLimit: number;
+  productId: string;
+};
+
 function serializeProviderConnections(
   connections: Array<{
     id: string;
@@ -272,6 +280,62 @@ export default async function PreviewLandingPage({ searchParams }: PageProps) {
   }));
 
   const convex = getConvex({ accessToken });
+
+  const paywallProductId = "preview-pro";
+  // Item ID for checking team subscription (must match backend in preview_quota_actions.ts)
+  const PREVIEW_SUBSCRIPTION_ITEM_ID = "preview-team-subscription";
+
+  let paywall: PreviewPaywallState | null = null;
+  try {
+    const quotaInfo = await convex.query(api.preview_quota.getQuotaInfo, {
+      teamSlugOrId: selectedTeamSlugOrId,
+    });
+
+    let hasPaid = false;
+    let paymentCheckFailed = false;
+    try {
+      // Check team-level subscription using Stack Auth's team.getItem() API
+      // Reference: Stack Auth API - GET /payments/items/{customer_type}/{customer_id}/{item_id}
+      // Returns: { id, display_name, quantity } where quantity can be negative
+      if (selectedTeam) {
+        const item = await selectedTeam.getItem(PREVIEW_SUBSCRIPTION_ITEM_ID);
+        console.log("[PreviewLandingPage] getItem response:", {
+          teamSlugOrId: selectedTeamSlugOrId,
+          itemId: PREVIEW_SUBSCRIPTION_ITEM_ID,
+          item,
+        });
+        // SDK may return quantity or nonNegativeQuantity depending on version
+        const quantity = (item as { quantity?: number; nonNegativeQuantity?: number }).quantity
+          ?? (item as { nonNegativeQuantity?: number }).nonNegativeQuantity
+          ?? 0;
+        hasPaid = quantity > 0;
+      }
+    } catch (error) {
+      paymentCheckFailed = true;
+      console.error("[PreviewLandingPage] Failed to check team subscription", {
+        error,
+        teamSlugOrId: selectedTeamSlugOrId,
+        itemId: PREVIEW_SUBSCRIPTION_ITEM_ID,
+      });
+    }
+
+    paywall = {
+      isBlocked:
+        !paymentCheckFailed &&
+        !hasPaid &&
+        quotaInfo.remainingRuns <= 0,
+      hasPaid,
+      usedRuns: quotaInfo.usedRuns,
+      freeLimit: quotaInfo.freeLimit,
+      productId: paywallProductId,
+    };
+  } catch (error) {
+    console.error("[PreviewLandingPage] Failed to load preview quota info", {
+      error,
+      teamSlugOrId: selectedTeamSlugOrId,
+    });
+  }
+
   const [providerConnectionsByTeamEntries, previewConfigs] = await Promise.all([
     Promise.all(
       teams.map(async (team) => {
@@ -375,6 +439,7 @@ export default async function PreviewLandingPage({ searchParams }: PageProps) {
         popupComplete={popupComplete}
         waitlistProviders={waitlistProviders}
         waitlistEmail={user.primaryEmail}
+        paywall={paywall}
       />
     </div>
   );

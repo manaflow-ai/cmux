@@ -1,13 +1,46 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import {
+  PREVIEW_PAYWALL_FREE_PR_LIMIT,
+  PREVIEW_PAYWALL_STATE_REASON,
+} from "../_shared/preview-paywall";
 import { getTeamId } from "../_shared/team";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { authMutation, authQuery } from "./users/utils";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 
 function normalizeRepoFullName(value: string): string {
   return value.trim().replace(/\.git$/i, "").toLowerCase();
+}
+
+async function countUniquePullRequestsForTeam(
+  ctx: QueryCtx,
+  teamId: string,
+  cap: number,
+): Promise<number> {
+  const maxUnique = Math.max(1, cap);
+  const unique = new Set<string>();
+
+  // Fetch enough runs to reliably count unique PRs up to the cap.
+  // If a team has 10 unique PRs averaging ~5 runs each, we need ~50 runs.
+  // Using 500 gives us margin for heavy users while avoiding pagination
+  // (Convex doesn't allow multiple paginated queries in a single function).
+  const runs = await ctx.db
+    .query("previewRuns")
+    .withIndex("by_team_created", (q) => q.eq("teamId", teamId))
+    .order("desc")
+    .take(500);
+
+  for (const run of runs) {
+    if (run.stateReason === PREVIEW_PAYWALL_STATE_REASON) {
+      continue;
+    }
+    unique.add(`${run.repoFullName}#${run.prNumber}`);
+    if (unique.size >= maxUnique) break;
+  }
+
+  return unique.size;
 }
 
 export const enqueueFromWebhook = internalMutation({
@@ -25,6 +58,16 @@ export const enqueueFromWebhook = internalMutation({
     headRef: v.optional(v.string()),
     headRepoFullName: v.optional(v.string()),
     headRepoCloneUrl: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("skipped"),
+      ),
+    ),
+    stateReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const repoFullName = normalizeRepoFullName(args.repoFullName);
@@ -74,6 +117,11 @@ export const enqueueFromWebhook = internalMutation({
     );
 
     const now = Date.now();
+    const status = args.status ?? "pending";
+    const completedAt =
+      status === "completed" || status === "failed" || status === "skipped"
+        ? now
+        : undefined;
 
     // Create the new preview run for this commit
     const runId = await ctx.db.insert("previewRuns", {
@@ -90,10 +138,11 @@ export const enqueueFromWebhook = internalMutation({
       headRef: args.headRef,
       headRepoFullName,
       headRepoCloneUrl: args.headRepoCloneUrl,
-      status: "pending",
+      status,
+      stateReason: args.stateReason,
       dispatchedAt: undefined,
       startedAt: undefined,
-      completedAt: undefined,
+      completedAt,
       screenshotSetId: undefined,
       githubCommentUrl: undefined,
       createdAt: now,
@@ -848,8 +897,7 @@ export const createManual = authMutation({
     if (!identity) {
       throw new Error("Authentication required");
     }
-    // Use "system" as fallback for legacy configs without createdByUserId
-    const userId = config.createdByUserId ?? "system";
+    const userId = identity.subject;
 
     // Step 3: Create task for this preview run (following webhook pattern)
     const taskId = await ctx.runMutation(internal.tasks.createForPreview, {

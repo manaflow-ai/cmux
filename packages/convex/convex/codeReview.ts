@@ -1134,3 +1134,94 @@ export const listFileOutputsForComparison = authQuery({
     }));
   },
 });
+
+/**
+ * Save streamed review output for a file without requiring a job.
+ * Used by the frontend to cache streaming API results for language-specific tooltips.
+ */
+export const saveStreamedReviewOutput = authMutation({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    // For PR reviews
+    prNumber: v.optional(v.number()),
+    // For comparison reviews
+    comparisonSlug: v.optional(v.string()),
+    filePath: v.string(),
+    codexReviewOutput: v.any(),
+    tooltipLanguage: v.string(),
+    commitRef: v.string(),
+    baseCommitRef: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const now = Date.now();
+    const jobType = args.comparisonSlug ? "comparison" : "pull_request";
+
+    // Find existing record by team + repo + (pr or comparison) + language + file
+    let existing = null;
+    if (args.prNumber !== undefined) {
+      // Query for PR-based outputs
+      const candidates = await ctx.db
+        .query("automatedCodeReviewFileOutputs")
+        .withIndex("by_team_repo_pr_lang", (q) =>
+          q
+            .eq("teamId", teamId)
+            .eq("repoFullName", args.repoFullName)
+            .eq("prNumber", args.prNumber)
+            .eq("tooltipLanguage", args.tooltipLanguage)
+        )
+        .filter((q) => q.eq(q.field("filePath"), args.filePath))
+        .first();
+      existing = candidates;
+    } else if (args.comparisonSlug) {
+      // Query for comparison-based outputs
+      const candidates = await ctx.db
+        .query("automatedCodeReviewFileOutputs")
+        .withIndex("by_team_repo_comparison_lang", (q) =>
+          q
+            .eq("teamId", teamId)
+            .eq("repoFullName", args.repoFullName)
+            .eq("comparisonSlug", args.comparisonSlug)
+            .eq("tooltipLanguage", args.tooltipLanguage)
+        )
+        .filter((q) => q.eq(q.field("filePath"), args.filePath))
+        .first();
+      existing = candidates;
+    }
+
+    if (existing) {
+      // Update existing record
+      await ctx.db.patch(existing._id, {
+        codexReviewOutput: args.codexReviewOutput,
+        commitRef: args.commitRef,
+        baseCommitRef: args.baseCommitRef,
+        tooltipLanguage: args.tooltipLanguage,
+        updatedAt: now,
+      });
+      return { success: true as const, updated: true as const };
+    }
+
+    // Insert new record (no jobId since this is from streaming)
+    await ctx.db.insert("automatedCodeReviewFileOutputs", {
+      // No jobId - this is streamed without a job
+      teamId,
+      repoFullName: args.repoFullName,
+      prNumber: args.prNumber,
+      comparisonSlug: args.comparisonSlug,
+      jobType,
+      filePath: args.filePath,
+      codexReviewOutput: args.codexReviewOutput,
+      tooltipLanguage: args.tooltipLanguage,
+      commitRef: args.commitRef,
+      headCommitRef: args.commitRef,
+      baseCommitRef: args.baseCommitRef,
+      // Use a placeholder for streaming results
+      sandboxInstanceId: "streaming-api",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { success: true as const, updated: false as const };
+  },
+});
