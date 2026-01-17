@@ -385,15 +385,47 @@ else
   fi
 fi
 
-# Swappiness
-sysctl_conf=$'# Managed by cmux-configure-memory\nvm.swappiness = 70\n'
+# Memory and I/O performance tuning
+sysctl_conf=$'# Managed by cmux-configure-memory
+# Use swap more aggressively to free RAM for disk cache
+vm.swappiness = 80
+# Reduce dirty page ratio to prevent I/O write bursts
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 5
+# Write dirty pages more frequently (500ms) to prevent backlogs
+vm.dirty_expire_centisecs = 500
+vm.dirty_writeback_centisecs = 100
+# Keep more dentries/inodes in memory for file-heavy workloads
+vm.vfs_cache_pressure = 50
+'
 if write_file_if_changed "/etc/sysctl.d/99-cmux-memory.conf" "0644" "$sysctl_conf"; then
   log "Updated /etc/sysctl.d/99-cmux-memory.conf"
 else
-  log "vm.swappiness already set to 70"
+  log "sysctl memory/IO tuning already up to date"
 fi
 sysctl -q -p /etc/sysctl.d/99-cmux-memory.conf >/dev/null 2>&1 || true
-summary+=("Set vm.swappiness to 70.")
+summary+=("Applied memory and I/O performance tuning (swappiness=80, dirty_ratio=10, vfs_cache_pressure=50).")
+
+# Optimize disk I/O queue settings
+configure_io_scheduler() {
+  local disk="$1"
+  if [ -d "/sys/block/${disk}/queue" ]; then
+    # Increase queue depth for better throughput
+    echo 512 > "/sys/block/${disk}/queue/nr_requests" 2>/dev/null || true
+    # Increase read-ahead for better sequential I/O
+    echo 1024 > "/sys/block/${disk}/queue/read_ahead_kb" 2>/dev/null || true
+    log "Optimized I/O queue for ${disk} (nr_requests=512, read_ahead_kb=1024)"
+  fi
+}
+
+# Apply to common disk devices
+for disk in vda sda nvme0n1; do
+  if [ -b "/dev/${disk}" ]; then
+    configure_io_scheduler "$disk"
+    summary+=("Optimized I/O scheduler for ${disk}.")
+    break
+  fi
+done
 
 # Systemd drop-ins
 declare -A memory_low_map=(
