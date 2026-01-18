@@ -83,6 +83,9 @@ class PersistentIframeManager {
   private resizeObserver: ResizeObserver;
   private debugMode = false;
   private syncTimeouts = new Map<string, number>();
+  private iframeLookup = new WeakMap<HTMLIFrameElement, string>();
+  private lastFocusedElement: HTMLElement | null = null;
+  private focusRestorationInProgress = false;
 
   constructor() {
     // Create resize observer for syncing positions
@@ -99,6 +102,7 @@ class PersistentIframeManager {
     });
 
     this.initializeContainer();
+    this.initializeFocusCatch();
   }
 
   private initializeContainer() {
@@ -219,6 +223,7 @@ class PersistentIframeManager {
     };
 
     this.iframes.set(key, entry);
+    this.iframeLookup.set(iframe, key);
     this.moveIframeOffscreen(entry);
     this.cleanupOldIframes();
 
@@ -479,6 +484,7 @@ class PersistentIframeManager {
       entry.wrapper.parentElement.removeChild(entry.wrapper);
     }
 
+    this.iframeLookup.delete(entry.iframe);
     this.iframes.delete(key);
   }
 
@@ -561,6 +567,89 @@ class PersistentIframeManager {
    */
   setDebugMode(enabled: boolean): void {
     this.debugMode = enabled;
+  }
+
+  private initializeFocusCatch(): void {
+    if (typeof document === "undefined") return;
+
+    document.addEventListener(
+      "focusin",
+      (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+
+        if (this.focusRestorationInProgress) {
+          this.lastFocusedElement = target;
+          return;
+        }
+
+        const iframeInfo = this.getIframeEntryFromElement(target);
+        if (iframeInfo && !iframeInfo.entry.isVisible) {
+          const fallbackTarget =
+            (event.relatedTarget instanceof HTMLElement
+              ? event.relatedTarget
+              : null) ??
+            this.lastFocusedElement ??
+            document.body;
+
+          if (
+            fallbackTarget &&
+            fallbackTarget !== target &&
+            typeof fallbackTarget.focus === "function"
+          ) {
+            if (this.debugMode) {
+              console.log(
+                `[FocusCatch] Restoring focus from hidden iframe ${iframeInfo.key}`
+              );
+            }
+
+            this.focusRestorationInProgress = true;
+            requestAnimationFrame(() => {
+              try {
+                fallbackTarget.focus({ preventScroll: true });
+                this.lastFocusedElement = fallbackTarget;
+              } catch {
+                try {
+                  fallbackTarget.focus();
+                  this.lastFocusedElement = fallbackTarget;
+                } catch {
+                  // Ignore focus errors
+                }
+              } finally {
+                this.focusRestorationInProgress = false;
+              }
+            });
+          }
+
+          return;
+        }
+
+        this.lastFocusedElement = target;
+      },
+      true
+    );
+  }
+
+  private getIframeEntryFromElement(
+    element: Element
+  ): { key: string; entry: IframeEntry } | null {
+    if (!(element instanceof HTMLIFrameElement)) {
+      return null;
+    }
+
+    const key = this.iframeLookup.get(element);
+    if (!key) {
+      return null;
+    }
+
+    const entry = this.iframes.get(key);
+    if (!entry) {
+      return null;
+    }
+
+    return { key, entry };
   }
 
   private moveIframeOffscreen(entry: IframeEntry): void {
