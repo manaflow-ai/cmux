@@ -26,6 +26,7 @@ export function DashboardStartTaskButton({
           // Ensure tooltip can trigger even when the button is disabled
           tabIndex={0}
           className="inline-flex"
+          data-onboarding="start-button"
         >
           <Button
             size="sm"

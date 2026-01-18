@@ -27,7 +27,7 @@ export function SidebarWorkspacesSection({
   }, []);
 
   return (
-    <div className="flex items-center justify-between ml-2">
+    <div className="flex items-center justify-between ml-2" data-onboarding="workspaces-link">
       <Link
         to="/$teamSlugOrId/workspaces"
         params={{ teamSlugOrId }}

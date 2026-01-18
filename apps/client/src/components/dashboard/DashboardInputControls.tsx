@@ -589,17 +589,18 @@ export const DashboardInputControls = memo(function DashboardInputControls({
   return (
     <div className="flex items-end gap-1 grow">
       <div className="flex items-end gap-1">
-        <SearchableSelect
-          options={projectOptions}
-          value={selectedProject}
-          onChange={onProjectChange}
-          onSearchPaste={onProjectSearchPaste}
-          placeholder="Select project"
-          singleSelect={true}
-          className="rounded-2xl"
-          loading={isLoadingProjects}
-          maxTagCount={1}
-          showSearch
+        <div data-onboarding="repo-picker">
+          <SearchableSelect
+            options={projectOptions}
+            value={selectedProject}
+            onChange={onProjectChange}
+            onSearchPaste={onProjectSearchPaste}
+            placeholder="Select project"
+            singleSelect={true}
+            className="rounded-2xl"
+            loading={isLoadingProjects}
+            maxTagCount={1}
+            showSearch
           footer={
             <div className="p-1">
               <Link
@@ -739,63 +740,70 @@ export const DashboardInputControls = memo(function DashboardInputControls({
             </div>
           }
         />
+        </div>
 
         {branchDisabled ? null : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <SearchableSelect
-                  options={branchOptions}
-                  value={selectedBranch}
-                  onChange={onBranchChange}
-                  onSearchChange={onBranchSearchChange}
-                  searchLoading={isBranchSearchLoading}
-                  disableClientFilter
-                  placeholder="Branch"
-                  singleSelect={true}
-                  className="rounded-2xl"
-                  loading={isLoadingBranches}
-                  showSearch
-                  disabled={branchDisabled}
-                  leftIcon={
-                    <GitBranch className="w-4 h-4 text-neutral-500 dark:text-neutral-400" />
-                  }
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Branch this task starts from</TooltipContent>
-          </Tooltip>
+          <div data-onboarding="branch-picker">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <SearchableSelect
+                    options={branchOptions}
+                    value={selectedBranch}
+                    onChange={onBranchChange}
+                    onSearchChange={onBranchSearchChange}
+                    searchLoading={isBranchSearchLoading}
+                    disableClientFilter
+                    placeholder="Branch"
+                    singleSelect={true}
+                    className="rounded-2xl"
+                    loading={isLoadingBranches}
+                    showSearch
+                    disabled={branchDisabled}
+                    leftIcon={
+                      <GitBranch className="w-4 h-4 text-neutral-500 dark:text-neutral-400" />
+                    }
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Branch this task starts from</TooltipContent>
+            </Tooltip>
+          </div>
         )}
 
-        <SearchableSelect
-          ref={agentSelectRef}
-          options={agentOptions}
-          value={selectedAgents}
-          onChange={onAgentChange}
-          placeholder="Select agents"
-          singleSelect={false}
-          maxTagCount={1}
-          className="rounded-2xl"
-          classNames={{
-            popover: "w-[315px]",
-          }}
-          showSearch
-          countLabel="agents"
-          footer={agentSelectionFooter}
-          itemVariant="agent"
-          optionItemComponent={AgentCommandItem}
-          maxCountPerValue={MAX_AGENT_COMMAND_COUNT}
-        />
+        <div data-onboarding="agent-picker">
+          <SearchableSelect
+            ref={agentSelectRef}
+            options={agentOptions}
+            value={selectedAgents}
+            onChange={onAgentChange}
+            placeholder="Select agents"
+            singleSelect={false}
+            maxTagCount={1}
+            className="rounded-2xl"
+            classNames={{
+              popover: "w-[315px]",
+            }}
+            showSearch
+            countLabel="agents"
+            footer={agentSelectionFooter}
+            itemVariant="agent"
+            optionItemComponent={AgentCommandItem}
+            maxCountPerValue={MAX_AGENT_COMMAND_COUNT}
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-end gap-2.5 ml-auto mr-0 pr-1">
         {/* Cloud/Local Mode Toggle - hidden in web mode (always cloud) */}
         {!env.NEXT_PUBLIC_WEB_MODE && (
-          <ModeToggleTooltip
-            isCloudMode={isCloudMode}
-            onToggle={onCloudModeToggle}
-            disabled={cloudToggleDisabled}
-          />
+          <div data-onboarding="cloud-toggle">
+            <ModeToggleTooltip
+              isCloudMode={isCloudMode}
+              onToggle={onCloudModeToggle}
+              disabled={cloudToggleDisabled}
+            />
+          </div>
         )}
 
         <button

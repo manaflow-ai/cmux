@@ -1185,7 +1185,10 @@ function DashboardMainCard({
   isStartingTask,
 }: DashboardMainCardProps) {
   return (
-    <div className="relative bg-white dark:bg-neutral-700/50 border border-neutral-500/15 dark:border-neutral-500/15 rounded-2xl transition-all">
+    <div
+      className="relative bg-white dark:bg-neutral-700/50 border border-neutral-500/15 dark:border-neutral-500/15 rounded-2xl transition-all"
+      data-onboarding="dashboard-input"
+    >
       <DashboardInput
         ref={editorApiRef}
         onTaskDescriptionChange={onTaskDescriptionChange}

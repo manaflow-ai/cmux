@@ -46,6 +46,7 @@ interface SidebarNavItem {
 interface SidebarNavItemWithBadge extends SidebarNavItem {
   showBadge?: boolean;
   hidden?: boolean;
+  onboardingKey?: string;
 }
 
 const navItems: SidebarNavItemWithBadge[] = [
@@ -75,12 +76,14 @@ const navItems: SidebarNavItemWithBadge[] = [
     },
     exact: true,
     icon: Server,
+    onboardingKey: "environments-link",
   },
   {
     label: "Settings",
     to: "/$teamSlugOrId/settings",
     exact: true,
     icon: Settings,
+    onboardingKey: "settings-link",
   },
 ];
 
@@ -232,6 +235,7 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
   return (
     <div
       ref={containerRef}
+      data-onboarding="sidebar"
       className="relative bg-neutral-50 dark:bg-black flex flex-col shrink-0 h-dvh grow pr-1 w-[75vw] snap-start snap-always md:w-auto md:snap-align-none"
       style={
         {
@@ -280,7 +284,10 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
             {navItems
               .filter((item) => !item.hidden)
               .map((item) => (
-              <li key={item.label}>
+              <li
+                key={item.label}
+                {...(item.onboardingKey && { "data-onboarding": item.onboardingKey })}
+              >
                 <SidebarNavLink
                   to={item.to}
                   params={{ teamSlugOrId }}
