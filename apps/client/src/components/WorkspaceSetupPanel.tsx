@@ -324,6 +324,8 @@ export function WorkspaceSetupPanel({
                     <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
                       Runs after cloning your repository so dependencies and
                       services are ready. Executed from your repository root directory.
+                      The <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono">CMUX_SETUP_MODE</code> environment
+                      variable is set to <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono">local</code> or <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono">cloud</code>.
                     </p>
                   </div>
 
