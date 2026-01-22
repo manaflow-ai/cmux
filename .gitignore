@@ -1,0 +1,14 @@
+# Xcode
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+
+# GhosttyKit binary (rebuild from /tmp/ghostty with zig build)
+GhosttyKit.xcframework/
