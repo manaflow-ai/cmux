@@ -13,6 +13,7 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    private var appObservers: [NSObjectProtocol] = []
 
     private init() {
         initializeGhostty()
@@ -72,7 +73,32 @@ class GhosttyApp {
         app = ghostty_app_new(&runtimeConfig, config)
         if app == nil {
             print("Failed to create ghostty app")
+            return
         }
+
+        #if os(macOS)
+        if let app {
+            ghostty_app_set_focus(app, NSApp.isActive)
+        }
+
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let app = self?.app else { return }
+            ghostty_app_set_focus(app, true)
+        })
+
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let app = self?.app else { return }
+            ghostty_app_set_focus(app, false)
+        })
+        #endif
     }
 
     func tick() {
@@ -255,6 +281,9 @@ class GhosttyNSView: NSView {
     private var surfaceAttached = false
     var scrollbar: GhosttyScrollbar?
     var cellSize: CGSize = .zero
+    var desiredFocus: Bool = false
+    private var eventMonitor: Any?
+    private var trackingArea: NSTrackingArea?
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -279,6 +308,39 @@ class GhosttyNSView: NSView {
     private func setup() {
         wantsLayer = true
         layerContentsRedrawPolicy = .duringViewResize
+        installEventMonitor()
+        updateTrackingAreas()
+    }
+
+    private func installEventMonitor() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+            return self?.localEventHandler(event) ?? event
+        }
+    }
+
+    private func localEventHandler(_ event: NSEvent) -> NSEvent? {
+        switch event.type {
+        case .scrollWheel:
+            return localEventScrollWheel(event)
+        default:
+            return event
+        }
+    }
+
+    private func localEventScrollWheel(_ event: NSEvent) -> NSEvent? {
+        guard let window,
+              let eventWindow = event.window,
+              window == eventWindow else { return event }
+
+        let location = convert(event.locationInWindow, from: nil)
+        guard hitTest(location) == self else { return event }
+
+        if window.firstResponder !== self {
+            window.makeFirstResponder(self)
+        }
+
+        return event
     }
 
     func attachSurface(_ surface: TerminalSurface) {
@@ -295,6 +357,7 @@ class GhosttyNSView: NSView {
 
         surfaceAttached = true
         terminalSurface.attachToView(self)
+        terminalSurface.setFocus(desiredFocus)
     }
 
     override func viewDidMoveToWindow() {
@@ -347,9 +410,6 @@ class GhosttyNSView: NSView {
     }
 
     override func resignFirstResponder() -> Bool {
-        if let surface = surface {
-            ghostty_surface_set_focus(surface, false)
-        }
         return super.resignFirstResponder()
     }
 
@@ -526,6 +586,21 @@ class GhosttyNSView: NSView {
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard let surface = surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard let surface = surface else { return }
+        if NSEvent.pressedMouseButtons != 0 {
+            return
+        }
+        ghostty_surface_mouse_pos(surface, -1, -1, modsFromEvent(event))
+    }
+
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -534,6 +609,7 @@ class GhosttyNSView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let surface = surface else { return }
+        terminalSurface?.setFocus(true)
         var mods: Int32 = 0
         if event.modifierFlags.contains(.shift) { mods |= Int32(GHOSTTY_MODS_SHIFT.rawValue) }
         if event.modifierFlags.contains(.control) { mods |= Int32(GHOSTTY_MODS_CTRL.rawValue) }
@@ -550,7 +626,34 @@ class GhosttyNSView: NSView {
 
     deinit {
         // Surface lifecycle is managed by TerminalSurface, not the view
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
         terminalSurface = nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [
+                .mouseEnteredAndExited,
+                .mouseMoved,
+                .inVisibleRect,
+                .activeAlways,
+            ],
+            owner: self,
+            userInfo: nil
+        )
+
+        if let trackingArea {
+            addTrackingArea(trackingArea)
+        }
     }
 }
 
@@ -578,17 +681,34 @@ extension Notification.Name {
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
 
+private final class GhosttyScrollView: NSScrollView {
+    weak var surfaceView: GhosttyNSView?
+
+    override func scrollWheel(with event: NSEvent) {
+        if let surfaceView {
+            if window?.firstResponder !== surfaceView {
+                window?.makeFirstResponder(surfaceView)
+            }
+            surfaceView.scrollWheel(with: event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
-    private let scrollView: NSScrollView
+    private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
     private var observers: [NSObjectProtocol] = []
+    private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
     private var lastSentRow: Int?
+    private var isActive = true
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
-        scrollView = NSScrollView()
+        scrollView = GhosttyScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -596,6 +716,7 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
         scrollView.contentView.clipsToBounds = false
+        scrollView.surfaceView = surfaceView
 
         documentView = NSView(frame: .zero)
         scrollView.documentView = documentView
@@ -653,9 +774,22 @@ final class GhosttySurfaceScrollView: NSView {
 
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        window?.makeFirstResponder(surfaceView)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        _ = surfaceView.resignFirstResponder()
+        return true
+    }
 
     override func layout() {
         super.layout()
@@ -666,13 +800,28 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeSurfaceView()
     }
 
-    override func scrollWheel(with event: NSEvent) {
-        // Route scroll wheel events to the surface so the terminal core
-        // can decide whether to scroll scrollback or send mouse events.
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
-        }
-        surfaceView.scrollWheel(with: event)
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        windowObservers.removeAll()
+        guard let window else { return }
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateFocusForWindow()
+            self?.requestFocus()
+        })
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateFocusForWindow()
+        })
+        updateFocusForWindow()
+        if window.isKeyWindow { requestFocus() }
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -680,12 +829,48 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setActive(_ active: Bool) {
+        isActive = active
+        updateFocusForWindow()
         if active {
-            DispatchQueue.main.async {
-                self.window?.makeFirstResponder(self.surfaceView)
-            }
+            requestFocus()
+        }
+    }
+
+    private func updateFocusForWindow() {
+        let shouldFocus = isActive && (window?.isKeyWindow ?? false)
+        surfaceView.desiredFocus = shouldFocus
+        surfaceView.terminalSurface?.setFocus(shouldFocus)
+    }
+
+    private func requestFocus(delay: TimeInterval? = nil) {
+        let maxDelay: TimeInterval = 0.5
+        guard (delay ?? 0) < maxDelay else { return }
+
+        let nextDelay: TimeInterval = if let delay {
+            delay * 2
         } else {
-            surfaceView.terminalSurface?.setFocus(false)
+            0.05
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard let window = self.window else {
+                self.requestFocus(delay: nextDelay)
+                return
+            }
+
+            if let responder = window.firstResponder as? NSView, responder !== self.surfaceView {
+                _ = responder.resignFirstResponder()
+            }
+
+            window.makeFirstResponder(self.surfaceView)
+        }
+
+        let queue = DispatchQueue.main
+        if let delay {
+            queue.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            queue.async(execute: work)
         }
     }
 

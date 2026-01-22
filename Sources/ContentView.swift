@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var tabManager: TabManager
     @State private var sidebarWidth: CGFloat = 200
+    @FocusState private var focusedTabId: UUID?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -22,11 +23,19 @@ struct ContentView: View {
                     GhosttyTerminalView(terminalSurface: tab.terminalSurface, isActive: isActive)
                         .opacity(isActive ? 1 : 0)
                         .allowsHitTesting(isActive)
+                        .focusable()
+                        .focused($focusedTabId, equals: tab.id)
                 }
             }
         }
         .frame(minWidth: 800, minHeight: 600)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            focusedTabId = tabManager.selectedTabId
+        }
+        .onChange(of: tabManager.selectedTabId) { newValue in
+            focusedTabId = newValue
+        }
     }
 }
 
