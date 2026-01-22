@@ -12,3 +12,9 @@ xcuserdata/
 
 # GhosttyKit binary (rebuild from /tmp/ghostty with zig build)
 GhosttyKit.xcframework/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/

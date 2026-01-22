@@ -4,10 +4,19 @@ import SwiftUI
 struct GhosttyTabsApp: App {
     @StateObject private var tabManager = TabManager()
 
+    init() {
+        // Start the terminal controller for programmatic control
+        // This runs after TabManager is created via @StateObject
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(tabManager)
+                .onAppear {
+                    // Start the Unix socket controller for programmatic access
+                    TerminalController.shared.start(tabManager: tabManager)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {

@@ -342,10 +342,12 @@ class GhosttyNSView: NSView {
         keyEvent.action = action
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.mods = modsFromEvent(event)
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        // Control and Command never contribute to text translation
+        keyEvent.consumed_mods = consumedModsFromEvent(event)
         keyEvent.composing = markedText.length > 0
+        keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
-        // Use accumulated text from insertText, or fall back to event characters
+        // Use accumulated text from insertText (for IME), or compute text for key
         if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
             for text in accumulated {
                 text.withCString { ptr in
@@ -354,28 +356,18 @@ class GhosttyNSView: NSView {
                 }
             }
         } else {
-            // No accumulated text - send the key with event characters
-            if let chars = event.characters, !chars.isEmpty {
-                // Filter out control characters
-                var hasControlChars = false
-                for scalar in chars.unicodeScalars where scalar.value < 0x20 {
-                    hasControlChars = true
-                    break
-                }
-                if hasControlChars {
-                    keyEvent.text = nil
-                } else {
-                    chars.withCString { ptr in
-                        keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
-                        return
-                    }
-                    return
+            // Get the appropriate text for this key event
+            // For control characters, this returns the unmodified character
+            // so Ghostty's KeyEncoder can handle ctrl encoding
+            if let text = textForKeyEvent(event) {
+                text.withCString { ptr in
+                    keyEvent.text = ptr
+                    _ = ghostty_surface_key(surface, keyEvent)
                 }
             } else {
                 keyEvent.text = nil
+                _ = ghostty_surface_key(surface, keyEvent)
             }
-            _ = ghostty_surface_key(surface, keyEvent)
         }
     }
 
@@ -418,6 +410,59 @@ class GhosttyNSView: NSView {
         if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         if event.modifierFlags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    /// Consumed mods are modifiers that were used for text translation.
+    /// Control and Command never contribute to text translation, so they
+    /// should be excluded from consumed_mods.
+    private func consumedModsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+        var mods = GHOSTTY_MODS_NONE.rawValue
+        // Only include Shift and Option as potentially consumed
+        // Control and Command are never consumed for text translation
+        if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    /// Get the characters for a key event with control character handling.
+    /// When control is pressed, we get the character without the control modifier
+    /// so Ghostty's KeyEncoder can apply its own control character encoding.
+    private func textForKeyEvent(_ event: NSEvent) -> String? {
+        // First try charactersIgnoringModifiers to get the base character
+        // This is important for control keys - we want 'c' not '\x03' (ETX)
+        if event.modifierFlags.contains(.control) {
+            // For control+key, return the unmodified character
+            // Ghostty's KeyEncoder will handle the ctrl encoding internally
+            return event.charactersIgnoringModifiers
+        }
+
+        guard let chars = event.characters, !chars.isEmpty else {
+            return nil
+        }
+
+        // Check if the first character is a control character or PUA
+        if let scalar = chars.unicodeScalars.first {
+            // Control characters (< 0x20) should not be sent as text
+            // Ghostty handles these internally via keycode + mods
+            if scalar.value < 0x20 {
+                return nil
+            }
+            // Private Use Area characters (function keys) should not be sent
+            if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                return nil
+            }
+        }
+
+        return chars
+    }
+
+    /// Get the unshifted codepoint for the key event
+    private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
+        guard let chars = event.charactersIgnoringModifiers,
+              let scalar = chars.unicodeScalars.first else {
+            return 0
+        }
+        return scalar.value
     }
 
     // MARK: - Mouse Handling
