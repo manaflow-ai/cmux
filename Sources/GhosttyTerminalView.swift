@@ -47,8 +47,7 @@ class GhosttyApp {
             }
         }
         runtimeConfig.action_cb = { app, target, action in
-            // Handle actions
-            return false
+            return GhosttyApp.shared.handleAction(target: target, action: action)
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             // Read clipboard
@@ -79,6 +78,38 @@ class GhosttyApp {
     func tick() {
         guard let app = app else { return }
         ghostty_app_tick(app)
+    }
+
+    private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
+        guard target.tag == GHOSTTY_TARGET_SURFACE else { return false }
+        guard let userdata = ghostty_surface_userdata(target.target.surface) else { return false }
+        let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+
+        switch action.tag {
+        case GHOSTTY_ACTION_SCROLLBAR:
+            let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
+            surfaceView.scrollbar = scrollbar
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateScrollbar,
+                object: surfaceView,
+                userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
+            )
+            return true
+        case GHOSTTY_ACTION_CELL_SIZE:
+            let cellSize = CGSize(
+                width: CGFloat(action.action.cell_size.width),
+                height: CGFloat(action.action.cell_size.height)
+            )
+            surfaceView.cellSize = cellSize
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateCellSize,
+                object: surfaceView,
+                userInfo: [GhosttyNotificationKey.cellSize: cellSize]
+            )
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -124,6 +155,7 @@ class TerminalSurface {
         var surfaceConfig = ghostty_surface_config_new()
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform.macos.nsview = Unmanaged.passUnretained(view).toOpaque()
+        surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.scale_factor = scale
         surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_TAB
 
@@ -149,7 +181,6 @@ class TerminalSurface {
         let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
 
         updateMetalLayer(for: view)
-
         // Update the nsview pointer in the surface
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(
@@ -222,6 +253,8 @@ class TerminalSurface {
 class GhosttyNSView: NSView {
     var terminalSurface: TerminalSurface?
     private var surfaceAttached = false
+    var scrollbar: GhosttyScrollbar?
+    var cellSize: CGSize = .zero
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -292,6 +325,13 @@ class GhosttyNSView: NSView {
     // Convenience accessor for the ghostty surface
     private var surface: ghostty_surface_t? {
         terminalSurface?.surface
+    }
+
+    func performBindingAction(_ action: String) -> Bool {
+        guard let surface = surface else { return false }
+        return action.withCString { cString in
+            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+        }
     }
 
     // MARK: - Input Handling
@@ -514,6 +554,198 @@ class GhosttyNSView: NSView {
     }
 }
 
+struct GhosttyScrollbar {
+    let total: UInt64
+    let offset: UInt64
+    let len: UInt64
+
+    init(c: ghostty_action_scrollbar_s) {
+        total = c.total
+        offset = c.offset
+        len = c.len
+    }
+}
+
+enum GhosttyNotificationKey {
+    static let scrollbar = "ghostty.scrollbar"
+    static let cellSize = "ghostty.cellSize"
+}
+
+extension Notification.Name {
+    static let ghosttyDidUpdateScrollbar = Notification.Name("ghosttyDidUpdateScrollbar")
+    static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
+}
+
+// MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
+
+final class GhosttySurfaceScrollView: NSView {
+    private let scrollView: NSScrollView
+    private let documentView: NSView
+    private let surfaceView: GhosttyNSView
+    private var observers: [NSObjectProtocol] = []
+    private var isLiveScrolling = false
+    private var lastSentRow: Int?
+
+    init(surfaceView: GhosttyNSView) {
+        self.surfaceView = surfaceView
+        scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = false
+        scrollView.usesPredominantAxisScrolling = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.drawsBackground = false
+        scrollView.contentView.clipsToBounds = false
+
+        documentView = NSView(frame: .zero)
+        scrollView.documentView = documentView
+        documentView.addSubview(surfaceView)
+
+        super.init(frame: .zero)
+
+        addSubview(scrollView)
+
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScrollChange()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSScrollView.willStartLiveScrollNotification,
+            object: scrollView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isLiveScrolling = true
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSScrollView.didEndLiveScrollNotification,
+            object: scrollView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isLiveScrolling = false
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleScrollbarUpdate(notification)
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidUpdateCellSize,
+            object: surfaceView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.synchronizeScrollView()
+        })
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+    override func layout() {
+        super.layout()
+        scrollView.frame = bounds
+        surfaceView.frame.size = scrollView.bounds.size
+        documentView.frame.size.width = scrollView.bounds.width
+        synchronizeScrollView()
+        synchronizeSurfaceView()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        // Route scroll wheel events to the surface so the terminal core
+        // can decide whether to scroll scrollback or send mouse events.
+        if window?.firstResponder !== surfaceView {
+            window?.makeFirstResponder(surfaceView)
+        }
+        surfaceView.scrollWheel(with: event)
+    }
+
+    func attachSurface(_ terminalSurface: TerminalSurface) {
+        surfaceView.attachSurface(terminalSurface)
+    }
+
+    func setActive(_ active: Bool) {
+        if active {
+            DispatchQueue.main.async {
+                self.window?.makeFirstResponder(self.surfaceView)
+            }
+        } else {
+            surfaceView.terminalSurface?.setFocus(false)
+        }
+    }
+
+    private func synchronizeSurfaceView() {
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        surfaceView.frame.origin = visibleRect.origin
+    }
+
+    private func synchronizeScrollView() {
+        documentView.frame.size.height = documentHeight()
+
+        if !isLiveScrolling {
+            let cellHeight = surfaceView.cellSize.height
+            if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
+                let offsetY =
+                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
+                lastSentRow = Int(scrollbar.offset)
+            }
+        }
+
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func handleScrollChange() {
+        synchronizeSurfaceView()
+        guard isLiveScrolling else { return }
+        let cellHeight = surfaceView.cellSize.height
+        guard cellHeight > 0 else { return }
+
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let documentHeight = documentView.frame.height
+        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        let row = Int(scrollOffset / cellHeight)
+
+        guard row != lastSentRow else { return }
+        lastSentRow = row
+        _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
+    }
+
+    private func handleScrollbarUpdate(_ notification: Notification) {
+        guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
+            return
+        }
+        surfaceView.scrollbar = scrollbar
+        synchronizeScrollView()
+    }
+
+    private func documentHeight() -> CGFloat {
+        let contentHeight = scrollView.contentSize.height
+        let cellHeight = surfaceView.cellSize.height
+        if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
+            let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
+            let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
+            return documentGridHeight + padding
+        }
+        return contentHeight
+    }
+}
+
 // MARK: - NSTextInputClient
 
 extension GhosttyNSView: NSTextInputClient {
@@ -609,30 +841,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
 
-    func makeNSView(context: Context) -> GhosttyNSView {
-        let view = GhosttyNSView(frame: .zero)
+    func makeNSView(context: Context) -> GhosttySurfaceScrollView {
+        let surfaceView = GhosttyNSView(frame: .zero)
+        let view = GhosttySurfaceScrollView(surfaceView: surfaceView)
         view.attachSurface(terminalSurface)
-        // Focus after view is in window
-        if isActive {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                view.window?.makeFirstResponder(view)
-            }
-        }
+        view.setActive(isActive)
         return view
     }
 
-    func updateNSView(_ nsView: GhosttyNSView, context: Context) {
-        // Ensure the surface is attached
+    func updateNSView(_ nsView: GhosttySurfaceScrollView, context: Context) {
         nsView.attachSurface(terminalSurface)
-
-        if isActive {
-            // Focus on tab switch and notify surface
-            DispatchQueue.main.async {
-                nsView.window?.makeFirstResponder(nsView)
-            }
-        } else {
-            // Unfocus when tab becomes inactive
-            terminalSurface.setFocus(false)
-        }
+        nsView.setActive(isActive)
     }
 }
