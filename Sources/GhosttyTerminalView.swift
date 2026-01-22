@@ -82,13 +82,146 @@ class GhosttyApp {
     }
 }
 
+// MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
+
+class TerminalSurface {
+    private(set) var surface: ghostty_surface_t?
+    private var displayLink: CVDisplayLink?
+    private weak var attachedView: GhosttyNSView?
+
+    init() {
+        // Surface is created when attached to a view
+    }
+
+    func attachToView(_ view: GhosttyNSView) {
+        // If already attached to this view, nothing to do
+        if attachedView === view && surface != nil {
+            updateMetalLayer(for: view)
+            return
+        }
+
+        attachedView = view
+
+        // If surface doesn't exist yet, create it
+        if surface == nil {
+            createSurface(for: view)
+        } else {
+            // Re-attach existing surface to new view
+            reattachSurface(to: view)
+        }
+    }
+
+    private func createSurface(for view: GhosttyNSView) {
+        guard let app = GhosttyApp.shared.app else {
+            print("Ghostty app not initialized")
+            return
+        }
+
+        let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+
+        updateMetalLayer(for: view)
+
+        var surfaceConfig = ghostty_surface_config_new()
+        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
+        surfaceConfig.platform.macos.nsview = Unmanaged.passUnretained(view).toOpaque()
+        surfaceConfig.scale_factor = scale
+        surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_TAB
+
+        surface = ghostty_surface_new(app, &surfaceConfig)
+
+        if surface == nil {
+            print("Failed to create ghostty surface")
+            return
+        }
+
+        ghostty_surface_set_size(
+            surface,
+            UInt32(view.bounds.width * scale),
+            UInt32(view.bounds.height * scale)
+        )
+
+        setupDisplayLink()
+    }
+
+    private func reattachSurface(to view: GhosttyNSView) {
+        guard let surface = surface else { return }
+
+        let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+
+        updateMetalLayer(for: view)
+
+        // Update the nsview pointer in the surface
+        ghostty_surface_set_content_scale(surface, scale, scale)
+        ghostty_surface_set_size(
+            surface,
+            UInt32(view.bounds.width * scale),
+            UInt32(view.bounds.height * scale)
+        )
+    }
+
+    private func updateMetalLayer(for view: GhosttyNSView) {
+        let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        if let metalLayer = view.layer as? CAMetalLayer {
+            metalLayer.contentsScale = scale
+            if view.bounds.width > 0 && view.bounds.height > 0 {
+                metalLayer.drawableSize = CGSize(
+                    width: view.bounds.width * scale,
+                    height: view.bounds.height * scale
+                )
+            }
+        }
+    }
+
+    private func setupDisplayLink() {
+        guard displayLink == nil else { return }
+
+        var link: CVDisplayLink?
+        CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        guard let newLink = link else { return }
+
+        displayLink = newLink
+
+        let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, _ -> CVReturn in
+            DispatchQueue.main.async {
+                GhosttyApp.shared.tick()
+            }
+            return kCVReturnSuccess
+        }
+
+        CVDisplayLinkSetOutputCallback(newLink, callback, nil)
+        CVDisplayLinkStart(newLink)
+    }
+
+    func updateSize(width: CGFloat, height: CGFloat, scale: CGFloat) {
+        guard let surface = surface else { return }
+        ghostty_surface_set_size(surface, UInt32(width * scale), UInt32(height * scale))
+
+        if let view = attachedView, let metalLayer = view.layer as? CAMetalLayer {
+            metalLayer.contentsScale = scale
+            metalLayer.drawableSize = CGSize(width: width * scale, height: height * scale)
+        }
+    }
+
+    func setFocus(_ focused: Bool) {
+        guard let surface = surface else { return }
+        ghostty_surface_set_focus(surface, focused)
+    }
+
+    deinit {
+        if let displayLink = displayLink {
+            CVDisplayLinkStop(displayLink)
+        }
+        if let surface = surface {
+            ghostty_surface_free(surface)
+        }
+    }
+}
+
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView {
-    private var surface: ghostty_surface_t?
-    private var displayLink: CVDisplayLink?
-    private var metalDevice: MTLDevice?
-    private var surfaceCreated = false
+    var terminalSurface: TerminalSurface?
+    private var surfaceAttached = false
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -97,7 +230,6 @@ class GhosttyNSView: NSView {
         metalLayer.framebufferOnly = true
         metalLayer.isOpaque = true
         metalLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        self.metalDevice = metalLayer.device
         return metalLayer
     }
 
@@ -116,130 +248,78 @@ class GhosttyNSView: NSView {
         layerContentsRedrawPolicy = .duringViewResize
     }
 
-    private func createSurfaceIfNeeded() {
-        // Only create once and when we have a valid size
-        guard !surfaceCreated else { return }
+    func attachSurface(_ surface: TerminalSurface) {
+        terminalSurface = surface
+        surfaceAttached = false
+        attachSurfaceIfNeeded()
+    }
+
+    private func attachSurfaceIfNeeded() {
+        guard !surfaceAttached else { return }
+        guard let terminalSurface = terminalSurface else { return }
         guard bounds.width > 0 && bounds.height > 0 else { return }
         guard window != nil else { return }
 
-        surfaceCreated = true
-        createSurface()
-    }
-
-    private func createSurface() {
-        guard let app = GhosttyApp.shared.app else {
-            print("Ghostty app not initialized")
-            return
-        }
-
-        let scale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-
-        // Update Metal layer with initial size
-        if let metalLayer = layer as? CAMetalLayer {
-            metalLayer.contentsScale = scale
-            metalLayer.drawableSize = CGSize(
-                width: bounds.width * scale,
-                height: bounds.height * scale
-            )
-        }
-
-        var surfaceConfig = ghostty_surface_config_new()
-        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
-
-        // Pass this view to ghostty
-        surfaceConfig.platform.macos.nsview = Unmanaged.passUnretained(self).toOpaque()
-
-        // Set scale factor
-        surfaceConfig.scale_factor = scale
-
-        surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
-
-        // Create the surface
-        surface = ghostty_surface_new(app, &surfaceConfig)
-
-        if surface == nil {
-            print("Failed to create ghostty surface")
-            return
-        }
-
-        // Set initial size immediately after creation
-        ghostty_surface_set_size(
-            surface,
-            UInt32(bounds.width * scale),
-            UInt32(bounds.height * scale)
-        )
-
-        // Setup display link for rendering
-        setupDisplayLink()
-    }
-
-    private func setupDisplayLink() {
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let displayLink = link else { return }
-
-        self.displayLink = displayLink
-
-        let callback: CVDisplayLinkOutputCallback = { displayLink, inNow, inOutputTime, flagsIn, flagsOut, displayLinkContext -> CVReturn in
-            DispatchQueue.main.async {
-                GhosttyApp.shared.tick()
-            }
-            return kCVReturnSuccess
-        }
-
-        CVDisplayLinkSetOutputCallback(displayLink, callback, nil)
-        CVDisplayLinkStart(displayLink)
+        surfaceAttached = true
+        terminalSurface.attachToView(self)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
-            createSurfaceIfNeeded()
+            attachSurfaceIfNeeded()
             updateSurfaceSize()
         }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        createSurfaceIfNeeded()
+        attachSurfaceIfNeeded()
         updateSurfaceSize()
     }
 
     override func layout() {
         super.layout()
-        createSurfaceIfNeeded()
+        attachSurfaceIfNeeded()
     }
 
     private func updateSurfaceSize() {
-        guard let surface = surface else { return }
+        guard let terminalSurface = terminalSurface else { return }
         let scale = window?.screen?.backingScaleFactor ?? 2.0
+        terminalSurface.updateSize(width: bounds.width, height: bounds.height, scale: scale)
+    }
 
-        // Update Metal layer
-        if let metalLayer = layer as? CAMetalLayer {
-            metalLayer.contentsScale = scale
-            metalLayer.drawableSize = CGSize(
-                width: bounds.width * scale,
-                height: bounds.height * scale
-            )
-        }
-
-        ghostty_surface_set_size(
-            surface,
-            UInt32(bounds.width * scale),
-            UInt32(bounds.height * scale)
-        )
+    // Convenience accessor for the ghostty surface
+    private var surface: ghostty_surface_t? {
+        terminalSurface?.surface
     }
 
     // MARK: - Input Handling
 
     override var acceptsFirstResponder: Bool { true }
 
-    private func ghosttyCharacters(from event: NSEvent) -> String? {
-        guard let chars = event.characters, !chars.isEmpty else { return nil }
-        for scalar in chars.unicodeScalars where scalar.value < 0x20 {
-            return nil
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result, let surface = surface {
+            ghostty_surface_set_focus(surface, true)
         }
-        return chars
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if let surface = surface {
+            ghostty_surface_set_focus(surface, false)
+        }
+        return super.resignFirstResponder()
+    }
+
+    // For NSTextInputClient - accumulates text during key events
+    private var keyTextAccumulator: [String]? = nil
+    private var markedText = NSMutableAttributedString()
+
+    // Prevents NSBeep for unimplemented actions from interpretKeyEvents
+    override func doCommand(by selector: Selector) {
+        // Intentionally empty - prevents system beep on unhandled key commands
     }
 
     override func keyDown(with event: NSEvent) {
@@ -248,22 +328,53 @@ class GhosttyNSView: NSView {
             return
         }
 
+        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+
+        // Set up text accumulator for interpretKeyEvents
+        keyTextAccumulator = []
+        defer { keyTextAccumulator = nil }
+
+        // Let the input system handle the event (for IME, dead keys, etc.)
         interpretKeyEvents([event])
 
+        // Build the key event
         var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.action = action
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.mods = modsFromEvent(event)
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.composing = false
+        keyEvent.composing = markedText.length > 0
 
-        if let text = ghosttyCharacters(from: event) {
-            text.withCString { ptr in
-                keyEvent.text = ptr
-                _ = ghostty_surface_key(surface, keyEvent)
+        // Use accumulated text from insertText, or fall back to event characters
+        if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
+            for text in accumulated {
+                text.withCString { ptr in
+                    keyEvent.text = ptr
+                    _ = ghostty_surface_key(surface, keyEvent)
+                }
             }
         } else {
-            keyEvent.text = nil
+            // No accumulated text - send the key with event characters
+            if let chars = event.characters, !chars.isEmpty {
+                // Filter out control characters
+                var hasControlChars = false
+                for scalar in chars.unicodeScalars where scalar.value < 0x20 {
+                    hasControlChars = true
+                    break
+                }
+                if hasControlChars {
+                    keyEvent.text = nil
+                } else {
+                    chars.withCString { ptr in
+                        keyEvent.text = ptr
+                        _ = ghostty_surface_key(surface, keyEvent)
+                        return
+                    }
+                    return
+                }
+            } else {
+                keyEvent.text = nil
+            }
             _ = ghostty_surface_key(surface, keyEvent)
         }
     }
@@ -353,11 +464,96 @@ class GhosttyNSView: NSView {
     }
 
     deinit {
-        if let displayLink = displayLink {
-            CVDisplayLinkStop(displayLink)
+        // Surface lifecycle is managed by TerminalSurface, not the view
+        terminalSurface = nil
+    }
+}
+
+// MARK: - NSTextInputClient
+
+extension GhosttyNSView: NSTextInputClient {
+    func hasMarkedText() -> Bool {
+        return markedText.length > 0
+    }
+
+    func markedRange() -> NSRange {
+        guard markedText.length > 0 else { return NSRange(location: NSNotFound, length: 0) }
+        return NSRange(location: 0, length: markedText.length)
+    }
+
+    func selectedRange() -> NSRange {
+        return NSRange(location: NSNotFound, length: 0)
+    }
+
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        switch string {
+        case let v as NSAttributedString:
+            markedText = NSMutableAttributedString(attributedString: v)
+        case let v as String:
+            markedText = NSMutableAttributedString(string: v)
+        default:
+            break
         }
+    }
+
+    func unmarkText() {
+        markedText.mutableString.setString("")
+    }
+
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        return []
+    }
+
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        return nil
+    }
+
+    func characterIndex(for point: NSPoint) -> Int {
+        return 0
+    }
+
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        guard let window = self.window else {
+            return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
+        }
+        let viewRect = NSRect(x: 0, y: 0, width: 0, height: 0)
+        let winRect = convert(viewRect, to: nil)
+        return window.convertToScreen(winRect)
+    }
+
+    func insertText(_ string: Any, replacementRange: NSRange) {
+        // Get the string value
+        var chars = ""
+        switch string {
+        case let v as NSAttributedString:
+            chars = v.string
+        case let v as String:
+            chars = v
+        default:
+            return
+        }
+
+        // Clear marked text since we're inserting
+        unmarkText()
+
+        // If we have an accumulator, we're in a keyDown event - accumulate the text
+        if keyTextAccumulator != nil {
+            keyTextAccumulator?.append(chars)
+            return
+        }
+
+        // Otherwise send directly to the terminal
         if let surface = surface {
-            ghostty_surface_free(surface)
+            chars.withCString { ptr in
+                var keyEvent = ghostty_input_key_s()
+                keyEvent.action = GHOSTTY_ACTION_PRESS
+                keyEvent.keycode = 0
+                keyEvent.mods = GHOSTTY_MODS_NONE
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+                keyEvent.text = ptr
+                keyEvent.composing = false
+                _ = ghostty_surface_key(surface, keyEvent)
+            }
         }
     }
 }
@@ -365,19 +561,33 @@ class GhosttyNSView: NSView {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
+    let terminalSurface: TerminalSurface
+    var isActive: Bool = true
+
     func makeNSView(context: Context) -> GhosttyNSView {
         let view = GhosttyNSView(frame: .zero)
+        view.attachSurface(terminalSurface)
         // Focus after view is in window
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            view.window?.makeFirstResponder(view)
+        if isActive {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                view.window?.makeFirstResponder(view)
+            }
         }
         return view
     }
 
     func updateNSView(_ nsView: GhosttyNSView, context: Context) {
-        // Focus on tab switch
-        DispatchQueue.main.async {
-            nsView.window?.makeFirstResponder(nsView)
+        // Ensure the surface is attached
+        nsView.attachSurface(terminalSurface)
+
+        if isActive {
+            // Focus on tab switch and notify surface
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        } else {
+            // Unfocus when tab becomes inactive
+            terminalSurface.setFocus(false)
         }
     }
 }

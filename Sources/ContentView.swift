@@ -15,13 +15,14 @@ struct ContentView: View {
                 .fill(Color(nsColor: .separatorColor))
                 .frame(width: 1)
 
-            // Terminal Content
-            if let selectedId = tabManager.selectedTabId,
-               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
-                GhosttyTerminalView()
-                    .id(tab.id)
-            } else {
-                Color(nsColor: .windowBackgroundColor)
+            // Terminal Content - use ZStack to keep all surfaces alive
+            ZStack {
+                ForEach(tabManager.tabs) { tab in
+                    let isActive = tabManager.selectedTabId == tab.id
+                    GhosttyTerminalView(terminalSurface: tab.terminalSurface, isActive: isActive)
+                        .opacity(isActive ? 1 : 0)
+                        .allowsHitTesting(isActive)
+                }
             }
         }
         .frame(minWidth: 800, minHeight: 600)

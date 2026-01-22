@@ -5,10 +5,12 @@ class Tab: Identifiable, ObservableObject {
     let id = UUID()
     @Published var title: String
     @Published var currentDirectory: String
+    let terminalSurface: TerminalSurface
 
     init(title: String = "Terminal") {
         self.title = title
         self.currentDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+        self.terminalSurface = TerminalSurface()
     }
 }
 
