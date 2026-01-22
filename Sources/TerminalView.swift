@@ -35,53 +35,15 @@ struct TerminalContainerView: View {
     }
 }
 
-final class ScrollReportingTerminalView: LocalProcessTerminalView {
-    var onScroll: (() -> Void)?
-
-    override func scrolled(source: TerminalView, position: Double) {
-        super.scrolled(source: source, position: position)
-        onScroll?()
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        if let scrollView = enclosingScrollView {
-            scrollView.scrollWheel(with: event)
-            return
-        }
-        super.scrollWheel(with: event)
-    }
-}
-
-// Custom wrapper to handle first responder and native scrollbars
+// Custom wrapper to handle first responder and layout
 class FocusableTerminalView: NSView {
-    private let scrollView = NSScrollView()
-    private let documentView = NSView()
-    private let debugScrollerOverlay = NSView()
-    var terminalView: ScrollReportingTerminalView? {
-        didSet {
-            configureTerminalView()
-        }
-    }
-    private var observers: [NSObjectProtocol] = []
-    private var isLiveScrolling = false
-    private var isProgrammaticScroll = false
-    private var lastSentPosition: Double?
+    var terminalView: LocalProcessTerminalView?
+    private var scroller: NSScroller?
+    private var fadeTimer: Timer?
+    private var scrollMonitor: Any?
+    private var lastScrollerValue: Double = 0
 
     override var acceptsFirstResponder: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setupScrollView()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupScrollView()
-    }
-
-    deinit {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
-    }
 
     override func becomeFirstResponder() -> Bool {
         if let tv = terminalView {
@@ -99,130 +61,73 @@ class FocusableTerminalView: NSView {
 
     override func layout() {
         super.layout()
-        scrollView.frame = bounds
-        let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollView.scrollerStyle)
-        debugScrollerOverlay.frame = NSRect(x: bounds.maxX - scrollerWidth, y: 0, width: scrollerWidth, height: bounds.height)
         if let tv = terminalView, bounds.size.width > 0, bounds.size.height > 0 {
-            tv.setFrameSize(scrollView.contentSize)
-            documentView.frame.size.width = scrollView.bounds.width
-            synchronizeScrollView()
-            synchronizeTerminalView()
+            tv.setFrameSize(bounds.size)
+            setupScrollerTracking(in: tv)
         }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil, let tv = terminalView, bounds.size.width > 0 {
-            tv.setFrameSize(scrollView.contentSize)
-            documentView.frame.size.width = scrollView.bounds.width
-            synchronizeScrollView()
-            synchronizeTerminalView()
+            tv.setFrameSize(bounds.size)
+            setupScrollerTracking(in: tv)
+            setupScrollMonitor()
         }
     }
 
-    private func setupScrollView() {
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = false
-        scrollView.usesPredominantAxisScrolling = true
-        scrollView.scrollerStyle = .overlay
-        scrollView.drawsBackground = false
-        scrollView.contentView.clipsToBounds = false
-        scrollView.documentView = documentView
-        addSubview(scrollView)
-
-        debugScrollerOverlay.wantsLayer = true
-        debugScrollerOverlay.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.25).cgColor
-        addSubview(debugScrollerOverlay)
-
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleScrollChange()
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSScrollView.willStartLiveScrollNotification,
-            object: scrollView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.isLiveScrolling = true
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSScrollView.didEndLiveScrollNotification,
-            object: scrollView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.isLiveScrolling = false
-        })
-    }
-
-    private func configureTerminalView() {
-        guard let tv = terminalView else { return }
-        tv.onScroll = { [weak self] in
-            self?.synchronizeScrollView()
-        }
-        documentView.addSubview(tv)
-        hideInternalScroller(in: tv)
-        synchronizeScrollView()
-        synchronizeTerminalView()
-    }
-
-    private func documentHeight() -> CGFloat {
-        let contentHeight = scrollView.contentSize.height
-        guard let tv = terminalView, tv.canScroll else { return contentHeight }
-        let thumb = max(tv.scrollThumbsize, 0.01)
-        return max(contentHeight / thumb, contentHeight)
-    }
-
-    private func synchronizeScrollView() {
-        documentView.frame.size.height = documentHeight()
-        guard let tv = terminalView else { return }
-
-        if !isLiveScrolling {
-            let contentHeight = scrollView.contentSize.height
-            let maxOffset = max(documentView.frame.height - contentHeight, 0)
-            let offsetY = (1 - tv.scrollPosition) * maxOffset
-            isProgrammaticScroll = true
-            scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-            isProgrammaticScroll = false
-        } else {
-            scrollView.reflectScrolledClipView(scrollView.contentView)
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil, let monitor = scrollMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollMonitor = nil
         }
     }
 
-    private func synchronizeTerminalView() {
-        guard let tv = terminalView else { return }
-        let visibleRect = scrollView.contentView.documentVisibleRect
-        tv.frame.origin = visibleRect.origin
-        tv.frame.size = scrollView.contentSize
-    }
-
-    private func handleScrollChange() {
-        synchronizeTerminalView()
-        guard !isProgrammaticScroll, let tv = terminalView else { return }
-        let contentHeight = scrollView.contentSize.height
-        let maxOffset = max(documentView.frame.height - contentHeight, 0)
-        guard maxOffset > 0 else { return }
-        let offsetY = scrollView.contentView.documentVisibleRect.origin.y
-        let position = 1 - Double(offsetY / maxOffset)
-        if let last = lastSentPosition, abs(last - position) < 0.0001 {
-            return
+    private func setupScrollerTracking(in view: NSView) {
+        if scroller == nil {
+            for subview in view.subviews {
+                if let s = subview as? NSScroller {
+                    scroller = s
+                    s.alphaValue = 0  // Start hidden
+                    lastScrollerValue = s.doubleValue
+                    break
+                }
+            }
         }
-        lastSentPosition = position
-        tv.scroll(toPosition: position)
     }
 
-    private func hideInternalScroller(in view: NSView) {
-        for subview in view.subviews {
-            if let scroller = subview as? NSScroller {
-                scroller.isHidden = true
-                scroller.alphaValue = 0
-            } else if !subview.subviews.isEmpty {
-                hideInternalScroller(in: subview)
+    private func setupScrollMonitor() {
+        guard scrollMonitor == nil else { return }
+
+        // Monitor scroll wheel events
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            if let self = self,
+               let window = self.window,
+               event.window == window {
+                self.showScrollerTemporarily()
+            }
+            return event
+        }
+    }
+
+    func showScrollerTemporarily() {
+        guard let scroller = scroller else { return }
+
+        // Show scroller
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            scroller.animator().alphaValue = 1
+        }
+
+        // Cancel existing timer
+        fadeTimer?.invalidate()
+
+        // Fade out after 1.5 seconds of no scrolling
+        fadeTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                self?.scroller?.animator().alphaValue = 0
             }
         }
     }
@@ -236,7 +141,7 @@ struct SwiftTermView: NSViewRepresentable {
         let containerView = FocusableTerminalView()
         containerView.wantsLayer = true
 
-        let terminalView = ScrollReportingTerminalView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let terminalView = LocalProcessTerminalView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
 
         // Use autoresizingMask instead of Auto Layout for SwiftTerm compatibility
         terminalView.autoresizingMask = [.width, .height]
@@ -267,6 +172,7 @@ struct SwiftTermView: NSViewRepresentable {
         context.coordinator.terminalView = terminalView
         context.coordinator.containerView = containerView
 
+        containerView.addSubview(terminalView)
         containerView.terminalView = terminalView
 
         // Get shell path
