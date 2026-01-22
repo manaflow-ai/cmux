@@ -705,6 +705,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     private var isActive = true
+    private var focusWorkItem: DispatchWorkItem?
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
@@ -775,6 +776,7 @@ final class GhosttySurfaceScrollView: NSView {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        cancelFocusRequest()
     }
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
@@ -833,6 +835,8 @@ final class GhosttySurfaceScrollView: NSView {
         updateFocusForWindow()
         if active {
             requestFocus()
+        } else {
+            cancelFocusRequest()
         }
     }
 
@@ -843,6 +847,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func requestFocus(delay: TimeInterval? = nil) {
+        guard isActive else { return }
         let maxDelay: TimeInterval = 0.5
         guard (delay ?? 0) < maxDelay else { return }
 
@@ -852,10 +857,17 @@ final class GhosttySurfaceScrollView: NSView {
             0.05
         }
 
+        cancelFocusRequest()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            guard self.isActive else { return }
             guard let window = self.window else {
                 self.requestFocus(delay: nextDelay)
+                return
+            }
+            guard window.isKeyWindow else { return }
+
+            if window.firstResponder === self.surfaceView {
                 return
             }
 
@@ -864,14 +876,24 @@ final class GhosttySurfaceScrollView: NSView {
             }
 
             window.makeFirstResponder(self.surfaceView)
+
+            if window.firstResponder !== self.surfaceView {
+                self.requestFocus(delay: nextDelay)
+            }
         }
 
         let queue = DispatchQueue.main
+        focusWorkItem = work
         if let delay {
             queue.asyncAfter(deadline: .now() + delay, execute: work)
         } else {
             queue.async(execute: work)
         }
+    }
+
+    private func cancelFocusRequest() {
+        focusWorkItem?.cancel()
+        focusWorkItem = nil
     }
 
     private func synchronizeSurfaceView() {
