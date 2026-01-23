@@ -8,7 +8,7 @@ struct ContentView: View {
     @State private var sidebarMinX: CGFloat = 0
     @State private var isResizerHovering = false
     @State private var isResizerDragging = false
-    private let sidebarHandleWidth: CGFloat = 10
+    private let sidebarHandleWidth: CGFloat = 6
     @FocusState private var focusedTabId: UUID?
     @State private var sidebarSelection: SidebarSelection = .tabs
 
@@ -19,65 +19,61 @@ struct ContentView: View {
                 sidebarWidth: sidebarWidth,
                 selection: $sidebarSelection
             )
-                .frame(width: sidebarWidth)
-                .background(GeometryReader { proxy in
-                    Color.clear
-                        .preference(key: SidebarFramePreferenceKey.self, value: proxy.frame(in: .global))
-                })
-
-            // Divider
-            ZStack {
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor))
-                    .frame(width: 1)
-            }
-            .frame(width: sidebarHandleWidth)
-            .contentShape(Rectangle())
-            .accessibilityIdentifier("SidebarResizer")
-            .onHover { hovering in
-                if hovering {
-                    if !isResizerHovering {
-                        NSCursor.resizeLeftRight.push()
-                        isResizerHovering = true
-                    }
-                } else if isResizerHovering {
-                    if !isResizerDragging {
-                        NSCursor.pop()
-                        isResizerHovering = false
-                    }
-                }
-            }
-            .onDisappear {
-                if isResizerHovering || isResizerDragging {
-                    NSCursor.pop()
-                    isResizerHovering = false
-                    isResizerDragging = false
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { value in
-                        if !isResizerDragging {
-                            isResizerDragging = true
+            .frame(width: sidebarWidth)
+            .background(GeometryReader { proxy in
+                Color.clear
+                    .preference(key: SidebarFramePreferenceKey.self, value: proxy.frame(in: .global))
+            })
+            .overlay(alignment: .trailing) {
+                Color.clear
+                    .frame(width: sidebarHandleWidth)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("SidebarResizer")
+                    .onHover { hovering in
+                        if hovering {
                             if !isResizerHovering {
                                 NSCursor.resizeLeftRight.push()
                                 isResizerHovering = true
                             }
-                        }
-                        let nextWidth = max(140, min(360, value.location.x - sidebarMinX - sidebarHandleWidth / 2))
-                        withTransaction(Transaction(animation: nil)) {
-                            sidebarWidth = nextWidth
-                        }
-                    }
-                    .onEnded { _ in
-                        if isResizerDragging {
-                            isResizerDragging = false
-                            if !isResizerHovering {
+                        } else if isResizerHovering {
+                            if !isResizerDragging {
                                 NSCursor.pop()
+                                isResizerHovering = false
                             }
                         }
                     }
-            )
+                    .onDisappear {
+                        if isResizerHovering || isResizerDragging {
+                            NSCursor.pop()
+                            isResizerHovering = false
+                            isResizerDragging = false
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                            .onChanged { value in
+                                if !isResizerDragging {
+                                    isResizerDragging = true
+                                    if !isResizerHovering {
+                                        NSCursor.resizeLeftRight.push()
+                                        isResizerHovering = true
+                                    }
+                                }
+                                let nextWidth = max(140, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
+                                withTransaction(Transaction(animation: nil)) {
+                                    sidebarWidth = nextWidth
+                                }
+                            }
+                            .onEnded { _ in
+                                if isResizerDragging {
+                                    isResizerDragging = false
+                                    if !isResizerHovering {
+                                        NSCursor.pop()
+                                    }
+                                }
+                            }
+                    )
+            }
 
             // Terminal Content - use ZStack to keep all surfaces alive
             ZStack {
