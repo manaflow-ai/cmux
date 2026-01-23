@@ -5,6 +5,7 @@ import UserNotifications
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
+    let surfaceId: UUID?
     let title: String
     let body: String
     let createdAt: Date
@@ -28,21 +29,20 @@ final class TerminalNotificationStore: ObservableObject {
         notifications.filter { !$0.isRead }.count
     }
 
-    func addNotification(tabId: UUID, title: String, body: String) {
+    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, body: String) {
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
         let shouldMarkRead = NSApp.isActive && (NSApp.keyWindow?.isKeyWindow ?? false) && isActiveTab
         let notification = TerminalNotification(
             id: UUID(),
             tabId: tabId,
+            surfaceId: surfaceId,
             title: title,
             body: body,
             createdAt: Date(),
             isRead: shouldMarkRead
         )
         notifications.insert(notification, at: 0)
-        if !shouldMarkRead {
-            scheduleUserNotification(notification)
-        }
+        scheduleUserNotification(notification)
     }
 
     func markRead(id: UUID) {
@@ -91,6 +91,9 @@ final class TerminalNotificationStore: ObservableObject {
                 "tabId": notification.tabId.uuidString,
                 "notificationId": notification.id.uuidString,
             ]
+            if let surfaceId = notification.surfaceId {
+                content.userInfo["surfaceId"] = surfaceId.uuidString
+            }
 
             let request = UNNotificationRequest(
                 identifier: notification.id.uuidString,

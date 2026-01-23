@@ -42,7 +42,7 @@ struct ContentView: View {
                 ZStack {
                     ForEach(tabManager.tabs) { tab in
                         let isActive = tabManager.selectedTabId == tab.id
-                        GhosttyTerminalView(terminalSurface: tab.terminalSurface, isActive: isActive)
+                        TerminalSplitTreeView(tab: tab, isTabActive: isActive)
                             .opacity(isActive ? 1 : 0)
                             .allowsHitTesting(isActive)
                             .focusable()

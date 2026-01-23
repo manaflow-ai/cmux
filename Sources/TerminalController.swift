@@ -254,7 +254,7 @@ class TerminalController {
         DispatchQueue.main.sync {
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let surface = tab.terminalSurface.surface else {
+                  let surface = tab.focusedSurface?.surface else {
                 return
             }
 
@@ -290,7 +290,7 @@ class TerminalController {
         DispatchQueue.main.sync {
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let surface = tab.terminalSurface.surface else {
+                  let surface = tab.focusedSurface?.surface else {
                 return
             }
 

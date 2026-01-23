@@ -20,7 +20,7 @@ struct NotificationsPage: View {
                                 notification: notification,
                                 tabTitle: tabTitle(for: notification.tabId),
                                 onOpen: {
-                                    tabManager.focusTab(notification.tabId)
+                                    tabManager.focusTab(notification.tabId, surfaceId: notification.surfaceId)
                                     notificationStore.markRead(id: notification.id)
                                     selection = .tabs
                                 },

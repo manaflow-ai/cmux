@@ -55,9 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        let shouldPresent = shouldPresentNotification(notification)
-        let options: UNNotificationPresentationOptions = shouldPresent ? [.banner, .sound] : []
-        completionHandler(options)
+        completionHandler([.banner, .sound])
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
@@ -65,6 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let tabId = UUID(uuidString: tabIdString) else {
             return
         }
+        let surfaceId: UUID? = {
+            guard let surfaceIdString = response.notification.request.content.userInfo["surfaceId"] as? String else {
+                return nil
+            }
+            return UUID(uuidString: surfaceIdString)
+        }()
 
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
@@ -75,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                           let notificationId = UUID(uuidString: notificationIdString) {
                     self.notificationStore?.markRead(id: notificationId)
                 }
-                self.tabManager?.focusTab(tabId)
+                self.tabManager?.focusTab(tabId, surfaceId: surfaceId)
             }
         case UNNotificationDismissActionIdentifier:
             DispatchQueue.main.async {
@@ -91,21 +95,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func shouldPresentNotification(_ notification: UNNotification) -> Bool {
-        guard let tabManager else { return true }
-        guard let tabIdString = notification.request.content.userInfo["tabId"] as? String,
-              let tabId = UUID(uuidString: tabIdString) else {
-            return true
-        }
-
-        let isAppActive = NSApp.isActive
-        let isTabActive = tabManager.selectedTabId == tabId
-        let isKeyWindow = NSApp.keyWindow?.isKeyWindow ?? false
-
-        if isAppActive && isTabActive && isKeyWindow {
-            return false
-        }
-
-        return true
-    }
 }

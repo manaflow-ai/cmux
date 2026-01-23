@@ -151,7 +151,19 @@ class GhosttyApp {
             }
         }
         runtimeConfig.close_surface_cb = { userdata, processAlive in
-            // Surface closed
+            guard let userdata else { return }
+            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else {
+                return
+            }
+
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.tabManager?.closeSurface(
+                    tabId: tabId,
+                    surfaceId: surfaceId
+                )
+            }
         }
 
         // Create app
@@ -191,18 +203,64 @@ class GhosttyApp {
         ghostty_app_tick(app)
     }
 
+    private func performOnMain<T>(_ work: () -> T) -> T {
+        if Thread.isMainThread {
+            return work()
+        }
+        return DispatchQueue.main.sync(execute: work)
+    }
+
+    private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitTree<TerminalSurface>.NewDirection? {
+        switch direction {
+        case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
+        case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
+        case GHOSTTY_SPLIT_DIRECTION_DOWN: return .down
+        case GHOSTTY_SPLIT_DIRECTION_UP: return .up
+        default: return nil
+        }
+    }
+
+    private func focusDirection(from direction: ghostty_action_goto_split_e) -> SplitTree<TerminalSurface>.FocusDirection? {
+        switch direction {
+        case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .previous
+        case GHOSTTY_GOTO_SPLIT_NEXT: return .next
+        case GHOSTTY_GOTO_SPLIT_UP: return .spatial(.up)
+        case GHOSTTY_GOTO_SPLIT_DOWN: return .spatial(.down)
+        case GHOSTTY_GOTO_SPLIT_LEFT: return .spatial(.left)
+        case GHOSTTY_GOTO_SPLIT_RIGHT: return .spatial(.right)
+        default: return nil
+        }
+    }
+
+    private func resizeDirection(from direction: ghostty_action_resize_split_direction_e) -> SplitTree<TerminalSurface>.Spatial.Direction? {
+        switch direction {
+        case GHOSTTY_RESIZE_SPLIT_UP: return .up
+        case GHOSTTY_RESIZE_SPLIT_DOWN: return .down
+        case GHOSTTY_RESIZE_SPLIT_LEFT: return .left
+        case GHOSTTY_RESIZE_SPLIT_RIGHT: return .right
+        default: return nil
+        }
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
-               let tabId = AppDelegate.shared?.tabManager?.selectedTabId {
+               let tabManager = AppDelegate.shared?.tabManager,
+               let tabId = tabManager.selectedTabId {
                 let actionTitle = action.action.desktop_notification.title
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
                 let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
                 let body = actionBody.isEmpty ? actionTitle : actionBody
+                let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                 DispatchQueue.main.async {
-                    TerminalNotificationStore.shared.addNotification(tabId: tabId, title: tabTitle, body: body)
+                    TerminalNotificationStore.shared.addNotification(
+                        tabId: tabId,
+                        surfaceId: surfaceId,
+                        title: tabTitle,
+                        body: body
+                    )
                 }
                 return true
             }
@@ -213,6 +271,59 @@ class GhosttyApp {
         let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
 
         switch action.tag {
+        case GHOSTTY_ACTION_NEW_SPLIT:
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id,
+                  let direction = splitDirection(from: action.action.new_split),
+                  let tabManager = AppDelegate.shared?.tabManager else {
+                return false
+            }
+            return performOnMain {
+                tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction)
+            }
+        case GHOSTTY_ACTION_GOTO_SPLIT:
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id,
+                  let direction = focusDirection(from: action.action.goto_split),
+                  let tabManager = AppDelegate.shared?.tabManager else {
+                return false
+            }
+            return performOnMain {
+                tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
+            }
+        case GHOSTTY_ACTION_RESIZE_SPLIT:
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id,
+                  let direction = resizeDirection(from: action.action.resize_split.direction),
+                  let tabManager = AppDelegate.shared?.tabManager else {
+                return false
+            }
+            let amount = action.action.resize_split.amount
+            return performOnMain {
+                tabManager.resizeSplit(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    direction: direction,
+                    amount: amount
+                )
+            }
+        case GHOSTTY_ACTION_EQUALIZE_SPLITS:
+            guard let tabId = surfaceView.tabId,
+                  let tabManager = AppDelegate.shared?.tabManager else {
+                return false
+            }
+            return performOnMain {
+                tabManager.equalizeSplits(tabId: tabId)
+            }
+        case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id,
+                  let tabManager = AppDelegate.shared?.tabManager else {
+                return false
+            }
+            return performOnMain {
+                tabManager.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
+            }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.scrollbar = scrollbar
@@ -252,6 +363,7 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
+            let surfaceId = surfaceView.terminalSurface?.id
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
@@ -259,7 +371,12 @@ class GhosttyApp {
             let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
             let body = actionBody.isEmpty ? actionTitle : actionBody
             DispatchQueue.main.async {
-                TerminalNotificationStore.shared.addNotification(tabId: tabId, title: tabTitle, body: body)
+                TerminalNotificationStore.shared.addNotification(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: tabTitle,
+                    body: body
+                )
             }
             return true
         default:
@@ -270,15 +387,27 @@ class GhosttyApp {
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
-class TerminalSurface {
+class TerminalSurface: Identifiable {
     private(set) var surface: ghostty_surface_t?
     private var displayLink: CVDisplayLink?
     private weak var attachedView: GhosttyNSView?
+    let id: UUID
     let tabId: UUID
+    private let surfaceContext: ghostty_surface_context_e
+    private let configTemplate: ghostty_surface_config_s?
+    let hostedView: GhosttySurfaceScrollView
+    private let surfaceView: GhosttyNSView
 
-    init(tabId: UUID) {
+    init(tabId: UUID, context: ghostty_surface_context_e, configTemplate: ghostty_surface_config_s?) {
+        self.id = UUID()
         self.tabId = tabId
+        self.surfaceContext = context
+        self.configTemplate = configTemplate
+        let view = GhosttyNSView(frame: .zero)
+        self.surfaceView = view
+        self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         // Surface is created when attached to a view
+        hostedView.attachSurface(self)
     }
 
     func attachToView(_ view: GhosttyNSView) {
@@ -288,14 +417,15 @@ class TerminalSurface {
             return
         }
 
+        if let attachedView, attachedView !== view {
+            return
+        }
+
         attachedView = view
 
         // If surface doesn't exist yet, create it
         if surface == nil {
             createSurface(for: view)
-        } else {
-            // Re-attach existing surface to new view
-            reattachSurface(to: view)
         }
     }
 
@@ -309,12 +439,12 @@ class TerminalSurface {
 
         updateMetalLayer(for: view)
 
-        var surfaceConfig = ghostty_surface_config_new()
+        var surfaceConfig = configTemplate ?? ghostty_surface_config_new()
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform.macos.nsview = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.scale_factor = scale
-        surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_TAB
+        surfaceConfig.context = surfaceContext
 
         surface = ghostty_surface_new(app, &surfaceConfig)
 
@@ -330,21 +460,6 @@ class TerminalSurface {
         )
 
         setupDisplayLink()
-    }
-
-    private func reattachSurface(to view: GhosttyNSView) {
-        guard let surface = surface else { return }
-
-        let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-
-        updateMetalLayer(for: view)
-        // Update the nsview pointer in the surface
-        ghostty_surface_set_content_scale(surface, scale, scale)
-        ghostty_surface_set_size(
-            surface,
-            UInt32(view.bounds.width * scale),
-            UInt32(view.bounds.height * scale)
-        )
     }
 
     private func updateMetalLayer(for view: GhosttyNSView) {
@@ -408,12 +523,13 @@ class TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
-    var terminalSurface: TerminalSurface?
+    weak var terminalSurface: TerminalSurface?
     private var surfaceAttached = false
     var scrollbar: GhosttyScrollbar?
     var cellSize: CGSize = .zero
     var desiredFocus: Bool = false
     var tabId: UUID?
+    var onFocus: (() -> Void)?
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
 
@@ -561,6 +677,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result, let surface = surface {
+            onFocus?()
             ghostty_surface_set_focus(surface, true)
         }
         return result
@@ -1033,6 +1150,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.attachSurface(terminalSurface)
     }
 
+    func setFocusHandler(_ handler: (() -> Void)?) {
+        surfaceView.onFocus = handler
+    }
+
     func setActive(_ active: Bool) {
         isActive = active
         updateFocusForWindow()
@@ -1250,17 +1371,19 @@ extension GhosttyNSView: NSTextInputClient {
 struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
+    var onFocus: ((UUID) -> Void)? = nil
 
     func makeNSView(context: Context) -> GhosttySurfaceScrollView {
-        let surfaceView = GhosttyNSView(frame: .zero)
-        let view = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let view = terminalSurface.hostedView
         view.attachSurface(terminalSurface)
         view.setActive(isActive)
+        view.setFocusHandler { onFocus?(terminalSurface.id) }
         return view
     }
 
     func updateNSView(_ nsView: GhosttySurfaceScrollView, context: Context) {
         nsView.attachSurface(terminalSurface)
         nsView.setActive(isActive)
+        nsView.setFocusHandler { onFocus?(terminalSurface.id) }
     }
 }
