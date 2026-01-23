@@ -21,7 +21,7 @@ struct NotificationsPage: View {
                                 tabTitle: tabTitle(for: notification.tabId),
                                 onOpen: {
                                     tabManager.focusTab(notification.tabId, surfaceId: notification.surfaceId)
-                                    notificationStore.markRead(id: notification.id)
+                                    markReadIfFocused(notification)
                                     selection = .tabs
                                 },
                                 onClear: {
@@ -73,6 +73,16 @@ struct NotificationsPage: View {
 
     private func tabTitle(for tabId: UUID) -> String? {
         tabManager.tabs.first(where: { $0.id == tabId })?.title
+    }
+
+    private func markReadIfFocused(_ notification: TerminalNotification) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard tabManager.selectedTabId == notification.tabId else { return }
+            if let surfaceId = notification.surfaceId {
+                guard tabManager.focusedSurfaceId(for: notification.tabId) == surfaceId else { return }
+            }
+            notificationStore.markRead(id: notification.id)
+        }
     }
 }
 

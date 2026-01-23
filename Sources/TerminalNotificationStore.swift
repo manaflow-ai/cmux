@@ -31,7 +31,9 @@ final class TerminalNotificationStore: ObservableObject {
 
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, body: String) {
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
-        let shouldMarkRead = NSApp.isActive && (NSApp.keyWindow?.isKeyWindow ?? false) && isActiveTab
+        let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
+        let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
+        let shouldMarkRead = NSApp.isActive && (NSApp.keyWindow?.isKeyWindow ?? false) && isActiveTab && isFocusedSurface
         let notification = TerminalNotification(
             id: UUID(),
             tabId: tabId,

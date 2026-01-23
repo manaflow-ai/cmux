@@ -21,6 +21,9 @@ Usage:
     client.new_tab()
     client.list_tabs()
     client.select_tab(0)
+    client.new_split("right")
+    client.list_surfaces()
+    client.focus_surface(0)
 
     client.close()
 """
@@ -125,6 +128,12 @@ class GhosttyTabs:
             return response[3:]
         raise GhosttyTabsError(response)
 
+    def new_split(self, direction: str) -> None:
+        """Create a split in the given direction (left/right/up/down)."""
+        response = self._send_command(f"new_split {direction}")
+        if not response.startswith("OK"):
+            raise GhosttyTabsError(response)
+
     def close_tab(self, tab_id: str) -> None:
         """Close a tab by ID"""
         response = self._send_command(f"close_tab {tab_id}")
@@ -134,6 +143,34 @@ class GhosttyTabs:
     def select_tab(self, tab: str | int) -> None:
         """Select a tab by ID or index"""
         response = self._send_command(f"select_tab {tab}")
+        if not response.startswith("OK"):
+            raise GhosttyTabsError(response)
+
+    def list_surfaces(self, tab: str | int | None = None) -> List[Tuple[int, str, bool]]:
+        """
+        List surfaces for a tab. Returns list of (index, id, is_focused) tuples.
+        If tab is None, uses the current tab.
+        """
+        arg = "" if tab is None else str(tab)
+        response = self._send_command(f"list_surfaces {arg}".rstrip())
+        if response in ("No surfaces", "ERROR: Tab not found"):
+            return []
+
+        surfaces = []
+        for line in response.split("\n"):
+            if not line.strip():
+                continue
+            selected = line.startswith("*")
+            parts = line.lstrip("* ").split(" ", 1)
+            if len(parts) >= 2:
+                index = int(parts[0].rstrip(":"))
+                surface_id = parts[1]
+                surfaces.append((index, surface_id, selected))
+        return surfaces
+
+    def focus_surface(self, surface: str | int) -> None:
+        """Focus a surface by ID or index in the current tab."""
+        response = self._send_command(f"focus_surface {surface}")
         if not response.startswith("OK"):
             raise GhosttyTabsError(response)
 
@@ -160,6 +197,13 @@ class GhosttyTabs:
         if not response.startswith("OK"):
             raise GhosttyTabsError(response)
 
+    def send_surface(self, surface: str | int, text: str) -> None:
+        """Send text to a specific surface by ID or index in the current tab."""
+        escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+        response = self._send_command(f"send_surface {surface} {escaped}")
+        if not response.startswith("OK"):
+            raise GhosttyTabsError(response)
+
     def send_key(self, key: str) -> None:
         """
         Send a special key to the current terminal.
@@ -170,6 +214,12 @@ class GhosttyTabs:
             ctrl-<letter> for any letter
         """
         response = self._send_command(f"send_key {key}")
+        if not response.startswith("OK"):
+            raise GhosttyTabsError(response)
+
+    def send_key_surface(self, surface: str | int, key: str) -> None:
+        """Send a special key to a specific surface by ID or index in the current tab."""
+        response = self._send_command(f"send_key_surface {surface} {key}")
         if not response.startswith("OK"):
             raise GhosttyTabsError(response)
 

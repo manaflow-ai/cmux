@@ -64,14 +64,6 @@ struct ContentView: View {
         }
         .onChange(of: tabManager.selectedTabId) { newValue in
             focusedTabId = newValue
-            if let newValue {
-                notificationStore.markRead(forTabId: newValue)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            if let selected = tabManager.selectedTabId {
-                notificationStore.markRead(forTabId: selected)
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelection = .tabs
