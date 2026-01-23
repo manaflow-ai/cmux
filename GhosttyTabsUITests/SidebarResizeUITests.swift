@@ -1,0 +1,33 @@
+import XCTest
+
+final class SidebarResizeUITests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+    }
+
+    func testSidebarResizerTracksCursor() {
+        let app = XCUIApplication()
+        app.launch()
+
+        let elements = app.descendants(matching: .any)
+        let resizer = elements["SidebarResizer"]
+        XCTAssertTrue(resizer.waitForExistence(timeout: 5.0))
+
+        let initialX = resizer.frame.minX
+
+        let start = resizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: 80, dy: 0))
+        start.press(forDuration: 0.1, thenDragTo: end)
+
+        let afterX = resizer.frame.minX
+        XCTAssertEqual(afterX, initialX + 80, accuracy: 2.0)
+
+        let startBack = resizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let endBack = startBack.withOffset(CGVector(dx: -120, dy: 0))
+        startBack.press(forDuration: 0.1, thenDragTo: endBack)
+
+        let afterBackX = resizer.frame.minX
+        XCTAssertEqual(afterBackX, afterX - 120, accuracy: 2.0)
+    }
+}

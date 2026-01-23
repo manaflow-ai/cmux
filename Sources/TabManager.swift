@@ -8,6 +8,7 @@ class Tab: Identifiable, ObservableObject {
     @Published var currentDirectory: String
     @Published var splitTree: SplitTree<TerminalSurface>
     @Published var focusedSurfaceId: UUID?
+    @Published var surfaceDirectories: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
 
     init(title: String = "Terminal") {
@@ -38,6 +39,15 @@ class Tab: Identifiable, ObservableObject {
         if let selectedId = AppDelegate.shared?.tabManager?.selectedTabId, selectedId == self.id {
             focusedSurface?.applyWindowBackgroundIfActive()
         }
+    }
+
+    func updateSurfaceDirectory(surfaceId: UUID, directory: String) {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if surfaceDirectories[surfaceId] != trimmed {
+            surfaceDirectories[surfaceId] = trimmed
+        }
+        currentDirectory = trimmed
     }
 
     func triggerNotificationFocusFlash(surfaceId: UUID) {
@@ -245,6 +255,23 @@ class TabManager: ObservableObject {
         guard index != 0 else { return }
         let tab = tabs.remove(at: index)
         tabs.insert(tab, at: 0)
+    }
+
+    func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        let normalized = normalizeDirectory(directory)
+        tab.updateSurfaceDirectory(surfaceId: surfaceId, directory: normalized)
+    }
+
+    private func normalizeDirectory(_ directory: String) -> String {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return directory }
+        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed) {
+            if !url.path.isEmpty {
+                return url.path
+            }
+        }
+        return trimmed
     }
 
     func closeTab(_ tab: Tab) {

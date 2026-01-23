@@ -468,6 +468,18 @@ class GhosttyApp {
                 }
             }
             return true
+        case GHOSTTY_ACTION_PWD:
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
+            let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
+            DispatchQueue.main.async {
+                AppDelegate.shared?.tabManager?.updateSurfaceDirectory(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    directory: pwd
+                )
+            }
+            return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
             let surfaceId = surfaceView.terminalSurface?.id
