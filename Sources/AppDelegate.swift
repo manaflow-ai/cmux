@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
             DispatchQueue.main.async {
-                self.tabManager?.focusTab(tabId, surfaceId: surfaceId)
+                self.tabManager?.focusTabFromNotification(tabId, surfaceId: surfaceId)
                 self.markReadIfFocused(response: response, tabId: tabId, surfaceId: surfaceId)
             }
         case UNNotificationDismissActionIdentifier:

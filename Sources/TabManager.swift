@@ -40,6 +40,23 @@ class Tab: Identifiable, ObservableObject {
         }
     }
 
+    func triggerNotificationFocusFlash(surfaceId: UUID) {
+        triggerPanelFlash(surfaceId: surfaceId, requiresSplit: true)
+    }
+
+    func triggerDebugFlash(surfaceId: UUID) {
+        triggerPanelFlash(surfaceId: surfaceId, requiresSplit: false)
+    }
+
+    private func triggerPanelFlash(surfaceId: UUID, requiresSplit: Bool) {
+        guard let surface = surface(for: surfaceId) else { return }
+        focusSurface(surfaceId)
+        if requiresSplit && !splitTree.isSplit {
+            return
+        }
+        surface.hostedView.triggerFlash()
+    }
+
     func updateSplitViewSize(_ size: CGSize) {
         guard splitViewSize != size else { return }
         splitViewSize = size
@@ -205,10 +222,10 @@ class TabManager: ObservableObject {
     }
 
     func tickRender() {
-        for tab in tabs {
-            for surface in tab.splitTree.map({ $0 }) {
-                surface.renderIfVisible()
-            }
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        for surface in tab.splitTree.map({ $0 }) {
+            surface.renderIfVisible()
         }
     }
 
@@ -291,6 +308,20 @@ class TabManager: ObservableObject {
 
         if let surfaceId {
             focusSurface(tabId: tabId, surfaceId: surfaceId)
+        }
+    }
+
+    func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) {
+        focusTab(tabId, surfaceId: surfaceId)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self,
+                  let tab = self.tabs.first(where: { $0.id == tabId }),
+                  tab.splitTree.isSplit else { return }
+            let targetSurfaceId = surfaceId ?? tab.focusedSurfaceId
+            guard let targetSurfaceId,
+                  tab.surface(for: targetSurfaceId) != nil else { return }
+            tab.triggerNotificationFocusFlash(surfaceId: targetSurfaceId)
         }
     }
 

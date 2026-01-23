@@ -76,6 +76,9 @@ class GhosttyApp {
     }()
     private let backgroundLogURL = URL(fileURLWithPath: "/tmp/ghosttytabs-bg.log")
     private var appObservers: [NSObjectProtocol] = []
+    private var displayLink: CVDisplayLink?
+    private var displayLinkUsers = 0
+    private let displayLinkLock = NSLock()
 
     private init() {
         initializeGhostty()
@@ -212,6 +215,49 @@ class GhosttyApp {
         guard let app = app else { return }
         ghostty_app_tick(app)
         AppDelegate.shared?.tabManager?.tickRender()
+    }
+
+    func retainDisplayLink() {
+        displayLinkLock.lock()
+        defer { displayLinkLock.unlock() }
+        displayLinkUsers += 1
+        if displayLinkUsers == 1 {
+            startDisplayLink()
+        }
+    }
+
+    func releaseDisplayLink() {
+        displayLinkLock.lock()
+        defer { displayLinkLock.unlock() }
+        displayLinkUsers = max(0, displayLinkUsers - 1)
+        if displayLinkUsers == 0 {
+            stopDisplayLink()
+        }
+    }
+
+    private func startDisplayLink() {
+        if displayLink == nil {
+            var link: CVDisplayLink?
+            CVDisplayLinkCreateWithActiveCGDisplays(&link)
+            guard let newLink = link else { return }
+            displayLink = newLink
+            let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, _ -> CVReturn in
+                DispatchQueue.main.async {
+                    GhosttyApp.shared.tick()
+                }
+                return kCVReturnSuccess
+            }
+            CVDisplayLinkSetOutputCallback(newLink, callback, nil)
+        }
+        if let displayLink, !CVDisplayLinkIsRunning(displayLink) {
+            CVDisplayLinkStart(displayLink)
+        }
+    }
+
+    private func stopDisplayLink() {
+        if let displayLink, CVDisplayLinkIsRunning(displayLink) {
+            CVDisplayLinkStop(displayLink)
+        }
     }
 
     private func updateDefaultBackground(from config: ghostty_config_t?) {
@@ -497,7 +543,6 @@ class GhosttyApp {
 
 class TerminalSurface: Identifiable {
     private(set) var surface: ghostty_surface_t?
-    private var displayLink: CVDisplayLink?
     private weak var attachedView: GhosttyNSView?
     let id: UUID
     let tabId: UUID
@@ -505,6 +550,7 @@ class TerminalSurface: Identifiable {
     private let configTemplate: ghostty_surface_config_s?
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
+    private var ownsDisplayLink = false
 
     init(tabId: UUID, context: ghostty_surface_context_e, configTemplate: ghostty_surface_config_s?) {
         self.id = UUID()
@@ -568,8 +614,10 @@ class TerminalSurface: Identifiable {
             UInt32(view.bounds.height * scale)
         )
         ghostty_surface_refresh(surface)
-
-        setupDisplayLink()
+        if !ownsDisplayLink {
+            GhosttyApp.shared.retainDisplayLink()
+            ownsDisplayLink = true
+        }
     }
 
     private func updateMetalLayer(for view: GhosttyNSView) {
@@ -583,26 +631,6 @@ class TerminalSurface: Identifiable {
                 )
             }
         }
-    }
-
-    private func setupDisplayLink() {
-        guard displayLink == nil else { return }
-
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let newLink = link else { return }
-
-        displayLink = newLink
-
-        let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, _ -> CVReturn in
-            DispatchQueue.main.async {
-                GhosttyApp.shared.tick()
-            }
-            return kCVReturnSuccess
-        }
-
-        CVDisplayLinkSetOutputCallback(newLink, callback, nil)
-        CVDisplayLinkStart(newLink)
     }
 
     func updateSize(width: CGFloat, height: CGFloat, scale: CGFloat) {
@@ -633,8 +661,8 @@ class TerminalSurface: Identifiable {
     }
 
     deinit {
-        if let displayLink = displayLink {
-            CVDisplayLinkStop(displayLink)
+        if ownsDisplayLink {
+            GhosttyApp.shared.releaseDisplayLink()
         }
         if let surface = surface {
             ghostty_surface_free(surface)
@@ -652,6 +680,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var tabId: UUID?
     var onFocus: (() -> Void)?
+    var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -1092,6 +1121,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
 
         let menu = NSMenu()
+        if onTriggerFlash != nil {
+            let flashItem = menu.addItem(withTitle: "Trigger Flash", action: #selector(triggerFlash(_:)), keyEquivalent: "")
+            flashItem.target = self
+            menu.addItem(.separator())
+        }
         if ghostty_surface_has_selection(surface) {
             let item = menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
             item.target = self
@@ -1099,6 +1133,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
         pasteItem.target = self
         return menu
+    }
+
+    @objc private func triggerFlash(_ sender: Any?) {
+        onTriggerFlash?()
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -1219,10 +1257,20 @@ private final class GhosttyScrollView: NSScrollView {
     }
 }
 
+private final class GhosttyFlashOverlayView: NSView {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let flashOverlayView: GhosttyFlashOverlayView
+    private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
@@ -1233,6 +1281,8 @@ final class GhosttySurfaceScrollView: NSView {
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
         scrollView = GhosttyScrollView()
+        flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -1254,6 +1304,22 @@ final class GhosttySurfaceScrollView: NSView {
         super.init(frame: .zero)
 
         addSubview(scrollView)
+        flashOverlayView.wantsLayer = true
+        flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        flashOverlayView.layer?.masksToBounds = false
+        flashOverlayView.autoresizingMask = [.width, .height]
+        flashLayer.fillColor = NSColor.clear.cgColor
+        flashLayer.strokeColor = NSColor.systemBlue.cgColor
+        flashLayer.lineWidth = 3
+        flashLayer.lineJoin = .round
+        flashLayer.lineCap = .round
+        flashLayer.shadowColor = NSColor.systemBlue.cgColor
+        flashLayer.shadowOpacity = 0.6
+        flashLayer.shadowRadius = 6
+        flashLayer.shadowOffset = .zero
+        flashLayer.opacity = 0
+        flashOverlayView.layer?.addSublayer(flashLayer)
+        addSubview(flashOverlayView)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -1326,6 +1392,8 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.frame = bounds
         surfaceView.frame.size = scrollView.bounds.size
         documentView.frame.size.width = scrollView.bounds.width
+        flashOverlayView.frame = bounds
+        updateFlashPath()
         synchronizeScrollView()
         synchronizeSurfaceView()
     }
@@ -1360,6 +1428,30 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setFocusHandler(_ handler: (() -> Void)?) {
         surfaceView.onFocus = handler
+    }
+
+    func setTriggerFlashHandler(_ handler: (() -> Void)?) {
+        surfaceView.onTriggerFlash = handler
+    }
+
+    func triggerFlash() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.updateFlashPath()
+            self.flashLayer.removeAllAnimations()
+            self.flashLayer.opacity = 0
+            let animation = CAKeyframeAnimation(keyPath: "opacity")
+            animation.values = [0, 1, 0, 1, 0]
+            animation.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+            animation.duration = 0.9
+            animation.timingFunctions = [
+                CAMediaTimingFunction(name: .easeOut),
+                CAMediaTimingFunction(name: .easeIn),
+                CAMediaTimingFunction(name: .easeOut),
+                CAMediaTimingFunction(name: .easeIn)
+            ]
+            self.flashLayer.add(animation, forKey: "ghosttytabs.flash")
+        }
     }
 
     func setActive(_ active: Bool) {
@@ -1463,6 +1555,19 @@ final class GhosttySurfaceScrollView: NSView {
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
         surfaceView.frame.origin = visibleRect.origin
+    }
+
+    private func updateFlashPath() {
+        let inset: CGFloat = 2
+        let radius: CGFloat = 6
+        let bounds = flashOverlayView.bounds
+        flashLayer.frame = bounds
+        guard bounds.width > inset * 2, bounds.height > inset * 2 else {
+            flashLayer.path = nil
+            return
+        }
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        flashLayer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
     private func synchronizeScrollView() {
@@ -1612,12 +1717,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
     var onFocus: ((UUID) -> Void)? = nil
+    var onTriggerFlash: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> GhosttySurfaceScrollView {
         let view = terminalSurface.hostedView
         view.attachSurface(terminalSurface)
         view.setActive(isActive)
         view.setFocusHandler { onFocus?(terminalSurface.id) }
+        view.setTriggerFlashHandler(onTriggerFlash)
         return view
     }
 
@@ -1625,5 +1732,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         nsView.attachSurface(terminalSurface)
         nsView.setActive(isActive)
         nsView.setFocusHandler { onFocus?(terminalSurface.id) }
+        nsView.setTriggerFlashHandler(onTriggerFlash)
     }
 }

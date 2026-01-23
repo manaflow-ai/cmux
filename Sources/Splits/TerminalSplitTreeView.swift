@@ -21,6 +21,7 @@ struct TerminalSplitTreeView: View {
                     focusedSurfaceId: tab.focusedSurfaceId,
                     appearance: appearance,
                     onFocus: { tab.focusSurface($0) },
+                    onTriggerFlash: { tab.triggerDebugFlash(surfaceId: $0) },
                     onResize: { tab.updateSplitRatio(node: $0, ratio: $1) },
                     onEqualize: { tab.equalizeSplits() }
                 )
@@ -44,6 +45,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
     let focusedSurfaceId: UUID?
     let appearance: SplitAppearance
     let onFocus: (UUID) -> Void
+    let onTriggerFlash: (UUID) -> Void
     let onResize: (SplitTree<TerminalSurface>.Node, Double) -> Void
     let onEqualize: () -> Void
 
@@ -55,7 +57,8 @@ fileprivate struct TerminalSplitSubtreeView: View {
                 GhosttyTerminalView(
                     terminalSurface: surface,
                     isActive: isFocused,
-                    onFocus: { _ in onFocus(surface.id) }
+                    onFocus: { _ in onFocus(surface.id) },
+                    onTriggerFlash: { onTriggerFlash(surface.id) }
                 )
                 .background(Color.clear)
 
@@ -90,6 +93,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
                         focusedSurfaceId: focusedSurfaceId,
                         appearance: appearance,
                         onFocus: onFocus,
+                        onTriggerFlash: onTriggerFlash,
                         onResize: onResize,
                         onEqualize: onEqualize
                     )
@@ -103,6 +107,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
                         focusedSurfaceId: focusedSurfaceId,
                         appearance: appearance,
                         onFocus: onFocus,
+                        onTriggerFlash: onTriggerFlash,
                         onResize: onResize,
                         onEqualize: onEqualize
                     )
