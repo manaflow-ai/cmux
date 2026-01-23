@@ -3,6 +3,8 @@ import SwiftUI
 @main
 struct GhosttyTabsApp: App {
     @StateObject private var tabManager = TabManager()
+    @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // Start the terminal controller for programmatic control
@@ -13,9 +15,11 @@ struct GhosttyTabsApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(tabManager)
+                .environmentObject(notificationStore)
                 .onAppear {
                     // Start the Unix socket controller for programmatic access
                     TerminalController.shared.start(tabManager: tabManager)
+                    appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore)
                 }
         }
         .windowStyle(.hiddenTitleBar)

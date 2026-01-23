@@ -3,6 +3,59 @@ import AppKit
 import Metal
 import QuartzCore
 
+private enum GhosttyPasteboardHelper {
+    private static let selectionPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
+    )
+    private static let utf8PlainTextType = NSPasteboard.PasteboardType("public.utf8-plain-text")
+    private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+
+    static func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
+        switch location {
+        case GHOSTTY_CLIPBOARD_STANDARD:
+            return .general
+        case GHOSTTY_CLIPBOARD_SELECTION:
+            return selectionPasteboard
+        default:
+            return nil
+        }
+    }
+
+    static func stringContents(from pasteboard: NSPasteboard) -> String? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           !urls.isEmpty {
+            return urls
+                .map { $0.isFileURL ? escapeForShell($0.path) : $0.absoluteString }
+                .joined(separator: " ")
+        }
+
+        if let value = pasteboard.string(forType: .string) {
+            return value
+        }
+
+        return pasteboard.string(forType: utf8PlainTextType)
+    }
+
+    static func hasString(for location: ghostty_clipboard_e) -> Bool {
+        guard let pasteboard = pasteboard(for: location) else { return false }
+        return (stringContents(from: pasteboard) ?? "").isEmpty == false
+    }
+
+    static func writeString(_ string: String, to location: ghostty_clipboard_e) {
+        guard let pasteboard = pasteboard(for: location) else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
+    }
+
+    private static func escapeForShell(_ value: String) -> String {
+        var result = value
+        for char in shellEscapeCharacters {
+            result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
+        }
+        return result
+    }
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -52,17 +105,49 @@ class GhosttyApp {
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             // Read clipboard
+            guard let userdata else { return }
+            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let surface = surfaceView.terminalSurface?.surface else { return }
+
+            let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
+            let value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
+
+            value.withCString { ptr in
+                ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+            }
         }
-        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, confirm in
+        runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
+            guard let userdata, let content else { return }
+            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let surface = surfaceView.terminalSurface?.surface else { return }
+
+            ghostty_surface_complete_clipboard_request(surface, content, state, true)
+        }
+        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             // Write clipboard
-            if let content = content {
-                let data = Data(bytes: content, count: Int(len))
-                if let string = String(data: data, encoding: .utf8) {
-                    DispatchQueue.main.async {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(string, forType: .string)
+            guard let content = content, len > 0 else { return }
+            let buffer = UnsafeBufferPointer(start: content, count: Int(len))
+
+            var fallback: String?
+            for item in buffer {
+                guard let dataPtr = item.data else { continue }
+                let value = String(cString: dataPtr)
+
+                if let mimePtr = item.mime {
+                    let mime = String(cString: mimePtr)
+                    if mime.hasPrefix("text/plain") {
+                        GhosttyPasteboardHelper.writeString(value, to: location)
+                        return
                     }
                 }
+
+                if fallback == nil {
+                    fallback = value
+                }
+            }
+
+            if let fallback {
+                GhosttyPasteboardHelper.writeString(fallback, to: location)
             }
         }
         runtimeConfig.close_surface_cb = { userdata, processAlive in
@@ -107,7 +192,23 @@ class GhosttyApp {
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
-        guard target.tag == GHOSTTY_TARGET_SURFACE else { return false }
+        if target.tag != GHOSTTY_TARGET_SURFACE {
+            if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
+               let tabId = AppDelegate.shared?.tabManager?.selectedTabId {
+                let actionTitle = action.action.desktop_notification.title
+                    .flatMap { String(cString: $0) } ?? ""
+                let actionBody = action.action.desktop_notification.body
+                    .flatMap { String(cString: $0) } ?? ""
+                let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
+                let body = actionBody.isEmpty ? actionTitle : actionBody
+                DispatchQueue.main.async {
+                    TerminalNotificationStore.shared.addNotification(tabId: tabId, title: tabTitle, body: body)
+                }
+                return true
+            }
+
+            return false
+        }
         guard let userdata = ghostty_surface_userdata(target.target.surface) else { return false }
         let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
 
@@ -133,6 +234,34 @@ class GhosttyApp {
                 userInfo: [GhosttyNotificationKey.cellSize: cellSize]
             )
             return true
+        case GHOSTTY_ACTION_SET_TITLE:
+            let title = action.action.set_title.title
+                .flatMap { String(cString: $0) } ?? ""
+            if let tabId = surfaceView.tabId {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyDidSetTitle,
+                        object: surfaceView,
+                        userInfo: [
+                            GhosttyNotificationKey.tabId: tabId,
+                            GhosttyNotificationKey.title: title,
+                        ]
+                    )
+                }
+            }
+            return true
+        case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
+            guard let tabId = surfaceView.tabId else { return true }
+            let actionTitle = action.action.desktop_notification.title
+                .flatMap { String(cString: $0) } ?? ""
+            let actionBody = action.action.desktop_notification.body
+                .flatMap { String(cString: $0) } ?? ""
+            let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
+            let body = actionBody.isEmpty ? actionTitle : actionBody
+            DispatchQueue.main.async {
+                TerminalNotificationStore.shared.addNotification(tabId: tabId, title: tabTitle, body: body)
+            }
+            return true
         default:
             return false
         }
@@ -145,8 +274,10 @@ class TerminalSurface {
     private(set) var surface: ghostty_surface_t?
     private var displayLink: CVDisplayLink?
     private weak var attachedView: GhosttyNSView?
+    let tabId: UUID
 
-    init() {
+    init(tabId: UUID) {
+        self.tabId = tabId
         // Surface is created when attached to a view
     }
 
@@ -276,12 +407,13 @@ class TerminalSurface {
 
 // MARK: - Ghostty Surface View
 
-class GhosttyNSView: NSView {
+class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var terminalSurface: TerminalSurface?
     private var surfaceAttached = false
     var scrollbar: GhosttyScrollbar?
     var cellSize: CGSize = .zero
     var desiredFocus: Bool = false
+    var tabId: UUID?
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
 
@@ -345,6 +477,7 @@ class GhosttyNSView: NSView {
 
     func attachSurface(_ surface: TerminalSurface) {
         terminalSurface = surface
+        tabId = surface.tabId
         surfaceAttached = false
         attachSurfaceIfNeeded()
     }
@@ -398,6 +531,30 @@ class GhosttyNSView: NSView {
     }
 
     // MARK: - Input Handling
+
+    @IBAction func copy(_ sender: Any?) {
+        _ = performBindingAction("copy_to_clipboard")
+    }
+
+    @IBAction func paste(_ sender: Any?) {
+        _ = performBindingAction("paste_from_clipboard")
+    }
+
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
+        _ = performBindingAction("paste_from_clipboard")
+    }
+
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(copy(_:)):
+            guard let surface = surface else { return false }
+            return ghostty_surface_has_selection(surface)
+        case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
+            return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+        default:
+            return true
+        }
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -580,6 +737,50 @@ class GhosttyNSView: NSView {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
+    override func rightMouseDown(with event: NSEvent) {
+        guard let surface = surface else { return }
+        if !ghostty_surface_mouse_captured(surface) {
+            super.rightMouseDown(with: event)
+            return
+        }
+
+        window?.makeFirstResponder(self)
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        guard let surface = surface else { return }
+        if !ghostty_surface_mouse_captured(surface) {
+            super.rightMouseUp(with: event)
+            return
+        }
+
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let surface = surface else { return nil }
+        if ghostty_surface_mouse_captured(surface) {
+            return nil
+        }
+
+        window?.makeFirstResponder(self)
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+
+        let menu = NSMenu()
+        if ghostty_surface_has_selection(surface) {
+            let item = menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+            item.target = self
+        }
+        let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        pasteItem.target = self
+        return menu
+    }
+
     override func mouseMoved(with event: NSEvent) {
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -672,6 +873,8 @@ struct GhosttyScrollbar {
 enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"
+    static let tabId = "ghostty.tabId"
+    static let title = "ghostty.title"
 }
 
 extension Notification.Name {
