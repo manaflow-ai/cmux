@@ -7,6 +7,9 @@ struct GhosttyConfig {
     var theme: String?
     var workingDirectory: String?
     var scrollbackLimit: Int = 10000
+    var unfocusedSplitOpacity: Double = 0.7
+    var unfocusedSplitFill: NSColor?
+    var splitDividerColor: NSColor?
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
@@ -18,6 +21,24 @@ struct GhosttyConfig {
 
     // Palette colors (0-15)
     var palette: [Int: NSColor] = [:]
+
+    var unfocusedSplitOverlayOpacity: Double {
+        let clamped = min(1.0, max(0.15, unfocusedSplitOpacity))
+        return min(1.0, max(0.0, 1.0 - clamped))
+    }
+
+    var unfocusedSplitOverlayFill: NSColor {
+        unfocusedSplitFill ?? backgroundColor
+    }
+
+    var resolvedSplitDividerColor: NSColor {
+        if let splitDividerColor {
+            return splitDividerColor
+        }
+
+        let isLightBackground = backgroundColor.isLightColor
+        return backgroundColor.darken(by: isLightBackground ? 0.08 : 0.4)
+    }
 
     static func load() -> GhosttyConfig {
         var config = GhosttyConfig()
@@ -96,6 +117,18 @@ struct GhosttyConfig {
                        let color = NSColor(hex: String(paletteParts[1])) {
                         palette[index] = color
                     }
+                case "unfocused-split-opacity":
+                    if let opacity = Double(value) {
+                        unfocusedSplitOpacity = opacity
+                    }
+                case "unfocused-split-fill":
+                    if let color = NSColor(hex: value) {
+                        unfocusedSplitFill = color
+                    }
+                case "split-divider-color":
+                    if let color = NSColor(hex: value) {
+                        splitDividerColor = color
+                    }
                 default:
                     break
                 }
@@ -139,5 +172,34 @@ extension NSColor {
         }
 
         self.init(red: r, green: g, blue: b, alpha: 1.0)
+    }
+
+    var isLightColor: Bool {
+        luminance > 0.5
+    }
+
+    var luminance: Double {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+
+        guard let rgb = usingColorSpace(.sRGB) else { return 0 }
+        rgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (0.299 * r) + (0.587 * g) + (0.114 * b)
+    }
+
+    func darken(by amount: CGFloat) -> NSColor {
+        var h: CGFloat = 0
+        var s: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return NSColor(
+            hue: h,
+            saturation: s,
+            brightness: min(b * (1 - amount), 1),
+            alpha: a
+        )
     }
 }
