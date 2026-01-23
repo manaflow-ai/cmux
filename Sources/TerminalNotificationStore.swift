@@ -29,6 +29,10 @@ final class TerminalNotificationStore: ObservableObject {
         notifications.filter { !$0.isRead }.count
     }
 
+    func unreadCount(forTabId tabId: UUID) -> Int {
+        notifications.filter { $0.tabId == tabId && !$0.isRead }.count
+    }
+
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, body: String) {
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
         let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)

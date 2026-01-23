@@ -704,12 +704,54 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
+        // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
+        let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
+        var translationMods = event.modifierFlags
+        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
+            let hasFlag: Bool
+            switch flag {
+            case .shift:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
+            case .control:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
+            case .option:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
+            case .command:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
+            default:
+                hasFlag = translationMods.contains(flag)
+            }
+            if hasFlag {
+                translationMods.insert(flag)
+            } else {
+                translationMods.remove(flag)
+            }
+        }
+
+        let translationEvent: NSEvent
+        if translationMods == event.modifierFlags {
+            translationEvent = event
+        } else {
+            translationEvent = NSEvent.keyEvent(
+                with: event.type,
+                location: event.locationInWindow,
+                modifierFlags: translationMods,
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                characters: event.characters(byApplyingModifiers: translationMods) ?? "",
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                isARepeat: event.isARepeat,
+                keyCode: event.keyCode
+            ) ?? event
+        }
+
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
 
         // Let the input system handle the event (for IME, dead keys, etc.)
-        interpretKeyEvents([event])
+        interpretKeyEvents([translationEvent])
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -717,7 +759,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.mods = modsFromEvent(event)
         // Control and Command never contribute to text translation
-        keyEvent.consumed_mods = consumedModsFromEvent(event)
+        keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.composing = markedText.length > 0
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
@@ -733,7 +775,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Get the appropriate text for this key event
             // For control characters, this returns the unmodified character
             // so Ghostty's KeyEncoder can handle ctrl encoding
-            if let text = textForKeyEvent(event) {
+            if let text = textForKeyEvent(translationEvent) {
                 text.withCString { ptr in
                     keyEvent.text = ptr
                     _ = ghostty_surface_key(surface, keyEvent)
@@ -789,12 +831,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Consumed mods are modifiers that were used for text translation.
     /// Control and Command never contribute to text translation, so they
     /// should be excluded from consumed_mods.
-    private func consumedModsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+    private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         // Only include Shift and Option as potentially consumed
         // Control and Command are never consumed for text translation
-        if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
 

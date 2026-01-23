@@ -137,6 +137,7 @@ struct VerticalTabsSidebar: View {
 
 struct TabItemView: View {
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var notificationStore: TerminalNotificationStore
     @ObservedObject var tab: Tab
     @Binding var selection: SidebarSelection
     @State private var isHovering = false
@@ -147,9 +148,17 @@ struct TabItemView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "terminal")
-                .font(.system(size: 12))
-                .foregroundColor(isSelected ? .white : .secondary)
+            let unreadCount = notificationStore.unreadCount(forTabId: tab.id)
+            if unreadCount > 0 {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? Color.white.opacity(0.25) : Color.accentColor)
+                    Text("\(unreadCount)")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .frame(width: 16, height: 16)
+            }
 
             Text(tab.title)
                 .font(.system(size: 12))
@@ -159,15 +168,15 @@ struct TabItemView: View {
 
             Spacer()
 
-            if isHovering || isSelected {
-                Button(action: { tabManager.closeTab(tab) }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(isSelected ? .white.opacity(0.7) : .secondary)
-                }
-                .buttonStyle(.plain)
-                .opacity(tabManager.tabs.count > 1 ? 1 : 0)
+            Button(action: { tabManager.closeTab(tab) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(isSelected ? .white.opacity(0.7) : .secondary)
             }
+            .buttonStyle(.plain)
+            .frame(width: 16, height: 16)
+            .opacity((isHovering || isSelected) && tabManager.tabs.count > 1 ? 1 : 0)
+            .allowsHitTesting((isHovering || isSelected) && tabManager.tabs.count > 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
