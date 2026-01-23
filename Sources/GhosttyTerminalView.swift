@@ -107,7 +107,7 @@ class GhosttyApp {
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
             DispatchQueue.main.async {
-                // Wakeup - trigger redraw if needed
+                GhosttyApp.shared.tick()
             }
         }
         runtimeConfig.action_cb = { app, target, action in
@@ -211,6 +211,7 @@ class GhosttyApp {
     func tick() {
         guard let app = app else { return }
         ghostty_app_tick(app)
+        AppDelegate.shared?.tabManager?.tickRender()
     }
 
     private func updateDefaultBackground(from config: ghostty_config_t?) {
@@ -447,6 +448,7 @@ class GhosttyApp {
                     blue: CGFloat(change.b) / 255,
                     alpha: 1.0
                 )
+                surfaceView.applySurfaceBackground()
                 if backgroundLogEnabled {
                     logBackground("OSC background change tab=\(surfaceView.tabId?.uuidString ?? "unknown") color=\(surfaceView.backgroundColor?.description ?? "nil")")
                 }
@@ -559,11 +561,13 @@ class TerminalSurface: Identifiable {
             return
         }
 
+        ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(
             surface,
             UInt32(view.bounds.width * scale),
             UInt32(view.bounds.height * scale)
         )
+        ghostty_surface_refresh(surface)
 
         setupDisplayLink()
     }
@@ -603,12 +607,20 @@ class TerminalSurface: Identifiable {
 
     func updateSize(width: CGFloat, height: CGFloat, scale: CGFloat) {
         guard let surface = surface else { return }
+        ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, UInt32(width * scale), UInt32(height * scale))
+        ghostty_surface_refresh(surface)
 
         if let view = attachedView, let metalLayer = view.layer as? CAMetalLayer {
             metalLayer.contentsScale = scale
             metalLayer.drawableSize = CGSize(width: width * scale, height: height * scale)
         }
+    }
+
+    func renderIfVisible() {
+        guard let view = attachedView else { return }
+        guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
+        ghostty_surface_draw(surface)
     }
 
     func applyWindowBackgroundIfActive() {
@@ -678,11 +690,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return base.withAlphaComponent(opacity)
     }
 
+    func applySurfaceBackground() {
+        let color = effectiveBackgroundColor()
+        if let metalLayer = layer as? CAMetalLayer {
+            metalLayer.backgroundColor = color.cgColor
+            metalLayer.isOpaque = color.alphaComponent >= 1.0
+        }
+    }
+
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
         if let tabId, let selectedId = AppDelegate.shared?.tabManager?.selectedTabId, tabId != selectedId {
             return
         }
+        applySurfaceBackground()
         let color = effectiveBackgroundColor()
         window.backgroundColor = color
         window.isOpaque = color.alphaComponent >= 1.0
@@ -745,8 +766,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if window != nil {
             attachSurfaceIfNeeded()
             updateSurfaceSize()
+            applySurfaceBackground()
             applyWindowBackgroundIfActive()
         }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateSurfaceSize()
     }
 
     override func setFrameSize(_ newSize: NSSize) {

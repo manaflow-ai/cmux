@@ -204,6 +204,14 @@ class TabManager: ObservableObject {
         })
     }
 
+    func tickRender() {
+        for tab in tabs {
+            for surface in tab.splitTree.map({ $0 }) {
+                surface.renderIfVisible()
+            }
+        }
+    }
+
     func addTab() {
         let newTab = Tab(title: "Terminal \(tabs.count + 1)")
         tabs.append(newTab)

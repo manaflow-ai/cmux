@@ -20,6 +20,7 @@
 		A50010A4 /* SplitTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A0 /* SplitTree.swift */; };
 		A50010A5 /* SplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A1 /* SplitView.swift */; };
 		A50010A6 /* TerminalSplitTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A2 /* TerminalSplitTreeView.swift */; };
+		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -52,6 +53,7 @@
 		A50010A0 /* SplitTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/SplitTree.swift; sourceTree = "<group>"; };
 		A50010A1 /* SplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/SplitView.swift; sourceTree = "<group>"; };
 		A50010A2 /* TerminalSplitTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/TerminalSplitTreeView.swift; sourceTree = "<group>"; };
+		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,11 +67,23 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A5001102 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A5001100 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXGroup section */
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
 				A5001041 /* Sources */,
+				A5001101 /* Assets.xcassets */,
 				A5001016 /* GhosttyKit.xcframework */,
 				A5001017 /* ghostty.h */,
 				A5001018 /* GhosttyTabs-Bridging-Header.h */,
@@ -113,6 +127,7 @@
 			buildPhases = (
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
+				A5001102 /* Resources */,
 				A5001020 /* Embed Frameworks */,
 			);
 			buildRules = (
@@ -239,7 +254,7 @@
 		A5001082 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
