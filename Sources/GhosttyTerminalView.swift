@@ -335,6 +335,7 @@ class GhosttyApp {
                 let body = actionBody.isEmpty ? actionTitle : actionBody
                 let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                 DispatchQueue.main.async {
+                    tabManager.moveTabToTop(tabId)
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
@@ -477,6 +478,7 @@ class GhosttyApp {
             let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
             let body = actionBody.isEmpty ? actionTitle : actionBody
             DispatchQueue.main.async {
+                AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,

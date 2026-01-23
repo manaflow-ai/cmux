@@ -240,6 +240,13 @@ class TabManager: ObservableObject {
         )
     }
 
+    func moveTabToTop(_ tabId: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        guard index != 0 else { return }
+        let tab = tabs.remove(at: index)
+        tabs.insert(tab, at: 0)
+    }
+
     func closeTab(_ tab: Tab) {
         guard tabs.count > 1 else { return }
 
