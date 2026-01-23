@@ -57,7 +57,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
                     isActive: isFocused,
                     onFocus: { _ in onFocus(surface.id) }
                 )
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(Color.clear)
 
                 if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
                     Rectangle()

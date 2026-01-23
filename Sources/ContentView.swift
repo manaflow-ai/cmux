@@ -58,12 +58,14 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 600)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.clear)
         .onAppear {
             focusedTabId = tabManager.selectedTabId
+            tabManager.applyWindowBackgroundForSelectedTab()
         }
         .onChange(of: tabManager.selectedTabId) { newValue in
             focusedTabId = newValue
+            tabManager.applyWindowBackgroundForSelectedTab()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelection = .tabs

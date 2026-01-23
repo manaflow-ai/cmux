@@ -66,6 +66,15 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
+    private(set) var defaultBackgroundOpacity: Double = 1.0
+    let backgroundLogEnabled = {
+        if ProcessInfo.processInfo.environment["GHOSTTYTABS_DEBUG_BG"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "GhosttyTabsDebugBG")
+    }()
+    private let backgroundLogURL = URL(fileURLWithPath: "/tmp/ghosttytabs-bg.log")
     private var appObservers: [NSObjectProtocol] = []
 
     private init() {
@@ -90,6 +99,7 @@ class GhosttyApp {
         // Load default config
         ghostty_config_load_default_files(config)
         ghostty_config_finalize(config)
+        updateDefaultBackground(from: config)
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -203,6 +213,29 @@ class GhosttyApp {
         ghostty_app_tick(app)
     }
 
+    private func updateDefaultBackground(from config: ghostty_config_t?) {
+        guard let config else { return }
+
+        var color = ghostty_config_color_s()
+        let bgKey = "background"
+        if ghostty_config_get(config, &color, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
+            defaultBackgroundColor = NSColor(
+                red: CGFloat(color.r) / 255,
+                green: CGFloat(color.g) / 255,
+                blue: CGFloat(color.b) / 255,
+                alpha: 1.0
+            )
+        }
+
+        var opacity: Double = 1.0
+        let opacityKey = "background-opacity"
+        _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
+        defaultBackgroundOpacity = opacity
+        if backgroundLogEnabled {
+            logBackground("default background updated color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
+        }
+    }
+
     private func performOnMain<T>(_ work: () -> T) -> T {
         if Thread.isMainThread {
             return work()
@@ -261,6 +294,32 @@ class GhosttyApp {
                         title: tabTitle,
                         body: body
                     )
+                }
+                return true
+            }
+
+            if action.tag == GHOSTTY_ACTION_COLOR_CHANGE,
+               action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
+                let change = action.action.color_change
+                defaultBackgroundColor = NSColor(
+                    red: CGFloat(change.r) / 255,
+                    green: CGFloat(change.g) / 255,
+                    blue: CGFloat(change.b) / 255,
+                    alpha: 1.0
+                )
+                if backgroundLogEnabled {
+                    logBackground("OSC background change (app target) color=\(defaultBackgroundColor)")
+                }
+                DispatchQueue.main.async {
+                    GhosttyApp.shared.applyBackgroundToKeyWindow()
+                }
+                return true
+            }
+
+            if action.tag == GHOSTTY_ACTION_CONFIG_CHANGE {
+                updateDefaultBackground(from: action.action.config_change.config)
+                DispatchQueue.main.async {
+                    GhosttyApp.shared.applyBackgroundToKeyWindow()
                 }
                 return true
             }
@@ -379,8 +438,55 @@ class GhosttyApp {
                 )
             }
             return true
+        case GHOSTTY_ACTION_COLOR_CHANGE:
+            if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
+                let change = action.action.color_change
+                surfaceView.backgroundColor = NSColor(
+                    red: CGFloat(change.r) / 255,
+                    green: CGFloat(change.g) / 255,
+                    blue: CGFloat(change.b) / 255,
+                    alpha: 1.0
+                )
+                if backgroundLogEnabled {
+                    logBackground("OSC background change tab=\(surfaceView.tabId?.uuidString ?? "unknown") color=\(surfaceView.backgroundColor?.description ?? "nil")")
+                }
+                DispatchQueue.main.async {
+                    surfaceView.applyWindowBackgroundIfActive()
+                }
+            }
+            return true
+        case GHOSTTY_ACTION_CONFIG_CHANGE:
+            updateDefaultBackground(from: action.action.config_change.config)
+            DispatchQueue.main.async {
+                surfaceView.applyWindowBackgroundIfActive()
+            }
+            return true
         default:
             return false
+        }
+    }
+
+    private func applyBackgroundToKeyWindow() {
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first else { return }
+        let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
+        window.backgroundColor = color
+        window.isOpaque = color.alphaComponent >= 1.0
+        if backgroundLogEnabled {
+            logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+        }
+    }
+
+    func logBackground(_ message: String) {
+        let line = "GhosttyTabs bg: \(message)\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
+                FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
+            }
+            if let handle = try? FileHandle(forWritingTo: backgroundLogURL) {
+                defer { try? handle.close() }
+                try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            }
         }
     }
 }
@@ -505,6 +611,10 @@ class TerminalSurface: Identifiable {
         }
     }
 
+    func applyWindowBackgroundIfActive() {
+        surfaceView.applyWindowBackgroundIfActive()
+    }
+
     func setFocus(_ focused: Bool) {
         guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
@@ -530,6 +640,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var tabId: UUID?
     var onFocus: (() -> Void)?
+    var backgroundColor: NSColor?
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
 
@@ -538,7 +649,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         metalLayer.device = MTLCreateSystemDefaultDevice()
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.framebufferOnly = true
-        metalLayer.isOpaque = true
+        metalLayer.isOpaque = false
+        metalLayer.backgroundColor = NSColor.clear.cgColor
         metalLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
         return metalLayer
     }
@@ -558,6 +670,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layerContentsRedrawPolicy = .duringViewResize
         installEventMonitor()
         updateTrackingAreas()
+    }
+
+    private func effectiveBackgroundColor() -> NSColor {
+        let base = backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor
+        let opacity = GhosttyApp.shared.defaultBackgroundOpacity
+        return base.withAlphaComponent(opacity)
+    }
+
+    func applyWindowBackgroundIfActive() {
+        guard let window else { return }
+        if let tabId, let selectedId = AppDelegate.shared?.tabManager?.selectedTabId, tabId != selectedId {
+            return
+        }
+        let color = effectiveBackgroundColor()
+        window.backgroundColor = color
+        window.isOpaque = color.alphaComponent >= 1.0
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground("applied window background tab=\(tabId?.uuidString ?? "unknown") color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+        }
     }
 
     private func installEventMonitor() {
@@ -614,6 +745,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if window != nil {
             attachSurfaceIfNeeded()
             updateSurfaceSize()
+            applyWindowBackgroundIfActive()
         }
     }
 
@@ -627,6 +759,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         super.layout()
         attachSurfaceIfNeeded()
     }
+
+    override var isOpaque: Bool { false }
 
     private func updateSurfaceSize() {
         guard let terminalSurface = terminalSurface else { return }
@@ -1078,10 +1212,15 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.usesPredominantAxisScrolling = true
         scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = false
+        scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
         scrollView.surfaceView = surfaceView
 
         documentView = NSView(frame: .zero)
+        documentView.wantsLayer = true
+        documentView.layer?.backgroundColor = NSColor.clear.cgColor
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
 
@@ -1203,6 +1342,38 @@ final class GhosttySurfaceScrollView: NSView {
             requestFocus()
         } else {
             cancelFocusRequest()
+        }
+    }
+
+    func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
+        let maxDelay: TimeInterval = 0.5
+        guard (delay ?? 0) < maxDelay else { return }
+
+        let nextDelay: TimeInterval = if let delay {
+            delay * 2
+        } else {
+            0.05
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard let window = self.window else {
+                self.moveFocus(from: previous, delay: nextDelay)
+                return
+            }
+
+            if let previous, previous !== self {
+                _ = previous.surfaceView.resignFirstResponder()
+            }
+
+            window.makeFirstResponder(self.surfaceView)
+        }
+
+        let queue = DispatchQueue.main
+        if let delay {
+            queue.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            queue.async(execute: work)
         }
     }
 

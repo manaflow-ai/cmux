@@ -35,6 +35,9 @@ class Tab: Identifiable, ObservableObject {
     func focusSurface(_ id: UUID) {
         guard focusedSurfaceId != id else { return }
         focusedSurfaceId = id
+        if let selectedId = AppDelegate.shared?.tabManager?.selectedTabId, selectedId == self.id {
+            focusedSurface?.applyWindowBackgroundIfActive()
+        }
     }
 
     func updateSplitViewSize(_ size: CGSize) {
@@ -125,22 +128,33 @@ class Tab: Identifiable, ObservableObject {
         return true
     }
 
+    private func findNextFocusTargetAfterClosing(
+        node: SplitTree<TerminalSurface>.Node
+    ) -> TerminalSurface? {
+        guard let root = splitTree.root else { return nil }
+
+        if root.leftmostLeaf() === node.leftmostLeaf() {
+            return splitTree.focusTarget(for: .next, from: node)
+        }
+
+        return splitTree.focusTarget(for: .previous, from: node)
+    }
+
     func closeSurface(_ surfaceId: UUID) -> Bool {
         guard let root = splitTree.root,
               let targetNode = root.find(id: surfaceId) else {
             return false
         }
 
-        let shouldMoveFocus = focusedSurfaceId == surfaceId
-        let nextFocus: TerminalSurface? = if shouldMoveFocus {
-            if root.leftmostLeaf() === targetNode.leftmostLeaf() {
-                splitTree.focusTarget(for: .next, from: targetNode)
-            } else {
-                splitTree.focusTarget(for: .previous, from: targetNode)
-            }
+        let oldFocusedSurface = focusedSurface
+        let shouldMoveFocus = if let focusedSurfaceId {
+            targetNode.find(id: focusedSurfaceId) != nil
         } else {
-            nil
+            false
         }
+        let nextFocus: TerminalSurface? = shouldMoveFocus
+            ? findNextFocusTargetAfterClosing(node: targetNode)
+            : nil
 
         splitTree = splitTree.removing(targetNode)
 
@@ -150,15 +164,21 @@ class Tab: Identifiable, ObservableObject {
         }
 
         if shouldMoveFocus {
-            if let nextFocus {
-                focusedSurfaceId = nextFocus.id
-            } else {
-                focusedSurfaceId = splitTree.root?.leftmostLeaf().id
-            }
+            focusedSurfaceId = nextFocus?.id
+        }
+
+        if focusedSurfaceId == nil {
+            focusedSurfaceId = splitTree.root?.leftmostLeaf().id
         }
 
         if !splitTree.isSplit {
             splitTree = SplitTree(root: splitTree.root, zoomed: nil)
+        }
+
+        if shouldMoveFocus, let newFocusedSurface = focusedSurface {
+            DispatchQueue.main.async {
+                newFocusedSurface.hostedView.moveFocus(from: oldFocusedSurface?.hostedView)
+            }
         }
 
         return true
@@ -227,6 +247,13 @@ class TabManager: ObservableObject {
 
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
         tabs.first(where: { $0.id == tabId })?.focusedSurfaceId
+    }
+
+    func applyWindowBackgroundForSelectedTab() {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let surface = tab.focusedSurface else { return }
+        surface.applyWindowBackgroundIfActive()
     }
 
     private func updateTabTitle(tabId: UUID, title: String) {
