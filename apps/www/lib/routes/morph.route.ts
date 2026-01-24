@@ -20,7 +20,10 @@ import {
   fetchGitIdentityInputs,
 } from "./sandboxes/git";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
+import { connectToWorkerManagement } from "@cmux/shared/socket";
+import type { WorkerCreateTerminal } from "@cmux/shared/worker-schemas";
 import * as Sentry from "@sentry/nextjs";
+import { Buffer } from "node:buffer";
 
 export const morphRouter = new OpenAPIHono();
 
@@ -51,6 +54,127 @@ const SetupInstanceResponse = z
     removedRepos: z.array(z.string()),
   })
   .openapi("SetupInstanceResponse");
+
+const ENV_SETUP_CLAUDE_PROMPT =
+  "You are a setup assistant inside a dev workspace. Help the user configure their environment: install dependencies, run maintenance/dev scripts, and get the dev server running. Ask which commands to run if unsure, explain before running anything, and stay available for follow-up questions.";
+
+const CLAUDE_SETUP_COMMAND = "bunx";
+const CLAUDE_SETUP_ARGS = [
+  "@anthropic-ai/claude-code@latest",
+  "--allow-dangerously-skip-permissions",
+  "--dangerously-skip-permissions",
+  "--model",
+  "claude-sonnet-4-5",
+  "--ide",
+  "$CMUX_PROMPT",
+];
+
+function sanitizeTmuxSessionName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function buildShellCommand(command: string, args: string[]): string {
+  const shellEscaped = (value: string): string => {
+    if (value.includes("$CMUX_")) {
+      return `"${value.replace(/"/g, '\\"')}"`;
+    }
+    return `'${value.replace(/'/g, "'\\''")}'`;
+  };
+
+  return [command, ...args].map(shellEscaped).join(" ");
+}
+
+async function createClaudeSetupTerminal(options: {
+  workerUrl: string;
+  instanceId: string;
+  prompt: string;
+  apiKeys: Record<string, string>;
+}): Promise<void> {
+  const { workerUrl, instanceId, prompt, apiKeys } = options;
+  const terminalId = sanitizeTmuxSessionName(`claude-setup-${instanceId}`);
+
+  const authFiles: WorkerCreateTerminal["authFiles"] = [];
+  const envVars: Record<string, string> = {
+    CMUX_PROMPT: prompt,
+  };
+
+  const oauthToken = apiKeys.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  const anthropicApiKey = apiKeys.ANTHROPIC_API_KEY?.trim();
+
+  if (oauthToken) {
+    const oauthEnvContent = `CLAUDE_CODE_OAUTH_TOKEN=${oauthToken}\n`;
+    authFiles.push({
+      destinationPath: "/etc/claude-code/env",
+      contentBase64: Buffer.from(oauthEnvContent).toString("base64"),
+      mode: "600",
+    });
+  } else if (anthropicApiKey) {
+    envVars.ANTHROPIC_API_KEY = anthropicApiKey;
+  }
+
+  const commandString = buildShellCommand(CLAUDE_SETUP_COMMAND, CLAUDE_SETUP_ARGS);
+  const tmuxArgs = [
+    "new-session",
+    "-d",
+    "-s",
+    terminalId,
+    "bash",
+    "-lc",
+    `exec ${commandString}`,
+  ];
+
+  const terminalCreationCommand: WorkerCreateTerminal = {
+    terminalId,
+    backend: "cmux-pty",
+    command: "tmux",
+    args: tmuxArgs,
+    ptyCommand: commandString,
+    cols: 80,
+    rows: 28,
+    env: envVars,
+    taskRunContext: {
+      taskRunToken: `env-setup-${instanceId}`,
+      prompt,
+      convexUrl: env.NEXT_PUBLIC_CONVEX_URL,
+    },
+    authFiles,
+    cwd: "/root/workspace",
+  };
+
+  const socket = connectToWorkerManagement({
+    url: workerUrl,
+    timeoutMs: 12_000,
+    reconnectionAttempts: 2,
+    forceNew: true,
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.disconnect();
+      reject(new Error("Timed out connecting to worker for Claude setup"));
+    }, 15_000);
+
+    socket.on("connect", () => {
+      socket.emit("worker:create-terminal", terminalCreationCommand, (result) => {
+        clearTimeout(timeout);
+        socket.disconnect();
+        if (result.error) {
+          const message =
+            result.error instanceof Error ? result.error.message : String(result.error);
+          reject(new Error(message));
+          return;
+        }
+        resolve();
+      });
+    });
+
+    socket.on("connect_error", (error) => {
+      clearTimeout(timeout);
+      socket.disconnect();
+      reject(error);
+    });
+  });
+}
 
 const ResumeTaskRunBody = z
   .object({
@@ -861,6 +985,33 @@ morphRouter.openapi(
       }
 
       console.log(`VSCode Workspace URL: ${url}`);
+
+      const workerUrl = instance.networking.httpServices.find(
+        (service) => service.port === 39377
+      )?.url;
+
+      if (!workerUrl) {
+        console.warn("[morph.setup-instance] Worker URL not found; skipping Claude setup assistant");
+      } else {
+        void (async () => {
+          try {
+            const apiKeys = await convex.query(api.apiKeys.getAllForAgents, {
+              teamSlugOrId,
+            });
+            await createClaudeSetupTerminal({
+              workerUrl,
+              instanceId,
+              prompt: ENV_SETUP_CLAUDE_PROMPT,
+              apiKeys,
+            });
+          } catch (error) {
+            console.error(
+              "[morph.setup-instance] Failed to start Claude setup assistant:",
+              error
+            );
+          }
+        })();
+      }
 
       return c.json({
         instanceId,

@@ -1503,3 +1503,179 @@ sandboxesRouter.openapi(
     }
   },
 );
+
+// Spawn Claude Code agent in a running sandbox
+const SpawnAgentBody = z
+  .object({
+    teamSlugOrId: z.string(),
+    prompt: z.string().optional().describe("Task description for the agent"),
+  })
+  .openapi("SpawnAgentBody");
+
+const SpawnAgentResponse = z
+  .object({
+    spawned: z.literal(true),
+    terminalId: z.string(),
+  })
+  .openapi("SpawnAgentResponse");
+
+sandboxesRouter.openapi(
+  createRoute({
+    method: "post" as const,
+    path: "/sandboxes/{id}/spawn-agent",
+    tags: ["Sandboxes"],
+    summary: "Spawn a Claude Code agent in a running sandbox",
+    description:
+      "Creates a terminal with Claude Code running to assist with environment setup or other tasks.",
+    request: {
+      params: z.object({ id: z.string() }),
+      body: {
+        content: {
+          "application/json": {
+            schema: SpawnAgentBody,
+          },
+        },
+        required: true,
+      },
+    },
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            schema: SpawnAgentResponse,
+          },
+        },
+        description: "Agent spawned successfully",
+      },
+      401: { description: "Unauthorized" },
+      403: { description: "Forbidden" },
+      404: { description: "Sandbox not found" },
+      500: { description: "Failed to spawn agent" },
+    },
+  }),
+  async (c) => {
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) {
+      return c.text("Unauthorized", 401);
+    }
+    const { accessToken } = await user.getAuthJson();
+    if (!accessToken) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const { id } = c.req.valid("param");
+    const { teamSlugOrId: _teamSlugOrId, prompt } = c.req.valid("json");
+
+    try {
+      const convex = getConvex({ accessToken });
+      const morphClient = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+
+      // Verify instance ownership
+      const result = await verifyInstanceOwnership(
+        morphClient,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(api.teams.listTeamMemberships, {});
+          return memberships.map((m) => ({ teamId: m.team.teamId }));
+        }
+      );
+      if (!result.authorized) {
+        return c.text(result.message, result.status);
+      }
+
+      // Get instance to find worker service URL
+      const instance = await morphClient.instances.get({ instanceId: id });
+      const workerService = instance.networking.httpServices.find(
+        (s) => s.port === 39377
+      );
+
+      if (!workerService) {
+        return c.text("Worker service not found on sandbox", 500);
+      }
+
+      // Import socket connection helper
+      const { connectToWorkerManagement } = await import("@cmux/shared/socket");
+
+      // Default prompt for environment setup assistance
+      const defaultPrompt = `Help me set up this development environment. Look at the repository structure and:
+
+1. Identify what package manager is being used (npm, bun, pnpm, yarn)
+2. Check if there's a devcontainer.json, package.json, or other config files
+3. Help me understand what commands I need to run to:
+   - Install dependencies
+   - Start the development server
+   - Set up any required environment variables
+
+Be concise and guide me step by step. Ask clarifying questions if needed.`;
+
+      const taskPrompt = prompt || defaultPrompt;
+
+      // Connect to worker and create terminal
+      const clientSocket = connectToWorkerManagement({
+        url: workerService.url,
+        timeoutMs: 10_000,
+        reconnectionAttempts: 3,
+      });
+
+      const terminalId = crypto.randomUUID();
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          clientSocket.disconnect();
+          reject(new Error("Connection timeout"));
+        }, 15000);
+
+        clientSocket.on("connect", () => {
+          console.log("[sandboxes.spawn-agent] Connected to worker");
+
+          // Create terminal with Claude Code
+          const command = `bunx @anthropic-ai/claude-code@latest --dangerously-skip-permissions '${taskPrompt.replace(/'/g, "'\\''")}'`;
+
+          clientSocket.emit(
+            "worker:create-terminal",
+            {
+              terminalId,
+              cols: 120,
+              rows: 40,
+              cwd: "/root/workspace",
+              command,
+              backend: "tmux",
+              taskRunContext: {
+                taskRunToken: "onboarding-setup-placeholder",
+                prompt: taskPrompt,
+                convexUrl: env.NEXT_PUBLIC_CONVEX_URL,
+              },
+            },
+            (result) => {
+              if (result.error) {
+                clearTimeout(timeout);
+                clientSocket.disconnect();
+                reject(result.error);
+                return;
+              }
+              console.log("[sandboxes.spawn-agent] Terminal created:", terminalId);
+              clearTimeout(timeout);
+              clientSocket.disconnect();
+              resolve();
+            }
+          );
+        });
+
+        clientSocket.on("connect_error", (error: Error) => {
+          clearTimeout(timeout);
+          clientSocket.disconnect();
+          reject(error);
+        });
+      });
+
+      return c.json({ spawned: true as const, terminalId });
+    } catch (error) {
+      if (error instanceof HTTPException) {
+        return c.text(error.message || "Request failed", error.status);
+      }
+      console.error("[sandboxes.spawn-agent] Failed to spawn agent:", error);
+      return c.text("Failed to spawn agent", 500);
+    }
+  },
+);

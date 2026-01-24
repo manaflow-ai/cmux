@@ -163,6 +163,7 @@ const convexSchema = defineSchema({
     screenshotFileName: v.optional(v.string()),
     screenshotCommitSha: v.optional(v.string()),
     latestScreenshotSetId: v.optional(v.id("taskRunScreenshotSets")),
+    linkedFromCloudTaskRunId: v.optional(v.id("taskRuns")),
   })
     .index("by_created", ["createdAt"])
     .index("by_user", ["userId", "createdAt"])
@@ -792,7 +793,7 @@ const convexSchema = defineSchema({
     name: v.string(), // Human-friendly environment name
     teamId: v.string(), // Team that owns this environment
     userId: v.string(), // User who created the environment
-    morphSnapshotId: v.string(), // Morph snapshot identifier
+    morphSnapshotId: v.optional(v.string()), // Morph snapshot identifier (optional for preview-new flow)
     dataVaultKey: v.string(), // Key for StackAuth DataBook (stores encrypted env vars)
     selectedRepos: v.optional(v.array(v.string())), // List of repository full names
     description: v.optional(v.string()), // Optional description

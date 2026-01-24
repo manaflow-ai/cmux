@@ -56,7 +56,7 @@ export const create = authMutation({
   args: {
     teamSlugOrId: v.string(),
     name: v.string(),
-    morphSnapshotId: v.string(),
+    morphSnapshotId: v.optional(v.string()),
     dataVaultKey: v.string(),
     selectedRepos: v.optional(v.array(v.string())),
     description: v.optional(v.string()),
@@ -99,16 +99,19 @@ export const create = authMutation({
       updatedAt: createdAt,
     });
 
-    await ctx.db.insert("environmentSnapshotVersions", {
-      environmentId,
-      teamId,
-      morphSnapshotId: args.morphSnapshotId,
-      version: 1,
-      createdAt,
-      createdByUserId: userId,
-      maintenanceScript,
-      devScript,
-    });
+    // Only create snapshot version if we have a morphSnapshotId
+    if (args.morphSnapshotId) {
+      await ctx.db.insert("environmentSnapshotVersions", {
+        environmentId,
+        teamId,
+        morphSnapshotId: args.morphSnapshotId,
+        version: 1,
+        createdAt,
+        createdByUserId: userId,
+        maintenanceScript,
+        devScript,
+      });
+    }
 
     return environmentId;
   },

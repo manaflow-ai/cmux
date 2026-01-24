@@ -75,7 +75,7 @@ const CreateEnvironmentBody = z
   .object({
     teamSlugOrId: z.string(),
     name: z.string(),
-    morphInstanceId: z.string(),
+    morphInstanceId: z.string().optional(), // Optional for simplified preview-new flow
     envVarsContent: z.string(), // The entire .env file content
     selectedRepos: z.array(z.string()).optional(),
     description: z.string().optional(),
@@ -88,7 +88,7 @@ const CreateEnvironmentBody = z
 const CreateEnvironmentResponse = z
   .object({
     id: z.string(),
-    snapshotId: z.string(),
+    snapshotId: z.string().optional(), // Optional when no morphInstanceId provided
   })
   .openapi("CreateEnvironmentResponse");
 
@@ -96,7 +96,7 @@ const GetEnvironmentResponse = z
   .object({
     id: z.string(),
     name: z.string(),
-    morphSnapshotId: z.string(),
+    morphSnapshotId: z.string().optional(), // Optional for preview-new flow
     dataVaultKey: z.string(),
     selectedRepos: z.array(z.string()).optional(),
     description: z.string().optional(),
@@ -257,41 +257,42 @@ environmentsRouter.openapi(
           ? sanitizePortsOrThrow(body.exposedPorts)
           : [];
 
-      // Create Morph snapshot from instance
-      const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
-      const instance = await withMorphRetry(
-        () => client.instances.get({ instanceId: body.morphInstanceId }),
-        "instances.get (create environment)"
-      );
+      // Persist env vars to data vault
+      const dataVaultKey = `env_${randomBytes(16).toString("hex")}`;
+      const store =
+        await stackServerAppJs.getDataVaultStore("cmux-snapshot-envs");
+      await store.setValue(dataVaultKey, body.envVarsContent, {
+        secret: env.STACK_DATA_VAULT_SECRET,
+      });
 
-      // Ensure instance belongs to this team (when metadata exists)
-      const instanceTeamId = instance.metadata?.teamId;
-      if (instanceTeamId && instanceTeamId !== team.uuid) {
-        return c.text("Forbidden: Instance does not belong to this team", 403);
+      let morphSnapshotId: string | undefined;
+
+      // Only create Morph snapshot if morphInstanceId is provided
+      if (body.morphInstanceId) {
+        const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+        const instance = await withMorphRetry(
+          () => client.instances.get({ instanceId: body.morphInstanceId! }),
+          "instances.get (create environment)"
+        );
+
+        // Ensure instance belongs to this team (when metadata exists)
+        const instanceTeamId = instance.metadata?.teamId;
+        if (instanceTeamId && instanceTeamId !== team.uuid) {
+          return c.text("Forbidden: Instance does not belong to this team", 403);
+        }
+
+        await instance.exec(SNAPSHOT_CLEANUP_COMMANDS);
+        const snapshot = await instance.snapshot();
+        morphSnapshotId = snapshot.id;
       }
 
-      const persistDataVaultPromise = (async () => {
-        const dataVaultKey = `env_${randomBytes(16).toString("hex")}`;
-        const store =
-          await stackServerAppJs.getDataVaultStore("cmux-snapshot-envs");
-        await store.setValue(dataVaultKey, body.envVarsContent, {
-          secret: env.STACK_DATA_VAULT_SECRET,
-        });
-        return { dataVaultKey };
-      })();
-
-      await instance.exec(SNAPSHOT_CLEANUP_COMMANDS);
-
-      const snapshot = await instance.snapshot();
-
       const convexClient = getConvex({ accessToken });
-      const { dataVaultKey } = await persistDataVaultPromise;
       const environmentId = await convexClient.mutation(
         api.environments.create,
         {
           teamSlugOrId: body.teamSlugOrId,
           name: body.name,
-          morphSnapshotId: snapshot.id,
+          morphSnapshotId,
           dataVaultKey,
           selectedRepos: body.selectedRepos,
           description: body.description,
@@ -303,7 +304,7 @@ environmentsRouter.openapi(
 
       return c.json({
         id: environmentId,
-        snapshotId: snapshot.id,
+        ...(morphSnapshotId ? { snapshotId: morphSnapshotId } : {}),
       });
     } catch (error) {
       if (error instanceof HTTPException) {

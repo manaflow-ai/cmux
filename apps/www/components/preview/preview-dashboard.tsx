@@ -113,6 +113,10 @@ type PreviewDashboardProps = {
   waitlistProviders?: ("gitlab" | "bitbucket")[];
   /** Email to display on waitlist screen */
   waitlistEmail?: string | null;
+  /** Base path for the configure page. Defaults to "/preview/configure" */
+  configureBasePath?: string;
+  /** Base path for the dashboard page (used for navigation). Defaults to "/preview" */
+  dashboardBasePath?: string;
 };
 
 const ADD_INSTALLATION_VALUE = "__add_github_account__";
@@ -3677,6 +3681,8 @@ function PreviewDashboardInner({
   popupComplete,
   waitlistProviders,
   waitlistEmail,
+  configureBasePath = "/preview/configure",
+  dashboardBasePath: _dashboardBasePath = "/preview",
 }: PreviewDashboardProps) {
   const [selectedTeamSlugOrIdState, setSelectedTeamSlugOrIdState] = useState(
     () => selectedTeamSlugOrId || teamOptions[0]?.slugOrId || ""
@@ -3808,8 +3814,8 @@ function PreviewDashboardInner({
     if (config.environmentId) {
       params.set("environmentId", config.environmentId);
     }
-    window.location.href = `/preview/configure?${params.toString()}`;
-  }, []);
+    window.location.href = `${configureBasePath}?${params.toString()}`;
+  }, [configureBasePath]);
 
   const handleRequestDelete = useCallback((config: PreviewConfigListItem) => {
     setConfigError(null);
@@ -4086,9 +4092,9 @@ function PreviewDashboardInner({
         installationId: String(selectedInstallationId ?? ""),
         team: selectedTeamSlugOrIdState,
       });
-      window.location.href = `/preview/configure?${params.toString()}`;
+      window.location.href = `${configureBasePath}?${params.toString()}`;
     },
-    [selectedInstallationId, selectedTeamSlugOrIdState]
+    [selectedInstallationId, selectedTeamSlugOrIdState, configureBasePath]
   );
 
   useEffect(() => {

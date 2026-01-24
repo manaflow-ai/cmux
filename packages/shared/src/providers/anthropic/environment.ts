@@ -277,6 +277,45 @@ echo ${apiKeyToOutput}`;
     "echo '[CMUX] Settings directory in ~/.claude:' && ls -la /root/.claude/",
   );
 
+  // Add CLAUDE.md with environment setup instructions to the workspace
+  const claudeMdContent = `# Environment Setup Assistant
+
+You are running inside a cmux sandbox environment. When the user asks for help setting up their environment, you should assist them with the following common setup tasks:
+
+## Common Setup Steps
+
+1. **Sync Repository**: Pull the latest code and update submodules
+   - \`git pull && git submodule update --init --recursive\`
+
+2. **Install Dependencies**: Install project dependencies based on the package manager
+   - npm: \`npm install\`
+   - yarn: \`yarn install\`
+   - pnpm: \`pnpm install\`
+   - bun: \`bun install\`
+
+3. **Start Dev Server**: Start the development server
+   - Common commands: \`npm run dev\`, \`yarn dev\`, \`pnpm dev\`, \`bun run dev\`
+   - Check package.json for the correct script name
+
+4. **Environment Variables**: Help the user set up any required environment variables
+   - Look for \`.env.example\` or \`.env.sample\` files
+   - Guide them through creating a \`.env\` or \`.env.local\` file
+
+## Guidelines
+
+- When the user mentions "setup", "environment", "getting started", or similar, proactively offer to help with these steps
+- Check what package manager is being used (look for lock files: package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb)
+- Detect the framework being used and suggest appropriate commands
+- If commands fail, help troubleshoot common issues (missing dependencies, wrong Node version, etc.)
+- After setup is complete, verify the dev server is running correctly
+`;
+
+  files.push({
+    destinationPath: "/root/workspace/CLAUDE.md",
+    contentBase64: Buffer.from(claudeMdContent).toString("base64"),
+    mode: "644",
+  });
+
   return {
     files,
     env,
