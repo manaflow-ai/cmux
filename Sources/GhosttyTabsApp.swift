@@ -44,10 +44,15 @@ struct GhosttyTabsApp: App {
 
             // Close tab
             CommandGroup(after: .newItem) {
-                Button("Close Tab") {
-                    tabManager.closeCurrentTab()
+                Button("Close Panel") {
+                    tabManager.closeCurrentPanelWithConfirmation()
                 }
                 .keyboardShortcut("w", modifiers: .command)
+
+                Button("Close Tab") {
+                    tabManager.closeCurrentTabWithConfirmation()
+                }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
             }
 
             // Tab navigation
@@ -77,7 +82,11 @@ struct GhosttyTabsApp: App {
                 // Cmd+1 through Cmd+9 for tab selection
                 ForEach(1...9, id: \.self) { number in
                     Button("Tab \(number)") {
-                        tabManager.selectTab(at: number - 1)
+                        if number == 9 {
+                            tabManager.selectLastTab()
+                        } else {
+                            tabManager.selectTab(at: number - 1)
+                        }
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
                 }

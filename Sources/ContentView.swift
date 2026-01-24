@@ -236,8 +236,9 @@ struct TabItemView: View {
                 Text(subtitle)
                     .font(.system(size: 10))
                     .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
             }
 
             if let directories = directorySummary {

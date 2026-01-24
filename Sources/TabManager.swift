@@ -304,8 +304,41 @@ class TabManager: ObservableObject {
         closeTab(tab)
     }
 
+    func closeCurrentPanelWithConfirmation() {
+        guard let selectedId = selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedId }),
+              let focusedSurfaceId = tab.focusedSurfaceId else { return }
+        guard tab.splitTree.isSplit else { return }
+        guard confirmClose(
+            title: "Close panel?",
+            message: "This will close the current split panel in this tab."
+        ) else { return }
+        _ = tab.closeSurface(focusedSurfaceId)
+    }
+
+    func closeCurrentTabWithConfirmation() {
+        guard tabs.count > 1 else { return }
+        guard let selectedId = selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedId }) else { return }
+        guard confirmClose(
+            title: "Close tab?",
+            message: "This will close the current tab and all of its panels."
+        ) else { return }
+        closeTab(tab)
+    }
+
     func selectTab(_ tab: Tab) {
         selectedTabId = tab.id
+    }
+
+    private func confirmClose(title: String, message: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
@@ -399,6 +432,11 @@ class TabManager: ObservableObject {
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }
         selectedTabId = tabs[index].id
+    }
+
+    func selectLastTab() {
+        guard let lastTab = tabs.last else { return }
+        selectedTabId = lastTab.id
     }
 
     func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.NewDirection) -> Bool {
