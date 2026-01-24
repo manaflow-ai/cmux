@@ -1359,16 +1359,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func scrollWheel(with event: NSEvent) {
         guard let surface = surface else { return }
         terminalSurface?.setFocus(true)
+        var x = event.scrollingDeltaX
+        var y = event.scrollingDeltaY
+        let precision = event.hasPreciseScrollingDeltas
+        if precision {
+            x *= 2
+            y *= 2
+        }
+
         var mods: Int32 = 0
-        if event.modifierFlags.contains(.shift) { mods |= Int32(GHOSTTY_MODS_SHIFT.rawValue) }
-        if event.modifierFlags.contains(.control) { mods |= Int32(GHOSTTY_MODS_CTRL.rawValue) }
-        if event.modifierFlags.contains(.option) { mods |= Int32(GHOSTTY_MODS_ALT.rawValue) }
-        if event.modifierFlags.contains(.command) { mods |= Int32(GHOSTTY_MODS_SUPER.rawValue) }
+        if precision {
+            mods |= 0b0000_0001
+        }
+
+        let momentum: Int32
+        switch event.momentumPhase {
+        case .began:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_BEGAN.rawValue)
+        case .stationary:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_STATIONARY.rawValue)
+        case .changed:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_CHANGED.rawValue)
+        case .ended:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_ENDED.rawValue)
+        case .cancelled:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_CANCELLED.rawValue)
+        case .mayBegin:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN.rawValue)
+        default:
+            momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_NONE.rawValue)
+        }
+        mods |= momentum << 1
 
         ghostty_surface_mouse_scroll(
             surface,
-            event.scrollingDeltaX,
-            event.scrollingDeltaY,
+            x,
+            y,
             ghostty_input_scroll_mods_t(mods)
         )
     }
