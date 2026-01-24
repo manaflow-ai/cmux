@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import AppKit
 import Metal
@@ -523,6 +524,16 @@ class GhosttyApp {
                 surfaceView.applyWindowBackgroundIfActive()
             }
             return true
+        case GHOSTTY_ACTION_KEY_SEQUENCE:
+            return performOnMain {
+                surfaceView.updateKeySequence(action.action.key_sequence)
+                return true
+            }
+        case GHOSTTY_ACTION_KEY_TABLE:
+            return performOnMain {
+                surfaceView.updateKeyTable(action.action.key_table)
+                return true
+            }
         default:
             return false
         }
@@ -696,6 +707,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
+    private var keySequence: [ghostty_input_trigger_s] = []
+    private var keyTables: [String] = []
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
 
@@ -739,6 +752,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             metalLayer.backgroundColor = color.cgColor
             metalLayer.isOpaque = color.alphaComponent >= 1.0
         }
+        terminalSurface?.hostedView.setBackgroundColor(color)
     }
 
     func applyWindowBackgroundIfActive() {
@@ -894,10 +908,105 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
+    private var lastPerformKeyEvent: TimeInterval?
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
         // Intentionally empty - prevents system beep on unhandled key commands
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        guard window?.firstResponder === self else { return false }
+        guard let surface = surface else { return false }
+
+        // Check if this event matches a Ghostty keybinding.
+        let bindingFlags: ghostty_binding_flags_e? = {
+            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+            let text = event.characters ?? ""
+            var flags = ghostty_binding_flags_e(0)
+            let isBinding = text.withCString { ptr in
+                keyEvent.text = ptr
+                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+            }
+            return isBinding ? flags : nil
+        }()
+
+        if let bindingFlags {
+            let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
+            let isAll = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_ALL.rawValue) != 0
+            let isPerformable = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue) != 0
+
+            // If the binding is consumed and not meant for the menu, allow menu first.
+            if isConsumed && !isAll && !isPerformable && keySequence.isEmpty && keyTables.isEmpty {
+                if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                    return true
+                }
+            }
+
+            keyDown(with: event)
+            return true
+        }
+
+        let equivalent: String
+        switch event.charactersIgnoringModifiers {
+        case "\r":
+            // Pass Ctrl+Return through verbatim (prevent context menu equivalent).
+            guard event.modifierFlags.contains(.control) else { return false }
+            equivalent = "\r"
+
+        case "/":
+            // Treat Ctrl+/ as Ctrl+_ to avoid the system beep.
+            guard event.modifierFlags.contains(.control),
+                  event.modifierFlags.isDisjoint(with: [.shift, .command, .option]) else {
+                return false
+            }
+            equivalent = "_"
+
+        default:
+            // Ignore synthetic events.
+            if event.timestamp == 0 {
+                return false
+            }
+
+            // Only handle command/control-modified keys here.
+            if !event.modifierFlags.contains(.command) &&
+                !event.modifierFlags.contains(.control) {
+                lastPerformKeyEvent = nil
+                return false
+            }
+
+            if let lastPerformKeyEvent {
+                self.lastPerformKeyEvent = nil
+                if lastPerformKeyEvent == event.timestamp {
+                    equivalent = event.characters ?? ""
+                    break
+                }
+            }
+
+            lastPerformKeyEvent = event.timestamp
+            return false
+        }
+
+        let finalEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: event.locationInWindow,
+            modifierFlags: event.modifierFlags,
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: equivalent,
+            charactersIgnoringModifiers: equivalent,
+            isARepeat: event.isARepeat,
+            keyCode: event.keyCode
+        )
+
+        if let finalEvent {
+            keyDown(with: finalEvent)
+            return true
+        }
+
+        return false
     }
 
     override func keyDown(with event: NSEvent) {
@@ -970,8 +1079,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Use accumulated text from insertText (for IME), or compute text for key
         if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
             for text in accumulated {
-                text.withCString { ptr in
-                    keyEvent.text = ptr
+                if shouldSendText(text) {
+                    text.withCString { ptr in
+                        keyEvent.text = ptr
+                        _ = ghostty_surface_key(surface, keyEvent)
+                    }
+                } else {
+                    keyEvent.text = nil
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             }
@@ -980,8 +1094,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // For control characters, this returns the unmodified character
             // so Ghostty's KeyEncoder can handle ctrl encoding
             if let text = textForKeyEvent(translationEvent) {
-                text.withCString { ptr in
-                    keyEvent.text = ptr
+                if shouldSendText(text) {
+                    text.withCString { ptr in
+                        keyEvent.text = ptr
+                        _ = ghostty_surface_key(surface, keyEvent)
+                    }
+                } else {
+                    keyEvent.text = nil
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             } else {
@@ -1048,24 +1167,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// When control is pressed, we get the character without the control modifier
     /// so Ghostty's KeyEncoder can apply its own control character encoding.
     private func textForKeyEvent(_ event: NSEvent) -> String? {
-        // First try charactersIgnoringModifiers to get the base character
-        // This is important for control keys - we want 'c' not '\x03' (ETX)
-        if event.modifierFlags.contains(.control) {
-            // For control+key, return the unmodified character
-            // Ghostty's KeyEncoder will handle the ctrl encoding internally
-            return event.charactersIgnoringModifiers
-        }
+        guard let chars = event.characters, !chars.isEmpty else { return nil }
 
-        guard let chars = event.characters, !chars.isEmpty else {
-            return nil
-        }
-
-        // Check if the first character is a control character or PUA
-        if let scalar = chars.unicodeScalars.first {
-            // Control characters (< 0x20) should not be sent as text
-            // Ghostty handles these internally via keycode + mods
+        if chars.count == 1, let scalar = chars.unicodeScalars.first {
+            // If we have a single control character, return the character without
+            // the control modifier so Ghostty's KeyEncoder can handle it.
             if scalar.value < 0x20 {
-                return nil
+                return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
             }
             // Private Use Area characters (function keys) should not be sent
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
@@ -1078,11 +1186,79 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        guard let chars = event.charactersIgnoringModifiers,
-              let scalar = chars.unicodeScalars.first else {
-            return 0
-        }
+        guard let chars = event.characters(byApplyingModifiers: []),
+              let scalar = chars.unicodeScalars.first else { return 0 }
         return scalar.value
+    }
+
+    private func shouldSendText(_ text: String) -> Bool {
+        guard let first = text.utf8.first else { return false }
+        return first >= 0x20
+    }
+
+    private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = UInt32(event.keyCode)
+        keyEvent.mods = modsFromEvent(event)
+
+        // Translate mods to respect Ghostty config (e.g., macos-option-as-alt).
+        let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
+        var translationMods = event.modifierFlags
+        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
+            let hasFlag: Bool
+            switch flag {
+            case .shift:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
+            case .control:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
+            case .option:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
+            case .command:
+                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
+            default:
+                hasFlag = translationMods.contains(flag)
+            }
+            if hasFlag {
+                translationMods.insert(flag)
+            } else {
+                translationMods.remove(flag)
+            }
+        }
+
+        keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
+        keyEvent.text = nil
+        keyEvent.composing = false
+        keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
+        return keyEvent
+    }
+
+    func updateKeySequence(_ action: ghostty_action_key_sequence_s) {
+        if action.active {
+            keySequence.append(action.trigger)
+        } else {
+            keySequence.removeAll()
+        }
+    }
+
+    func updateKeyTable(_ action: ghostty_action_key_table_s) {
+        switch action.tag {
+        case GHOSTTY_KEY_TABLE_ACTIVATE:
+            let namePtr = action.value.activate.name
+            let nameLen = Int(action.value.activate.len)
+            if let namePtr, nameLen > 0 {
+                let data = Data(bytes: namePtr, count: nameLen)
+                if let name = String(data: data, encoding: .utf8) {
+                    keyTables.append(name)
+                }
+            }
+        case GHOSTTY_KEY_TABLE_DEACTIVATE:
+            _ = keyTables.popLast()
+        case GHOSTTY_KEY_TABLE_DEACTIVATE_ALL:
+            keyTables.removeAll()
+        default:
+            break
+        }
     }
 
     // MARK: - Mouse Handling
@@ -1280,6 +1456,7 @@ private final class GhosttyFlashOverlayView: NSView {
 }
 
 final class GhosttySurfaceScrollView: NSView {
+    private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
@@ -1294,6 +1471,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
+        backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
@@ -1317,6 +1495,12 @@ final class GhosttySurfaceScrollView: NSView {
 
         super.init(frame: .zero)
 
+        backgroundView.wantsLayer = true
+        backgroundView.layer?.backgroundColor =
+            GhosttyApp.shared.defaultBackgroundColor
+                .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
+                .cgColor
+        addSubview(backgroundView)
         addSubview(scrollView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -1358,6 +1542,14 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSScrollView.didLiveScrollNotification,
+            object: scrollView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleLiveScroll()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -1403,6 +1595,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     override func layout() {
         super.layout()
+        backgroundView.frame = bounds
         scrollView.frame = bounds
         surfaceView.frame.size = scrollView.bounds.size
         documentView.frame.size.width = scrollView.bounds.width
@@ -1446,6 +1639,14 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
         surfaceView.onTriggerFlash = handler
+    }
+
+    func setBackgroundColor(_ color: NSColor) {
+        guard let layer = backgroundView.layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.backgroundColor = color.cgColor
+        CATransaction.commit()
     }
 
     func triggerFlash() {
@@ -1602,7 +1803,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
-        guard isLiveScrolling else { return }
+    }
+
+    private func handleLiveScroll() {
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
 
