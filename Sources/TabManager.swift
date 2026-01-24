@@ -214,7 +214,15 @@ class Tab: Identifiable, ObservableObject {
 
 class TabManager: ObservableObject {
     @Published var tabs: [Tab] = []
-    @Published var selectedTabId: UUID?
+    @Published var selectedTabId: UUID? {
+        didSet {
+            guard selectedTabId != oldValue else { return }
+            let previousTabId = oldValue
+            DispatchQueue.main.async { [weak self] in
+                self?.focusSelectedTabSurface(previousTabId: previousTabId)
+            }
+        }
+    }
     private var observers: [NSObjectProtocol] = []
 
     init() {
@@ -313,6 +321,16 @@ class TabManager: ObservableObject {
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let surface = tab.focusedSurface else { return }
         surface.applyWindowBackgroundIfActive()
+    }
+
+    private func focusSelectedTabSurface(previousTabId: UUID?) {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let surface = tab.focusedSurface else { return }
+        let previousSurface = previousTabId.flatMap { id in
+            tabs.first(where: { $0.id == id })?.focusedSurface
+        }
+        surface.hostedView.moveFocus(from: previousSurface?.hostedView)
     }
 
     private func updateTabTitle(tabId: UUID, title: String) {
