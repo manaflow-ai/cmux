@@ -21,6 +21,7 @@
 		A50010A5 /* SplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A1 /* SplitView.swift */; };
 		A50010A6 /* TerminalSplitTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A2 /* TerminalSplitTreeView.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
+		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -67,6 +68,7 @@
 		A50010A2 /* TerminalSplitTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/TerminalSplitTreeView.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +95,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A5001100 /* Assets.xcassets in Resources */,
+				84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				A5001041 /* Sources */,
+				087C454FFF74443AB06942C3 /* Resources */,
 				A5001101 /* Assets.xcassets */,
 				A5001016 /* GhosttyKit.xcframework */,
 				A5001017 /* ghostty.h */,
@@ -136,6 +140,14 @@
 				A50010A2 /* TerminalSplitTreeView.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		087C454FFF74443AB06942C3 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B2E7294509CC42FE9191870E /* xterm-ghostty */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		A5001042 /* Products */ = {
