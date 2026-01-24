@@ -253,16 +253,20 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
         style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
         {isElectron && <div className="w-[80px]"></div>}
-        <Link
-          to="/$teamSlugOrId/dashboard"
-          params={{ teamSlugOrId }}
-          activeOptions={{ exact: true }}
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("cmux:open-command-bar", {
+                detail: { page: "root" },
+              })
+            );
+          }}
           className="flex items-center gap-2 select-none cursor-pointer"
           style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
         >
-          {/* <Terminals */}
           <CmuxLogo height={32} />
-        </Link>
+        </button>
         <div className="grow"></div>
         <Link
           to="/$teamSlugOrId/dashboard"
