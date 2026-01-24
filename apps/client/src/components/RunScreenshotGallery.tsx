@@ -448,7 +448,7 @@ export function RunScreenshotGallery(props: RunScreenshotGalleryProps) {
           Latest capture
         </span>
       </div>
-      <div className="px-3.5 pb-4 space-y-4">
+      <div className="px-3.5 pb-2 space-y-4">
         {currentEntry ? (
           <Dialog.Root
             open={isSlideshowOpen}

@@ -1113,7 +1113,7 @@ function RunDiffPage() {
               />
             ) : null}
             <div
-              className={cn("flex-1 min-h-0", screenshotSets.length > 0 && "mt-6")}
+              className="flex-1 min-h-0"
               style={{ "--cmux-diff-header-offset": "56px" } as React.CSSProperties}
             >
               <Suspense

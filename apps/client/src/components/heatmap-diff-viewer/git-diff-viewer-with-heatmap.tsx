@@ -224,7 +224,7 @@ export const GitDiffViewerWithHeatmap = memo(
       <div
         ref={containerRef}
         className={cn(
-          "flex flex-col gap-2 p-3.5 pb-28",
+          "flex flex-col gap-2 px-3.5 pb-28",
           classNames?.container
         )}
       >
