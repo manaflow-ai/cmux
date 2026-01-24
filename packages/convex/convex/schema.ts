@@ -464,7 +464,8 @@ const convexSchema = defineSchema({
     .index("by_team_pr", ["teamId", "repoFullName", "prNumber", "createdAt"]),
 
   automatedCodeReviewFileOutputs: defineTable({
-    jobId: v.id("automatedCodeReviewJobs"),
+    // Optional for streaming results that don't have an associated job
+    jobId: v.optional(v.id("automatedCodeReviewJobs")),
     teamId: v.optional(v.string()),
     repoFullName: v.string(),
     prNumber: v.optional(v.number()),
@@ -611,12 +612,12 @@ const convexSchema = defineSchema({
   }).index("by_team_user_repo", ["teamId", "userId", "projectFullName"]),
   previewConfigs: defineTable({
     teamId: v.string(),
-    createdByUserId: v.optional(v.string()),
     repoFullName: v.string(),
     repoProvider: v.optional(v.literal("github")),
     repoInstallationId: v.optional(v.number()),
     repoDefaultBranch: v.optional(v.string()),
     environmentId: v.optional(v.id("environments")),
+    createdByUserId: v.optional(v.string()),
     status: v.optional(
       v.union(
         v.literal("active"),
