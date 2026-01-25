@@ -1256,27 +1256,6 @@ function SettingsComponent() {
                     </p>
                   ) : (
                     <>
-                      <div className="mb-3">
-                        <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mb-1">
-                          API Key Authentication
-                        </h3>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
-                          <p>You can authenticate providers in two ways:</p>
-                          <ul className="list-disc ml-4 space-y-0.5">
-                            <li>
-                              Start a coding CLI (Claude Code, Codex CLI, Gemini
-                              CLI, Amp, Opencode) and complete its sign-in; cmux
-                              reuses that authentication.
-                            </li>
-                            <li>
-                              Or enter API keys here and cmux will use them
-                              directly.
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-
-                      {/* Group API keys by provider for better organization */}
                       {apiKeys.map((key) => {
                         const providerInfo = PROVIDER_INFO[key.envVar];
                         const usedModels = apiKeyModelsByEnv[key.envVar] ?? [];
