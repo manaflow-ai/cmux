@@ -2226,7 +2226,7 @@ function TaskRunDetails({
         />
       ) : null}
 
-      {shouldRenderPullRequestLink ? (
+      {shouldRenderPullRequestLink && isElectron ? (
         <TaskRunDetailLink
           to="/$teamSlugOrId/task/$taskId/run/$runId/pr"
           params={{ teamSlugOrId, taskId, runId: run._id }}
