@@ -199,6 +199,198 @@ type FocusSnapshot = {
   };
 };
 
+const MAX_TASK_COMMAND_ENTRIES = 9;
+
+const GITHUB_PULL_REQUEST_URL_RE =
+  /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/i;
+
+type CommandBarTask =
+  (typeof api.tasks.getTasksWithTaskRuns._returnType)[number];
+type CommandBarTaskRun = NonNullable<CommandBarTask["selectedTaskRun"]>;
+
+type GithubPullRequestIdentifier = {
+  repoOwner: string;
+  repoName: string;
+  repoFullName: string;
+  normalizedRepoFullName: string;
+  number: number;
+  url: string;
+};
+
+type PullRequestMatchResult = {
+  repoFullName: string;
+  normalizedRepoFullName: string;
+  number: number;
+  url: string;
+  identifier: string;
+};
+
+type TaskRunPullRequestMatch = {
+  task: CommandBarTask;
+  run: CommandBarTaskRun;
+  match: PullRequestMatchResult;
+};
+
+type PullRequestCandidate = {
+  repoFullName?: string | null;
+  number?: number | null;
+  url?: string | null;
+};
+
+const sanitizeRepoFullNameValue = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.replace(/\.git$/i, "");
+};
+
+const normalizeRepoFullName = (value?: string | null) => {
+  const sanitized = sanitizeRepoFullNameValue(value);
+  return sanitized ? sanitized.toLowerCase() : null;
+};
+
+const parseGitHubPullRequestFromText = (
+  text: string
+): GithubPullRequestIdentifier | null => {
+  if (!text) {
+    return null;
+  }
+  const match = text.match(GITHUB_PULL_REQUEST_URL_RE);
+  if (!match) {
+    return null;
+  }
+  const [, ownerRaw, repoRaw, numberRaw] = match;
+  const owner = ownerRaw.trim();
+  const repo = repoRaw.trim().replace(/\.git$/i, "");
+  const number = Number.parseInt(numberRaw, 10);
+  if (!owner || !repo || Number.isNaN(number)) {
+    return null;
+  }
+  const repoFullName = `${owner}/${repo}`;
+  const normalizedRepoFullName = normalizeRepoFullName(repoFullName);
+  if (!normalizedRepoFullName) {
+    return null;
+  }
+  return {
+    repoOwner: owner,
+    repoName: repo,
+    repoFullName,
+    normalizedRepoFullName,
+    number,
+    url: `https://github.com/${repoFullName}/pull/${number}`,
+  };
+};
+
+const buildPullRequestCandidates = (
+  task: CommandBarTask,
+  run: CommandBarTaskRun
+): PullRequestCandidate[] => {
+  const candidates: PullRequestCandidate[] = [];
+  if (Array.isArray(run.pullRequests)) {
+    for (const pr of run.pullRequests) {
+      candidates.push({
+        repoFullName: pr.repoFullName,
+        number: typeof pr.number === "number" ? pr.number : undefined,
+        url: pr.url,
+      });
+    }
+  }
+
+  if (run.pullRequestUrl) {
+    candidates.push({ url: run.pullRequestUrl });
+  }
+
+  if (
+    typeof run.pullRequestNumber === "number" &&
+    typeof task.projectFullName === "string" &&
+    task.projectFullName.trim().length > 0
+  ) {
+    candidates.push({
+      repoFullName: task.projectFullName,
+      number: run.pullRequestNumber,
+    });
+  }
+
+  return candidates;
+};
+
+const normalizePullRequestCandidate = (
+  candidate: PullRequestCandidate
+): PullRequestMatchResult | null => {
+  const parsedFromUrl = candidate.url
+    ? parseGitHubPullRequestFromText(candidate.url)
+    : null;
+
+  const repoFromCandidate = sanitizeRepoFullNameValue(
+    candidate.repoFullName ?? undefined
+  );
+  const repoFullName = repoFromCandidate ?? parsedFromUrl?.repoFullName ?? null;
+  const normalizedRepoFullName = normalizeRepoFullName(
+    repoFullName ?? undefined
+  );
+  const numberFromCandidate =
+    typeof candidate.number === "number" && Number.isFinite(candidate.number)
+      ? candidate.number
+      : null;
+  const number = numberFromCandidate ?? parsedFromUrl?.number ?? null;
+
+  if (!repoFullName || !normalizedRepoFullName || typeof number !== "number") {
+    return null;
+  }
+
+  const url =
+    candidate.url ??
+    parsedFromUrl?.url ??
+    `https://github.com/${repoFullName}/pull/${number}`;
+
+  return {
+    repoFullName,
+    normalizedRepoFullName,
+    number,
+    url,
+    identifier: `${repoFullName}#${number}`,
+  };
+};
+
+const findMatchingTaskRunForPullRequest = (
+  tasks: CommandBarTask[] | undefined,
+  target: GithubPullRequestIdentifier | null
+): TaskRunPullRequestMatch | null => {
+  if (!tasks || tasks.length === 0 || !target) {
+    return null;
+  }
+  const normalizedTargetRepo = target.normalizedRepoFullName;
+  if (!normalizedTargetRepo) {
+    return null;
+  }
+
+  for (const task of tasks) {
+    const run = task.selectedTaskRun;
+    if (!run) continue;
+    const candidates = buildPullRequestCandidates(task, run);
+    for (const candidate of candidates) {
+      const normalized = normalizePullRequestCandidate(candidate);
+      if (
+        normalized &&
+        normalized.normalizedRepoFullName === normalizedTargetRepo &&
+        normalized.number === target.number
+      ) {
+        return {
+          task,
+          run,
+          match: normalized,
+        };
+      }
+    }
+  }
+
+  return null;
+};
+
 function VirtualizedCommandItems({
   entries,
   virtualizer,
@@ -674,6 +866,34 @@ export function CommandBar({
     : "Sign in to view teams.";
 
   const allTasks = useQuery(api.tasks.getTasksWithTaskRuns, { teamSlugOrId });
+  const githubPullRequestTarget = useMemo(
+    () => parseGitHubPullRequestFromText(search),
+    [search]
+  );
+  const matchingTaskRun = useMemo(
+    () => findMatchingTaskRunForPullRequest(allTasks, githubPullRequestTarget),
+    [allTasks, githubPullRequestTarget]
+  );
+  const tasksForCommandEntries = useMemo<CommandBarTask[]>(() => {
+    if (!allTasks || allTasks.length === 0) {
+      return [];
+    }
+    if (!matchingTaskRun) {
+      return allTasks.slice(0, MAX_TASK_COMMAND_ENTRIES);
+    }
+    const prioritized: CommandBarTask[] = [];
+    const seen = new Set<Id<"tasks">>();
+    prioritized.push(matchingTaskRun.task);
+    seen.add(matchingTaskRun.task._id);
+    for (const task of allTasks) {
+      if (seen.has(task._id)) continue;
+      prioritized.push(task);
+      if (prioritized.length >= MAX_TASK_COMMAND_ENTRIES) {
+        break;
+      }
+    }
+    return prioritized;
+  }, [allTasks, matchingTaskRun]);
   const reserveLocalWorkspace = useMutation(api.localWorkspaces.reserve);
   const createTask = useMutation(api.tasks.create);
   const failTaskRun = useMutation(api.taskRuns.fail);
@@ -1848,18 +2068,38 @@ export function CommandBar({
     ];
 
     const taskEntries =
-      allTasks && allTasks.length > 0
-        ? allTasks.slice(0, 9).flatMap<CommandListEntry>((task, index) => {
-            const title =
+      tasksForCommandEntries.length > 0
+        ? tasksForCommandEntries.flatMap<CommandListEntry>((task, index) => {
+            const isMatchedTask = matchingTaskRun?.task._id === task._id;
+            const matchIdentifier = isMatchedTask
+              ? matchingTaskRun.match.identifier
+              : null;
+            const matchUrl = isMatchedTask ? matchingTaskRun.match.url : null;
+            const matchKeywords = isMatchedTask
+              ? compactStrings([
+                  matchingTaskRun.match.repoFullName,
+                  matchingTaskRun.match.identifier,
+                  `${matchingTaskRun.match.number}`,
+                  `#${matchingTaskRun.match.number}`,
+                  matchUrl ?? undefined,
+                ])
+              : [];
+            const baseTitle =
               task.pullRequestTitle || task.text || `Task ${index + 1}`;
+            const displayTitle =
+              isMatchedTask && matchIdentifier
+                ? `${baseTitle} (${matchIdentifier})`
+                : baseTitle;
             const keywords = compactStrings([
-              title,
+              baseTitle,
               task.text,
               task.pullRequestTitle,
               `task ${index + 1}`,
+              ...matchKeywords,
             ]);
-            const baseSearch = buildSearchText(title, keywords, [
+            const baseSearch = buildSearchText(displayTitle, keywords, [
               `${index + 1}`,
+              matchUrl ?? undefined,
             ]);
             const statusLabel = task.isCompleted ? "completed" : "in progress";
             const statusClassName = task.isCompleted
@@ -1870,7 +2110,7 @@ export function CommandBar({
             const entriesForTask: CommandListEntry[] = [
               {
                 value: `${index + 1}:task:${task._id}`,
-                label: title,
+                label: displayTitle,
                 keywords,
                 searchText: baseSearch,
                 className: taskCommandItemClassName,
@@ -1880,7 +2120,9 @@ export function CommandBar({
                     <span className="flex h-5 w-5 items-center justify-center rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600">
                       {index + 1}
                     </span>
-                    <span className="flex-1 truncate text-sm">{title}</span>
+                    <span className="flex-1 truncate text-sm">
+                      {displayTitle}
+                    </span>
                     <span className={statusClassName}>{statusLabel}</span>
                   </>
                 ),
@@ -1891,12 +2133,13 @@ export function CommandBar({
               const vsKeywords = [...keywords, "vs", "vscode"];
               entriesForTask.push({
                 value: `${index + 1} vs:task:${task._id}`,
-                label: `${title} (VS)`,
+                label: `${displayTitle} (VS)`,
                 keywords: vsKeywords,
-                searchText: buildSearchText(`${title} VS`, vsKeywords, [
+                searchText: buildSearchText(`${displayTitle} VS`, vsKeywords, [
                   `${index + 1} vs`,
                   `${index + 1}vs`,
                   `${index + 1}v`,
+                  matchUrl ?? undefined,
                 ]),
                 className: taskCommandItemClassName,
                 execute: () => handleSelect(`task:${task._id}:vs`),
@@ -1905,7 +2148,9 @@ export function CommandBar({
                     <span className="flex h-5 w-8 items-center justify-center rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600">
                       {index + 1} VS
                     </span>
-                    <span className="flex-1 truncate text-sm">{title}</span>
+                    <span className="flex-1 truncate text-sm">
+                      {displayTitle}
+                    </span>
                     <span className={statusClassName}>{statusLabel}</span>
                   </>
                 ),
@@ -1914,13 +2159,18 @@ export function CommandBar({
               const diffKeywords = [...keywords, "git", "diff"];
               entriesForTask.push({
                 value: `${index + 1} git diff:task:${task._id}`,
-                label: `${title} (git diff)`,
+                label: `${displayTitle} (git diff)`,
                 keywords: diffKeywords,
-                searchText: buildSearchText(`${title} git diff`, diffKeywords, [
-                  `${index + 1} git diff`,
-                  `${index + 1}gitdiff`,
-                  `${index + 1}gd`,
-                ]),
+                searchText: buildSearchText(
+                  `${displayTitle} git diff`,
+                  diffKeywords,
+                  [
+                    `${index + 1} git diff`,
+                    `${index + 1}gitdiff`,
+                    `${index + 1}gd`,
+                    matchUrl ?? undefined,
+                  ]
+                ),
                 className: taskCommandItemClassName,
                 execute: () => handleSelect(`task:${task._id}:gitdiff`),
                 renderContent: () => (
@@ -1928,7 +2178,9 @@ export function CommandBar({
                     <span className="flex h-5 px-2 items-center justify-center rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 group-data-[selected=true]:bg-neutral-300 dark:group-data-[selected=true]:bg-neutral-600">
                       {index + 1} git diff
                     </span>
-                    <span className="flex-1 truncate text-sm">{title}</span>
+                    <span className="flex-1 truncate text-sm">
+                      {displayTitle}
+                    </span>
                     <span className={statusClassName}>{statusLabel}</span>
                   </>
                 ),
@@ -1999,7 +2251,7 @@ export function CommandBar({
       : [];
 
     return [...baseEntries, ...taskEntries, ...electronEntries];
-  }, [allTasks, handleSelect, stackUser]);
+  }, [handleSelect, stackUser, tasksForCommandEntries, matchingTaskRun]);
 
   const localWorkspaceEntries = useMemo<CommandListEntry[]>(() => {
     return localWorkspaceOptions.map((option) => {
