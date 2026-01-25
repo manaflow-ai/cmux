@@ -6,6 +6,7 @@ import { useOnboardingOptional } from "@/contexts/onboarding/onboarding-context"
 import { useSocket } from "@/contexts/socket/use-socket";
 import { isElectron } from "@/lib/electron";
 import { copyAllElectronLogs } from "@/lib/electron-logs/electron-logs";
+import { COMMAND_PALETTE_OPEN_EVENT } from "@/lib/command-palette-events";
 import { setLastTeamSlugOrId } from "@/lib/lastTeam";
 import { stackClientApp } from "@/lib/stack";
 import { preloadTaskRunIframes } from "@/lib/preloadTaskRunIframes";
@@ -448,6 +449,21 @@ export function CommandBar({
     setOpenedWithShift(false);
     scheduleCommandStateReset();
   }, [commandContainerRef, scheduleCommandStateReset, setOpen, setOpenedWithShift]);
+
+  const openCommandPalette = useCallback(
+    (shouldToggle: boolean) => {
+      if (openRef.current) {
+        if (shouldToggle) {
+          closeCommand();
+        }
+        return;
+      }
+      setOpenedWithShift(false);
+      captureFocusBeforeOpen();
+      setOpen(true);
+    },
+    [captureFocusBeforeOpen, closeCommand, setOpen, setOpenedWithShift]
+  );
 
   const handleEscape = useCallback(() => {
     skipNextCloseRef.current = false;
@@ -1046,13 +1062,7 @@ export function CommandBar({
     if (isElectron) {
       const off = window.cmux.on("shortcut:cmd-k", () => {
         // Only handle Cmd+K (no shift/ctrl variations)
-        if (openRef.current) {
-          closeCommand();
-          return;
-        }
-        setOpenedWithShift(false);
-        captureFocusBeforeOpen();
-        setOpen(true);
+        openCommandPalette(true);
       });
       return () => {
         // Unsubscribe if available
@@ -1071,18 +1081,23 @@ export function CommandBar({
         !e.ctrlKey
       ) {
         e.preventDefault();
-        if (openRef.current) {
-          closeCommand();
-          return;
-        }
-        setOpenedWithShift(false);
-        captureFocusBeforeOpen();
-        setOpen(true);
+        openCommandPalette(true);
       }
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
-  }, [captureFocusBeforeOpen, closeCommand]);
+  }, [openCommandPalette]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleOpen = () => {
+      openCommandPalette(false);
+    };
+    document.addEventListener(COMMAND_PALETTE_OPEN_EVENT, handleOpen);
+    return () => {
+      document.removeEventListener(COMMAND_PALETTE_OPEN_EVENT, handleOpen);
+    };
+  }, [openCommandPalette]);
 
   // Listen for custom event to open command bar with a specific page
   useEffect(() => {
