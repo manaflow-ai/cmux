@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server";
+import { internalQuery, query } from "./_generated/server";
+import { resolveTeamIdLoose } from "../_shared/team";
 
 export const findTaskRunsForPr = internalQuery({
   args: {
@@ -70,5 +71,93 @@ export const getScreenshotSet = internalQuery({
       images: imagesWithUrls,
       videos: videosWithUrls,
     };
+  },
+});
+
+/**
+ * List screenshot sets for a pull request.
+ * Finds task runs linked to the PR via taskRunPullRequests junction table,
+ * then returns their associated screenshot sets.
+ */
+export const listScreenshotSetsForPr = query({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    const maxSets = Math.min(args.limit ?? 10, 10);
+
+    // Find task run links for this PR using the junction table
+    const prLinks = await ctx.db
+      .query("taskRunPullRequests")
+      .withIndex("by_pr", (q) =>
+        q
+          .eq("teamId", teamId)
+          .eq("repoFullName", args.repoFullName)
+          .eq("prNumber", args.prNumber)
+      )
+      .order("desc")
+      .take(50);
+
+    if (prLinks.length === 0) {
+      return [];
+    }
+
+    // Get unique run IDs
+    const runIds = [...new Set(prLinks.map((link) => link.taskRunId))];
+
+    // Fetch runs to get their latestScreenshotSetId
+    const runs = await Promise.all(runIds.map((id) => ctx.db.get(id)));
+    const validRuns = runs.filter(
+      (run): run is NonNullable<typeof run> =>
+        run !== null && run.latestScreenshotSetId !== undefined
+    );
+
+    if (validRuns.length === 0) {
+      return [];
+    }
+
+    // Get unique screenshot set IDs from the runs
+    const screenshotSetIds = [
+      ...new Set(
+        validRuns
+          .map((run) => run.latestScreenshotSetId)
+          .filter((id): id is NonNullable<typeof id> => id !== undefined)
+      ),
+    ];
+
+    // Fetch the screenshot sets
+    const screenshotSets = await Promise.all(
+      screenshotSetIds.slice(0, maxSets).map(async (setId) => {
+        const set = await ctx.db.get(setId);
+        if (!set) {
+          return null;
+        }
+
+        // Get URLs for all images
+        const imagesWithUrls = await Promise.all(
+          set.images.map(async (image) => {
+            const url = await ctx.storage.getUrl(image.storageId);
+            return {
+              ...image,
+              url: url ?? undefined,
+            };
+          })
+        );
+
+        return {
+          ...set,
+          images: imagesWithUrls,
+        };
+      })
+    );
+
+    // Filter out nulls and sort by capturedAt descending
+    return screenshotSets
+      .filter((set): set is NonNullable<typeof set> => set !== null)
+      .sort((a, b) => b.capturedAt - a.capturedAt);
   },
 });
