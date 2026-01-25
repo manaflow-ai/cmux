@@ -86,6 +86,11 @@ class GhosttyApp {
     }
 
     private func initializeGhostty() {
+        // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
+        if getenv("NO_COLOR") != nil {
+            unsetenv("NO_COLOR")
+        }
+
         // Initialize Ghostty library first
         let result = ghostty_init(0, nil)
         if result != GHOSTTY_SUCCESS {
