@@ -192,23 +192,33 @@ struct VerticalTabsSidebar: View {
             Divider()
 
             // Tab List
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                        TabItemView(
-                            tab: tab,
-                            index: index,
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                                TabItemView(
+                                    tab: tab,
+                                    index: index,
+                                    selection: $selection,
+                                    selectedTabIds: $selectedTabIds,
+                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        SidebarEmptyArea(
                             selection: $selection,
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
                         )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    .frame(minHeight: proxy.size.height, alignment: .top)
                 }
-                .padding(.vertical, 4)
+                .accessibilityIdentifier("Sidebar")
             }
-            .accessibilityIdentifier("Sidebar")
-
-            Spacer()
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
@@ -219,6 +229,27 @@ private struct SidebarFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         value = nextValue()
+    }
+}
+
+private struct SidebarEmptyArea: View {
+    @EnvironmentObject var tabManager: TabManager
+    @Binding var selection: SidebarSelection
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onTapGesture(count: 2) {
+                tabManager.addTab()
+                if let selectedId = tabManager.selectedTabId {
+                    selectedTabIds = [selectedId]
+                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                }
+                selection = .tabs
+            }
     }
 }
 
@@ -317,10 +348,15 @@ struct TabItemView: View {
             }
             .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
 
-            Button("Close Tabs to the Right") {
-                closeTabsToRight(of: tab.id)
+            Button("Close Tabs Below") {
+                closeTabsBelow(tabId: tab.id)
             }
             .disabled(index >= tabManager.tabs.count - 1)
+
+            Button("Close Tabs Above") {
+                closeTabsAbove(tabId: tab.id)
+            }
+            .disabled(index == 0)
 
             Divider()
 
@@ -407,9 +443,15 @@ struct TabItemView: View {
         closeTabs(idsToClose)
     }
 
-    private func closeTabsToRight(of tabId: UUID) {
+    private func closeTabsBelow(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
+        closeTabs(idsToClose)
+    }
+
+    private func closeTabsAbove(tabId: UUID) {
+        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
         closeTabs(idsToClose)
     }
 
