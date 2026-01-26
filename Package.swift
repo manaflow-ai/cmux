@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "GhosttyTabs",
+    name: "cmux",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "GhosttyTabs", targets: ["GhosttyTabs"])
+        .executable(name: "cmux", targets: ["cmux"])
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0")
     ],
     targets: [
         .executableTarget(
-            name: "GhosttyTabs",
+            name: "cmux",
             dependencies: ["SwiftTerm"],
             path: "Sources"
         )

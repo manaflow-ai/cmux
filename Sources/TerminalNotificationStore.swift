@@ -15,8 +15,8 @@ struct TerminalNotification: Identifiable, Hashable {
 final class TerminalNotificationStore: ObservableObject {
     static let shared = TerminalNotificationStore()
 
-    static let categoryIdentifier = "com.cmux.ghosttytabs.userNotification"
-    static let actionShowIdentifier = "com.cmux.ghosttytabs.userNotification.show"
+    static let categoryIdentifier = "com.cmux.app.userNotification"
+    static let actionShowIdentifier = "com.cmux.app.userNotification.show"
 
     @Published private(set) var notifications: [TerminalNotification] = []
 

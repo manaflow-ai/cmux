@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-GhosttyTabs Python Client
+cmux Python Client
 
-A client library for programmatically controlling GhosttyTabs via Unix socket.
+A client library for programmatically controlling cmux via Unix socket.
 
 Usage:
-    from ghosttytabs import GhosttyTabs
+    from cmux import cmux
 
-    client = GhosttyTabs()
+    client = cmux()
     client.connect()
 
     # Send text to terminal
@@ -33,29 +33,29 @@ import os
 from typing import Optional, List, Tuple
 
 
-class GhosttyTabsError(Exception):
-    """Exception raised for GhosttyTabs errors"""
+class cmuxError(Exception):
+    """Exception raised for cmux errors"""
     pass
 
 
-class GhosttyTabs:
-    """Client for controlling GhosttyTabs via Unix socket"""
+class cmux:
+    """Client for controlling cmux via Unix socket"""
 
-    DEFAULT_SOCKET_PATH = "/tmp/ghosttytabs.sock"
+    DEFAULT_SOCKET_PATH = "/tmp/cmux.sock"
 
     def __init__(self, socket_path: str = None):
         self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
         self._socket: Optional[socket.socket] = None
 
     def connect(self) -> None:
-        """Connect to the GhosttyTabs socket"""
+        """Connect to the cmux socket"""
         if self._socket is not None:
             return
 
         if not os.path.exists(self.socket_path):
-            raise GhosttyTabsError(
+            raise cmuxError(
                 f"Socket not found at {self.socket_path}. "
-                "Is GhosttyTabs running?"
+                "Is cmux running?"
             )
 
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -64,7 +64,7 @@ class GhosttyTabs:
             self._socket.settimeout(5.0)
         except socket.error as e:
             self._socket = None
-            raise GhosttyTabsError(f"Failed to connect: {e}")
+            raise cmuxError(f"Failed to connect: {e}")
 
     def close(self) -> None:
         """Close the connection"""
@@ -83,16 +83,16 @@ class GhosttyTabs:
     def _send_command(self, command: str) -> str:
         """Send a command and receive response"""
         if self._socket is None:
-            raise GhosttyTabsError("Not connected")
+            raise cmuxError("Not connected")
 
         try:
             self._socket.sendall((command + "\n").encode())
             response = self._socket.recv(8192).decode().strip()
             return response
         except socket.timeout:
-            raise GhosttyTabsError("Command timed out")
+            raise cmuxError("Command timed out")
         except socket.error as e:
-            raise GhosttyTabsError(f"Socket error: {e}")
+            raise cmuxError(f"Socket error: {e}")
 
     def ping(self) -> bool:
         """Check if the server is responding"""
@@ -126,25 +126,25 @@ class GhosttyTabs:
         response = self._send_command("new_tab")
         if response.startswith("OK "):
             return response[3:]
-        raise GhosttyTabsError(response)
+        raise cmuxError(response)
 
     def new_split(self, direction: str) -> None:
         """Create a split in the given direction (left/right/up/down)."""
         response = self._send_command(f"new_split {direction}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def close_tab(self, tab_id: str) -> None:
         """Close a tab by ID"""
         response = self._send_command(f"close_tab {tab_id}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def select_tab(self, tab: str | int) -> None:
         """Select a tab by ID or index"""
         response = self._send_command(f"select_tab {tab}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def list_surfaces(self, tab: str | int | None = None) -> List[Tuple[int, str, bool]]:
         """
@@ -172,13 +172,13 @@ class GhosttyTabs:
         """Focus a surface by ID or index in the current tab."""
         response = self._send_command(f"focus_surface {surface}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def current_tab(self) -> str:
         """Get the current tab's ID"""
         response = self._send_command("current_tab")
         if response.startswith("ERROR"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
         return response
 
     def send(self, text: str) -> None:
@@ -195,14 +195,14 @@ class GhosttyTabs:
         escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
         response = self._send_command(f"send {escaped}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def send_surface(self, surface: str | int, text: str) -> None:
         """Send text to a specific surface by ID or index in the current tab."""
         escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
         response = self._send_command(f"send_surface {surface} {escaped}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def send_key(self, key: str) -> None:
         """
@@ -215,13 +215,13 @@ class GhosttyTabs:
         """
         response = self._send_command(f"send_key {key}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def send_key_surface(self, surface: str | int, key: str) -> None:
         """Send a special key to a specific surface by ID or index in the current tab."""
         response = self._send_command(f"send_key_surface {surface} {key}")
         if not response.startswith("OK"):
-            raise GhosttyTabsError(response)
+            raise cmuxError(response)
 
     def send_line(self, text: str) -> None:
         """Send text followed by Enter"""
@@ -241,23 +241,23 @@ class GhosttyTabs:
 
 
 def main():
-    """CLI interface for ghosttytabs"""
+    """CLI interface for cmux"""
     import sys
     import argparse
 
-    parser = argparse.ArgumentParser(description="GhosttyTabs CLI")
+    parser = argparse.ArgumentParser(description="cmux CLI")
     parser.add_argument("command", nargs="?", help="Command to send")
     parser.add_argument("args", nargs="*", help="Command arguments")
-    parser.add_argument("-s", "--socket", default=GhosttyTabs.DEFAULT_SOCKET_PATH,
+    parser.add_argument("-s", "--socket", default=cmux.DEFAULT_SOCKET_PATH,
                         help="Socket path")
 
     args = parser.parse_args()
 
     try:
-        with GhosttyTabs(args.socket) as client:
+        with cmux(args.socket) as client:
             if not args.command:
                 # Interactive mode
-                print("GhosttyTabs CLI (type 'help' for commands, 'quit' to exit)")
+                print("cmux CLI (type 'help' for commands, 'quit' to exit)")
                 while True:
                     try:
                         line = input("> ").strip()
@@ -278,7 +278,7 @@ def main():
                     command += " " + " ".join(args.args)
                 response = client._send_command(command)
                 print(response)
-    except GhosttyTabsError as e:
+    except cmuxError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 

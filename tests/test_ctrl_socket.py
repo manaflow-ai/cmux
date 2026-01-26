@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Automated tests for Ctrl+C and Ctrl+D using the GhosttyTabs socket interface.
+Automated tests for Ctrl+C and Ctrl+D using the cmux socket interface.
 
 Usage:
     python3 test_ctrl_socket.py
 
 Requirements:
-    - GhosttyTabs must be running with the socket controller enabled
+    - cmux must be running with the socket controller enabled
 """
 
 import os
@@ -15,10 +15,10 @@ import time
 import tempfile
 from pathlib import Path
 
-# Add the directory containing ghosttytabs.py to the path
+# Add the directory containing cmux.py to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ghosttytabs import GhosttyTabs, GhosttyTabsError
+from cmux import cmux, cmuxError
 
 
 class TestResult:
@@ -36,7 +36,7 @@ class TestResult:
         self.message = msg
 
 
-def test_connection(client: GhosttyTabs) -> TestResult:
+def test_connection(client: cmux) -> TestResult:
     """Test that we can connect and ping the server"""
     result = TestResult("Connection")
     try:
@@ -49,7 +49,7 @@ def test_connection(client: GhosttyTabs) -> TestResult:
     return result
 
 
-def test_ctrl_c(client: GhosttyTabs) -> TestResult:
+def test_ctrl_c(client: cmux) -> TestResult:
     """
     Test Ctrl+C by:
     1. Starting sleep command
@@ -88,7 +88,7 @@ def test_ctrl_c(client: GhosttyTabs) -> TestResult:
     return result
 
 
-def test_ctrl_d(client: GhosttyTabs) -> TestResult:
+def test_ctrl_d(client: cmux) -> TestResult:
     """
     Test Ctrl+D by:
     1. Running cat command
@@ -127,7 +127,7 @@ def test_ctrl_d(client: GhosttyTabs) -> TestResult:
     return result
 
 
-def test_ctrl_c_python(client: GhosttyTabs) -> TestResult:
+def test_ctrl_c_python(client: cmux) -> TestResult:
     """
     Test Ctrl+C with Python process
     """
@@ -166,20 +166,20 @@ def test_ctrl_c_python(client: GhosttyTabs) -> TestResult:
 def run_tests():
     """Run all tests"""
     print("=" * 60)
-    print("GhosttyTabs Ctrl+C/D Automated Tests")
+    print("cmux Ctrl+C/D Automated Tests")
     print("=" * 60)
     print()
 
-    socket_path = GhosttyTabs.DEFAULT_SOCKET_PATH
+    socket_path = cmux.DEFAULT_SOCKET_PATH
     if not os.path.exists(socket_path):
         print(f"Error: Socket not found at {socket_path}")
-        print("Please make sure GhosttyTabs is running.")
+        print("Please make sure cmux is running.")
         return 1
 
     results = []
 
     try:
-        with GhosttyTabs() as client:
+        with cmux() as client:
             # Test connection
             print("Testing connection...")
             results.append(test_connection(client))
@@ -215,7 +215,7 @@ def run_tests():
             print(f"  {status} {results[-1].message}")
             print()
 
-    except GhosttyTabsError as e:
+    except cmuxError as e:
         print(f"Error: {e}")
         return 1
 

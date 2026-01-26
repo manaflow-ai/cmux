@@ -3,7 +3,7 @@
 Automated test for ctrl+enter keybind using real keystrokes.
 
 Requires:
-  - GhosttyTabs running
+  - cmux running
   - Accessibility permissions for System Events (osascript)
   - keybind = ctrl+enter=text:\\r (or \\n/\\x0d) configured in Ghostty config
 """
@@ -14,10 +14,10 @@ import time
 import subprocess
 from pathlib import Path
 
-# Add the directory containing ghosttytabs.py to the path
+# Add the directory containing cmux.py to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ghosttytabs import GhosttyTabs, GhosttyTabsError
+from cmux import cmux, cmuxError
 
 
 def run_osascript(script: str) -> None:
@@ -54,7 +54,7 @@ def find_config_with_keybind() -> Path | None:
     return None
 
 
-def test_ctrl_enter_keybind(client: GhosttyTabs) -> tuple[bool, str]:
+def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
     marker = Path("/tmp") / f"ghostty_ctrl_enter_{os.getpid()}"
     marker.unlink(missing_ok=True)
 
@@ -64,7 +64,7 @@ def test_ctrl_enter_keybind(client: GhosttyTabs) -> tuple[bool, str]:
     time.sleep(0.3)
 
     # Make sure the app is focused for keystrokes
-    run_osascript('tell application "GhosttyTabs" to activate')
+    run_osascript('tell application "cmux" to activate')
     time.sleep(0.2)
 
     # Clear any running command
@@ -94,14 +94,14 @@ def test_ctrl_enter_keybind(client: GhosttyTabs) -> tuple[bool, str]:
 
 def run_tests() -> int:
     print("=" * 60)
-    print("GhosttyTabs Ctrl+Enter Keybind Test")
+    print("cmux Ctrl+Enter Keybind Test")
     print("=" * 60)
     print()
 
-    socket_path = GhosttyTabs.DEFAULT_SOCKET_PATH
+    socket_path = cmux.DEFAULT_SOCKET_PATH
     if not os.path.exists(socket_path):
         print(f"Error: Socket not found at {socket_path}")
-        print("Please make sure GhosttyTabs is running.")
+        print("Please make sure cmux is running.")
         return 1
 
     config_path = find_config_with_keybind()
@@ -109,19 +109,19 @@ def run_tests() -> int:
         print("Error: Required keybind not found in Ghostty config.")
         print("Add a line like:")
         print("  keybind = ctrl+enter=text:\\r")
-        print("Then restart GhosttyTabs and re-run this test.")
+        print("Then restart cmux and re-run this test.")
         return 1
 
     print(f"Using keybind from: {config_path}")
     print()
 
     try:
-        with GhosttyTabs() as client:
+        with cmux() as client:
             ok, message = test_ctrl_enter_keybind(client)
             status = "✅" if ok else "❌"
             print(f"{status} {message}")
             return 0 if ok else 1
-    except GhosttyTabsError as e:
+    except cmuxError as e:
         print(f"Error: {e}")
         return 1
     except subprocess.CalledProcessError as e:

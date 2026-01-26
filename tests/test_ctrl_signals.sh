@@ -1,6 +1,6 @@
 #!/bin/bash
 # Test script to verify Ctrl+C and Ctrl+D work correctly in the terminal
-# Run this script inside the GhosttyTabs terminal to test signal handling
+# Run this script inside the cmux terminal to test signal handling
 
 set -e
 

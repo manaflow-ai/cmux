@@ -70,12 +70,18 @@ class GhosttyApp {
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     let backgroundLogEnabled = {
+        if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
+            return true
+        }
         if ProcessInfo.processInfo.environment["GHOSTTYTABS_DEBUG_BG"] == "1" {
+            return true
+        }
+        if UserDefaults.standard.bool(forKey: "cmuxDebugBG") {
             return true
         }
         return UserDefaults.standard.bool(forKey: "GhosttyTabsDebugBG")
     }()
-    private let backgroundLogURL = URL(fileURLWithPath: "/tmp/ghosttytabs-bg.log")
+    private let backgroundLogURL = URL(fileURLWithPath: "/tmp/cmux-bg.log")
     private var appObservers: [NSObjectProtocol] = []
     private var displayLink: CVDisplayLink?
     private var displayLinkUsers = 0
@@ -555,7 +561,7 @@ class GhosttyApp {
     }
 
     func logBackground(_ message: String) {
-        let line = "GhosttyTabs bg: \(message)\n"
+        let line = "cmux bg: \(message)\n"
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
                 FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
@@ -1696,7 +1702,7 @@ final class GhosttySurfaceScrollView: NSView {
                 CAMediaTimingFunction(name: .easeOut),
                 CAMediaTimingFunction(name: .easeIn)
             ]
-            self.flashLayer.add(animation, forKey: "ghosttytabs.flash")
+            self.flashLayer.add(animation, forKey: "cmux.flash")
         }
     }
 

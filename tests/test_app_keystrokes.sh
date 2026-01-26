@@ -1,24 +1,24 @@
 #!/bin/bash
-# Test script that sends keystrokes to GhosttyTabs via AppleScript
+# Test script that sends keystrokes to cmux via AppleScript
 # This tests the actual keyboard input path through the app
 
 set -e
 
-echo "=== GhosttyTabs Keystroke Test ==="
+echo "=== cmux Keystroke Test ==="
 echo ""
 
-# Check if GhosttyTabs is running
-if ! pgrep -x "GhosttyTabs" > /dev/null; then
-    echo "Error: GhosttyTabs is not running"
-    echo "Please start GhosttyTabs first"
+# Check if cmux is running
+if ! pgrep -x "cmux" > /dev/null; then
+    echo "Error: cmux is not running"
+    echo "Please start cmux first"
     exit 1
 fi
 
-echo "GhosttyTabs is running"
+echo "cmux is running"
 echo ""
 
-# Activate GhosttyTabs
-osascript -e 'tell application "GhosttyTabs" to activate'
+# Activate cmux
+osascript -e 'tell application "cmux" to activate'
 sleep 0.5
 
 echo "Test 1: Testing Ctrl+C (SIGINT)"
@@ -56,7 +56,7 @@ echo "  If cat exited, Ctrl+D is working!"
 echo ""
 
 echo "=== Manual Verification Required ==="
-echo "Please check the GhosttyTabs window to verify:"
+echo "Please check the cmux window to verify:"
 echo "  1. The 'sleep 30' command was interrupted by Ctrl+C"
 echo "  2. The 'cat' command exited after Ctrl+D"
 echo ""

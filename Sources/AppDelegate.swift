@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerLaunchServicesBundle()
         enforceSingleInstance()
+        ensureApplicationIcon()
         observeDuplicateLaunches()
         configureUserNotifications()
     }
@@ -44,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories([category])
         center.delegate = self
+    }
+
+    private func ensureApplicationIcon() {
+        if let icon = NSImage(named: NSImage.applicationIconName) {
+            NSApplication.shared.applicationIconImage = icon
+        }
     }
 
     private func registerLaunchServicesBundle() {

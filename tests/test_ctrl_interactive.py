@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Interactive test for Ctrl+C and Ctrl+D in GhosttyTabs terminal.
+Interactive test for Ctrl+C and Ctrl+D in cmux terminal.
 
 This script tests that control signals are properly handled.
-Run this script inside the GhosttyTabs terminal.
+Run this script inside the cmux terminal.
 
 Tests:
 1. Ctrl+C (SIGINT) - Should interrupt a running process
@@ -72,10 +72,10 @@ def test_ctrl_d():
 
 def main():
     print("=" * 50)
-    print("GhosttyTabs Control Signal Test")
+    print("cmux Control Signal Test")
     print("=" * 50)
     print("\nThis script tests if Ctrl+C and Ctrl+D work correctly.")
-    print("Run this inside the GhosttyTabs terminal to verify the fix.\n")
+    print("Run this inside the cmux terminal to verify the fix.\n")
 
     # Check if running in a terminal
     if not os.isatty(sys.stdin.fileno()):

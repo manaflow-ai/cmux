@@ -1,7 +1,8 @@
+import AppKit
 import SwiftUI
 
 @main
-struct GhosttyTabsApp: App {
+struct cmuxApp: App {
     @StateObject private var tabManager = TabManager()
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -24,6 +25,12 @@ struct GhosttyTabsApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About cmux") {
+                    showAboutPanel()
+                }
+            }
+
             // New tab commands
             CommandGroup(replacing: .newItem) {
                 Button("New Tab") {
@@ -92,5 +99,20 @@ struct GhosttyTabsApp: App {
                 }
             }
         }
+    }
+
+    private func showAboutPanel() {
+        let bundle = Bundle.main
+        let appName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "cmux"
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: appName,
+            .version: version,
+            .applicationVersion: build
+        ])
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
