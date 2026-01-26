@@ -12,23 +12,33 @@ permissions:
 jobs:
   build-sign-notarize:
     runs-on: self-hosted
-    env:
-      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            echo "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer" >> "$GITHUB_ENV"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
       - name: Install build deps
         run: |
           brew update
           brew install zig
-
-      - name: Verify Xcode
-        run: |
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
 
       - name: Build GhosttyKit.xcframework
         run: |
