@@ -12,6 +12,8 @@ permissions:
 jobs:
   build-sign-notarize:
     runs-on: self-hosted
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +24,11 @@ jobs:
         run: |
           brew update
           brew install zig
+
+      - name: Verify Xcode
+        run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
 
       - name: Build GhosttyKit.xcframework
         run: |
