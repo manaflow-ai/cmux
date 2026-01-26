@@ -79,6 +79,14 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func markUnread(forTabId tabId: UUID) {
+        for index in notifications.indices {
+            if notifications[index].tabId == tabId {
+                notifications[index].isRead = false
+            }
+        }
+    }
+
     func remove(id: UUID) {
         notifications.removeAll { $0.id == id }
         center.removeDeliveredNotifications(withIdentifiers: [id.uuidString])

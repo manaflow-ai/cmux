@@ -2,13 +2,13 @@
 
 Vertical tabs for Ghostty on macOS, built on libghostty.
 
-[![Download macOS](https://img.shields.io/badge/Download-macOS-1b5fdd?style=for-the-badge&logo=apple)](releases/latest/download/cmux-macos.zip)
+[![Download macOS](https://img.shields.io/badge/Download-macOS-1b5fdd?style=for-the-badge&logo=apple)](releases/latest/download/cmux-macos.dmg)
 
 ## Releases
 
 Tag a version like `v0.1.0` and push it to trigger the GitHub Actions release workflow.
 The workflow builds `GhosttyKit.xcframework`, builds the Release app, signs, notarizes,
-staples, and uploads `cmux-macos.zip` to the release.
+staples, and uploads `cmux-macos.dmg` to the release.
 
 ### Required GitHub secrets
 

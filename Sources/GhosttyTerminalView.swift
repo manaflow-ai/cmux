@@ -698,6 +698,11 @@ class TerminalSurface: Identifiable {
         ghostty_surface_set_focus(surface, focused)
     }
 
+    func needsConfirmClose() -> Bool {
+        guard let surface = surface else { return false }
+        return ghostty_surface_needs_confirm_quit(surface)
+    }
+
     deinit {
         if ownsDisplayLink {
             GhosttyApp.shared.releaseDisplayLink()

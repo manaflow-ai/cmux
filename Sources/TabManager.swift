@@ -265,6 +265,14 @@ class TabManager: ObservableObject {
         tabs.insert(tab, at: 0)
     }
 
+    func moveTabsToTop(_ tabIds: Set<UUID>) {
+        guard !tabIds.isEmpty else { return }
+        let selectedTabs = tabs.filter { tabIds.contains($0.id) }
+        guard !selectedTabs.isEmpty else { return }
+        let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
+        tabs = selectedTabs + remainingTabs
+    }
+
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let normalized = normalizeDirectory(directory)
@@ -308,23 +316,26 @@ class TabManager: ObservableObject {
         guard let selectedId = selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedId }),
               let focusedSurfaceId = tab.focusedSurfaceId else { return }
-        guard tab.splitTree.isSplit else { return }
-        guard confirmClose(
-            title: "Close panel?",
-            message: "This will close the current split panel in this tab."
-        ) else { return }
+        guard tab.splitTree.isSplit else {
+            closeTabIfRunningProcess(tab)
+            return
+        }
+
+        let focusedSurface = tab.surface(for: focusedSurfaceId)
+        if focusedSurface?.needsConfirmClose() == true {
+            guard confirmClose(
+                title: "Close panel?",
+                message: "This will close the current split panel in this tab."
+            ) else { return }
+        }
+
         _ = tab.closeSurface(focusedSurfaceId)
     }
 
     func closeCurrentTabWithConfirmation() {
-        guard tabs.count > 1 else { return }
         guard let selectedId = selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedId }) else { return }
-        guard confirmClose(
-            title: "Close tab?",
-            message: "This will close the current tab and all of its panels."
-        ) else { return }
-        closeTab(tab)
+        closeTabIfRunningProcess(tab)
     }
 
     func selectTab(_ tab: Tab) {
@@ -339,6 +350,23 @@ class TabManager: ObservableObject {
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func closeTabIfRunningProcess(_ tab: Tab) {
+        guard tabs.count > 1 else { return }
+        if tabNeedsConfirmClose(tab),
+           !confirmClose(
+               title: "Close tab?",
+               message: "This will close the current tab and all of its panels."
+           ) {
+            return
+        }
+        closeTab(tab)
+    }
+
+    private func tabNeedsConfirmClose(_ tab: Tab) -> Bool {
+        guard let root = tab.splitTree.root else { return false }
+        return root.leaves().contains { $0.needsConfirmClose() }
     }
 
     func titleForTab(_ tabId: UUID) -> String? {

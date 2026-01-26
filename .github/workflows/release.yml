@@ -101,19 +101,26 @@ jobs:
           fi
           APP_PATH="build/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
-          ZIP_RELEASE="cmux-macos.zip"
+          DMG_RELEASE="cmux-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
           xcrun stapler staple "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
-          rm -f "$ZIP_RELEASE"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_RELEASE"
+          rm -f "$ZIP_SUBMIT"
+          STAGING_DIR="$(mktemp -d)"
+          cp -R "$APP_PATH" "$STAGING_DIR/cmux.app"
+          ln -s /Applications "$STAGING_DIR/Applications"
+          hdiutil create -volname "cmux" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
+          rm -rf "$STAGING_DIR"
+          xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+          xcrun stapler staple "$DMG_RELEASE"
+          xcrun stapler validate "$DMG_RELEASE"
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: cmux-macos.zip
+          files: cmux-macos.dmg
           generate_release_notes: true
 
       - name: Cleanup keychain
