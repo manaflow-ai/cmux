@@ -52,7 +52,7 @@ jobs:
 
       - name: Build app (Release)
         run: |
-          xcodebuild -scheme GhosttyTabs -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 
       - name: Import signing cert
         env:
@@ -85,7 +85,7 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/GhosttyTabs.app"
+          APP_PATH="build/Build/Products/Release/cmux.app"
           /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --deep "$APP_PATH"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
@@ -99,9 +99,9 @@ jobs:
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/GhosttyTabs.app"
-          ZIP_SUBMIT="GhosttyTabs-notary.zip"
-          ZIP_RELEASE="GhosttyTabs-macos.zip"
+          APP_PATH="build/Build/Products/Release/cmux.app"
+          ZIP_SUBMIT="cmux-notary.zip"
+          ZIP_RELEASE="cmux-macos.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
           xcrun stapler staple "$APP_PATH"
@@ -113,7 +113,7 @@ jobs:
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: GhosttyTabs-macos.zip
+          files: cmux-macos.zip
           generate_release_notes: true
 
       - name: Cleanup keychain
