@@ -80,10 +80,15 @@ jobs:
             exit 1
           fi
           APP_PATH="build/Build/Products/Release/GhosttyTabs.app"
-          ZIP_PATH="GhosttyTabs-macos.zip"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
-          xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+          ZIP_SUBMIT="GhosttyTabs-notary.zip"
+          ZIP_RELEASE="GhosttyTabs-macos.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
+          xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
           xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
+          rm -f "$ZIP_RELEASE"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_RELEASE"
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
