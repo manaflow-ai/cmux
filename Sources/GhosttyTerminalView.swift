@@ -344,14 +344,15 @@ class GhosttyApp {
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
                 let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
-                let body = actionBody.isEmpty ? actionTitle : actionBody
+                let command = actionTitle.isEmpty ? tabTitle : actionTitle
+                let body = actionBody
                 let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                 DispatchQueue.main.async {
                     tabManager.moveTabToTop(tabId)
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
-                        title: tabTitle,
+                        title: command,
                         body: body
                     )
                 }
@@ -500,13 +501,14 @@ class GhosttyApp {
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
             let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
-            let body = actionBody.isEmpty ? actionTitle : actionBody
+            let command = actionTitle.isEmpty ? tabTitle : actionTitle
+            let body = actionBody
             DispatchQueue.main.async {
                 AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
-                    title: tabTitle,
+                    title: command,
                     body: body
                 )
             }

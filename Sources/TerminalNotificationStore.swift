@@ -22,6 +22,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAuthorization = false
+    private var hasPromptedForSettings = false
 
     private init() {}
 
@@ -96,7 +97,11 @@ final class TerminalNotificationStore: ObservableObject {
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = notification.title
+            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+                ?? "cmux"
+            content.title = appName
+            content.subtitle = notification.title
             content.body = notification.body
             content.sound = UNNotificationSound.default
             content.categoryIdentifier = Self.categoryIdentifier
@@ -133,6 +138,7 @@ final class TerminalNotificationStore: ObservableObject {
             case .authorized, .provisional, .ephemeral:
                 completion(true)
             case .denied:
+                self.promptToEnableNotifications()
                 completion(false)
             case .notDetermined:
                 self.requestAuthorizationIfNeeded(completion)
@@ -150,6 +156,24 @@ final class TerminalNotificationStore: ObservableObject {
         hasRequestedAuthorization = true
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             completion(granted)
+        }
+    }
+
+    private func promptToEnableNotifications() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.hasPromptedForSettings else { return }
+            self.hasPromptedForSettings = true
+
+            let alert = NSAlert()
+            alert.messageText = "Enable Notifications for cmux"
+            alert.informativeText = "Notifications are disabled for cmux. Enable them in System Settings to see alerts."
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Not Now")
+            let response = alert.runModal()
+            guard response == .alertFirstButtonReturn else { return }
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 }

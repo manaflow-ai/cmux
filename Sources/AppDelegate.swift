@@ -17,9 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerLaunchServicesBundle()
         enforceSingleInstance()
+        NSWindow.allowsAutomaticWindowTabbing = false
+        disableNativeTabbingShortcut()
         ensureApplicationIcon()
         observeDuplicateLaunches()
         configureUserNotifications()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        notificationStore?.clearAll()
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore) {
@@ -45,6 +51,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories([category])
         center.delegate = self
+    }
+
+    private func disableNativeTabbingShortcut() {
+        guard let menu = NSApp.mainMenu else { return }
+        disableMenuItemShortcut(in: menu, action: #selector(NSWindow.toggleTabBar(_:)))
+    }
+
+    private func disableMenuItemShortcut(in menu: NSMenu, action: Selector) {
+        for item in menu.items {
+            if item.action == action {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+                item.isEnabled = false
+            }
+            if let submenu = item.submenu {
+                disableMenuItemShortcut(in: submenu, action: action)
+            }
+        }
     }
 
     private func ensureApplicationIcon() {
