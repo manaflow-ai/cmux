@@ -1,5 +1,6 @@
 # Xcode
 .build/
+build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
@@ -7,11 +8,17 @@ xcuserdata/
 # macOS
 .DS_Store
 
+# Local env
+.env
+
 # Swift Package Manager
 .swiftpm/
 
 # GhosttyKit binary (rebuild from /tmp/ghostty with zig build)
 GhosttyKit.xcframework/
+
+# Release artifacts
+GhosttyTabs-*.zip
 
 # Python
 __pycache__/
