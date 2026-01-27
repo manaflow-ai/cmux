@@ -12,6 +12,7 @@ import {
   TaskRunTerminalSession,
   type TerminalConnectionState,
 } from "@/components/task-run-terminal-session";
+import { useResumeMorphWorkspace } from "@/hooks/useMorphWorkspace";
 import { toMorphXtermBaseUrl } from "@/lib/toProxyWorkspaceUrl";
 import {
   createTerminalTab,
@@ -188,6 +189,11 @@ function TaskRunTerminals() {
   const [connectionStates, setConnectionStates] = useState<
     Record<string, TerminalConnectionState>
   >({});
+  const [reconnectSeed, setReconnectSeed] = useState(0);
+  const resumeWorkspace = useResumeMorphWorkspace({
+    taskRunId,
+    teamSlugOrId,
+  });
 
   const queryClient = useQueryClient();
 
@@ -325,6 +331,96 @@ function TaskRunTerminals() {
       isDeletingTerminal,
     ]
   );
+
+  const reconnectTerminalsMutation = useMutation({
+    mutationKey: [
+      "terminal-tabs",
+      taskRunId,
+      xtermBaseUrl,
+      "reconnect-all",
+    ],
+    mutationFn: async () => {
+      if (!hasTerminalBackend) {
+        throw new Error("Terminal backend unavailable");
+      }
+
+      if (isMorphProvider) {
+        try {
+          await resumeWorkspace.mutateAsync({
+            path: { taskRunId },
+            body: { teamSlugOrId },
+          });
+        } catch (error) {
+          console.error(
+            "Failed to resume Morph workspace before reconnecting terminals",
+            error
+          );
+        }
+      }
+
+      const refreshed = await tabsQuery.refetch();
+      return refreshed.data ?? terminalIds;
+    },
+    onMutate: async () => {
+      setReconnectSeed((current) => current + 1);
+      setConnectionStates(() => {
+        const next: Record<string, TerminalConnectionState> = {};
+        for (const id of terminalIds) {
+          next[id] = "connecting";
+        }
+        return next;
+      });
+    },
+    onSuccess: (refreshedIds) => {
+      if (!refreshedIds) {
+        return;
+      }
+
+      setConnectionStates((prev) => {
+        const next: Record<string, TerminalConnectionState> = {};
+        for (const id of refreshedIds) {
+          next[id] = prev[id] ?? "connecting";
+        }
+
+        const sameSize =
+          Object.keys(prev).length === Object.keys(next).length &&
+          refreshedIds.length === terminalIds.length;
+
+        if (sameSize) {
+          let unchanged = true;
+          for (const id of refreshedIds) {
+            if (prev[id] !== next[id]) {
+              unchanged = false;
+              break;
+            }
+          }
+          if (unchanged) {
+            return prev;
+          }
+        }
+
+        return next;
+      });
+    },
+    onError: (error) => {
+      console.error("Failed to reconnect terminals", error);
+    },
+  });
+
+  const isReconnectionInFlight =
+    reconnectTerminalsMutation.isPending || resumeWorkspace.isPending;
+
+  const handleReconnectAllTerminals = useCallback(() => {
+    if (!hasTerminalBackend || isReconnectionInFlight) {
+      return;
+    }
+
+    reconnectTerminalsMutation.mutate();
+  }, [
+    hasTerminalBackend,
+    isReconnectionInFlight,
+    reconnectTerminalsMutation,
+  ]);
 
   useEffect(() => {
     if (!hasTerminalBackend || terminalIds.length === 0) {
@@ -478,6 +574,14 @@ function TaskRunTerminals() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={handleReconnectAllTerminals}
+                disabled={!hasTerminalBackend || isReconnectionInFlight}
+                className="flex items-center gap-1 rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
+              >
+                {isReconnectionInFlight ? "Reconnecting…" : "Reconnect terminals"}
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   if (!hasTerminalBackend || isCreatingTerminal) {
                     return;
@@ -527,13 +631,15 @@ function TaskRunTerminals() {
           ) : (
             terminalIds.map((id) => (
               <TaskRunTerminalSession
-                key={id}
+                key={`${id}-${reconnectSeed}`}
                 baseUrl={xtermBaseUrl}
                 terminalId={id}
                 isActive={activeTerminalId === id}
                 onConnectionStateChange={(state) =>
                   handleConnectionStateChange(id, state)
                 }
+                onReconnectAll={handleReconnectAllTerminals}
+                isReconnecting={isReconnectionInFlight}
               />
             ))
           )}
