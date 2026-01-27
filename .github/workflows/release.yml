@@ -51,6 +51,8 @@ jobs:
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
       - name: Build app (Release)
+        env:
+          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
         run: |
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 
@@ -117,10 +119,22 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: cmux-macos.dmg
+          files: |
+            cmux-macos.dmg
+            appcast.xml
           generate_release_notes: true
 
       - name: Cleanup keychain

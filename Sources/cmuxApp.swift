@@ -14,7 +14,7 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(updateViewModel: appDelegate.updateViewModel)
                 .environmentObject(tabManager)
                 .environmentObject(notificationStore)
                 .onAppear {
@@ -23,11 +23,17 @@ struct cmuxApp: App {
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore)
                 }
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.automatic)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About cmux") {
                     showAboutPanel()
+                }
+            }
+
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    appDelegate.checkForUpdates(nil)
                 }
             }
 

@@ -2,12 +2,18 @@ import AppKit
 import CoreServices
 import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     private var workspaceObserver: NSObjectProtocol?
+    private let updateController = UpdateController()
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
+
+    var updateViewModel: UpdateViewModel {
+        updateController.viewModel
+    }
 
     override init() {
         super.init()
@@ -22,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureApplicationIcon()
         observeDuplicateLaunches()
         configureUserNotifications()
+        updateController.startUpdater()
+        titlebarAccessoryController.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -31,6 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        updateController.checkForUpdates()
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        updateController.validateMenuItem(item)
     }
 
     private func configureUserNotifications() {

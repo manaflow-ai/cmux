@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    @ObservedObject var updateViewModel: UpdateViewModel
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @State private var sidebarWidth: CGFloat = 200
@@ -16,85 +17,85 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Vertical Tabs Sidebar
-            VerticalTabsSidebar(
-                sidebarWidth: sidebarWidth,
-                selection: $sidebarSelection,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-            )
-            .frame(width: sidebarWidth)
-            .background(GeometryReader { proxy in
-                Color.clear
-                    .preference(key: SidebarFramePreferenceKey.self, value: proxy.frame(in: .global))
-            })
-            .overlay(alignment: .trailing) {
-                Color.clear
-                    .frame(width: sidebarHandleWidth)
-                    .contentShape(Rectangle())
-                    .accessibilityIdentifier("SidebarResizer")
-                    .onHover { hovering in
-                        if hovering {
-                            if !isResizerHovering {
-                                NSCursor.resizeLeftRight.push()
-                                isResizerHovering = true
+                // Vertical Tabs Sidebar
+                VerticalTabsSidebar(
+                    sidebarWidth: sidebarWidth,
+                    selection: $sidebarSelection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                )
+                .frame(width: sidebarWidth)
+                .background(GeometryReader { proxy in
+                    Color.clear
+                        .preference(key: SidebarFramePreferenceKey.self, value: proxy.frame(in: .global))
+                })
+                .overlay(alignment: .trailing) {
+                    Color.clear
+                        .frame(width: sidebarHandleWidth)
+                        .contentShape(Rectangle())
+                        .accessibilityIdentifier("SidebarResizer")
+                        .onHover { hovering in
+                            if hovering {
+                                if !isResizerHovering {
+                                    NSCursor.resizeLeftRight.push()
+                                    isResizerHovering = true
+                                }
+                            } else if isResizerHovering {
+                                if !isResizerDragging {
+                                    NSCursor.pop()
+                                    isResizerHovering = false
+                                }
                             }
-                        } else if isResizerHovering {
-                            if !isResizerDragging {
+                        }
+                        .onDisappear {
+                            if isResizerHovering || isResizerDragging {
                                 NSCursor.pop()
                                 isResizerHovering = false
+                                isResizerDragging = false
                             }
                         }
-                    }
-                    .onDisappear {
-                        if isResizerHovering || isResizerDragging {
-                            NSCursor.pop()
-                            isResizerHovering = false
-                            isResizerDragging = false
-                        }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                            .onChanged { value in
-                                if !isResizerDragging {
-                                    isResizerDragging = true
-                                    if !isResizerHovering {
-                                        NSCursor.resizeLeftRight.push()
-                                        isResizerHovering = true
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                                .onChanged { value in
+                                    if !isResizerDragging {
+                                        isResizerDragging = true
+                                        if !isResizerHovering {
+                                            NSCursor.resizeLeftRight.push()
+                                            isResizerHovering = true
+                                        }
+                                    }
+                                    let nextWidth = max(140, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
+                                    withTransaction(Transaction(animation: nil)) {
+                                        sidebarWidth = nextWidth
                                     }
                                 }
-                                let nextWidth = max(140, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
-                                withTransaction(Transaction(animation: nil)) {
-                                    sidebarWidth = nextWidth
-                                }
-                            }
-                            .onEnded { _ in
-                                if isResizerDragging {
-                                    isResizerDragging = false
-                                    if !isResizerHovering {
-                                        NSCursor.pop()
+                                .onEnded { _ in
+                                    if isResizerDragging {
+                                        isResizerDragging = false
+                                        if !isResizerHovering {
+                                            NSCursor.pop()
+                                        }
                                     }
                                 }
-                            }
-                    )
-            }
-
-            // Terminal Content - use ZStack to keep all surfaces alive
-            ZStack {
-                ZStack {
-                    ForEach(tabManager.tabs) { tab in
-                        let isActive = tabManager.selectedTabId == tab.id
-                        TerminalSplitTreeView(tab: tab, isTabActive: isActive)
-                            .opacity(isActive ? 1 : 0)
-                            .allowsHitTesting(isActive)
-                            .focusable()
-                            .focused($focusedTabId, equals: tab.id)
-                    }
+                        )
                 }
-                .opacity(sidebarSelection == .tabs ? 1 : 0)
-                .allowsHitTesting(sidebarSelection == .tabs)
 
-                NotificationsPage(selection: $sidebarSelection)
+                // Terminal Content - use ZStack to keep all surfaces alive
+                ZStack {
+                    ZStack {
+                        ForEach(tabManager.tabs) { tab in
+                            let isActive = tabManager.selectedTabId == tab.id
+                            TerminalSplitTreeView(tab: tab, isTabActive: isActive)
+                                .opacity(isActive ? 1 : 0)
+                                .allowsHitTesting(isActive)
+                                .focusable()
+                                .focused($focusedTabId, equals: tab.id)
+                        }
+                    }
+                    .opacity(sidebarSelection == .tabs ? 1 : 0)
+                    .allowsHitTesting(sidebarSelection == .tabs)
+
+                    NotificationsPage(selection: $sidebarSelection)
                     .opacity(sidebarSelection == .notifications ? 1 : 0)
                     .allowsHitTesting(sidebarSelection == .notifications)
             }
@@ -139,6 +140,7 @@ struct ContentView: View {
             sidebarMinX = frame.minX
         }
     }
+
 }
 
 struct VerticalTabsSidebar: View {

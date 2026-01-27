@@ -20,7 +20,17 @@
 		A50010A4 /* SplitTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A0 /* SplitTree.swift */; };
 		A50010A5 /* SplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A1 /* SplitView.swift */; };
 		A50010A6 /* TerminalSplitTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A2 /* TerminalSplitTreeView.swift */; };
+		A5001201 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001211 /* UpdateController.swift */; };
+		A5001202 /* UpdateDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001212 /* UpdateDelegate.swift */; };
+		A5001203 /* UpdateDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001213 /* UpdateDriver.swift */; };
+		A5001204 /* UpdateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001214 /* UpdateViewModel.swift */; };
+		A5001205 /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001215 /* UpdatePill.swift */; };
+		A5001206 /* UpdateBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001216 /* UpdateBadge.swift */; };
+		A5001207 /* UpdatePopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001217 /* UpdatePopoverView.swift */; };
+		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
+		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
+		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 /* End PBXBuildFile section */
@@ -66,6 +76,15 @@
 		A50010A0 /* SplitTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/SplitTree.swift; sourceTree = "<group>"; };
 		A50010A1 /* SplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/SplitView.swift; sourceTree = "<group>"; };
 		A50010A2 /* TerminalSplitTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Splits/TerminalSplitTreeView.swift; sourceTree = "<group>"; };
+		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateController.swift; sourceTree = "<group>"; };
+		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDelegate.swift; sourceTree = "<group>"; };
+		A5001213 /* UpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDriver.swift; sourceTree = "<group>"; };
+		A5001214 /* UpdateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateViewModel.swift; sourceTree = "<group>"; };
+		A5001215 /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdatePill.swift; sourceTree = "<group>"; };
+		A5001216 /* UpdateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateBadge.swift; sourceTree = "<group>"; };
+		A5001217 /* UpdatePopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdatePopoverView.swift; sourceTree = "<group>"; };
+		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
+		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
@@ -77,6 +96,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
+				A5001230 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -138,6 +158,15 @@
 				A50010A0 /* SplitTree.swift */,
 				A50010A1 /* SplitView.swift */,
 				A50010A2 /* TerminalSplitTreeView.swift */,
+				A5001211 /* UpdateController.swift */,
+				A5001212 /* UpdateDelegate.swift */,
+				A5001213 /* UpdateDriver.swift */,
+				A5001214 /* UpdateViewModel.swift */,
+				A5001215 /* UpdatePill.swift */,
+				A5001216 /* UpdateBadge.swift */,
+				A5001217 /* UpdatePopoverView.swift */,
+				A5001218 /* UpdateTitlebarAccessory.swift */,
+				A5001219 /* WindowToolbarController.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -183,6 +212,9 @@
 			);
 			dependencies = (
 			);
+			packageProductDependencies = (
+				A5001231 /* Sparkle */,
+			);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
 			productReference = A5001000 /* cmux.app */;
@@ -225,6 +257,9 @@
 				Base,
 			);
 			mainGroup = A5001040;
+			packageReferences = (
+				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -252,6 +287,15 @@
 				A50010A4 /* SplitTree.swift in Sources */,
 				A50010A5 /* SplitView.swift in Sources */,
 				A50010A6 /* TerminalSplitTreeView.swift in Sources */,
+				A5001201 /* UpdateController.swift in Sources */,
+				A5001202 /* UpdateDelegate.swift in Sources */,
+				A5001203 /* UpdateDriver.swift in Sources */,
+				A5001204 /* UpdateViewModel.swift in Sources */,
+				A5001205 /* UpdatePill.swift in Sources */,
+				A5001206 /* UpdateBadge.swift in Sources */,
+				A5001207 /* UpdatePopoverView.swift in Sources */,
+				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
+				A5001209 /* WindowToolbarController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -342,7 +386,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -352,11 +396,13 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainStoryboardFile = "";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_SUFeedURL = "https://github.com/manaflow-ai/GhosttyTabs/releases/latest/download/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_KEY)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -385,7 +431,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -395,11 +441,13 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainStoryboardFile = "";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_SUFeedURL = "https://github.com/manaflow-ai/GhosttyTabs/releases/latest/download/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_KEY)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -426,10 +474,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.1.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmux.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -443,10 +491,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.1.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmux.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -456,6 +504,25 @@
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A5001231 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */
 	A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */ = {

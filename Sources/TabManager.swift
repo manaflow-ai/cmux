@@ -220,6 +220,7 @@ class TabManager: ObservableObject {
             let previousTabId = oldValue
             DispatchQueue.main.async { [weak self] in
                 self?.focusSelectedTabSurface(previousTabId: previousTabId)
+                self?.updateWindowTitleForSelectedTab()
             }
         }
     }
@@ -399,7 +400,35 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         if tabs[index].title != title {
             tabs[index].title = title
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tabs[index])
+            }
         }
+    }
+
+    private func updateWindowTitleForSelectedTab() {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+            updateWindowTitle(for: nil)
+            return
+        }
+        updateWindowTitle(for: tab)
+    }
+
+    private func updateWindowTitle(for tab: Tab?) {
+        let title = windowTitle(for: tab)
+        let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+        targetWindow?.title = title
+    }
+
+    private func windowTitle(for tab: Tab?) -> String {
+        guard let tab else { return "cmux" }
+        let trimmedTitle = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+        let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
     }
 
     func focusTab(_ tabId: UUID, surfaceId: UUID? = nil) {
