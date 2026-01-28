@@ -1,4 +1,4 @@
-import { GitDiffViewer } from "@/components/git-diff-viewer";
+import { GitDiffViewerWithSidebar } from "@/components/git-diff-viewer";
 import { GitHubIcon } from "@/components/icons/github";
 import {
   SearchableSelect,
@@ -231,8 +231,8 @@ function DashboardDiffPage() {
         />
       </div>
       <div className="flex-1 flex flex-col bg-white dark:bg-neutral-950 overflow-y-auto grow">
-        {/* Smart view: no toggle */}
-        <GitDiffViewer
+        {/* Smart view with sidebar */}
+        <GitDiffViewerWithSidebar
           diffs={diffsQuery.data || []}
           onControlsChange={() => {}}
         />

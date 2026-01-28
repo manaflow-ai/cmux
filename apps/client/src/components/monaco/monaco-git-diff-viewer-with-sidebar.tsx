@@ -1,6 +1,15 @@
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
+import { Flame, PanelLeftClose, PanelLeft } from "lucide-react";
 import type { editor } from "monaco-editor";
-import { memo, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useTheme } from "@/components/theme/use-theme";
 import { loaderInitPromise } from "@/lib/monaco-environment";
@@ -8,61 +17,20 @@ import { isElectron } from "@/lib/electron";
 import { cn } from "@/lib/utils";
 import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
 
-import { FileDiffHeader } from "../file-diff-header";
+import { FileDiffHeaderWithViewed } from "../file-diff-header-with-viewed";
 import { kitties } from "../kitties";
 import type { GitDiffViewerProps } from "../codemirror-git-diff-viewer";
-export type { GitDiffViewerProps } from "../codemirror-git-diff-viewer";
+import { DiffSidebarFilter } from "./diff-sidebar-filter";
 
 void loaderInitPromise;
 
-type FileDiffRowClassNames = GitDiffViewerProps["classNames"] extends {
-  fileDiffRow?: infer T;
-}
-  ? T
-  : { button?: string; container?: string };
+// ============================================================================
+// Types
+// ============================================================================
 
 type DiffEditorControls = {
   updateCollapsedState: (collapsed: boolean) => void;
   updateTargetMinHeight: (minHeight: number) => void;
-};
-
-const DEFAULT_MONACO_LINE_HEIGHT = 20;
-const MONACO_VERTICAL_PADDING = 0;
-const MIN_EDITOR_LINE_FALLBACK = 4;
-const HIDDEN_REGION_BASE_PLACEHOLDER_HEIGHT = 20;
-const HIDDEN_REGION_PER_LINE_HEIGHT = 0.6;
-const INTERSECTION_VISIBILITY_MARGIN_PX = 96;
-
-const HIDE_UNCHANGED_REGIONS_SETTINGS = {
-  revealLineCount: 2,
-  minimumLineCount: 6,
-  contextLineCount: 3,
-} as const;
-
-type DiffBlock =
-  | {
-      kind: "changed";
-      originalLength: number;
-      modifiedLength: number;
-    }
-  | {
-      kind: "unchanged";
-      originalLength: number;
-      modifiedLength: number;
-    };
-
-type CollapsedLayoutEstimate = {
-  visibleLineCount: number;
-  collapsedRegionCount: number;
-  hiddenLineCount: number;
-};
-
-type EditorLayoutMetrics = {
-  visibleLineCount: number;
-  limitedVisibleLineCount: number;
-  collapsedRegionCount: number;
-  editorMinHeight: number;
-  hiddenLineCount: number;
 };
 
 type MonacoFileGroup = {
@@ -80,22 +48,118 @@ type MonacoFileGroup = {
   editorMetrics: EditorLayoutMetrics | null;
 };
 
+type CollapsedLayoutEstimate = {
+  visibleLineCount: number;
+  collapsedRegionCount: number;
+  hiddenLineCount: number;
+};
+
+type EditorLayoutMetrics = {
+  visibleLineCount: number;
+  limitedVisibleLineCount: number;
+  collapsedRegionCount: number;
+  editorMinHeight: number;
+  hiddenLineCount: number;
+};
+
+type DiffBlock =
+  | {
+      kind: "changed";
+      originalLength: number;
+      modifiedLength: number;
+    }
+  | {
+      kind: "unchanged";
+      originalLength: number;
+      modifiedLength: number;
+    };
+
+export type MonacoGitDiffViewerWithSidebarProps = GitDiffViewerProps & {
+  isHeatmapActive?: boolean;
+  onToggleHeatmap?: () => void;
+};
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const DEFAULT_MONACO_LINE_HEIGHT = 20;
+const MONACO_VERTICAL_PADDING = 0;
+const MIN_EDITOR_LINE_FALLBACK = 4;
+const HIDDEN_REGION_BASE_PLACEHOLDER_HEIGHT = 20;
+const HIDDEN_REGION_PER_LINE_HEIGHT = 0.6;
+const INTERSECTION_VISIBILITY_MARGIN_PX = 96;
+
+const HIDE_UNCHANGED_REGIONS_SETTINGS = {
+  revealLineCount: 2,
+  minimumLineCount: 6,
+  contextLineCount: 3,
+} as const;
+
 const DEFAULT_EDITOR_MIN_HEIGHT =
   MIN_EDITOR_LINE_FALLBACK * DEFAULT_MONACO_LINE_HEIGHT;
 
 const newlinePattern = /\r?\n/;
 
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  ts: "typescript",
+  tsx: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  json: "json",
+  md: "markdown",
+  markdown: "markdown",
+  yml: "yaml",
+  yaml: "yaml",
+  py: "python",
+  rs: "rust",
+  go: "go",
+  java: "java",
+  kt: "kotlin",
+  swift: "swift",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  html: "html",
+  htm: "html",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cxx: "cpp",
+  hpp: "cpp",
+  m: "objective-c",
+  mm: "objective-c",
+  php: "php",
+  rb: "ruby",
+  sql: "sql",
+  toml: "toml",
+  ini: "ini",
+  conf: "ini",
+  xml: "xml",
+  vue: "vue",
+  svelte: "svelte",
+  dart: "dart",
+  scala: "scala",
+};
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
 function debugGitDiffViewerLog(
   message: string,
-  payload?: Record<string, unknown>,
+  payload?: Record<string, unknown>
 ) {
   if (!isElectron && import.meta.env.PROD) {
     return;
   }
   if (payload) {
-    console.info("[monaco-git-diff-viewer]", message, payload);
+    console.info("[monaco-git-diff-viewer-with-sidebar]", message, payload);
   } else {
-    console.info("[monaco-git-diff-viewer]", message);
+    console.info("[monaco-git-diff-viewer-with-sidebar]", message);
   }
 }
 
@@ -108,19 +172,9 @@ function splitContentIntoLines(content: string): string[] {
   return parts.length > 0 ? parts : [""];
 }
 
-type DiffSegmentType = "equal" | "insert" | "delete";
-
-type DiffSegment = {
-  type: DiffSegmentType;
-  originalStart: number;
-  originalEnd: number;
-  modifiedStart: number;
-  modifiedEnd: number;
-};
-
 function computeDiffBlocks(
   originalLines: readonly string[],
-  modifiedLines: readonly string[],
+  modifiedLines: readonly string[]
 ): DiffBlock[] {
   const originalLength = originalLines.length;
   const modifiedLength = modifiedLines.length;
@@ -131,7 +185,7 @@ function computeDiffBlocks(
 
   const dp: Uint32Array[] = Array.from(
     { length: originalLength + 1 },
-    () => new Uint32Array(modifiedLength + 1),
+    () => new Uint32Array(modifiedLength + 1)
   );
 
   for (
@@ -148,15 +202,25 @@ function computeDiffBlocks(
       modifiedIndex -= 1
     ) {
       if (originalLines[originalIndex] === modifiedLines[modifiedIndex]) {
-        currentRow[modifiedIndex] = nextRow[modifiedIndex + 1] + 1;
+        currentRow![modifiedIndex] = nextRow![modifiedIndex + 1]! + 1;
       } else {
-        currentRow[modifiedIndex] = Math.max(
-          nextRow[modifiedIndex],
-          currentRow[modifiedIndex + 1],
+        currentRow![modifiedIndex] = Math.max(
+          nextRow![modifiedIndex]!,
+          currentRow![modifiedIndex + 1]!
         );
       }
     }
   }
+
+  type DiffSegmentType = "equal" | "insert" | "delete";
+
+  type DiffSegment = {
+    type: DiffSegmentType;
+    originalStart: number;
+    originalEnd: number;
+    modifiedStart: number;
+    modifiedEnd: number;
+  };
 
   const segments: DiffSegment[] = [];
   let currentSegment: DiffSegment | null = null;
@@ -201,8 +265,8 @@ function computeDiffBlocks(
     if (
       modifiedExhausted ||
       (!originalExhausted &&
-        dp[originalIndex + 1][modifiedIndex] >=
-          dp[originalIndex][modifiedIndex + 1])
+        dp[originalIndex + 1]![modifiedIndex]! >=
+          dp[originalIndex]![modifiedIndex + 1]!)
     ) {
       if (!currentSegment || currentSegment.type !== "delete") {
         pushSegment();
@@ -281,7 +345,7 @@ function computeDiffBlocks(
 
 function estimateCollapsedLayout(
   original: string,
-  modified: string,
+  modified: string
 ): CollapsedLayoutEstimate {
   const originalLines = splitContentIntoLines(original);
   const modifiedLines = splitContentIntoLines(modified);
@@ -291,7 +355,7 @@ function estimateCollapsedLayout(
     return {
       visibleLineCount: Math.max(
         HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
-        MIN_EDITOR_LINE_FALLBACK,
+        MIN_EDITOR_LINE_FALLBACK
       ),
       collapsedRegionCount: 0,
       hiddenLineCount: 0,
@@ -301,27 +365,23 @@ function estimateCollapsedLayout(
   const hasChange = blocks.some(
     (block) =>
       block.kind === "changed" &&
-      (block.originalLength > 0 || block.modifiedLength > 0),
+      (block.originalLength > 0 || block.modifiedLength > 0)
   );
 
   if (!hasChange) {
     const totalLines = Math.max(originalLines.length, modifiedLines.length);
-    const { minimumLineCount } = HIDE_UNCHANGED_REGIONS_SETTINGS;
+    const visibleLineCount = Math.min(
+      totalLines,
+      Math.max(
+        HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
+        MIN_EDITOR_LINE_FALLBACK
+      )
+    );
 
-    // If the file is too small to collapse, show all lines
-    if (totalLines < minimumLineCount) {
-      return {
-        visibleLineCount: Math.max(totalLines, MIN_EDITOR_LINE_FALLBACK),
-        collapsedRegionCount: 0,
-        hiddenLineCount: 0,
-      };
-    }
-
-    // File will be collapsed - show minimum lines with one collapsed region
     return {
-      visibleLineCount: Math.max(minimumLineCount, MIN_EDITOR_LINE_FALLBACK),
-      collapsedRegionCount: 1,
-      hiddenLineCount: totalLines - minimumLineCount,
+      visibleLineCount,
+      collapsedRegionCount: 0,
+      hiddenLineCount: 0,
     };
   }
 
@@ -330,7 +390,7 @@ function estimateCollapsedLayout(
   let hiddenLineCount = 0;
 
   for (let index = 0; index < blocks.length; index += 1) {
-    const block = blocks[index];
+    const block = blocks[index]!;
 
     if (block.kind === "changed") {
       visibleLineCount += Math.max(block.originalLength, block.modifiedLength);
@@ -348,36 +408,29 @@ function estimateCollapsedLayout(
     const hasNextChange =
       index < blocks.length - 1 && blocks[index + 1]?.kind === "changed";
 
-    // Monaco's minimumLineCount is the threshold for collapsing a region.
-    // If a region has fewer lines than minimumLineCount, it won't be collapsed.
-    // If it has more, it will be collapsed showing contextLineCount on each side.
-    const { contextLineCount, minimumLineCount } =
-      HIDE_UNCHANGED_REGIONS_SETTINGS;
-
-    // Check if this block is large enough to be collapsed by Monaco
-    if (blockLength < minimumLineCount) {
-      // Too small to collapse - show all lines
-      visibleLineCount += blockLength;
-      continue;
-    }
-
-    // Block will be collapsed by Monaco - calculate visible context lines
-    let visibleContext = 0;
+    let visibleBudget = 0;
 
     if (hasPreviousChange) {
-      visibleContext += contextLineCount;
+      visibleBudget += HIDE_UNCHANGED_REGIONS_SETTINGS.contextLineCount;
     }
 
     if (hasNextChange) {
-      visibleContext += contextLineCount;
+      visibleBudget += HIDE_UNCHANGED_REGIONS_SETTINGS.contextLineCount;
     }
 
-    // If no adjacent changes (isolated block), show minimum lines
     if (!hasPreviousChange && !hasNextChange) {
-      visibleContext = Math.max(minimumLineCount, MIN_EDITOR_LINE_FALLBACK);
+      visibleBudget = Math.max(
+        HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount,
+        MIN_EDITOR_LINE_FALLBACK
+      );
+    } else {
+      visibleBudget = Math.max(
+        visibleBudget,
+        HIDE_UNCHANGED_REGIONS_SETTINGS.minimumLineCount
+      );
     }
 
-    const displayedLines = Math.min(blockLength, visibleContext);
+    const displayedLines = Math.min(blockLength, visibleBudget);
     visibleLineCount += displayedLines;
 
     if (displayedLines < blockLength) {
@@ -393,14 +446,14 @@ function estimateCollapsedLayout(
 
 function computeEditorLayoutMetrics(
   original: string,
-  modified: string,
+  modified: string
 ): EditorLayoutMetrics {
   const { visibleLineCount, collapsedRegionCount, hiddenLineCount } =
     estimateCollapsedLayout(original, modified);
 
   const limitedVisibleLineCount = Math.min(
     Math.max(visibleLineCount, MIN_EDITOR_LINE_FALLBACK),
-    120,
+    120
   );
 
   const lineHeightPortion =
@@ -419,50 +472,6 @@ function computeEditorLayoutMetrics(
     hiddenLineCount,
   };
 }
-
-const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescript",
-  js: "javascript",
-  jsx: "javascript",
-  json: "json",
-  md: "markdown",
-  markdown: "markdown",
-  yml: "yaml",
-  yaml: "yaml",
-  py: "python",
-  rs: "rust",
-  go: "go",
-  java: "java",
-  kt: "kotlin",
-  swift: "swift",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "html",
-  htm: "html",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  cxx: "cpp",
-  hpp: "cpp",
-  m: "objective-c",
-  mm: "objective-c",
-  php: "php",
-  rb: "ruby",
-  sql: "sql",
-  toml: "toml",
-  ini: "ini",
-  conf: "ini",
-  xml: "xml",
-  vue: "vue",
-  svelte: "svelte",
-  dart: "dart",
-  scala: "scala",
-};
 
 function guessMonacoLanguage(filePath: string): string {
   const lastDot = filePath.lastIndexOf(".");
@@ -505,8 +514,6 @@ function createDiffEditorMount({
     let collapsedState = false;
     let targetMinHeight = Math.max(editorMinHeight, DEFAULT_EDITOR_MIN_HEIGHT);
     let resolvedContentHeight: number | null = null;
-    let hasDiffBeenComputed = false;
-    let hasHiddenAreasBeenApplied = false;
 
     const hasResolvedHeight = () => resolvedContentHeight !== null;
 
@@ -576,7 +583,7 @@ function createDiffEditorMount({
       }
 
       const lineHeight = targetEditor.getOption(
-        monacoInstance.editor.EditorOption.lineHeight,
+        monacoInstance.editor.EditorOption.lineHeight
       );
       const model = targetEditor.getModel();
       const lineCount = model ? Math.max(1, model.getLineCount()) : 1;
@@ -591,7 +598,7 @@ function createDiffEditorMount({
       const modifiedHeightInfo = computeHeight(modifiedEditor);
       const height = Math.max(
         originalHeightInfo.height,
-        modifiedHeightInfo.height,
+        modifiedHeightInfo.height
       );
       const heightMatchesOriginal =
         originalHeightInfo.height >= modifiedHeightInfo.height &&
@@ -600,20 +607,7 @@ function createDiffEditorMount({
         modifiedHeightInfo.height >= originalHeightInfo.height &&
         modifiedHeightInfo.measured;
 
-      // Only trust the measured height after:
-      // 1. The diff has been computed AND hidden areas have been applied, OR
-      // 2. The diff has been computed AND height is less than estimated
-      //    (indicates collapsing happened synchronously with diff computation)
-      const heightIsLessThanEstimate = height < targetMinHeight * 0.9;
-      const canTrustMeasuredHeight =
-        hasDiffBeenComputed &&
-        (hasHiddenAreasBeenApplied || heightIsLessThanEstimate);
-
-      if (
-        (heightMatchesOriginal || heightMatchesModified) &&
-        height > 0 &&
-        canTrustMeasuredHeight
-      ) {
+      if ((heightMatchesOriginal || heightMatchesModified) && height > 0) {
         updateResolvedContentHeight(height);
       }
 
@@ -774,7 +768,7 @@ function createDiffEditorMount({
       {
         threshold: 0,
         rootMargin: `${INTERSECTION_VISIBILITY_MARGIN_PX}px 0px ${INTERSECTION_VISIBILITY_MARGIN_PX}px 0px`,
-      },
+      }
     );
 
     if (intersectionObserver) {
@@ -820,13 +814,13 @@ function createDiffEditorMount({
     const onOriginalContentChange = originalEditor.onDidChangeModelContent(
       () => {
         applyLayout();
-      },
+      }
     );
 
     const onModifiedContentChange = modifiedEditor.onDidChangeModelContent(
       () => {
         applyLayout();
-      },
+      }
     );
 
     const onOriginalConfigChange = originalEditor.onDidChangeConfiguration(
@@ -834,7 +828,7 @@ function createDiffEditorMount({
         if (event.hasChanged(monacoInstance.editor.EditorOption.lineHeight)) {
           applyLayout();
         }
-      },
+      }
     );
 
     const onModifiedConfigChange = modifiedEditor.onDidChangeConfiguration(
@@ -842,7 +836,7 @@ function createDiffEditorMount({
         if (event.hasChanged(monacoInstance.editor.EditorOption.lineHeight)) {
           applyLayout();
         }
-      },
+      }
     );
 
     const onOriginalSizeChange = originalEditor.onDidContentSizeChange(() => {
@@ -855,20 +849,17 @@ function createDiffEditorMount({
 
     const onOriginalHiddenAreasChange = originalEditor.onDidChangeHiddenAreas(
       () => {
-        hasHiddenAreasBeenApplied = true;
         applyLayout();
-      },
+      }
     );
 
     const onModifiedHiddenAreasChange = modifiedEditor.onDidChangeHiddenAreas(
       () => {
-        hasHiddenAreasBeenApplied = true;
         applyLayout();
-      },
+      }
     );
 
     const onDidUpdateDiff = diffEditor.onDidUpdateDiff(() => {
-      hasDiffBeenComputed = true;
       applyLayout();
     });
 
@@ -881,7 +872,7 @@ function createDiffEditorMount({
       onModifiedSizeChange,
       onOriginalHiddenAreasChange,
       onModifiedHiddenAreasChange,
-      onDidUpdateDiff,
+      onDidUpdateDiff
     );
 
     const disposeListener = diffEditor.onDidDispose(() => {
@@ -910,22 +901,38 @@ function createDiffEditorMount({
   };
 }
 
+// ============================================================================
+// Sub-components
+// ============================================================================
+
+type FileDiffRowClassNames = GitDiffViewerProps["classNames"] extends {
+  fileDiffRow?: infer T;
+}
+  ? T
+  : { button?: string; container?: string };
+
 interface MonacoFileDiffRowProps {
   file: MonacoFileGroup;
   isExpanded: boolean;
+  isViewed: boolean;
   onToggle: () => void;
+  onToggleViewed: () => void;
   editorTheme: string;
   diffOptions: editor.IDiffEditorConstructionOptions;
   classNames?: FileDiffRowClassNames;
+  anchorId?: string;
 }
 
 function MonacoFileDiffRow({
   file,
   isExpanded,
+  isViewed,
   onToggle,
+  onToggleViewed,
   editorTheme,
   diffOptions,
   classNames,
+  anchorId,
 }: MonacoFileDiffRowProps) {
   const canRenderEditor =
     !file.isBinary &&
@@ -935,7 +942,7 @@ function MonacoFileDiffRow({
 
   const editorMinHeight = Math.max(
     file.editorMetrics?.editorMinHeight ?? DEFAULT_EDITOR_MIN_HEIGHT,
-    DEFAULT_EDITOR_MIN_HEIGHT,
+    DEFAULT_EDITOR_MIN_HEIGHT
   );
 
   const diffControlsRef = useRef<DiffEditorControls | null>(null);
@@ -972,25 +979,28 @@ function MonacoFileDiffRow({
         },
         onHeightSettled: handleHeightSettled,
       }),
-    [editorMinHeight, handleHeightSettled],
+    [editorMinHeight, handleHeightSettled]
   );
 
   return (
     <div
+      id={anchorId}
       ref={rowContainerRef}
       className={cn(
-        "bg-white dark:bg-neutral-900 border-b border-neutral-200/80 dark:border-neutral-800/70",
-        classNames?.container,
+        "bg-white dark:bg-neutral-900",
+        classNames?.container
       )}
     >
-      <FileDiffHeader
+      <FileDiffHeaderWithViewed
         filePath={file.filePath}
         oldPath={file.oldPath}
         status={file.status}
         additions={file.additions}
         deletions={file.deletions}
         isExpanded={isExpanded}
+        isViewed={isViewed}
         onToggle={onToggle}
+        onToggleViewed={onToggleViewed}
         className={classNames?.button}
       />
 
@@ -1053,7 +1063,9 @@ const MemoMonacoFileDiffRow = memo(MonacoFileDiffRow, (prev, next) => {
   const b = next.file;
   return (
     prev.isExpanded === next.isExpanded &&
+    prev.isViewed === next.isViewed &&
     prev.editorTheme === next.editorTheme &&
+    prev.anchorId === next.anchorId &&
     a.filePath === b.filePath &&
     a.oldPath === b.oldPath &&
     a.status === b.status &&
@@ -1067,21 +1079,76 @@ const MemoMonacoFileDiffRow = memo(MonacoFileDiffRow, (prev, next) => {
   );
 });
 
-export function MonacoGitDiffViewer({
+// ============================================================================
+// Main Component
+// ============================================================================
+
+export function MonacoGitDiffViewerWithSidebar({
   diffs,
+  isLoading,
   onControlsChange,
   classNames,
   onFileToggle,
-}: GitDiffViewerProps) {
+  isHeatmapActive,
+  onToggleHeatmap,
+}: MonacoGitDiffViewerWithSidebarProps) {
   const { theme } = useTheme();
 
   const kitty = useMemo(() => {
     return kitties[Math.floor(Math.random() * kitties.length)];
   }, []);
 
+  // Sidebar collapsed state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // All files expanded by default
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(
-    () => new Set(diffs.map((diff) => diff.filePath)),
+    () => new Set(diffs.map((diff) => diff.filePath))
   );
+
+  // Viewed files state
+  const [viewedFiles, setViewedFiles] = useState<Set<string>>(() => new Set());
+
+  // Active path for sidebar navigation
+  const [activePath, setActivePath] = useState<string>(() => {
+    return diffs[0]?.filePath ?? "";
+  });
+
+  // Sync expanded files when diffs change (e.g., after loading)
+  useEffect(() => {
+    if (diffs.length > 0) {
+      setExpandedFiles((prev) => {
+        const newSet = new Set(prev);
+        for (const diff of diffs) {
+          // Add any new files to expanded set
+          if (!prev.has(diff.filePath)) {
+            newSet.add(diff.filePath);
+          }
+        }
+        return newSet;
+      });
+    }
+  }, [diffs]);
+
+  // Keyboard shortcut: F to toggle sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input/textarea
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setIsSidebarCollapsed((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const fileGroups: MonacoFileGroup[] = useMemo(
     () =>
@@ -1113,40 +1180,80 @@ export function MonacoGitDiffViewer({
           editorMetrics,
         };
       }),
-    [diffs],
+    [diffs]
   );
 
-  const expandAll = () => {
+  const expandAll = useCallback(() => {
     debugGitDiffViewerLog("expandAll invoked", {
       fileCount: fileGroups.length,
     });
     setExpandedFiles(new Set(fileGroups.map((f) => f.filePath)));
-  };
+  }, [fileGroups]);
 
-  const collapseAll = () => {
+  const collapseAll = useCallback(() => {
     debugGitDiffViewerLog("collapseAll invoked", {
       fileCount: fileGroups.length,
     });
     setExpandedFiles(new Set());
-  };
+  }, [fileGroups]);
 
-  const toggleFile = (filePath: string) => {
-    setExpandedFiles((prev) => {
+  const toggleFile = useCallback(
+    (filePath: string) => {
+      setExpandedFiles((prev) => {
+        const next = new Set(prev);
+        const wasExpanded = next.has(filePath);
+        if (wasExpanded) {
+          next.delete(filePath);
+        } else {
+          next.add(filePath);
+        }
+        try {
+          onFileToggle?.(filePath, !wasExpanded);
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    },
+    [onFileToggle]
+  );
+
+  const handleToggleViewed = useCallback((filePath: string) => {
+    setViewedFiles((prev) => {
       const next = new Set(prev);
-      const wasExpanded = next.has(filePath);
-      if (wasExpanded) {
+      const wasViewed = next.has(filePath);
+      if (wasViewed) {
         next.delete(filePath);
+        // When un-viewing, expand the file
+        setExpandedFiles((expanded) => {
+          const updated = new Set(expanded);
+          updated.add(filePath);
+          return updated;
+        });
       } else {
         next.add(filePath);
-      }
-      try {
-        onFileToggle?.(filePath, !wasExpanded);
-      } catch {
-        // ignore
+        // When marking as viewed, collapse the file
+        setExpandedFiles((expanded) => {
+          const updated = new Set(expanded);
+          updated.delete(filePath);
+          return updated;
+        });
       }
       return next;
     });
-  };
+  }, []);
+
+  const handleSelectFile = useCallback((filePath: string) => {
+    setActivePath(filePath);
+
+    // Scroll to the file
+    if (typeof window !== "undefined") {
+      const element = document.getElementById(filePath);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, []);
 
   const totalAdditions = diffs.reduce((sum, diff) => sum + diff.additions, 0);
   const totalDeletions = diffs.reduce((sum, diff) => sum + diff.deletions, 0);
@@ -1172,7 +1279,6 @@ export function MonacoGitDiffViewer({
       totalAdditions,
       totalDeletions,
     });
-    // Totals update when diffs change; avoid including function identities
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalAdditions, totalDeletions, diffs.length]);
 
@@ -1201,34 +1307,162 @@ export function MonacoGitDiffViewer({
         ...HIDE_UNCHANGED_REGIONS_SETTINGS,
       },
     }),
-    [],
+    []
   );
 
   use(loaderInitPromise);
 
-  return (
-    <div className="grow bg-white dark:bg-neutral-900">
-      <div className="flex flex-col">
-        {fileGroups.map((file) => (
-          <MemoMonacoFileDiffRow
-            key={`monaco:${file.filePath}`}
-            file={file}
-            isExpanded={expandedFiles.has(file.filePath)}
-            onToggle={() => toggleFile(file.filePath)}
-            editorTheme={editorTheme}
-            diffOptions={diffOptions}
-            classNames={classNames?.fileDiffRow}
-          />
-        ))}
-        <hr className="border-neutral-200/80 dark:border-neutral-800/70" />
-        <div className="px-3 py-6 text-center">
+  // Loading state - show skeleton
+  if (isLoading) {
+    return (
+      <div className="grow flex flex-col bg-white dark:bg-neutral-900 min-h-0">
+        {/* Header bar skeleton */}
+        <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200/80 dark:border-neutral-800/70">
+          <div className="flex items-center gap-1.5 px-2 py-1">
+            <div className="w-4 h-4 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+            <div className="w-10 h-4 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-4 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+            <div className="w-6 h-4 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+          </div>
+        </div>
+
+        {/* Content area */}
+        <div className="flex flex-1 min-h-0">
+          {/* Sidebar skeleton */}
+          <div className="w-[280px] h-full border-r border-neutral-200/80 dark:border-neutral-800/70">
+            <div className="p-2">
+              <div className="h-8 bg-neutral-100 dark:bg-neutral-800 rounded-md animate-pulse" />
+            </div>
+            <div className="space-y-0.5 px-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-2 px-2 py-1">
+                  <div className="w-4 h-4 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+                  <div className="h-4 bg-neutral-100 dark:bg-neutral-800 rounded flex-1 animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Content skeleton */}
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-col">
+              {[1, 2].map((i) => (
+                <div key={i} className="border-b border-neutral-200/80 dark:border-neutral-800/70">
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    <div className="w-4 h-4 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+                    <div className="h-4 w-48 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+                    <div className="ml-auto flex gap-2">
+                      <div className="h-4 w-8 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+                      <div className="h-4 w-8 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="h-32 bg-neutral-50 dark:bg-neutral-900/50 animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // No diff detected - show message at top without sidebar/header
+  if (diffs.length === 0) {
+    return (
+      <div className="grow bg-white dark:bg-neutral-900 px-3 py-6">
+        <div className="text-center">
           <span className="select-none text-xs text-neutral-500 dark:text-neutral-400">
-            You’ve reached the end of the diff!
+            No diff detected
           </span>
           <div className="grid place-content-center">
-            <pre className="mt-2 pb-12 select-none text-left text-[8px] font-mono text-neutral-500 dark:text-neutral-400">
+            <pre className="mt-2 select-none text-left text-[8px] font-mono text-neutral-500 dark:text-neutral-400">
               {kitty}
             </pre>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Has diffs - show full UI with sidebar
+  return (
+    <div className="grow flex flex-col bg-white dark:bg-neutral-900 min-h-0">
+      {/* Header bar */}
+      <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200/80 dark:border-neutral-800/70">
+        <button
+          type="button"
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[13px] font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          title={isSidebarCollapsed ? "Show files (F)" : "Hide files (F)"}
+        >
+          {isSidebarCollapsed ? (
+            <PanelLeft className="w-3.5 h-3.5" />
+          ) : (
+            <PanelLeftClose className="w-3.5 h-3.5" />
+          )}
+          <span>Files</span>
+        </button>
+        <div className="flex items-center gap-2 text-[11px] font-medium">
+          <span className="text-green-600 dark:text-green-400">+{totalAdditions}</span>
+          <span className="text-red-600 dark:text-red-400">−{totalDeletions}</span>
+        </div>
+        {onToggleHeatmap && (
+          <button
+            type="button"
+            onClick={onToggleHeatmap}
+            className="flex items-center gap-1.5 text-[11px] font-medium ml-auto text-neutral-500 dark:text-neutral-400"
+            title={isHeatmapActive ? "Switch to standard diff" : "Switch to heatmap diff"}
+          >
+            <Flame className="w-3 h-3" />
+            <span>Diff Heatmap</span>
+          </button>
+        )}
+      </div>
+
+      {/* Content area */}
+      <div className="flex flex-1 min-h-0">
+        {/* Sidebar */}
+        {!isSidebarCollapsed && (
+          <div className="flex-shrink-0 self-stretch border-r border-neutral-200/80 dark:border-neutral-800/70">
+            <DiffSidebarFilter
+              diffs={diffs}
+              viewedFiles={viewedFiles}
+              activePath={activePath}
+              onSelectFile={handleSelectFile}
+              onToggleViewed={handleToggleViewed}
+              className="sticky top-[var(--cmux-diff-header-offset,0px)] h-[calc(100vh-var(--cmux-diff-header-offset,0px)-41px)]"
+            />
+          </div>
+        )}
+
+        {/* Main content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-col">
+            {fileGroups.map((file) => (
+              <MemoMonacoFileDiffRow
+                key={`monaco:${file.filePath}`}
+                file={file}
+                isExpanded={expandedFiles.has(file.filePath)}
+                isViewed={viewedFiles.has(file.filePath)}
+                onToggle={() => toggleFile(file.filePath)}
+                onToggleViewed={() => handleToggleViewed(file.filePath)}
+                editorTheme={editorTheme}
+                diffOptions={diffOptions}
+                classNames={classNames?.fileDiffRow}
+                anchorId={file.filePath}
+              />
+            ))}
+            <div className="px-3 py-6 text-center">
+              <span className="select-none text-xs text-neutral-500 dark:text-neutral-400">
+                You've reached the end of the diff!
+              </span>
+              <div className="grid place-content-center">
+                <pre className="mt-2 pb-12 select-none text-left text-[8px] font-mono text-neutral-500 dark:text-neutral-400">
+                  {kitty}
+                </pre>
+              </div>
+            </div>
           </div>
         </div>
       </div>

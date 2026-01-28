@@ -368,22 +368,6 @@ export function PullRequestDetailView({
     );
   }, [workspaceSettings]);
 
-  const handleHeatmapThresholdChange = useCallback(
-    (next: number) => {
-      if (next === heatmapThreshold) {
-        return;
-      }
-      setHeatmapThreshold(next);
-      void updateWorkspaceSettings({
-        teamSlugOrId,
-        heatmapThreshold: next,
-      }).catch((error) => {
-        console.error("Failed to update heatmap threshold:", error);
-      });
-    },
-    [heatmapThreshold, teamSlugOrId, updateWorkspaceSettings]
-  );
-
   const handleHeatmapColorsChange = useCallback(
     (next: HeatmapColorSettings) => {
       setHeatmapColors(next);
@@ -395,38 +379,6 @@ export function PullRequestDetailView({
       });
     },
     [teamSlugOrId, updateWorkspaceSettings]
-  );
-
-  const handleHeatmapModelChange = useCallback(
-    (next: HeatmapModelOptionValue) => {
-      if (next === heatmapModel) {
-        return;
-      }
-      setHeatmapModel(next);
-      void updateWorkspaceSettings({
-        teamSlugOrId,
-        heatmapModel: next,
-      }).catch((error) => {
-        console.error("Failed to update heatmap model:", error);
-      });
-    },
-    [heatmapModel, teamSlugOrId, updateWorkspaceSettings]
-  );
-
-  const handleHeatmapTooltipLanguageChange = useCallback(
-    (next: TooltipLanguageValue) => {
-      if (next === heatmapTooltipLanguage) {
-        return;
-      }
-      setHeatmapTooltipLanguage(next);
-      void updateWorkspaceSettings({
-        teamSlugOrId,
-        heatmapTooltipLanguage: next,
-      }).catch((error) => {
-        console.error("Failed to update heatmap tooltip language:", error);
-      });
-    },
-    [heatmapTooltipLanguage, teamSlugOrId, updateWorkspaceSettings]
   );
 
   // Streaming heatmap review state
@@ -1072,12 +1024,7 @@ export function PullRequestDetailView({
                       streamStateByFile={streamStateByFile}
                       heatmapThreshold={heatmapThreshold}
                       heatmapColors={heatmapColors}
-                      heatmapModel={heatmapModel}
-                      heatmapTooltipLanguage={heatmapTooltipLanguage}
-                      onHeatmapThresholdChange={handleHeatmapThresholdChange}
                       onHeatmapColorsChange={handleHeatmapColorsChange}
-                      onHeatmapModelChange={handleHeatmapModelChange}
-                      onHeatmapTooltipLanguageChange={handleHeatmapTooltipLanguageChange}
                     />
                   ) : (
                     <MonacoGitDiffViewer

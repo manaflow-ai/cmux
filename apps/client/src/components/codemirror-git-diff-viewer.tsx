@@ -25,6 +25,7 @@ type GitDiffViewerClassNames = {
 
 export interface GitDiffViewerProps {
   diffs: ReplaceDiffEntry[];
+  isLoading?: boolean;
   onControlsChange?: (controls: {
     expandAll: () => void;
     collapseAll: () => void;

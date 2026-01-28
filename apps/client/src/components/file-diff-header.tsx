@@ -66,7 +66,7 @@ export function FileDiffHeader({
     <button
       onClick={onToggle}
       className={cn(
-        "w-full pl-3 pr-2.5 py-1.5 flex items-center hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors text-left group pt-1 bg-white dark:bg-neutral-900 border-y border-neutral-200 dark:border-neutral-800 sticky top-[var(--cmux-diff-header-offset,0px)] z-[var(--z-sticky-low)]",
+        "w-full px-3 py-2 flex items-center hover:bg-neutral-100/70 dark:hover:bg-neutral-800/60 transition-colors text-left group bg-neutral-50/80 dark:bg-neutral-900/70 border-b border-neutral-200/80 dark:border-neutral-800/70 sticky top-[var(--cmux-diff-header-offset,0px)] z-[var(--z-sticky-low)]",
         className
       )}
     >

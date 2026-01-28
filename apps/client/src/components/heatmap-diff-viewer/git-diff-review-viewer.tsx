@@ -7,16 +7,25 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type CSSProperties,
 } from "react";
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  FileCode,
+  FileEdit,
+  FileMinus,
+  FilePlus,
+  FileText,
+  Flame,
   Folder,
   FolderOpen,
   Loader2,
+  PanelLeft,
+  PanelLeftClose,
+  Search,
+  X,
 } from "lucide-react";
 import {
   computeNewLineNumber,
@@ -41,18 +50,8 @@ import { HeatmapDiffViewer } from "./heatmap-diff-viewer";
 import { kitties } from "../kitties";
 import type { HeatmapColorSettings } from "./heatmap-gradient";
 import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import {
-  DEFAULT_HEATMAP_MODEL,
-  DEFAULT_TOOLTIP_LANGUAGE,
-  HEATMAP_MODEL_OPTIONS,
-  TOOLTIP_LANGUAGE_OPTIONS,
-  normalizeHeatmapColors,
-  normalizeHeatmapModel,
-  normalizeTooltipLanguage,
-  type HeatmapModelOptionValue,
-  type TooltipLanguageValue,
-} from "@/lib/heatmap-settings";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { normalizeHeatmapColors } from "@/lib/heatmap-settings";
 
 type DiffLineSide = "new" | "old";
 
@@ -120,6 +119,22 @@ type FileTreeNode = {
   isLoading?: boolean;
 };
 
+function getStatusIcon(status: ReplaceDiffEntry["status"]) {
+  const iconClass = "w-3.5 h-3.5 flex-shrink-0";
+  switch (status) {
+    case "added":
+      return <FilePlus className={cn(iconClass, "text-green-600 dark:text-green-400")} />;
+    case "deleted":
+      return <FileMinus className={cn(iconClass, "text-red-600 dark:text-red-400")} />;
+    case "modified":
+      return <FileEdit className={cn(iconClass, "text-yellow-600 dark:text-yellow-400")} />;
+    case "renamed":
+      return <FileCode className={cn(iconClass, "text-blue-600 dark:text-blue-400")} />;
+    default:
+      return <FileText className={cn(iconClass, "text-neutral-500")} />;
+  }
+}
+
 type HeatmapFileOutput = {
   filePath: string;
   codexReviewOutput: unknown;
@@ -149,13 +164,10 @@ type GitDiffHeatmapReviewViewerProps = {
   shouldPrefixDiffs?: boolean;
   heatmapThreshold?: number;
   heatmapColors?: HeatmapColorSettings;
-  heatmapModel?: string | null;
-  heatmapTooltipLanguage?: string | null;
-  onHeatmapThresholdChange?: (next: number) => void;
   onHeatmapColorsChange?: (next: HeatmapColorSettings) => void;
-  onHeatmapModelChange?: (next: HeatmapModelOptionValue) => void;
-  onHeatmapTooltipLanguageChange?: (next: TooltipLanguageValue) => void;
   onControlsChange?: (controls: DiffViewerControls) => void;
+  isHeatmapActive?: boolean;
+  onToggleHeatmap?: () => void;
 };
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "cmux:git-diff-viewer:file-tree-width";
@@ -633,381 +645,6 @@ function getParentPaths(path: string): string[] {
   return parents;
 }
 
-const COLOR_SECTION_METADATA: Record<
-  keyof HeatmapColorSettings,
-  { title: string; helper: string }
-> = {
-  line: {
-    title: "Line background gradient",
-    helper: "",
-  },
-  token: {
-    title: "Token highlight gradient",
-    helper: "",
-  },
-};
-
-function isValidHexColor(value: string): boolean {
-  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
-}
-
-const ReviewProgressIndicator = memo(function ReviewProgressIndicator({
-  totalFileCount,
-  processedFileCount,
-  isLoading,
-}: {
-  totalFileCount: number;
-  processedFileCount: number | null;
-  isLoading: boolean;
-}) {
-  const pendingFileCount =
-    processedFileCount === null
-      ? Math.max(totalFileCount, 0)
-      : Math.max(totalFileCount - processedFileCount, 0);
-  const progressPercent =
-    processedFileCount === null || totalFileCount === 0
-      ? 0
-      : Math.min(100, (processedFileCount / totalFileCount) * 100);
-  const statusText =
-    processedFileCount === null
-      ? "Loading file progress..."
-      : pendingFileCount === 0
-        ? "All files processed"
-        : `${processedFileCount} processed • ${pendingFileCount} pending`;
-  const processedBadgeText =
-    processedFileCount === null ? "— done" : `${processedFileCount} done`;
-  const pendingBadgeText =
-    processedFileCount === null ? "— waiting" : `${pendingFileCount} waiting`;
-  const isFullyProcessed =
-    processedFileCount !== null && pendingFileCount === 0;
-  const shouldPulsePending =
-    processedFileCount === null || pendingFileCount > 0;
-
-  return (
-    <div className="border border-neutral-200 bg-white px-4 py-3 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-      <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-        <span>Review progress</span>
-        <span>{Math.round(progressPercent)}%</span>
-      </div>
-      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-        <div
-          className={cn(
-            "h-full rounded-full bg-sky-500 transition-all duration-300",
-            isLoading ? "animate-pulse" : "",
-            isFullyProcessed ? "bg-emerald-500" : ""
-          )}
-          style={{ width: `${progressPercent}%` }}
-        />
-      </div>
-      <div className="mt-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        {statusText}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-          {processedBadgeText}
-        </span>
-        <span
-          className={cn(
-            "rounded-full bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800",
-            shouldPulsePending ? "animate-pulse" : ""
-          )}
-        >
-          {pendingBadgeText}
-        </span>
-      </div>
-    </div>
-  );
-});
-
-function HeatmapThresholdControl({
-  value,
-  onChange,
-  colors,
-  onColorsChange,
-  selectedModel,
-  onModelChange,
-  selectedLanguage,
-  onLanguageChange,
-}: {
-  value: number;
-  onChange: (next: number) => void;
-  colors: HeatmapColorSettings;
-  onColorsChange: (next: HeatmapColorSettings) => void;
-  selectedModel: HeatmapModelOptionValue;
-  onModelChange: (next: HeatmapModelOptionValue) => void;
-  selectedLanguage: TooltipLanguageValue;
-  onLanguageChange: (next: TooltipLanguageValue) => void;
-}) {
-  const sliderId = useId();
-  const descriptionId = `${sliderId}-description`;
-
-  // Convert normalized value (0-1) to display percent (0-100)
-  const displayPercent = Math.round(Math.min(Math.max(value, 0), 1) * 100);
-
-  // Update parent on every change for smooth updates via useDeferredValue
-  const handleSliderChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const numeric = Number.parseInt(event.target.value, 10);
-      if (Number.isNaN(numeric)) {
-        return;
-      }
-      const normalized = Math.min(Math.max(numeric / 100, 0), 1);
-      onChange(normalized);
-    },
-    [onChange]
-  );
-
-  const handleColorChange = useCallback(
-    (section: keyof HeatmapColorSettings, stop: keyof HeatmapColorSettings["line"]) =>
-      (event: ChangeEvent<HTMLInputElement>) => {
-        const nextValue = event.target.value;
-        if (
-          !isValidHexColor(nextValue) ||
-          nextValue === colors[section][stop]
-        ) {
-          return;
-        }
-        onColorsChange({
-          ...colors,
-          [section]: {
-            ...colors[section],
-            [stop]: nextValue,
-          },
-        });
-      },
-    [colors, onColorsChange]
-  );
-
-  const handleModelSelectChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const nextValue = normalizeHeatmapModel(event.target.value);
-      onModelChange(nextValue);
-    },
-    [onModelChange]
-  );
-
-  const handleLanguageSelectChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const nextValue = normalizeTooltipLanguage(event.target.value);
-      onLanguageChange(nextValue);
-    },
-    [onLanguageChange]
-  );
-
-  return (
-    <div className="rounded border border-neutral-200 bg-white p-5 pt-4 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200">
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor={sliderId} className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
-          &ldquo;Should review&rdquo; threshold
-        </label>
-        <span className="flex-shrink-0 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-          ≥ <span className="tabular-nums">{displayPercent}%</span>
-        </span>
-      </div>
-      <input
-        id={sliderId}
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={displayPercent}
-        onChange={handleSliderChange}
-        className="mt-3 w-full accent-sky-500"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={displayPercent}
-        aria-valuetext={`"Should review" threshold ${displayPercent} percent`}
-        aria-describedby={descriptionId}
-      />
-      <p id={descriptionId} className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-        Only show heatmap highlights with a score at or above this value.
-      </p>
-      <div className="mt-4 space-y-5">
-        {(
-          Object.keys(COLOR_SECTION_METADATA) as Array<keyof HeatmapColorSettings>
-        ).map((section) => {
-          const meta = COLOR_SECTION_METADATA[section];
-          return (
-            <div key={section} className="space-y-2">
-              <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">
-                {meta.title}
-              </p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex items-center justify-between gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                  <span className="flex-1 text-left">Low score</span>
-                  <input
-                    type="color"
-                    value={colors[section].start}
-                    onChange={handleColorChange(section, "start")}
-                    className="h-8 w-16 cursor-pointer rounded border border-neutral-300 bg-transparent p-0 dark:border-neutral-600"
-                    aria-label={`${meta.title} low score color`}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                  <span className="flex-1 text-left">High score</span>
-                  <input
-                    type="color"
-                    value={colors[section].end}
-                    onChange={handleColorChange(section, "end")}
-                    className="h-8 w-16 cursor-pointer rounded border border-neutral-300 bg-transparent p-0 dark:border-neutral-600"
-                    aria-label={`${meta.title} high score color`}
-                  />
-                </label>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-4 grid grid-cols-1 gap-4">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">Model</p>
-          <div className="relative">
-            <select
-              value={selectedModel}
-              onChange={handleModelSelectChange}
-              aria-label="Heatmap model preference"
-              className="w-full appearance-none border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-800 transition focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-            >
-              {HEATMAP_MODEL_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-500"
-              aria-hidden
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">
-            Tooltip Language
-          </p>
-          <div className="relative">
-            <select
-              value={selectedLanguage}
-              onChange={handleLanguageSelectChange}
-              aria-label="Tooltip language preference"
-              className="w-full appearance-none border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-800 transition focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-            >
-              {TOOLTIP_LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-500"
-              aria-hidden
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-type ErrorNavigatorProps = {
-  totalCount: number;
-  currentIndex: number | null;
-  onPrevious: (options?: FocusNavigateOptions) => void;
-  onNext: (options?: FocusNavigateOptions) => void;
-};
-
-function ErrorNavigator({
-  totalCount,
-  currentIndex,
-  onPrevious,
-  onNext,
-}: ErrorNavigatorProps) {
-  if (totalCount === 0) {
-    return null;
-  }
-
-  const hasSelection =
-    typeof currentIndex === "number" &&
-    currentIndex >= 0 &&
-    currentIndex < totalCount;
-  const displayIndex = hasSelection ? currentIndex + 1 : null;
-
-  return (
-    <TooltipProvider delayDuration={120} skipDelayDuration={120}>
-      <div className="flex items-center gap-3 border border-neutral-200 bg-white/95 px-3 py-1 text-xs font-medium text-neutral-700 backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95 dark:text-neutral-200">
-        <span aria-live="polite" className="flex items-center gap-1">
-          {hasSelection && displayIndex !== null ? (
-            <>
-              <span>Highlight</span>
-              <span className="font-mono tabular-nums">{displayIndex}</span>
-              <span>of</span>
-              <span className="font-mono tabular-nums">{totalCount}</span>
-            </>
-          ) : (
-            <>
-              <span className="font-mono tabular-nums">{totalCount}</span>
-              <span>{totalCount === 1 ? "highlight" : "highlights"}</span>
-            </>
-          )}
-        </span>
-        <div className="flex items-center gap-1">
-          <Tooltip delayDuration={120}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPrevious();
-                }}
-                className="inline-flex h-6 w-6 items-center justify-center border border-neutral-200 bg-white text-neutral-600 transition hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                aria-label="Go to previous highlight (Shift+K)"
-                disabled={totalCount === 0}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              align="center"
-              className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[11px] font-medium text-neutral-700 shadow-md dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-            >
-              <span>Previous highlight</span>
-              <span className="rounded border border-neutral-200 bg-neutral-50 px-1 py-0.5 font-mono text-[10px] uppercase text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-                Shift+K
-              </span>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip delayDuration={120}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNext();
-                }}
-                className="inline-flex h-6 w-6 items-center justify-center border border-neutral-200 bg-white text-neutral-600 transition hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                aria-label="Go to next highlight (Shift+J)"
-                disabled={totalCount === 0}
-              >
-                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              align="center"
-              className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[11px] font-medium text-neutral-700 shadow-md dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-            >
-              <span>Next highlight</span>
-              <span className="rounded border border-neutral-200 bg-neutral-50 px-1 py-0.5 font-mono text-[10px] uppercase text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-                Shift+J
-              </span>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-    </TooltipProvider>
-  );
-}
-
 type FileTreeNavigatorProps = {
   nodes: FileTreeNode[];
   activePath: string;
@@ -1039,7 +676,7 @@ function FileTreeNavigator({
                 type="button"
                 onClick={() => onToggleDirectory(node.path)}
                 className={cn(
-                  "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800",
+                  "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-xs transition hover:bg-neutral-100 dark:hover:bg-neutral-800",
                   isExpanded ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-700 dark:text-neutral-300"
                 )}
                 style={{ paddingLeft: depth * 14 + 10 }}
@@ -1084,19 +721,22 @@ function FileTreeNavigator({
           );
         }
 
+        const file = node.file;
+
         return (
           <button
             key={node.path}
             type="button"
             onClick={() => onSelectFile(node.path)}
             className={cn(
-              "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800",
+              "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-xs transition hover:bg-neutral-100 dark:hover:bg-neutral-800",
               isActive
                 ? "bg-sky-100/80 text-sky-900 font-semibold dark:bg-sky-900/40 dark:text-sky-100"
                 : "text-neutral-700 dark:text-neutral-300"
             )}
             style={{ paddingLeft: depth * 14 + 32 }}
           >
+            {file ? getStatusIcon(file.status) : <FileText className="w-3.5 h-3.5 flex-shrink-0 text-neutral-500" />}
             <span className="truncate">{node.name}</span>
             {node.isLoading ? (
               <Tooltip delayDuration={300}>
@@ -1283,7 +923,7 @@ const FileDiffCard = memo(function FileDiffCardComponent({
         errorMessage={entry.error ?? null}
         defaultCollapsed={isCollapsed}
         onCollapseChange={handleCollapseChange}
-        className="border-x border-b border-neutral-200 dark:border-neutral-700"
+        className=""
       />
     </div>
   );
@@ -1297,18 +937,39 @@ export function GitDiffHeatmapReviewViewer({
   shouldPrefixDiffs = false,
   heatmapThreshold = 0,
   heatmapColors,
-  heatmapModel,
-  heatmapTooltipLanguage,
-  onHeatmapThresholdChange,
-  onHeatmapColorsChange,
-  onHeatmapModelChange,
-  onHeatmapTooltipLanguageChange,
+  onHeatmapColorsChange: _onHeatmapColorsChange,
   onControlsChange,
+  isHeatmapActive,
+  onToggleHeatmap,
 }: GitDiffHeatmapReviewViewerProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const filterInputRef = useRef<HTMLInputElement | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [filterText, setFilterText] = useState("");
+  const isHeatmapEnabled = true; // Always enabled in heatmap view
   const kitty = useMemo(() => {
     return kitties[Math.floor(Math.random() * kitties.length)];
+  }, []);
+
+  // Keyboard shortcut: F to toggle sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input/textarea
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setIsSidebarCollapsed((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
   // Use useDeferredValue to defer color changes and prevent blocking renders
   // when color pickers are being used. This matches the 0github implementation.
@@ -1317,12 +978,6 @@ export function GitDiffHeatmapReviewViewer({
     [heatmapColors]
   );
   const effectiveHeatmapColors = useDeferredValue(normalizedHeatmapColors);
-  const effectiveHeatmapModel = normalizeHeatmapModel(
-    heatmapModel ?? DEFAULT_HEATMAP_MODEL
-  );
-  const effectiveTooltipLanguage = normalizeTooltipLanguage(
-    heatmapTooltipLanguage ?? DEFAULT_TOOLTIP_LANGUAGE
-  );
 
   const deferredHeatmapThreshold = useDeferredValue(heatmapThreshold);
   const emptyStreamStateMap = useMemo(
@@ -1641,6 +1296,28 @@ export function GitDiffHeatmapReviewViewer({
     };
     return addLoadingState(tree);
   }, [sortedFiles, fileOutputIndex, streamStateMap]);
+
+  // Filter file tree based on search text
+  const filteredFileTree = useMemo(() => {
+    if (!filterText.trim()) {
+      return fileTree;
+    }
+    const lowerFilter = filterText.toLowerCase();
+    const filterNodes = (nodes: FileTreeNode[]): FileTreeNode[] => {
+      return nodes
+        .map((node) => {
+          const filteredChildren = filterNodes(node.children);
+          const nameMatches = node.name.toLowerCase().includes(lowerFilter);
+          const pathMatches = node.file?.filePath.toLowerCase().includes(lowerFilter);
+          if (nameMatches || pathMatches || filteredChildren.length > 0) {
+            return { ...node, children: filteredChildren };
+          }
+          return null;
+        })
+        .filter((node): node is FileTreeNode => node !== null);
+    };
+    return filterNodes(fileTree);
+  }, [fileTree, filterText]);
 
   const directoryPaths = useMemo(
     () => collectDirectoryPaths(fileTree),
@@ -2226,104 +1903,194 @@ export function GitDiffHeatmapReviewViewer({
 
   if (totalFileCount === 0) {
     return (
-      <div className="border border-neutral-200 bg-white p-8 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-        This diff does not introduce any file changes.
+      <div className="grow bg-white dark:bg-neutral-900 px-3 py-6">
+        <div className="text-center">
+          <span className="select-none text-xs text-neutral-500 dark:text-neutral-400">
+            No diff detected
+          </span>
+          <div className="grid place-content-center">
+            <pre className="mt-2 select-none text-left text-[8px] font-mono text-neutral-500 dark:text-neutral-400">
+              {kitty}
+            </pre>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:gap-0">
-        <aside
-          id={sidebarPanelId}
-          className="relative w-full lg:sticky lg:top-[var(--cmux-diff-header-offset,0px)] lg:h-[calc(100vh-var(--cmux-diff-header-offset,0px))] lg:flex-none lg:flex lg:flex-col lg:w-[var(--pr-diff-sidebar-width)] lg:min-w-[15rem] lg:max-w-[32.5rem] lg:pl-3"
-          style={
-            {
-              "--pr-diff-sidebar-width": `${sidebarWidth}px`,
-            } as CSSProperties
-          }
+    <div ref={rootRef} className="grow flex flex-col bg-white dark:bg-neutral-900 min-h-0">
+      {/* Header bar */}
+      <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200/80 dark:border-neutral-800/70">
+        <button
+          type="button"
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[13px] font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          title={isSidebarCollapsed ? "Show files (F)" : "Hide files (F)"}
         >
-          {/* Fixed at top - does not scroll */}
-          <div className="flex-shrink-0 flex flex-col gap-3">
-            <ReviewProgressIndicator
-              totalFileCount={totalFileCount}
-              processedFileCount={processedFileCount}
-              isLoading={isLoadingFileOutputs}
-            />
-            <HeatmapThresholdControl
-              value={heatmapThreshold}
-              onChange={(next) => onHeatmapThresholdChange?.(next)}
-              colors={effectiveHeatmapColors}
-              onColorsChange={(next) => onHeatmapColorsChange?.(next)}
-              selectedModel={effectiveHeatmapModel}
-              onModelChange={(next) => onHeatmapModelChange?.(next)}
-              selectedLanguage={effectiveTooltipLanguage}
-              onLanguageChange={(next) => onHeatmapTooltipLanguageChange?.(next)}
-            />
-            {targetCount > 0 ? (
-              <div className="flex justify-center">
-                <ErrorNavigator
-                  totalCount={targetCount}
-                  currentIndex={focusedErrorIndex}
-                  onPrevious={handleFocusPrevious}
-                  onNext={handleFocusNext}
-                />
-              </div>
-            ) : null}
-          </div>
-          {/* Scrollable content below - only the file tree */}
-          <div className="flex flex-col gap-3 lg:overflow-y-auto lg:overscroll-contain lg:flex-1 lg:mt-3">
-            <div>
-              <FileTreeNavigator
-                nodes={fileTree}
-                activePath={activeAnchor}
-                expandedPaths={expandedPaths}
-                onToggleDirectory={handleToggleDirectory}
-                onSelectFile={handleNavigate}
-              />
-            </div>
-            <div className="h-[40px]" />
-          </div>
-        </aside>
-
-        <div className="relative hidden lg:flex lg:flex-none lg:self-stretch lg:px-1 group/resize">
-          <div
-            className={cn(
-              "flex h-full w-full cursor-col-resize select-none items-center justify-center touch-none rounded",
-              "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-sky-500",
-              isResizingSidebar
-                ? "bg-sky-200/60 dark:bg-sky-900/40"
-                : "bg-transparent hover:bg-sky-100/60 dark:hover:bg-sky-900/40"
-            )}
-            role="separator"
-            aria-label="Resize file navigation panel"
-            aria-orientation="vertical"
-            aria-controls={sidebarPanelId}
-            aria-valuenow={Math.round(sidebarWidth)}
-            aria-valuemin={SIDEBAR_MIN_WIDTH}
-            aria-valuemax={SIDEBAR_MAX_WIDTH}
-            tabIndex={0}
-            onPointerDown={handleSidebarResizePointerDown}
-            onKeyDown={handleSidebarResizeKeyDown}
-            onDoubleClick={handleSidebarResizeDoubleClick}
-          >
-            <span className="sr-only">
-              Drag to adjust file navigation width
-            </span>
-            <div
-              className={cn(
-                "h-full w-[3px] rounded-full transition-opacity",
-                isResizingSidebar
-                  ? "bg-sky-500 dark:bg-sky-400 opacity-100"
-                  : "bg-neutral-400 opacity-0 group-hover/resize:opacity-100 dark:bg-neutral-500"
-              )}
-              aria-hidden
-            />
-          </div>
+          {isSidebarCollapsed ? (
+            <PanelLeft className="w-3.5 h-3.5" />
+          ) : (
+            <PanelLeftClose className="w-3.5 h-3.5" />
+          )}
+          <span>Files</span>
+        </button>
+        <div className="flex items-center gap-2 text-[11px] font-medium">
+          <span className="text-green-600 dark:text-green-400">+{totalAdditions}</span>
+          <span className="text-red-600 dark:text-red-400">−{totalDeletions}</span>
         </div>
 
-        <div className="flex-1 min-w-0 space-y-3 pr-3">
+        {/* Compact progress indicator */}
+        {isLoadingFileOutputs && (
+          <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>{processedFileCount ?? 0}/{totalFileCount}</span>
+          </div>
+        )}
+
+        {/* Highlights navigator */}
+        {isHeatmapEnabled && targetCount > 0 && (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-neutral-600 dark:text-neutral-400">
+            <span className="tabular-nums">{targetCount} {targetCount === 1 ? "highlight" : "highlights"}</span>
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => handleFocusPrevious()}
+                className="p-0.5"
+                title="Previous highlight (Shift+K)"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFocusNext()}
+                className="p-0.5"
+                title="Next highlight (K)"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {onToggleHeatmap && (
+          <button
+            type="button"
+            onClick={onToggleHeatmap}
+            className="flex items-center gap-1.5 text-[11px] font-medium ml-auto text-neutral-500 dark:text-neutral-400"
+            title={isHeatmapActive ? "Switch to standard diff" : "Switch to heatmap diff"}
+          >
+            <Flame className="w-3 h-3" />
+            <span>Diff Heatmap</span>
+          </button>
+        )}
+
+      </div>
+
+      {/* Content area */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Sidebar with resize handle */}
+        {!isSidebarCollapsed && (
+          <div className="relative flex-shrink-0 h-full">
+            <aside
+              id={sidebarPanelId}
+              className="flex flex-col border-r border-neutral-200/80 dark:border-neutral-800/70 h-full overflow-hidden"
+              style={
+                {
+                  width: `${sidebarWidth}px`,
+                  minWidth: `${SIDEBAR_MIN_WIDTH}px`,
+                  maxWidth: `${SIDEBAR_MAX_WIDTH}px`,
+                } as CSSProperties
+              }
+            >
+              {/* Search input */}
+              <div className="flex-shrink-0 p-2">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500 pointer-events-none" />
+                  <input
+                    ref={filterInputRef}
+                    type="text"
+                    placeholder="Search files"
+                    value={filterText}
+                    onChange={(e) => setFilterText(e.target.value)}
+                    className={cn(
+                      "w-full pl-7 pr-7 py-1 text-xs",
+                      "bg-neutral-100 dark:bg-neutral-800",
+                      "border border-neutral-200 dark:border-neutral-700",
+                      "rounded-md",
+                      "text-neutral-700 dark:text-neutral-300",
+                      "placeholder:text-neutral-400 dark:placeholder:text-neutral-500",
+                      "focus:outline-none focus:border-neutral-400 dark:focus:border-neutral-500"
+                    )}
+                  />
+                  {filterText && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilterText("");
+                        filterInputRef.current?.focus();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Scrollable content below - only the file tree */}
+              <div className="flex-1 min-h-0 overflow-y-auto py-1">
+                {filteredFileTree.length > 0 ? (
+                  <FileTreeNavigator
+                    nodes={filteredFileTree}
+                    activePath={activeAnchor}
+                    expandedPaths={expandedPaths}
+                    onToggleDirectory={handleToggleDirectory}
+                    onSelectFile={handleNavigate}
+                  />
+                ) : filterText ? (
+                  <div className="px-3 py-2 text-xs text-neutral-500 dark:text-neutral-400">
+                    No files found
+                  </div>
+                ) : null}
+              </div>
+            </aside>
+
+            {/* Resize handle */}
+            <div
+              className={cn(
+                "absolute top-0 bottom-0 right-0 w-2 cursor-col-resize select-none touch-none group/resize z-10 translate-x-1/2",
+                "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-sky-500"
+              )}
+              role="separator"
+              aria-label="Resize file navigation panel"
+              aria-orientation="vertical"
+              aria-controls={sidebarPanelId}
+              aria-valuenow={Math.round(sidebarWidth)}
+              aria-valuemin={SIDEBAR_MIN_WIDTH}
+              aria-valuemax={SIDEBAR_MAX_WIDTH}
+              tabIndex={0}
+              onPointerDown={handleSidebarResizePointerDown}
+              onKeyDown={handleSidebarResizeKeyDown}
+              onDoubleClick={handleSidebarResizeDoubleClick}
+            >
+              <span className="sr-only">
+                Drag to adjust file navigation width
+              </span>
+              <div
+                className={cn(
+                  "absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[3px] rounded-full transition-opacity",
+                  isResizingSidebar
+                    ? "bg-sky-500 dark:bg-sky-400 opacity-100"
+                    : "opacity-0 group-hover/resize:opacity-100 group-hover/resize:bg-sky-500 dark:group-hover/resize:bg-sky-400"
+                )}
+                aria-hidden
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Main content */}
+        <div className="flex-1 min-w-0 overflow-y-auto">
           {fileEntries.map((fileEntry) => {
             const status = mapStatusToHeatmapStatus(fileEntry.entry.entry.status);
             const isFocusedFile =
@@ -2362,13 +2129,13 @@ export function GitDiffHeatmapReviewViewer({
                 key={fileEntry.entry.anchorId}
                 entry={fileEntry.entry}
                 status={status}
-                reviewHeatmap={fileEntry.reviewHeatmap}
-                diffHeatmap={fileEntry.diffHeatmap}
+                reviewHeatmap={isHeatmapEnabled ? fileEntry.reviewHeatmap : []}
+                diffHeatmap={isHeatmapEnabled ? fileEntry.diffHeatmap : null}
                 scrollContainer={scrollContainer}
-                focusedLine={focusedLine}
-                focusedChangeKey={focusedChangeKey}
-                autoTooltipLine={autoTooltipLine}
-                isLoading={isLoading}
+                focusedLine={isHeatmapEnabled ? focusedLine : null}
+                focusedChangeKey={isHeatmapEnabled ? focusedChangeKey : null}
+                autoTooltipLine={isHeatmapEnabled ? autoTooltipLine : null}
+                isLoading={isHeatmapEnabled && isLoading}
                 isCollapsed={isCollapsed}
                 filePath={fileEntry.entry.entry.filePath}
                 onFileCollapseChange={handleFileCollapseChange}
@@ -2378,16 +2145,14 @@ export function GitDiffHeatmapReviewViewer({
             );
           })}
           <hr className="border-neutral-200 dark:border-neutral-800" />
-          <div className="h-[70dvh] w-full">
-            <div className="px-3 py-6 text-center">
-              <span className="select-none text-xs text-neutral-500 dark:text-neutral-400">
-                You&apos;ve reached the end of the diff!
-              </span>
-              <div className="grid place-content-center">
-                <pre className="mt-2 pb-20 select-none text-left text-[8px] font-mono text-neutral-500 dark:text-neutral-400">
-                  {kitty}
-                </pre>
-              </div>
+          <div className="px-3 py-6 text-center">
+            <span className="select-none text-xs text-neutral-500 dark:text-neutral-400">
+              You&apos;ve reached the end of the diff!
+            </span>
+            <div className="grid place-content-center">
+              <pre className="mt-2 pb-20 select-none text-left text-[8px] font-mono text-neutral-500 dark:text-neutral-400">
+                {kitty}
+              </pre>
             </div>
           </div>
         </div>
