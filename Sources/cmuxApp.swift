@@ -56,6 +56,14 @@ struct cmuxApp: App {
                 }
             }
 
+#if DEBUG
+            CommandMenu("Debug") {
+                Button("New Tab With Large Scrollback") {
+                    appDelegate.openDebugScrollbackTab(nil)
+                }
+            }
+#endif
+
             // New tab commands
             CommandGroup(replacing: .newItem) {
                 Button("New Tab") {

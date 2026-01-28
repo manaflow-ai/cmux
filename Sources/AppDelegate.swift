@@ -78,6 +78,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
+#if DEBUG
+    @objc func openDebugScrollbackTab(_ sender: Any?) {
+        guard let tabManager else { return }
+        let tab = tabManager.addTab()
+        let config = GhosttyConfig.load()
+        let lineCount = min(max(config.scrollbackLimit * 2, 2000), 60000)
+        let command = "for i in {1..\(lineCount)}; do printf \"scrollback %06d\\n\" $i; done\n"
+        sendTextWhenReady(command, to: tab)
+    }
+
+    private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
+        let maxAttempts = 60
+        if let surface = tab.focusedSurface, surface.surface != nil {
+            surface.sendText(text)
+            return
+        }
+        guard attempt < maxAttempts else {
+            NSLog("Debug scrollback: surface not ready after \(maxAttempts) attempts")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.sendTextWhenReady(text, to: tab, attempt: attempt + 1)
+        }
+    }
+#endif
+
     func attachUpdateAccessory(to window: NSWindow) {
         titlebarAccessoryController.start()
         titlebarAccessoryController.attach(to: window)

@@ -248,7 +248,8 @@ class TabManager: ObservableObject {
         }
     }
 
-    func addTab() {
+    @discardableResult
+    func addTab() -> Tab {
         let newTab = Tab(title: "Terminal \(tabs.count + 1)")
         tabs.append(newTab)
         selectedTabId = newTab.id
@@ -257,6 +258,7 @@ class TabManager: ObservableObject {
             object: nil,
             userInfo: [GhosttyNotificationKey.tabId: newTab.id]
         )
+        return newTab
     }
 
     func moveTabToTop(_ tabId: UUID) {

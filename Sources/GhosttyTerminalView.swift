@@ -703,6 +703,15 @@ class TerminalSurface: Identifiable {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
+    func sendText(_ text: String) {
+        guard let surface = surface else { return }
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return }
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
     deinit {
         if ownsDisplayLink {
             GhosttyApp.shared.releaseDisplayLink()
@@ -1480,14 +1489,21 @@ private final class GhosttyScrollView: NSScrollView {
     weak var surfaceView: GhosttyNSView?
 
     override func scrollWheel(with event: NSEvent) {
-        if let surfaceView {
-            if window?.firstResponder !== surfaceView {
-                window?.makeFirstResponder(surfaceView)
-            }
-            surfaceView.scrollWheel(with: event)
+        guard let surfaceView else {
+            super.scrollWheel(with: event)
             return
         }
-        super.scrollWheel(with: event)
+
+        if window?.firstResponder !== surfaceView {
+            window?.makeFirstResponder(surfaceView)
+        }
+
+        if let surface = surfaceView.terminalSurface?.surface,
+           ghostty_surface_mouse_captured(surface) {
+            surfaceView.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
     }
 }
 
