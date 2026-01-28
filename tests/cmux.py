@@ -239,6 +239,70 @@ class cmux:
         """Get help text from server"""
         return self._send_command("help")
 
+    def notify(self, title: str, body: str = "") -> None:
+        """Create a notification for the focused surface."""
+        payload = f"{title}|{body}" if body else title
+        response = self._send_command(f"notify {payload}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def notify_surface(self, surface: str | int, title: str, body: str = "") -> None:
+        """Create a notification for a specific surface by ID or index."""
+        payload = f"{title}|{body}" if body else title
+        response = self._send_command(f"notify_surface {surface} {payload}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def list_notifications(self) -> list[dict]:
+        """
+        List notifications.
+        Returns list of dicts with keys: id, tab_id, surface_id, is_read, title, body.
+        """
+        response = self._send_command("list_notifications")
+        if response == "No notifications":
+            return []
+
+        items = []
+        for line in response.split("\n"):
+            if not line.strip():
+                continue
+            _, payload = line.split(":", 1)
+            parts = payload.split("|", 5)
+            if len(parts) < 6:
+                continue
+            notif_id, tab_id, surface_id, read_text, title, body = parts
+            items.append({
+                "id": notif_id,
+                "tab_id": tab_id,
+                "surface_id": None if surface_id == "none" else surface_id,
+                "is_read": read_text == "read",
+                "title": title,
+                "body": body,
+            })
+        return items
+
+    def clear_notifications(self) -> None:
+        """Clear all notifications."""
+        response = self._send_command("clear_notifications")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def set_app_focus(self, active: bool | None) -> None:
+        """Override app focus state. Use None to clear override."""
+        if active is None:
+            value = "clear"
+        else:
+            value = "active" if active else "inactive"
+        response = self._send_command(f"set_app_focus {value}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def simulate_app_active(self) -> None:
+        """Trigger the app active handler."""
+        response = self._send_command("simulate_app_active")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
 
 def main():
     """CLI interface for cmux"""

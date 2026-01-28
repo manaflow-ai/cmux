@@ -2,6 +2,17 @@ import AppKit
 import Foundation
 import UserNotifications
 
+enum AppFocusState {
+    static var overrideIsFocused: Bool?
+
+    static func isAppFocused() -> Bool {
+        if let overrideIsFocused {
+            return overrideIsFocused
+        }
+        return NSApp.isActive && (NSApp.keyWindow?.isKeyWindow ?? false)
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -34,6 +45,10 @@ final class TerminalNotificationStore: ObservableObject {
         notifications.filter { $0.tabId == tabId && !$0.isRead }.count
     }
 
+    func hasUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        notifications.contains { $0.tabId == tabId && $0.surfaceId == surfaceId && !$0.isRead }
+    }
+
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         if let unread = notifications.first(where: { $0.tabId == tabId && !$0.isRead }) {
             return unread
@@ -42,10 +57,17 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, body: String) {
+        clearNotifications(forTabId: tabId, surfaceId: surfaceId)
+
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
         let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
-        let shouldMarkRead = NSApp.isActive && (NSApp.keyWindow?.isKeyWindow ?? false) && isActiveTab && isFocusedSurface
+        let isFocusedPanel = isActiveTab && isFocusedSurface
+        let isAppFocused = AppFocusState.isAppFocused()
+        if isAppFocused && isFocusedPanel {
+            return
+        }
+
         let notification = TerminalNotification(
             id: UUID(),
             tabId: tabId,
@@ -53,7 +75,7 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             body: body,
             createdAt: Date(),
-            isRead: shouldMarkRead
+            isRead: false
         )
         notifications.insert(notification, at: 0)
         scheduleUserNotification(notification)
@@ -79,6 +101,22 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
+        var idsToClear: [String] = []
+        for index in notifications.indices {
+            if notifications[index].tabId == tabId,
+               notifications[index].surfaceId == surfaceId,
+               !notifications[index].isRead {
+                notifications[index].isRead = true
+                idsToClear.append(notifications[index].id.uuidString)
+            }
+        }
+        if !idsToClear.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+        }
+    }
+
     func markUnread(forTabId tabId: UUID) {
         for index in notifications.indices {
             if notifications[index].tabId == tabId {
@@ -97,6 +135,17 @@ final class TerminalNotificationStore: ObservableObject {
         notifications.removeAll()
         if !ids.isEmpty {
             center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    func clearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+        let ids = notifications
+            .filter { $0.tabId == tabId && $0.surfaceId == surfaceId }
+            .map { $0.id.uuidString }
+        notifications.removeAll { $0.tabId == tabId && $0.surfaceId == surfaceId }
+        if !ids.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+            center.removePendingNotificationRequests(withIdentifiers: ids)
         }
     }
 

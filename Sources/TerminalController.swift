@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Unix socket-based controller for programmatic terminal control
@@ -102,20 +103,28 @@ class TerminalController {
         defer { close(socket) }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
+        var pending = ""
 
         while isRunning {
             let bytesRead = read(socket, &buffer, buffer.count - 1)
             guard bytesRead > 0 else { break }
 
-            buffer[bytesRead] = 0
-            let command = String(cString: buffer)
-            let response = processCommand(command.trimmingCharacters(in: .whitespacesAndNewlines))
+            let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
+            pending.append(chunk)
 
-            response.withCString { ptr in
-                _ = write(socket, ptr, strlen(ptr))
-            }
-            "\n".withCString { ptr in
-                _ = write(socket, ptr, 1)
+            while let newlineIndex = pending.firstIndex(of: "\n") {
+                let line = String(pending[..<newlineIndex])
+                pending = String(pending[pending.index(after: newlineIndex)...])
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+
+                let response = processCommand(trimmed)
+                response.withCString { ptr in
+                    _ = write(socket, ptr, strlen(ptr))
+                }
+                "\n".withCString { ptr in
+                    _ = write(socket, ptr, 1)
+                }
             }
         }
     }
@@ -167,6 +176,24 @@ class TerminalController {
         case "send_key_surface":
             return sendKeyToSurface(args)
 
+        case "notify":
+            return notifyCurrent(args)
+
+        case "notify_surface":
+            return notifySurface(args)
+
+        case "list_notifications":
+            return listNotifications()
+
+        case "clear_notifications":
+            return clearNotifications()
+
+        case "set_app_focus":
+            return setAppFocusOverride(args)
+
+        case "simulate_app_active":
+            return simulateAppDidBecomeActive()
+
         case "help":
             return helpText()
 
@@ -191,6 +218,12 @@ class TerminalController {
           send_key <key>          - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
           send_surface <id|idx> <text> - Send text to a surface in current tab
           send_key_surface <id|idx> <key> - Send special key to a surface in current tab
+          notify <title>|<body>   - Create a notification for the focused surface
+          notify_surface <id|idx> <title>|<body> - Create a notification for a surface
+          list_notifications      - List all notifications
+          clear_notifications     - Clear all notifications
+          set_app_focus <active|inactive|clear> - Override app focus state
+          simulate_app_active     - Trigger app active handler
           help                    - Show this help
         """
     }
@@ -289,6 +322,104 @@ class TerminalController {
         return success ? "OK" : "ERROR: Surface not found"
     }
 
+    private func notifyCurrent(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId else {
+                result = "ERROR: No tab selected"
+                return
+            }
+            let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+            let (title, body) = parseNotificationPayload(args)
+            TerminalNotificationStore.shared.addNotification(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: title,
+                body: body
+            )
+        }
+        return result
+    }
+
+    private func notifySurface(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
+
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        let surfaceArg = parts[0]
+        let payload = parts.count > 1 ? parts[1] : ""
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: No tab selected"
+                return
+            }
+            guard let surfaceId = resolveSurfaceId(from: surfaceArg, tab: tab) else {
+                result = "ERROR: Surface not found"
+                return
+            }
+            let (title, body) = parseNotificationPayload(payload)
+            TerminalNotificationStore.shared.addNotification(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: title,
+                body: body
+            )
+        }
+        return result
+    }
+
+    private func listNotifications() -> String {
+        var result = ""
+        DispatchQueue.main.sync {
+            let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
+                let surfaceText = notification.surfaceId?.uuidString ?? "none"
+                let readText = notification.isRead ? "read" : "unread"
+                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.body)"
+            }
+            result = lines.joined(separator: "\n")
+        }
+        return result.isEmpty ? "No notifications" : result
+    }
+
+    private func clearNotifications() -> String {
+        DispatchQueue.main.sync {
+            TerminalNotificationStore.shared.clearAll()
+        }
+        return "OK"
+    }
+
+    private func setAppFocusOverride(_ arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch trimmed {
+        case "active", "1", "true":
+            AppFocusState.overrideIsFocused = true
+            return "OK"
+        case "inactive", "0", "false":
+            AppFocusState.overrideIsFocused = false
+            return "OK"
+        case "clear", "none", "":
+            AppFocusState.overrideIsFocused = nil
+            return "OK"
+        default:
+            return "ERROR: Expected active, inactive, or clear"
+        }
+    }
+
+    private func simulateAppDidBecomeActive() -> String {
+        DispatchQueue.main.sync {
+            AppDelegate.shared?.applicationDidBecomeActive(
+                Notification(name: NSApplication.didBecomeActiveNotification)
+            )
+        }
+        return "OK"
+    }
+
     private func parseSplitDirection(_ value: String) -> SplitTree<TerminalSurface>.NewDirection? {
         switch value.lowercased() {
         case "left", "l":
@@ -340,6 +471,29 @@ class TerminalController {
         }
 
         return nil
+    }
+
+    private func resolveSurfaceId(from arg: String, tab: Tab) -> UUID? {
+        if let uuid = UUID(uuidString: arg), tab.surface(for: uuid) != nil {
+            return uuid
+        }
+
+        if let index = Int(arg), index >= 0 {
+            let surfaces = tab.splitTree.root?.leaves() ?? []
+            guard index < surfaces.count else { return nil }
+            return surfaces[index].id
+        }
+
+        return nil
+    }
+
+    private func parseNotificationPayload(_ args: String) -> (String, String) {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return ("Notification", "") }
+        let parts = trimmed.split(separator: "|", maxSplits: 1).map(String.init)
+        let title = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        return (title.isEmpty ? "Notification" : title, body)
     }
 
     private func closeTab(_ tabId: String) -> String {
