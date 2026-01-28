@@ -1186,6 +1186,10 @@ export type PostApiDevServerStartData = {
 
 export type PostApiDevServerStartErrors = {
     /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
      * Failed to start development server
      */
     500: ErrorResponse;

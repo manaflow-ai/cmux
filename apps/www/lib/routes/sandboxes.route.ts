@@ -13,7 +13,7 @@ import { RESERVED_CMUX_PORT_SET } from "@cmux/shared/utils/reserved-cmux-ports";
 import { parseGithubRepoUrl } from "@cmux/shared/utils/parse-github-repo-url";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { MorphCloudClient } from "morphcloud";
+import { MorphCloudClient, type Instance } from "morphcloud";
 import { loadEnvironmentEnvVars } from "./sandboxes/environment";
 import {
   configureGithubAccess,
@@ -168,7 +168,7 @@ interface CmuxInstanceMetadata {
  * Result of instance ownership verification
  */
 type VerifyInstanceOwnershipResult =
-  | { authorized: true; instanceId: string }
+  | { authorized: true; instanceId: string; instance: Instance }
   | { authorized: false; status: 403 | 404; message: string };
 
 /**
@@ -181,7 +181,7 @@ async function verifyInstanceOwnership(
   userId: string,
   checkTeamMembership: () => Promise<{ teamId: string }[]>
 ): Promise<VerifyInstanceOwnershipResult> {
-  let instance;
+  let instance: Instance;
   try {
     instance = await morphClient.instances.get({ instanceId });
   } catch {
@@ -198,7 +198,7 @@ async function verifyInstanceOwnership(
   // Check direct ownership
   const isOwner = meta.userId === userId;
   if (isOwner) {
-    return { authorized: true, instanceId };
+    return { authorized: true, instanceId, instance };
   }
 
   // Check team membership if instance has a teamId
@@ -207,7 +207,7 @@ async function verifyInstanceOwnership(
       const memberships = await checkTeamMembership();
       const isTeamMember = memberships.some((m) => m.teamId === meta.teamId);
       if (isTeamMember) {
-        return { authorized: true, instanceId };
+        return { authorized: true, instanceId, instance };
       }
     } catch {
       // Failed to check team membership - continue to deny
@@ -872,12 +872,32 @@ sandboxesRouter.openapi(
   }),
   async (c) => {
     const id = c.req.valid("param").id;
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) return c.text("Unauthorized", 401);
+    const { accessToken } = await user.getAuthJson();
+    if (!accessToken) return c.text("Unauthorized", 401);
 
     try {
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
-      const instance = await client.instances.get({ instanceId: id });
+      const convex = getConvex({ accessToken });
+      const authResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(
+            api.teams.listTeamMemberships,
+            {}
+          );
+          return memberships.map((membership) => ({
+            teamId: membership.team.teamId,
+          }));
+        }
+      );
+      if (!authResult.authorized) {
+        return c.text(authResult.message, authResult.status);
+      }
+      const instance = authResult.instance;
       // Kill all dev servers and user processes before pausing to avoid port conflicts on resume
       await instance.exec(VM_CLEANUP_COMMANDS);
       await instance.pause();
@@ -919,11 +939,31 @@ sandboxesRouter.openapi(
   }),
   async (c) => {
     const id = c.req.valid("param").id;
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) return c.text("Unauthorized", 401);
+    const { accessToken } = await user.getAuthJson();
+    if (!accessToken) return c.text("Unauthorized", 401);
     try {
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
-      const instance = await client.instances.get({ instanceId: id });
+      const convex = getConvex({ accessToken });
+      const authResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(
+            api.teams.listTeamMemberships,
+            {}
+          );
+          return memberships.map((membership) => ({
+            teamId: membership.team.teamId,
+          }));
+        }
+      );
+      if (!authResult.authorized) {
+        return c.text(authResult.message, authResult.status);
+      }
+      const instance = authResult.instance;
       const vscodeService = instance.networking.httpServices.find(
         (s) => s.port === 39378,
       );
@@ -986,13 +1026,27 @@ sandboxesRouter.openapi(
     },
   }),
   async (c) => {
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) return c.text("Unauthorized", 401);
+    const { accessToken } = await user.getAuthJson();
+    if (!accessToken) return c.text("Unauthorized", 401);
     const { id } = c.req.valid("param");
     const { teamSlugOrId, taskRunId } = c.req.valid("json");
     try {
+      const team = await verifyTeamAccess({
+        req: c.req.raw,
+        teamSlugOrId,
+      });
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
       const instance = await client.instances.get({ instanceId: id });
+      const metadataTeamId = (
+        instance as unknown as {
+          metadata?: { teamId?: string };
+        }
+      ).metadata?.teamId;
+      if (metadataTeamId && metadataTeamId !== team.uuid) {
+        return c.text("Forbidden", 403);
+      }
 
       const reservedPorts = RESERVED_CMUX_PORT_SET;
 
@@ -1019,7 +1073,7 @@ sandboxesRouter.openapi(
       ).metadata;
 
       // Resolve environment-exposed ports (preferred)
-      const convex = getConvex({ accessToken: token });
+      const convex = getConvex({ accessToken });
       let environmentPorts: number[] | undefined;
       if (instanceMeta?.environmentId) {
         try {
