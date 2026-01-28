@@ -26,6 +26,14 @@ xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -des
 ./scripts/reload2.sh
 ```
 
+## E2E mac UI tests
+
+Run UI tests on the UTM macOS VM (never on the host machine):
+
+```bash
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+```
+
 ## Release
 
 Tagging a version triggers the GitHub Actions release workflow and uploads the notarized zip.

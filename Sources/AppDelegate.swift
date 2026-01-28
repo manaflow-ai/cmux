@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.updateController.checkForUpdates()
+            }
+        }
 #endif
     }
 

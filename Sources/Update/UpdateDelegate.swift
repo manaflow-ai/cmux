@@ -3,6 +3,14 @@ import Cocoa
 
 extension UpdateDriver: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if let override = env["CMUX_UI_TEST_FEED_URL"], !override.isEmpty {
+            UpdateTestURLProtocol.registerIfNeeded()
+            recordFeedURLString(override, usedFallback: false)
+            return override
+        }
+#endif
         let infoURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
         let fallback = "https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml"
         let feedURLString = (infoURL?.isEmpty == false) ? infoURL! : fallback
