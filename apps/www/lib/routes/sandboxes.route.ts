@@ -866,17 +866,42 @@ sandboxesRouter.openapi(
     responses: {
       204: { description: "Sandbox stopped" },
       401: { description: "Unauthorized" },
+      403: { description: "Forbidden - not authorized to access this instance" },
       404: { description: "Not found" },
       500: { description: "Failed to stop sandbox" },
     },
   }),
   async (c) => {
-    const id = c.req.valid("param").id;
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const { id } = c.req.valid("param");
 
     try {
+      const { accessToken } = await user.getAuthJson();
+      if (!accessToken) {
+        return c.text("Unauthorized", 401);
+      }
+      const convex = getConvex({ accessToken });
+
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+
+      // SECURITY: Verify the user owns or has team access to this instance
+      const ownershipResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(api.teams.listTeamMemberships, {});
+          return memberships.map((m) => ({ teamId: m.team.teamId }));
+        }
+      );
+      if (!ownershipResult.authorized) {
+        return c.text(ownershipResult.message, ownershipResult.status);
+      }
+
       const instance = await client.instances.get({ instanceId: id });
       // Kill all dev servers and user processes before pausing to avoid port conflicts on resume
       await instance.exec(VM_CLEANUP_COMMANDS);
@@ -914,15 +939,42 @@ sandboxesRouter.openapi(
         description: "Sandbox status",
       },
       401: { description: "Unauthorized" },
+      403: { description: "Forbidden - not authorized to access this instance" },
+      404: { description: "Instance not found" },
       500: { description: "Failed to get status" },
     },
   }),
   async (c) => {
-    const id = c.req.valid("param").id;
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) {
+      return c.text("Unauthorized", 401);
+    }
+
+    const { id } = c.req.valid("param");
+
     try {
+      const { accessToken } = await user.getAuthJson();
+      if (!accessToken) {
+        return c.text("Unauthorized", 401);
+      }
+      const convex = getConvex({ accessToken });
+
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+
+      // SECURITY: Verify the user owns or has team access to this instance
+      const ownershipResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(api.teams.listTeamMemberships, {});
+          return memberships.map((m) => ({ teamId: m.team.teamId }));
+        }
+      );
+      if (!ownershipResult.authorized) {
+        return c.text(ownershipResult.message, ownershipResult.status);
+      }
+
       const instance = await client.instances.get({ instanceId: id });
       const vscodeService = instance.networking.httpServices.find(
         (s) => s.port === 39378,
@@ -982,16 +1034,43 @@ sandboxesRouter.openapi(
         description: "Exposed ports list",
       },
       401: { description: "Unauthorized" },
+      403: { description: "Forbidden - not authorized to access this instance" },
+      404: { description: "Instance not found" },
       500: { description: "Failed to publish devcontainer networking" },
     },
   }),
   async (c) => {
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) {
+      return c.text("Unauthorized", 401);
+    }
+
     const { id } = c.req.valid("param");
     const { teamSlugOrId, taskRunId } = c.req.valid("json");
+
     try {
+      const { accessToken } = await user.getAuthJson();
+      if (!accessToken) {
+        return c.text("Unauthorized", 401);
+      }
+      const convex = getConvex({ accessToken });
+
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+
+      // SECURITY: Verify the user owns or has team access to this instance
+      const ownershipResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(api.teams.listTeamMemberships, {});
+          return memberships.map((m) => ({ teamId: m.team.teamId }));
+        }
+      );
+      if (!ownershipResult.authorized) {
+        return c.text(ownershipResult.message, ownershipResult.status);
+      }
+
       const instance = await client.instances.get({ instanceId: id });
 
       const reservedPorts = RESERVED_CMUX_PORT_SET;
@@ -1019,7 +1098,6 @@ sandboxesRouter.openapi(
       ).metadata;
 
       // Resolve environment-exposed ports (preferred)
-      const convex = getConvex({ accessToken: token });
       let environmentPorts: number[] | undefined;
       if (instanceMeta?.environmentId) {
         try {

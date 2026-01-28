@@ -16,6 +16,18 @@ import {
   type VSCodeInstanceInfo,
 } from "./VSCodeInstance";
 
+/**
+ * Validate that a git config key is safe to use in shell commands.
+ * Git config keys should only contain alphanumeric characters, dots, dashes, and underscores.
+ * This prevents shell injection via malicious key names like "--global" or "; rm -rf /".
+ */
+export function isValidGitConfigKey(key: string): boolean {
+  // Git config keys are in format section.subsection.name or section.name
+  // Only allow safe characters: alphanumeric, dots, dashes, underscores
+  // Reject keys starting with dash to prevent option injection
+  return /^[a-zA-Z0-9._-]+$/.test(key) && !key.startsWith("-");
+}
+
 // Global port mapping storage
 export interface ContainerMapping {
   containerName: string;
@@ -1024,17 +1036,22 @@ export class DockerVSCodeInstance extends VSCodeInstance {
         `Setting up GitHub CLI authentication in container ${this.containerName}...`
       );
 
-      // Prepare command to authenticate gh CLI with token
+      // SECURITY: Pass token via environment variable and stdin to avoid exposure in process list.
+      // The token is passed as an env var to the container and piped to gh auth via stdin.
+      // This prevents the token from appearing in `ps aux` output.
       const authCmd = [
         "bash",
         "-lc",
-        `echo '${githubToken}' | gh auth login --with-token 2>&1`,
+        // Read token from env var and pipe to gh auth (avoids token in command line args)
+        `printenv GH_AUTH_TOKEN | gh auth login --with-token 2>&1`,
       ];
 
       const exec = await this.container.exec({
         Cmd: authCmd,
         AttachStdout: true,
         AttachStderr: true,
+        AttachStdin: false,
+        Env: [`GH_AUTH_TOKEN=${githubToken}`],
       });
 
       await new Promise<void>((resolve, reject) => {
@@ -1331,8 +1348,24 @@ export class DockerVSCodeInstance extends VSCodeInstance {
     }
   }
 
+  /**
+   * Validate that a git config key is safe to use in shell commands.
+   * Git config keys should only contain alphanumeric characters, dots, dashes, and underscores.
+   * This prevents shell injection via malicious key names.
+   */
+  private isValidGitConfigKey(key: string): boolean {
+    return isValidGitConfigKey(key);
+  }
+
   private async getGitConfigValue(key: string): Promise<string | undefined> {
     try {
+      // SECURITY: Validate the key to prevent shell injection.
+      // Reject keys with special characters or that start with dashes (could be interpreted as options).
+      if (!this.isValidGitConfigKey(key)) {
+        dockerLogger.warn(`Invalid git config key rejected: ${key}`);
+        return undefined;
+      }
+
       const { execSync } = await import("child_process");
       const value = execSync(`git config --global ${key}`).toString().trim();
       return value || undefined;

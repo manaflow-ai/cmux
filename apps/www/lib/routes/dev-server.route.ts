@@ -4,9 +4,15 @@ import { DEFAULT_MORPH_SNAPSHOT_ID } from "@/lib/utils/morph-defaults";
 import { env } from "@/lib/utils/www-env";
 import { connectToWorkerManagement, type Socket } from "@cmux/shared/socket";
 import type { WorkerToServerEvents, ServerToWorkerEvents } from "@cmux/shared";
+import { getUserFromRequest } from "@/lib/utils/auth";
+import { verifyTeamAccess } from "@/lib/utils/team-verification";
 
 // Define the request schema based on StartTaskSchema
 const StartDevServerSchema = z.object({
+  teamSlugOrId: z.string().openapi({
+    example: "my-team",
+    description: "Team slug or ID for authorization",
+  }),
   repoUrl: z.string().openapi({
     example: "https://github.com/user/repo",
     description: "GitHub repository URL",
@@ -135,6 +141,12 @@ const startDevServerRoute = createRoute({
       },
       description: "Development server started successfully",
     },
+    401: {
+      description: "Unauthorized - authentication required",
+    },
+    403: {
+      description: "Forbidden - not a member of the specified team",
+    },
     500: {
       content: {
         "application/json": {
@@ -151,9 +163,27 @@ const startDevServerRoute = createRoute({
 });
 
 devServerRouter.openapi(startDevServerRoute, async (c) => {
+  // SECURITY: Authenticate the user
+  const user = await getUserFromRequest(c.req.raw);
+  if (!user) {
+    return c.text("Unauthorized", 401);
+  }
+
   const body = c.req.valid("json");
 
-  const client = new MorphCloudClient();
+  // SECURITY: Verify user has access to the specified team
+  let team;
+  try {
+    team = await verifyTeamAccess({
+      req: c.req.raw,
+      teamSlugOrId: body.teamSlugOrId,
+    });
+  } catch (error) {
+    console.error("[dev-server] Team access verification failed:", error);
+    return c.text("Forbidden - not a member of the specified team", 403);
+  }
+
+  const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
   let instance: Awaited<ReturnType<typeof client.instances.start>> | null = null;
   let stopInstanceOnError = false;
 
@@ -165,6 +195,8 @@ devServerRouter.openapi(startDevServerRoute, async (c) => {
       ttlAction: "pause",
       metadata: {
         app: "cmux",
+        userId: user.id,
+        teamId: team.uuid,
         taskId: body.taskId,
         repo: body.repoUrl,
         branch: body.branch || "main",
