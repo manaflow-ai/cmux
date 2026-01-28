@@ -52,10 +52,46 @@ jobs:
 
       - name: Run UI tests
         run: |
-          xcodebuild \
-            -project GhosttyTabs.xcodeproj \
-            -scheme cmux \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            -only-testing:GhosttyTabsUITests/UpdatePillUITests \
-            test
+          set -euo pipefail
+          log_file="$(mktemp /tmp/cmux-ui-tests.XXXXXX.log)"
+          console_user="$(stat -f%Su /dev/console)"
+          console_uid=""
+          if [ "$console_user" != "root" ]; then
+            console_uid="$(id -u "$console_user")"
+          fi
+
+          run_xcodebuild() {
+            if [ -n "$console_uid" ] && command -v sudo >/dev/null 2>&1; then
+              sudo /bin/launchctl asuser "$console_uid" sudo -u "$console_user" \
+                xcodebuild \
+                  -project GhosttyTabs.xcodeproj \
+                  -scheme cmux \
+                  -configuration Debug \
+                  -destination 'platform=macOS' \
+                  -only-testing:GhosttyTabsUITests/UpdatePillUITests \
+                  test
+            else
+              xcodebuild \
+                -project GhosttyTabs.xcodeproj \
+                -scheme cmux \
+                -configuration Debug \
+                -destination 'platform=macOS' \
+                -only-testing:GhosttyTabsUITests/UpdatePillUITests \
+                test
+            fi
+          }
+
+          set +e
+          run_xcodebuild 2>&1 | tee "$log_file"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status" -ne 0 ] && grep -q "Timed out while enabling automation mode" "$log_file"; then
+            echo "UI automation timed out. Retrying once after a short delay..."
+            sleep 5
+            run_xcodebuild
+            status=$?
+          fi
+
+          rm -f "$log_file"
+          exit "$status"
