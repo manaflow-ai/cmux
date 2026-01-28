@@ -81,6 +81,23 @@ class UpdateController {
         }
     }
 
+    /// Check for updates once the updater is ready (used by UI tests).
+    func checkForUpdatesWhenReady(retries: Int = 10) {
+        let canCheck = updater.canCheckForUpdates
+        UpdateLogStore.shared.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
+        if canCheck {
+            checkForUpdates()
+            return
+        }
+        guard retries > 0 else {
+            UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.checkForUpdatesWhenReady(retries: retries - 1)
+        }
+    }
+
     /// Validate the check for updates menu item.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(checkForUpdates) {

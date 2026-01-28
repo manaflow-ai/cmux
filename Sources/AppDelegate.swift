@@ -34,10 +34,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.updateController.checkForUpdates()
+                guard let self else { return }
+                if UpdateTestSupport.performMockFeedCheckIfNeeded(on: self.updateController.viewModel) {
+                    return
+                }
+                self.updateController.checkForUpdatesWhenReady()
             }
         }
 #endif
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let tabManager, let notificationStore else { return }
+        guard let tabId = tabManager.selectedTabId else { return }
+        let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
+
+        if let surfaceId,
+           let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
+            tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false)
+        }
+        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

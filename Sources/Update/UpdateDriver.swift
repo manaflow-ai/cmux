@@ -19,6 +19,14 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func show(_ request: SPUUpdatePermissionRequest,
               reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" || env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" {
+            UpdateLogStore.shared.append("auto-allow update permission (ui test)")
+            reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
+            return
+        }
+#endif
         UpdateLogStore.shared.append("show update permission request")
         setState(.permissionRequest(.init(request: request, reply: { [weak viewModel] response in
             viewModel?.state = .idle

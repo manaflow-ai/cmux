@@ -22,25 +22,11 @@ struct UpdatePill: View {
                     UpdatePopoverView(model: model)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .onAppear {
+                    scheduleNoUpdateDismiss(for: model.effectiveState)
+                }
                 .onChange(of: model.effectiveState) { newState in
-                    resetTask?.cancel()
-                    if case .notFound(let notFound) = newState, model.overrideState == nil {
-                        recordUITestTimestamp(key: "noUpdateShownAt")
-                        resetTask = Task { [weak model] in
-                            let delay = UInt64(UpdateTiming.noUpdateDisplayDuration * 1_000_000_000)
-                            try? await Task.sleep(nanoseconds: delay)
-                            guard !Task.isCancelled, case .notFound? = model?.state else { return }
-                            await MainActor.run {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    recordUITestTimestamp(key: "noUpdateHiddenAt")
-                                    model?.state = .idle
-                                }
-                            }
-                            notFound.acknowledgement()
-                        }
-                    } else {
-                        resetTask = nil
-                    }
+                    scheduleNoUpdateDismiss(for: newState)
                 }
         }
     }
@@ -103,5 +89,26 @@ struct UpdatePill: View {
             try? data.write(to: url)
         }
 #endif
+    }
+
+    private func scheduleNoUpdateDismiss(for state: UpdateState) {
+        resetTask?.cancel()
+        if case .notFound(let notFound) = state, model.overrideState == nil {
+            recordUITestTimestamp(key: "noUpdateShownAt")
+            resetTask = Task { [weak model] in
+                let delay = UInt64(UpdateTiming.noUpdateDisplayDuration * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, case .notFound? = model?.state else { return }
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        recordUITestTimestamp(key: "noUpdateHiddenAt")
+                        model?.state = .idle
+                    }
+                }
+                notFound.acknowledgement()
+            }
+        } else {
+            resetTask = nil
+        }
     }
 }

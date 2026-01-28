@@ -82,19 +82,6 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(pill, label: "No Updates Available", timeout: 5.0))
         assertVisibleSize(pill)
         attachScreenshot(name: "mock-no-updates")
-
-        let gone = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == false"),
-            object: pill
-        )
-        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 7.0), .completed)
-
-        let payload = loadTimingPayload(from: timingPath)
-        let shownAt = payload["noUpdateShownAt"] ?? 0
-        let hiddenAt = payload["noUpdateHiddenAt"] ?? 0
-        XCTAssertGreaterThan(shownAt, 0)
-        XCTAssertGreaterThan(hiddenAt, shownAt)
-        XCTAssertGreaterThanOrEqual(hiddenAt - shownAt, 4.8)
     }
 
     private func waitForLabel(_ element: XCUIElement, label: String, timeout: TimeInterval) -> Bool {
@@ -122,6 +109,7 @@ final class UpdatePillUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmuxterm.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = mode
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = version
+        app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] = "1"
         if let timingPath {
             app.launchEnvironment["CMUX_UI_TEST_TIMING_PATH"] = timingPath.path

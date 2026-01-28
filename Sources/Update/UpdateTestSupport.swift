@@ -24,6 +24,34 @@ enum UpdateTestSupport {
         }
     }
 
+    static func performMockFeedCheckIfNeeded(on viewModel: UpdateViewModel) -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" else { return false }
+        guard let feedURLString = env["CMUX_UI_TEST_FEED_URL"],
+              let feedURL = URL(string: feedURLString) else { return false }
+
+        UpdateTestURLProtocol.registerIfNeeded()
+        DispatchQueue.main.async {
+            viewModel.state = .checking(.init(cancel: {}))
+        }
+
+        let task = URLSession.shared.dataTask(with: feedURL) { data, _, _ in
+            let xml = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let version = env["CMUX_UI_TEST_UPDATE_VERSION"] ?? "9.9.9"
+            let hasItem = xml.contains("<item>")
+            DispatchQueue.main.async {
+                if hasItem {
+                    let appcastItem = makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty()
+                    viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: { _ in }))
+                } else {
+                    viewModel.state = .notFound(.init(acknowledgement: {}))
+                }
+            }
+        }
+        task.resume()
+        return true
+    }
+
     private static func transition(to state: UpdateState, on viewModel: UpdateViewModel) {
         viewModel.state = .checking(.init(cancel: {}))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
