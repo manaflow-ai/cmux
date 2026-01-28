@@ -6,7 +6,6 @@ import SwiftUI
 struct UpdatePill: View {
     @ObservedObject var model: UpdateViewModel
     @State private var showPopover = false
-    @State private var resetTask: Task<Void, Never>?
 
     private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
 
@@ -22,12 +21,6 @@ struct UpdatePill: View {
                     UpdatePopoverView(model: model)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .onAppear {
-                    scheduleNoUpdateDismiss(for: model.effectiveState)
-                }
-                .onChange(of: model.effectiveState) { newState in
-                    scheduleNoUpdateDismiss(for: newState)
-                }
         }
     }
 
@@ -70,45 +63,5 @@ struct UpdatePill: View {
         let attributes: [NSAttributedString.Key: Any] = [.font: textFont]
         let size = (model.maxWidthText as NSString).size(withAttributes: attributes)
         return size.width
-    }
-
-    private func recordUITestTimestamp(key: String) {
-#if DEBUG
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
-        guard let path = env["CMUX_UI_TEST_TIMING_PATH"] else { return }
-
-        let url = URL(fileURLWithPath: path)
-        var payload: [String: Double] = [:]
-        if let data = try? Data(contentsOf: url),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Double] {
-            payload = object
-        }
-        payload[key] = Date().timeIntervalSince1970
-        if let data = try? JSONSerialization.data(withJSONObject: payload) {
-            try? data.write(to: url)
-        }
-#endif
-    }
-
-    private func scheduleNoUpdateDismiss(for state: UpdateState) {
-        resetTask?.cancel()
-        if case .notFound(let notFound) = state, model.overrideState == nil {
-            recordUITestTimestamp(key: "noUpdateShownAt")
-            resetTask = Task { [weak model] in
-                let delay = UInt64(UpdateTiming.noUpdateDisplayDuration * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled, case .notFound? = model?.state else { return }
-                await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        recordUITestTimestamp(key: "noUpdateHiddenAt")
-                        model?.state = .idle
-                    }
-                }
-                notFound.acknowledgement()
-            }
-        } else {
-            resetTask = nil
-        }
     }
 }

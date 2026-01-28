@@ -90,10 +90,17 @@ final class UpdatePillUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func assertVisibleSize(_ element: XCUIElement) {
-        let size = element.frame.size
-        XCTAssertGreaterThan(size.width, 20)
-        XCTAssertGreaterThan(size.height, 10)
+    private func assertVisibleSize(_ element: XCUIElement, timeout: TimeInterval = 2.0) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var size = element.frame.size
+        while Date() < deadline {
+            size = element.frame.size
+            if size.width > 20 && size.height > 10 {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTFail("Expected UpdatePill to have visible size, got \(size)")
     }
 
     private func attachScreenshot(name: String, screenshot: XCUIScreenshot = XCUIScreen.main.screenshot()) {

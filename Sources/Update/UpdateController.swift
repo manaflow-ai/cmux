@@ -1,12 +1,15 @@
 import Sparkle
 import Cocoa
 import Combine
+import SwiftUI
 
 /// Controller for managing Sparkle updates in cmuxterm.
 class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
     private var installCancellable: AnyCancellable?
+    private var noUpdateDismissCancellable: AnyCancellable?
+    private var noUpdateDismissWorkItem: DispatchWorkItem?
 
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -26,10 +29,13 @@ class UpdateController {
             userDriver: userDriver,
             delegate: userDriver
         )
+        installNoUpdateDismissObserver()
     }
 
     deinit {
         installCancellable?.cancel()
+        noUpdateDismissCancellable?.cancel()
+        noUpdateDismissWorkItem?.cancel()
     }
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
@@ -104,5 +110,58 @@ class UpdateController {
             return updater.canCheckForUpdates
         }
         return true
+    }
+
+    private func installNoUpdateDismissObserver() {
+        noUpdateDismissCancellable = Publishers.CombineLatest(viewModel.$state, viewModel.$overrideState)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state, overrideState in
+                self?.scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
+            }
+    }
+
+    private func scheduleNoUpdateDismiss(for state: UpdateState, overrideState: UpdateState?) {
+        noUpdateDismissWorkItem?.cancel()
+        noUpdateDismissWorkItem = nil
+
+        guard overrideState == nil else { return }
+        guard case .notFound(let notFound) = state else { return }
+
+        recordUITestTimestamp(key: "noUpdateShownAt")
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.viewModel.overrideState == nil,
+                  case .notFound = self.viewModel.state else { return }
+
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.recordUITestTimestamp(key: "noUpdateHiddenAt")
+                self.viewModel.state = .idle
+            }
+            notFound.acknowledgement()
+        }
+        noUpdateDismissWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + UpdateTiming.noUpdateDisplayDuration,
+            execute: workItem
+        )
+    }
+
+    private func recordUITestTimestamp(key: String) {
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_TIMING_PATH"] else { return }
+
+        let url = URL(fileURLWithPath: path)
+        var payload: [String: Double] = [:]
+        if let data = try? Data(contentsOf: url),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Double] {
+            payload = object
+        }
+        payload[key] = Date().timeIntervalSince1970
+        if let data = try? JSONSerialization.data(withJSONObject: payload) {
+            try? data.write(to: url)
+        }
+#endif
     }
 }
