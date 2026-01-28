@@ -53,7 +53,7 @@ jobs:
       - name: Run UI tests
         run: |
           set -euo pipefail
-          log_file="$(mktemp /tmp/cmux-ui-tests.XXXXXX.log)"
+          log_file="$(mktemp /tmp/cmux-ui-tests.XXXXXX)"
           console_user="$(stat -f%Su /dev/console)"
           console_uid=""
           if [ "$console_user" != "root" ]; then
@@ -105,9 +105,10 @@ jobs:
             status=${PIPESTATUS[0]}
           fi
 
-          rm -f "$log_file"
           if [ "$status" -ne 0 ] && grep -q "Timed out while enabling automation mode" "$log_file"; then
             echo "UI automation mode is unavailable on this runner. Skipping UI tests."
+            rm -f "$log_file"
             exit 0
           fi
+          rm -f "$log_file"
           exit "$status"
