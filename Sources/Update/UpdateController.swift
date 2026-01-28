@@ -2,7 +2,7 @@ import Sparkle
 import Cocoa
 import Combine
 
-/// Controller for managing Sparkle updates in cmux.
+/// Controller for managing Sparkle updates in cmuxterm.
 class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver

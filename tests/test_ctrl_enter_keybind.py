@@ -3,7 +3,7 @@
 Automated test for ctrl+enter keybind using real keystrokes.
 
 Requires:
-  - cmux running
+  - cmuxterm running
   - Accessibility permissions for System Events (osascript)
   - keybind = ctrl+enter=text:\\r (or \\n/\\x0d) configured in Ghostty config
 """
@@ -64,7 +64,7 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
     time.sleep(0.3)
 
     # Make sure the app is focused for keystrokes
-    run_osascript('tell application "cmux" to activate')
+    run_osascript('tell application "cmuxterm" to activate')
     time.sleep(0.2)
 
     # Clear any running command
@@ -94,14 +94,14 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
 
 def run_tests() -> int:
     print("=" * 60)
-    print("cmux Ctrl+Enter Keybind Test")
+    print("cmuxterm Ctrl+Enter Keybind Test")
     print("=" * 60)
     print()
 
     socket_path = cmux.DEFAULT_SOCKET_PATH
     if not os.path.exists(socket_path):
         print(f"Error: Socket not found at {socket_path}")
-        print("Please make sure cmux is running.")
+        print("Please make sure cmuxterm is running.")
         return 1
 
     config_path = find_config_with_keybind()
@@ -109,7 +109,7 @@ def run_tests() -> int:
         print("Error: Required keybind not found in Ghostty config.")
         print("Add a line like:")
         print("  keybind = ctrl+enter=text:\\r")
-        print("Then restart cmux and re-run this test.")
+        print("Then restart cmuxterm and re-run this test.")
         return 1
 
     print(f"Using keybind from: {config_path}")

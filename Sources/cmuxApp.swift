@@ -26,7 +26,7 @@ struct cmuxApp: App {
         .windowToolbarStyle(.automatic)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About cmux") {
+                Button("About cmuxterm") {
                     showAboutPanel()
                 }
                 Divider()
@@ -130,7 +130,7 @@ struct cmuxApp: App {
         let bundle = Bundle.main
         let appName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "cmux"
+            ?? "cmuxterm"
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         NSApp.orderFrontStandardAboutPanel(options: [

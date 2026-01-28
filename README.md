@@ -1,22 +1,22 @@
-# cmux
+# cmuxterm
 
 Vertical tabs for Ghostty on macOS, built on libghostty.
 
-[![Download macOS](https://img.shields.io/badge/Download-macOS-1b5fdd?style=for-the-badge&logo=apple)](releases/latest/download/cmux-macos.dmg)
+[![Download macOS](https://img.shields.io/badge/Download-macOS-1b5fdd?style=for-the-badge&logo=apple)](releases/latest/download/cmuxterm-macos.dmg)
 
 ## Releases
 
 Tag a version like `v0.1.0` and push it to trigger the GitHub Actions release workflow.
 The workflow builds `GhosttyKit.xcframework`, builds the Release app, signs, notarizes,
-staples, and uploads `cmux-macos.dmg` to the release.
+staples, and uploads `cmuxterm-macos.dmg` to the release.
 
 ## Auto updates
 
-cmux uses Sparkle with the same update UI flow as upstream Ghostty. The app looks for
+cmuxterm uses Sparkle with the same update UI flow as upstream Ghostty. The app looks for
 an appcast at:
 
 ```
-https://github.com/manaflow-ai/GhosttyTabs/releases/latest/download/appcast.xml
+https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml
 ```
 
 To sign updates, set these secrets for release builds:
@@ -36,7 +36,7 @@ to `.env`), run:
 For manual appcast generation (uses `SPARKLE_PRIVATE_KEY`):
 
 ```bash
-SPARKLE_PRIVATE_KEY=... ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg vX.Y.Z appcast.xml
+SPARKLE_PRIVATE_KEY=... ./scripts/sparkle_generate_appcast.sh cmuxterm-macos.dmg vX.Y.Z appcast.xml
 ```
 
 ### Required GitHub secrets

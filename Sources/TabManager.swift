@@ -422,13 +422,13 @@ class TabManager: ObservableObject {
     }
 
     private func windowTitle(for tab: Tab?) -> String {
-        guard let tab else { return "cmux" }
+        guard let tab else { return "cmuxterm" }
         let trimmedTitle = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
             return trimmedTitle
         }
         let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
+        return trimmedDirectory.isEmpty ? "cmuxterm" : trimmedDirectory
     }
 
     func focusTab(_ tabId: UUID, surfaceId: UUID? = nil) {

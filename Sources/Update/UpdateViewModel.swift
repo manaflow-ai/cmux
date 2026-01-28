@@ -216,13 +216,13 @@ class UpdateViewModel: ObservableObject {
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
-                return "cmux can’t reach the update server. Check your internet connection and try again."
+                return "cmuxterm can’t reach the update server. Check your internet connection and try again."
             case NSURLErrorTimedOut:
                 return "The update server took too long to respond. Try again in a moment."
             case NSURLErrorCannotFindHost:
                 return "The update server can’t be found. Check your connection or try again later."
             case NSURLErrorCannotConnectToHost:
-                return "cmux couldn’t connect to the update server. Check your connection or try again later."
+                return "cmuxterm couldn’t connect to the update server. Check your connection or try again later."
             case NSURLErrorNetworkConnectionLost:
                 return "The network connection was lost while checking for updates. Try again."
             case NSURLErrorSecureConnectionFailed,
@@ -238,7 +238,7 @@ class UpdateViewModel: ObservableObject {
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
-                return "cmux couldn’t download the update feed. Check your connection and try again."
+                return "cmuxterm couldn’t download the update feed. Check your connection and try again."
             case 1000, 1002:
                 return "The update feed could not be read. Please try again later."
             case 4:
@@ -248,7 +248,7 @@ class UpdateViewModel: ObservableObject {
             case 1, 2, 3001, 3002:
                 return "The update’s signature could not be verified. Please try again later."
             case 1003, 1005:
-                return "Move cmux into Applications and relaunch to enable updates."
+                return "Move cmuxterm into Applications and relaunch to enable updates."
             default:
                 break
             }
@@ -437,7 +437,7 @@ enum UpdateState: Equatable {
 
             if let semver = Self.extractSemanticVersion(from: version) {
                 let tag = semver.hasPrefix("v") ? semver : "v\(semver)"
-                if let url = URL(string: "https://github.com/manaflow-ai/GhosttyTabs/releases/tag/\(tag)") {
+                if let url = URL(string: "https://github.com/manaflow-ai/cmuxterm/releases/tag/\(tag)") {
                     self = .tagged(url)
                     return
                 }
@@ -447,7 +447,7 @@ enum UpdateState: Equatable {
                 return nil
             }
 
-            if let url = URL(string: "https://github.com/manaflow-ai/GhosttyTabs/commit/\(newHash)") {
+            if let url = URL(string: "https://github.com/manaflow-ai/cmuxterm/commit/\(newHash)") {
                 self = .commit(url)
             } else {
                 return nil

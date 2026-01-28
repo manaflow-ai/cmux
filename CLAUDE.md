@@ -1,4 +1,4 @@
-# GhosttyTabs agent notes
+# cmuxterm agent notes
 
 ## Local dev
 
@@ -11,17 +11,19 @@ xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -des
 `reload` = kill and launch the Debug app only:
 
 ```bash
-pkill -x "cmux DEV" || true
-sleep 0.2
-open /Users/lawrencechen/Library/Developer/Xcode/DerivedData/GhosttyTabs-cbjivvtpirygxbbgqlpdpiiyjnwh/Build/Products/Debug/cmux\ DEV.app
+./scripts/reload.sh
 ```
 
-`reload-prod` = kill and launch the Release app:
+`reloadp` = kill and launch the Release app:
 
 ```bash
-pkill -x cmux || true
-sleep 0.2
-open /Users/lawrencechen/Library/Developer/Xcode/DerivedData/GhosttyTabs-cbjivvtpirygxbbgqlpdpiiyjnwh/Build/Products/Release/cmux.app
+./scripts/reloadp.sh
+```
+
+`reload2` = reload both Debug and Release:
+
+```bash
+./scripts/reload2.sh
 ```
 
 ## Release
@@ -31,12 +33,12 @@ Tagging a version triggers the GitHub Actions release workflow and uploads the n
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
-gh run watch --repo manaflow-ai/GhosttyTabs
+gh run watch --repo manaflow-ai/cmuxterm
 ```
 
 Notes:
 - Requires GitHub secrets: `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
-- The release asset is `cmux-macos.dmg` attached to the tag.
-- README download button points to `releases/latest/download/cmux-macos.dmg`.
+- The release asset is `cmuxterm-macos.dmg` attached to the tag.
+- README download button points to `releases/latest/download/cmuxterm-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.

@@ -15,8 +15,8 @@ struct TerminalNotification: Identifiable, Hashable {
 final class TerminalNotificationStore: ObservableObject {
     static let shared = TerminalNotificationStore()
 
-    static let categoryIdentifier = "com.cmux.app.userNotification"
-    static let actionShowIdentifier = "com.cmux.app.userNotification.show"
+    static let categoryIdentifier = "com.cmuxterm.app.userNotification"
+    static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
 
     @Published private(set) var notifications: [TerminalNotification] = []
 
@@ -107,7 +107,7 @@ final class TerminalNotificationStore: ObservableObject {
             let content = UNMutableNotificationContent()
             let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
                 ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-                ?? "cmux"
+                ?? "cmuxterm"
             content.title = appName
             content.subtitle = notification.title
             content.body = notification.body
@@ -173,8 +173,8 @@ final class TerminalNotificationStore: ObservableObject {
             self.hasPromptedForSettings = true
 
             let alert = NSAlert()
-            alert.messageText = "Enable Notifications for cmux"
-            alert.informativeText = "Notifications are disabled for cmux. Enable them in System Settings to see alerts."
+            alert.messageText = "Enable Notifications for cmuxterm"
+            alert.informativeText = "Notifications are disabled for cmuxterm. Enable them in System Settings to see alerts."
             alert.addButton(withTitle: "Open Settings")
             alert.addButton(withTitle: "Not Now")
             let response = alert.runModal()

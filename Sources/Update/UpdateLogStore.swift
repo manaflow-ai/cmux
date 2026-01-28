@@ -4,7 +4,7 @@ import AppKit
 final class UpdateLogStore {
     static let shared = UpdateLogStore()
 
-    private let queue = DispatchQueue(label: "cmux.update.log")
+    private let queue = DispatchQueue(label: "cmuxterm.update.log")
     private var entries: [String] = []
     private let maxEntries = 200
     private let logURL: URL
@@ -15,7 +15,7 @@ final class UpdateLogStore {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let logsDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        logURL = logsDir.appendingPathComponent("Logs/cmux-update.log")
+        logURL = logsDir.appendingPathComponent("Logs/cmuxterm-update.log")
         ensureLogFile()
     }
 

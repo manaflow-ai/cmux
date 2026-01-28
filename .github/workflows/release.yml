@@ -101,9 +101,9 @@ jobs:
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
-          ZIP_SUBMIT="cmux-notary.zip"
-          DMG_RELEASE="cmux-macos.dmg"
+          APP_PATH="build/Build/Products/Release/cmuxterm.app"
+          ZIP_SUBMIT="cmuxterm-notary.zip"
+          DMG_RELEASE="cmuxterm-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
           xcrun stapler staple "$APP_PATH"
@@ -111,9 +111,9 @@ jobs:
           spctl -a -vv --type execute "$APP_PATH"
           rm -f "$ZIP_SUBMIT"
           STAGING_DIR="$(mktemp -d)"
-          cp -R "$APP_PATH" "$STAGING_DIR/cmux.app"
+          cp -R "$APP_PATH" "$STAGING_DIR/cmuxterm.app"
           ln -s /Applications "$STAGING_DIR/Applications"
-          hdiutil create -volname "cmux" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
+          hdiutil create -volname "cmuxterm" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
           rm -rf "$STAGING_DIR"
           xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
           xcrun stapler staple "$DMG_RELEASE"
@@ -127,13 +127,13 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+          ./scripts/sparkle_generate_appcast.sh cmuxterm-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            cmux-macos.dmg
+            cmuxterm-macos.dmg
             appcast.xml
           generate_release_notes: true
 
