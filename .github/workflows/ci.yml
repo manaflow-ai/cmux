@@ -59,10 +59,11 @@ jobs:
           if [ "$console_user" != "root" ]; then
             console_uid="$(id -u "$console_user")"
           fi
+          current_uid="$(id -u)"
 
           run_xcodebuild() {
-            if [ -n "$console_uid" ] && command -v sudo >/dev/null 2>&1; then
-              sudo /bin/launchctl asuser "$console_uid" sudo -u "$console_user" \
+            if [ "$current_uid" -eq 0 ] && [ -n "$console_uid" ] && [ "$console_uid" != "0" ]; then
+              /bin/launchctl asuser "$console_uid" \
                 xcodebuild \
                   -project GhosttyTabs.xcodeproj \
                   -scheme cmux \
