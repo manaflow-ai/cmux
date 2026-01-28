@@ -9,7 +9,7 @@ struct UpdatePopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            switch model.state {
+            switch model.effectiveState {
             case .idle:
                 EmptyView()
 
@@ -338,23 +338,48 @@ fileprivate struct UpdateErrorView: View {
     let dismiss: DismissAction
 
     var body: some View {
+        let title = UpdateViewModel.userFacingErrorTitle(for: error.error)
+        let message = UpdateViewModel.userFacingErrorMessage(for: error.error)
+        let details = UpdateViewModel.errorDetails(
+            for: error.error,
+            technicalDetails: error.technicalDetails,
+            feedURLString: error.feedURLString
+        )
+
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
                         .font(.system(size: 13))
-                    Text("Update Failed")
+                    Text(title)
                         .font(.system(size: 13, weight: .semibold))
                 }
 
-                Text(error.error.localizedDescription)
+                Text(message)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Details")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(details)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+
             HStack(spacing: 8) {
+                Button("Copy Details") {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(details, forType: .string)
+                }
+                .controlSize(.small)
+
                 Button("OK") {
                     error.dismiss()
                     dismiss()

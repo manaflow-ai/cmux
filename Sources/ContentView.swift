@@ -139,6 +139,9 @@ struct ContentView: View {
         .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
             sidebarMinX = frame.minX
         }
+        .background(WindowAccessor { window in
+            AppDelegate.shared?.attachUpdateAccessory(to: window)
+        })
     }
 
 }

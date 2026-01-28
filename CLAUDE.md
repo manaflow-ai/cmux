@@ -2,12 +2,26 @@
 
 ## Local dev
 
-After making code changes, always run this flow:
+After making code changes, always run the build:
 
 ```bash
 xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
+```
+
+`reload` = kill and launch the Debug app only:
+
+```bash
+pkill -x "cmux DEV" || true
+sleep 0.2
+open /Users/lawrencechen/Library/Developer/Xcode/DerivedData/GhosttyTabs-cbjivvtpirygxbbgqlpdpiiyjnwh/Build/Products/Debug/cmux\ DEV.app
+```
+
+`reload-prod` = kill and launch the Release app:
+
+```bash
 pkill -x cmux || true
-open /Users/lawrencechen/Library/Developer/Xcode/DerivedData/GhosttyTabs-cbjivvtpirygxbbgqlpdpiiyjnwh/Build/Products/Debug/cmux.app
+sleep 0.2
+open /Users/lawrencechen/Library/Developer/Xcode/DerivedData/GhosttyTabs-cbjivvtpirygxbbgqlpdpiiyjnwh/Build/Products/Release/cmux.app
 ```
 
 ## Release

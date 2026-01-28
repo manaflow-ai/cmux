@@ -12,7 +12,7 @@ struct UpdateBadge: View {
 
     @ViewBuilder
     private var badgeContent: some View {
-        switch model.state {
+        switch model.effectiveState {
         case .downloading(let download):
             if let expectedLength = download.expectedLength, expectedLength > 0 {
                 let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))

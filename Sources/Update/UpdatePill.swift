@@ -1,31 +1,41 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 /// A pill-shaped button that displays update status and provides access to update actions.
 struct UpdatePill: View {
     @ObservedObject var model: UpdateViewModel
-    var showWhenIdle: Bool = false
-    var idleText: String = "Check for Updates"
-    var onIdleTap: (() -> Void)?
     @State private var showPopover = false
     @State private var resetTask: Task<Void, Never>?
 
     private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
 
     var body: some View {
-        if !model.state.isIdle || showWhenIdle {
+        let state = model.effectiveState
+        if !state.isIdle {
             pillButton
-                .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+                .popover(
+                    isPresented: $showPopover,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .top
+                ) {
                     UpdatePopoverView(model: model)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .onChange(of: model.state) { newState in
+                .onChange(of: model.effectiveState) { newState in
                     resetTask?.cancel()
-                    if case .notFound(let notFound) = newState {
+                    if case .notFound(let notFound) = newState, model.overrideState == nil {
+                        recordUITestTimestamp(key: "noUpdateShownAt")
                         resetTask = Task { [weak model] in
-                            try? await Task.sleep(for: .seconds(5))
+                            let delay = UInt64(UpdateTiming.noUpdateDisplayDuration * 1_000_000_000)
+                            try? await Task.sleep(nanoseconds: delay)
                             guard !Task.isCancelled, case .notFound? = model?.state else { return }
-                            model?.state = .idle
+                            await MainActor.run {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    recordUITestTimestamp(key: "noUpdateHiddenAt")
+                                    model?.state = .idle
+                                }
+                            }
                             notFound.acknowledgement()
                         }
                     } else {
@@ -38,14 +48,6 @@ struct UpdatePill: View {
     @ViewBuilder
     private var pillButton: some View {
         Button(action: {
-            if model.state.isIdle && showWhenIdle {
-                if let onIdleTap {
-                    onIdleTap()
-                } else {
-                    showPopover.toggle()
-                }
-                return
-            }
             if case .notFound(let notFound) = model.state {
                 model.state = .idle
                 notFound.acknowledgement()
@@ -54,16 +56,10 @@ struct UpdatePill: View {
             }
         }) {
             HStack(spacing: 6) {
-                if model.state.isIdle && showWhenIdle {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .foregroundColor(.secondary)
-                        .frame(width: 14, height: 14)
-                } else {
-                    UpdateBadge(model: model)
-                        .frame(width: 14, height: 14)
-                }
+                UpdateBadge(model: model)
+                    .frame(width: 14, height: 14)
 
-                Text(displayText)
+                Text(model.text)
                     .font(Font(textFont))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -79,18 +75,33 @@ struct UpdatePill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(displayText)
-        .accessibilityLabel(displayText)
+        .help(model.text)
+        .accessibilityLabel(model.text)
+        .accessibilityIdentifier("UpdatePill")
     }
 
     private var textWidth: CGFloat? {
         let attributes: [NSAttributedString.Key: Any] = [.font: textFont]
-        let text = model.state.isIdle && showWhenIdle ? idleText : model.maxWidthText
-        let size = (text as NSString).size(withAttributes: attributes)
+        let size = (model.maxWidthText as NSString).size(withAttributes: attributes)
         return size.width
     }
 
-    private var displayText: String {
-        model.state.isIdle && showWhenIdle ? idleText : model.text
+    private func recordUITestTimestamp(key: String) {
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_TIMING_PATH"] else { return }
+
+        let url = URL(fileURLWithPath: path)
+        var payload: [String: Double] = [:]
+        if let data = try? Data(contentsOf: url),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Double] {
+            payload = object
+        }
+        payload[key] = Date().timeIntervalSince1970
+        if let data = try? JSONSerialization.data(withJSONObject: payload) {
+            try? data.write(to: url)
+        }
+#endif
     }
 }

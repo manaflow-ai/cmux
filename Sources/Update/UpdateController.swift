@@ -67,6 +67,7 @@ class UpdateController {
 
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
+        UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
         if viewModel.state == .idle {
             updater.checkForUpdates()
             return

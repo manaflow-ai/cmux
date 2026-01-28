@@ -30,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configureUserNotifications()
         updateController.startUpdater()
         titlebarAccessoryController.start()
+#if DEBUG
+        UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
+#endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -42,12 +45,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
+        updateViewModel.overrideState = nil
         updateController.checkForUpdates()
+    }
+
+    @objc func showUpdatePill(_ sender: Any?) {
+        updateViewModel.overrideState = .notFound(.init(acknowledgement: {}))
+    }
+
+    @objc func showUpdatePillLoading(_ sender: Any?) {
+        updateViewModel.overrideState = .checking(.init(cancel: {}))
+    }
+
+    @objc func hideUpdatePill(_ sender: Any?) {
+        updateViewModel.overrideState = .idle
+    }
+
+    @objc func clearUpdatePillOverride(_ sender: Any?) {
+        updateViewModel.overrideState = nil
+    }
+
+    @objc func copyUpdateLogs(_ sender: Any?) {
+        let logText = UpdateLogStore.shared.snapshot()
+        let payload: String
+        if logText.isEmpty {
+            payload = "No update logs captured.\nLog file: \(UpdateLogStore.shared.logPath())"
+        } else {
+            payload = logText + "\nLog file: \(UpdateLogStore.shared.logPath())"
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    func attachUpdateAccessory(to window: NSWindow) {
+        titlebarAccessoryController.start()
+        titlebarAccessoryController.attach(to: window)
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         updateController.validateMenuItem(item)
     }
+
 
     private func configureUserNotifications() {
         let actions = [

@@ -29,11 +29,30 @@ struct cmuxApp: App {
                 Button("About cmux") {
                     showAboutPanel()
                 }
-            }
-
-            CommandGroup(after: .appInfo) {
+                Divider()
                 Button("Check for Updates…") {
                     appDelegate.checkForUpdates(nil)
+                }
+            }
+
+            CommandMenu("Update Pill") {
+                Button("Show Update Pill") {
+                    appDelegate.showUpdatePill(nil)
+                }
+                Button("Show Loading State") {
+                    appDelegate.showUpdatePillLoading(nil)
+                }
+                Button("Hide Update Pill") {
+                    appDelegate.hideUpdatePill(nil)
+                }
+                Button("Automatic Update Pill") {
+                    appDelegate.clearUpdatePillOverride(nil)
+                }
+            }
+
+            CommandMenu("Update Logs") {
+                Button("Copy Update Logs") {
+                    appDelegate.copyUpdateLogs(nil)
                 }
             }
 
