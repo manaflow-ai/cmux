@@ -34,6 +34,22 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
+      - name: Build GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          if ! command -v zig >/dev/null 2>&1; then
+            if command -v brew >/dev/null 2>&1; then
+              brew install zig
+            else
+              echo "zig is required to build GhosttyKit.xcframework. Install zig and retry." >&2
+              exit 1
+            fi
+          fi
+          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native)
+          rm -rf GhosttyKit.xcframework
+          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+          test -d GhosttyKit.xcframework
+
       - name: Run UI tests
         run: |
           xcodebuild \
