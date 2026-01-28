@@ -196,6 +196,16 @@ class UpdateDriver: NSObject, SPUUserDriver {
             standard.dismissUpdateInstallation()
             return
         }
+        if case .notFound = viewModel.state {
+            UpdateLogStore.shared.append("dismiss update installation ignored (notFound visible)")
+            standard.dismissUpdateInstallation()
+            return
+        }
+        if case .checking = viewModel.state {
+            UpdateLogStore.shared.append("dismiss update installation ignored (checking)")
+            standard.dismissUpdateInstallation()
+            return
+        }
         setState(.idle)
         standard.dismissUpdateInstallation()
     }
