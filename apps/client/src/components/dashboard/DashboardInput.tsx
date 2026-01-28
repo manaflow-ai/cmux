@@ -123,6 +123,25 @@ export const DashboardInput = memo(
         }, 0);
       };
 
+      const isEditableElement = (element: Element | null): boolean => {
+        if (!element) {
+          return false;
+        }
+        if (
+          element instanceof HTMLInputElement ||
+          element instanceof HTMLTextAreaElement ||
+          element instanceof HTMLSelectElement ||
+          element.getAttribute("contenteditable") === "true"
+        ) {
+          return true;
+        }
+        // Check for elements marked as inline editing (e.g., rename inputs)
+        if (element.closest("[data-cmux-inline-editing]")) {
+          return true;
+        }
+        return false;
+      };
+
       const shouldRestoreFocus = (
         event: FocusEvent,
         candidateActiveElement: Element | null
@@ -149,12 +168,13 @@ export const DashboardInput = memo(
         }
 
         // Don't restore focus if user is interacting with form elements
+        // Check both activeElement and relatedTarget (the element receiving focus)
+        // This handles timing issues where activeElement is briefly document.body
+        const relatedTarget =
+          event.relatedTarget instanceof Element ? event.relatedTarget : null;
         if (
-          candidateActiveElement &&
-          (candidateActiveElement instanceof HTMLInputElement ||
-            candidateActiveElement instanceof HTMLTextAreaElement ||
-            candidateActiveElement instanceof HTMLSelectElement ||
-            candidateActiveElement.getAttribute("contenteditable") === "true")
+          isEditableElement(candidateActiveElement) ||
+          isEditableElement(relatedTarget)
         ) {
           return false;
         }

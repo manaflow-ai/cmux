@@ -165,6 +165,7 @@ export function EditableLabel({
           suppressContentEditableWarning
           spellCheck={false}
           data-placeholder={placeholder}
+          data-cmux-inline-editing={isEditing ? "true" : undefined}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}

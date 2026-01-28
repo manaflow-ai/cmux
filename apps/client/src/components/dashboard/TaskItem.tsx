@@ -346,6 +346,7 @@ export const TaskItem = memo(function TaskItem({
                   aria-invalid={renameError ? true : undefined}
                   autoComplete="off"
                   spellCheck={false}
+                  data-cmux-inline-editing="true"
                   className={clsx(
                     "inline-flex w-full items-center bg-transparent text-[13px] font-medium text-neutral-900 caret-neutral-600 transition-colors duration-200 pr-1",
                     "px-0 py-0 align-middle",
