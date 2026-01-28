@@ -513,6 +513,12 @@ pre,
 }
 
 /* Sidebar responsive width */
+[style*="--sidebar-width"] {
+  width: min(var(--sidebar-width), 75vw) !important;
+  min-width: min(var(--sidebar-width), 75vw) !important;
+  max-width: min(var(--sidebar-width), 75vw) !important;
+}
+
 @media (min-width: 768px) {
   [style*="--sidebar-width"] {
     width: var(--sidebar-width) !important;
