@@ -1771,6 +1771,41 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    func ensureFocus(for tabId: UUID, surfaceId: UUID, attempt: Int = 0) {
+        let maxAttempts = 6
+        guard attempt < maxAttempts else { return }
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              tabManager.selectedTabId == tabId,
+              tabManager.focusedSurfaceId(for: tabId) == surfaceId else { return }
+
+        guard let window else {
+            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
+            return
+        }
+
+        guard window.isKeyWindow else {
+            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
+            return
+        }
+
+        if window.firstResponder === surfaceView {
+            return
+        }
+
+        window.makeFirstResponder(surfaceView)
+
+        if window.firstResponder !== surfaceView {
+            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
+        }
+    }
+
+    private func scheduleFocusRetry(for tabId: UUID, surfaceId: UUID, attempt: Int) {
+        let delay = 0.05 * pow(2.0, Double(attempt))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.ensureFocus(for: tabId, surfaceId: surfaceId, attempt: attempt + 1)
+        }
+    }
+
     private func updateFocusForWindow() {
         let shouldFocus = isActive && (window?.isKeyWindow ?? false)
         surfaceView.desiredFocus = shouldFocus

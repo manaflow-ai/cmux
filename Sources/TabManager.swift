@@ -395,6 +395,7 @@ class TabManager: ObservableObject {
             tabs.first(where: { $0.id == id })?.focusedSurface
         }
         surface.hostedView.moveFocus(from: previousSurface?.hostedView)
+        surface.hostedView.ensureFocus(for: selectedTabId, surfaceId: surface.id)
     }
 
     private func updateTabTitle(tabId: UUID, title: String) {
