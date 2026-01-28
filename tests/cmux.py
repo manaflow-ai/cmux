@@ -303,6 +303,29 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def focus_notification(self, tab: str | int, surface: str | int | None = None) -> None:
+        """Focus tab/surface using the notification flow."""
+        if surface is None:
+            command = f"focus_notification {tab}"
+        else:
+            command = f"focus_notification {tab} {surface}"
+        response = self._send_command(command)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def flash_count(self, surface: str | int) -> int:
+        """Get flash count for a surface by ID or index."""
+        response = self._send_command(f"flash_count {surface}")
+        if response.startswith("OK "):
+            return int(response.split(" ", 1)[1])
+        raise cmuxError(response)
+
+    def reset_flash_counts(self) -> None:
+        """Reset flash counters."""
+        response = self._send_command("reset_flash_counts")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
 
 def main():
     """CLI interface for cmux"""

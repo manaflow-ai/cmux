@@ -7,7 +7,12 @@ class Tab: Identifiable, ObservableObject {
     @Published var title: String
     @Published var currentDirectory: String
     @Published var splitTree: SplitTree<TerminalSurface>
-    @Published var focusedSurfaceId: UUID?
+    @Published var focusedSurfaceId: UUID? {
+        didSet {
+            guard let focusedSurfaceId else { return }
+            AppDelegate.shared?.tabManager?.rememberFocusedSurface(tabId: id, surfaceId: focusedSurfaceId)
+        }
+    }
     @Published var surfaceDirectories: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
 
@@ -33,7 +38,7 @@ class Tab: Identifiable, ObservableObject {
         return nil
     }
 
-    func focusSurface(_ id: UUID, shouldFlash: Bool = true) {
+    func focusSurface(_ id: UUID) {
         let wasFocused = focusedSurfaceId == id
         focusedSurfaceId = id
         let isSelectedTab = AppDelegate.shared?.tabManager?.selectedTabId == self.id
@@ -44,9 +49,6 @@ class Tab: Identifiable, ObservableObject {
         guard isSelectedTab && isAppFocused else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         if notificationStore.hasUnreadNotification(forTabId: self.id, surfaceId: id) {
-            if shouldFlash {
-                triggerNotificationFocusFlash(surfaceId: id, requiresSplit: false)
-            }
             notificationStore.markRead(forTabId: self.id, surfaceId: id)
             return
         }
@@ -64,17 +66,26 @@ class Tab: Identifiable, ObservableObject {
         currentDirectory = trimmed
     }
 
-    func triggerNotificationFocusFlash(surfaceId: UUID, requiresSplit: Bool = false) {
-        triggerPanelFlash(surfaceId: surfaceId, requiresSplit: requiresSplit)
+    func triggerNotificationFocusFlash(
+        surfaceId: UUID,
+        requiresSplit: Bool = false,
+        shouldFocus: Bool = true
+    ) {
+        triggerPanelFlash(surfaceId: surfaceId, requiresSplit: requiresSplit, shouldFocus: shouldFocus)
     }
 
     func triggerDebugFlash(surfaceId: UUID) {
-        triggerPanelFlash(surfaceId: surfaceId, requiresSplit: false)
+        triggerPanelFlash(surfaceId: surfaceId, requiresSplit: false, shouldFocus: true)
     }
 
-    private func triggerPanelFlash(surfaceId: UUID, requiresSplit: Bool) {
+    private func triggerPanelFlash(surfaceId: UUID, requiresSplit: Bool, shouldFocus: Bool) {
         guard let surface = surface(for: surfaceId) else { return }
-        focusSurface(surfaceId)
+        if shouldFocus {
+            if focusedSurfaceId != surfaceId {
+                focusSurface(surfaceId)
+            }
+            surface.hostedView.ensureFocus(for: self.id, surfaceId: surfaceId)
+        }
         if requiresSplit && !splitTree.isSplit {
             return
         }
@@ -249,6 +260,10 @@ class TabManager: ObservableObject {
         didSet {
             guard selectedTabId != oldValue else { return }
             let previousTabId = oldValue
+            if let previousTabId,
+               let previousSurfaceId = focusedSurfaceId(for: previousTabId) {
+                lastFocusedSurfaceByTab[previousTabId] = previousSurfaceId
+            }
             DispatchQueue.main.async { [weak self] in
                 self?.focusSelectedTabSurface(previousTabId: previousTabId)
                 self?.updateWindowTitleForSelectedTab()
@@ -260,6 +275,7 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
+    private var lastFocusedSurfaceByTab: [UUID: UUID] = [:]
 
     init() {
         addTab()
@@ -415,6 +431,10 @@ class TabManager: ObservableObject {
         tabs.first(where: { $0.id == tabId })?.focusedSurfaceId
     }
 
+    func rememberFocusedSurface(tabId: UUID, surfaceId: UUID) {
+        lastFocusedSurfaceByTab[tabId] = surfaceId
+    }
+
     func applyWindowBackgroundForSelectedTab() {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
@@ -424,8 +444,13 @@ class TabManager: ObservableObject {
 
     private func focusSelectedTabSurface(previousTabId: UUID?) {
         guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }),
-              let surface = tab.focusedSurface else { return }
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        if let restoredSurfaceId = lastFocusedSurfaceByTab[selectedTabId],
+           tab.surface(for: restoredSurfaceId) != nil,
+           tab.focusedSurfaceId != restoredSurfaceId {
+            tab.focusedSurfaceId = restoredSurfaceId
+        }
+        guard let surface = tab.focusedSurface else { return }
         let previousSurface = previousTabId.flatMap { id in
             tabs.first(where: { $0.id == id })?.focusedSurface
         }
@@ -436,14 +461,11 @@ class TabManager: ObservableObject {
     private func markFocusedPanelReadIfActive(tabId: UUID) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
+        guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppFocused() else { return }
         guard let surfaceId = focusedSurfaceId(for: tabId) else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
-        if !shouldSuppressFlash,
-           let tab = tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false)
-        }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
@@ -501,14 +523,18 @@ class TabManager: ObservableObject {
         }
 
         if let surfaceId {
-            focusSurface(tabId: tabId, surfaceId: surfaceId, shouldFlash: !suppressFlash)
+            if !suppressFlash {
+                focusSurface(tabId: tabId, surfaceId: surfaceId)
+            } else if let tab = tabs.first(where: { $0.id == tabId }) {
+                tab.focusedSurfaceId = surfaceId
+            }
         }
     }
 
     func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) {
         let wasSelected = selectedTabId == tabId
         suppressFocusFlash = true
-        focusTab(tabId, surfaceId: surfaceId)
+        focusTab(tabId)
         if wasSelected {
             suppressFocusFlash = false
         }
@@ -521,13 +547,14 @@ class TabManager: ObservableObject {
                   tab.surface(for: targetSurfaceId) != nil else { return }
             guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
             guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: targetSurfaceId) else { return }
-            tab.triggerNotificationFocusFlash(surfaceId: targetSurfaceId, requiresSplit: false)
+            tab.triggerNotificationFocusFlash(surfaceId: targetSurfaceId, requiresSplit: false, shouldFocus: true)
+            notificationStore.markRead(forTabId: tabId, surfaceId: targetSurfaceId)
         }
     }
 
-    func focusSurface(tabId: UUID, surfaceId: UUID, shouldFlash: Bool = true) {
+    func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.focusSurface(surfaceId, shouldFlash: shouldFlash)
+        tab.focusSurface(surfaceId)
     }
 
     func selectNextTab() {

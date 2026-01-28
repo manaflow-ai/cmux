@@ -1528,6 +1528,21 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastSentRow: Int?
     private var isActive = true
     private var focusWorkItem: DispatchWorkItem?
+#if DEBUG
+    private static var flashCounts: [UUID: Int] = [:]
+
+    static func flashCount(for surfaceId: UUID) -> Int {
+        flashCounts[surfaceId, default: 0]
+    }
+
+    static func resetFlashCounts() {
+        flashCounts.removeAll()
+    }
+
+    private static func recordFlash(for surfaceId: UUID) {
+        flashCounts[surfaceId, default: 0] += 1
+    }
+#endif
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
@@ -1712,6 +1727,11 @@ final class GhosttySurfaceScrollView: NSView {
     func triggerFlash() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+#if DEBUG
+            if let surfaceId = self.surfaceView.terminalSurface?.id {
+                Self.recordFlash(for: surfaceId)
+            }
+#endif
             self.updateFlashPath()
             self.flashLayer.removeAllAnimations()
             self.flashLayer.opacity = 0

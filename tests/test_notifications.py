@@ -195,6 +195,114 @@ def test_mark_read_on_tab_switch(client: cmux) -> TestResult:
     return result
 
 
+def test_no_flash_on_tab_switch(client: cmux) -> TestResult:
+    result = TestResult("No Flash On Tab Switch")
+    try:
+        client.clear_notifications()
+        client.reset_flash_counts()
+
+        tab1 = client.current_tab()
+        surfaces = client.list_surfaces()
+        focused = next((s for s in surfaces if s[2]), None)
+        if focused is None:
+            result.failure("Unable to identify focused surface")
+            return result
+
+        client.set_app_focus(False)
+        client.notify("tabswitchflash")
+        time.sleep(0.1)
+
+        client.new_tab()
+        time.sleep(0.1)
+
+        client.set_app_focus(True)
+        client.select_tab(tab1)
+        time.sleep(0.2)
+
+        count = client.flash_count(focused[1])
+        if count != 0:
+            result.failure(f"Expected flash count 0, got {count}")
+        else:
+            result.success("No flash triggered on tab switch")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
+def test_focus_on_notification_click(client: cmux) -> TestResult:
+    result = TestResult("Focus On Notification Click")
+    try:
+        client.clear_notifications()
+        client.reset_flash_counts()
+
+        surfaces = ensure_two_surfaces(client)
+        focused = next((s for s in surfaces if s[2]), None)
+        other = next((s for s in surfaces if not s[2]), None)
+        if focused is None or other is None:
+            result.failure("Unable to identify focused and unfocused surfaces")
+            return result
+
+        client.set_app_focus(False)
+        client.notify_surface(other[0], "notifyfocus")
+        time.sleep(0.1)
+
+        client.set_app_focus(True)
+        tab_id = client.current_tab()
+        client.focus_notification(tab_id, other[0])
+        time.sleep(0.2)
+
+        surfaces = client.list_surfaces()
+        target = next((s for s in surfaces if s[1] == other[1]), None)
+        if target is None or not target[2]:
+            result.failure("Expected notification surface to be focused")
+            return result
+
+        count = client.flash_count(other[1])
+        if count < 1:
+            result.failure(f"Expected flash count >= 1, got {count}")
+        else:
+            result.success("Notification click focuses and flashes panel")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
+def test_restore_focus_on_tab_switch(client: cmux) -> TestResult:
+    result = TestResult("Restore Focus On Tab Switch")
+    try:
+        client.clear_notifications()
+        client.set_app_focus(True)
+
+        surfaces = ensure_two_surfaces(client)
+        focused = next((s for s in surfaces if s[2]), None)
+        other = next((s for s in surfaces if not s[2]), None)
+        if focused is None or other is None:
+            result.failure("Unable to identify focused and unfocused surfaces")
+            return result
+
+        client.focus_surface(other[0])
+        time.sleep(0.1)
+
+        tab1 = client.current_tab()
+        client.new_tab()
+        time.sleep(0.1)
+
+        client.select_tab(tab1)
+        time.sleep(0.2)
+
+        surfaces = client.list_surfaces()
+        target = next((s for s in surfaces if s[1] == other[1]), None)
+        if target is None:
+            result.failure("Unable to find previously focused surface")
+        elif not target[2]:
+            result.failure("Expected previously focused surface to be focused after tab switch")
+        else:
+            result.success("Restored last focused surface after tab switch")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
 def run_tests() -> int:
     results = []
     with cmux() as client:
@@ -204,6 +312,9 @@ def run_tests() -> int:
         results.append(test_mark_read_on_focus_change(client))
         results.append(test_mark_read_on_app_active(client))
         results.append(test_mark_read_on_tab_switch(client))
+        results.append(test_no_flash_on_tab_switch(client))
+        results.append(test_focus_on_notification_click(client))
+        results.append(test_restore_focus_on_tab_switch(client))
         client.set_app_focus(None)
         client.clear_notifications()
 

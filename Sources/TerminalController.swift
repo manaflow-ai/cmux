@@ -194,6 +194,17 @@ class TerminalController {
         case "simulate_app_active":
             return simulateAppDidBecomeActive()
 
+#if DEBUG
+        case "focus_notification":
+            return focusFromNotification(args)
+
+        case "flash_count":
+            return flashCount(args)
+
+        case "reset_flash_counts":
+            return resetFlashCounts()
+#endif
+
         case "help":
             return helpText()
 
@@ -203,7 +214,7 @@ class TerminalController {
     }
 
     private func helpText() -> String {
-        return """
+        var text = """
         Available commands:
           ping                    - Check if server is running
           list_tabs               - List all tabs with IDs
@@ -226,6 +237,15 @@ class TerminalController {
           simulate_app_active     - Trigger app active handler
           help                    - Show this help
         """
+#if DEBUG
+        text += """
+
+          focus_notification <tab|idx> [surface|idx] - Focus via notification flow
+          flash_count <id|idx>    - Read flash count for a surface
+          reset_flash_counts      - Reset flash counters
+        """
+#endif
+        return text
     }
 
     private func listTabs() -> String {
@@ -419,6 +439,60 @@ class TerminalController {
         }
         return "OK"
     }
+
+#if DEBUG
+    private func focusFromNotification(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        let tabArg = parts.first ?? ""
+        let surfaceArg = parts.count > 1 ? parts[1] : ""
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            let surfaceId = surfaceArg.isEmpty ? nil : resolveSurfaceId(from: surfaceArg, tab: tab)
+            if !surfaceArg.isEmpty && surfaceId == nil {
+                result = "ERROR: Surface not found"
+                return
+            }
+            tabManager.focusTabFromNotification(tab.id, surfaceId: surfaceId)
+        }
+        return result
+    }
+
+    private func flashCount(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
+
+        var result = "ERROR: Surface not found"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: No tab selected"
+                return
+            }
+            guard let surfaceId = resolveSurfaceId(from: trimmed, tab: tab) else {
+                result = "ERROR: Surface not found"
+                return
+            }
+            let count = GhosttySurfaceScrollView.flashCount(for: surfaceId)
+            result = "OK \(count)"
+        }
+        return result
+    }
+
+    private func resetFlashCounts() -> String {
+        DispatchQueue.main.sync {
+            GhosttySurfaceScrollView.resetFlashCounts()
+        }
+        return "OK"
+    }
+#endif
 
     private func parseSplitDirection(_ value: String) -> SplitTree<TerminalSurface>.NewDirection? {
         switch value.lowercased() {

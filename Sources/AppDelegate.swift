@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let surfaceId,
            let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false)
+            tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }

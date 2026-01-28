@@ -4,6 +4,7 @@ struct TerminalSplitTreeView: View {
     @ObservedObject var tab: Tab
     let isTabActive: Bool
     @State private var config = GhosttyConfig.load()
+    @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     var body: some View {
         let appearance = SplitAppearance(
@@ -20,6 +21,8 @@ struct TerminalSplitTreeView: View {
                     isTabActive: isTabActive,
                     focusedSurfaceId: tab.focusedSurfaceId,
                     appearance: appearance,
+                    tabId: tab.id,
+                    notificationStore: notificationStore,
                     onFocus: { tab.focusSurface($0) },
                     onTriggerFlash: { tab.triggerDebugFlash(surfaceId: $0) },
                     onResize: { tab.updateSplitRatio(node: $0, ratio: $1) },
@@ -44,6 +47,8 @@ fileprivate struct TerminalSplitSubtreeView: View {
     let isTabActive: Bool
     let focusedSurfaceId: UUID?
     let appearance: SplitAppearance
+    let tabId: UUID
+    let notificationStore: TerminalNotificationStore
     let onFocus: (UUID) -> Void
     let onTriggerFlash: (UUID) -> Void
     let onResize: (SplitTree<TerminalSurface>.Node, Double) -> Void
@@ -53,7 +58,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
         switch node {
         case .leaf(let surface):
             let isFocused = isTabActive && focusedSurfaceId == surface.id
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 GhosttyTerminalView(
                     terminalSurface: surface,
                     isActive: isFocused,
@@ -61,6 +66,15 @@ fileprivate struct TerminalSplitSubtreeView: View {
                     onTriggerFlash: { onTriggerFlash(surface.id) }
                 )
                 .background(Color.clear)
+
+                if notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surface.id) {
+                    Circle()
+                        .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
+                        .frame(width: 14, height: 14)
+                        .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 2)
+                        .padding(6)
+                        .allowsHitTesting(false)
+                }
 
                 if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
                     Rectangle()
@@ -92,6 +106,8 @@ fileprivate struct TerminalSplitSubtreeView: View {
                         isTabActive: isTabActive,
                         focusedSurfaceId: focusedSurfaceId,
                         appearance: appearance,
+                        tabId: tabId,
+                        notificationStore: notificationStore,
                         onFocus: onFocus,
                         onTriggerFlash: onTriggerFlash,
                         onResize: onResize,
@@ -106,6 +122,8 @@ fileprivate struct TerminalSplitSubtreeView: View {
                         isTabActive: isTabActive,
                         focusedSurfaceId: focusedSurfaceId,
                         appearance: appearance,
+                        tabId: tabId,
+                        notificationStore: notificationStore,
                         onFocus: onFocus,
                         onTriggerFlash: onTriggerFlash,
                         onResize: onResize,
