@@ -9,6 +9,7 @@ Requirements:
     - cmux must be running with the socket controller enabled
 """
 
+import json
 import os
 import sys
 import time
@@ -178,6 +179,79 @@ def test_ctrl_c_python(client: cmux) -> TestResult:
     return result
 
 
+def test_environment_paths(client: cmux) -> TestResult:
+    """
+    Verify that TERMINFO points to a real terminfo directory and that
+    XDG_DATA_DIRS includes the app resources path (and defaults when unset).
+    """
+    result = TestResult("Environment Paths")
+    env_path = Path(tempfile.gettempdir()) / f"cmux_env_{os.getpid()}.json"
+    env_path.unlink(missing_ok=True)
+
+    try:
+        command = (
+            "python3 -c 'import json,os;"
+            f"open(\"{env_path}\",\"w\").write("
+            "json.dumps({"
+            "\"TERMINFO\": os.environ.get(\"TERMINFO\", \"\"),"
+            "\"XDG_DATA_DIRS\": os.environ.get(\"XDG_DATA_DIRS\", \"\"),"
+            "}))'"
+        )
+        client.send(command + "\n")
+
+        for _ in range(20):
+            if env_path.exists():
+                break
+            time.sleep(0.2)
+
+        if not env_path.exists():
+            result.failure("Env dump file was not created")
+            return result
+
+        data = json.loads(env_path.read_text())
+        terminfo = data.get("TERMINFO", "")
+        xdg_data_dirs = data.get("XDG_DATA_DIRS", "")
+
+        if not terminfo:
+            result.failure("TERMINFO is empty")
+            return result
+
+        terminfo_path = Path(terminfo)
+        if not terminfo_path.exists():
+            result.failure(f"TERMINFO path does not exist: {terminfo}")
+            return result
+
+        xterm_entry = terminfo_path / "78" / "xterm-ghostty"
+        if not xterm_entry.exists():
+            result.failure(f"Missing terminfo entry: {xterm_entry}")
+            return result
+
+        if not xdg_data_dirs:
+            result.failure("XDG_DATA_DIRS is empty")
+            return result
+
+        xdg_entries = xdg_data_dirs.split(":")
+        resources_dir = terminfo_path.parent
+        if resources_dir.as_posix() not in xdg_entries:
+            result.failure(f"XDG_DATA_DIRS missing resources path: {resources_dir}")
+            return result
+
+        if not os.environ.get("XDG_DATA_DIRS"):
+            if "/usr/local/share" not in xdg_entries or "/usr/share" not in xdg_entries:
+                result.failure(
+                    "XDG_DATA_DIRS missing standard defaults (/usr/local/share:/usr/share)"
+                )
+                return result
+
+        result.success("TERMINFO and XDG_DATA_DIRS paths look correct")
+        env_path.unlink(missing_ok=True)
+        return result
+    except Exception as e:
+        env_path.unlink(missing_ok=True)
+        result.failure(f"Exception: {type(e).__name__}: {e}")
+        return result
+
+
 def run_tests():
     """Run all tests"""
     print("=" * 60)
@@ -226,6 +300,15 @@ def run_tests():
             # Test Ctrl+C in Python
             print("Testing Ctrl+C in Python process...")
             results.append(test_ctrl_c_python(client))
+            status = "✅" if results[-1].passed else "❌"
+            print(f"  {status} {results[-1].message}")
+            print()
+
+            time.sleep(0.5)
+
+            # Test environment paths
+            print("Testing TERMINFO/XDG_DATA_DIRS paths...")
+            results.append(test_environment_paths(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
             print()
