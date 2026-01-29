@@ -1,0 +1,70 @@
+---
+title: Installation
+description: How to install cmuxterm on macOS
+---
+
+# Installation
+
+## Homebrew (Recommended)
+
+Install via Homebrew:
+
+```bash
+brew tap manaflow-ai/cmuxterm
+brew install --cask cmuxterm
+```
+
+To update later:
+
+```bash
+brew upgrade --cask cmuxterm
+```
+
+## Manual Download
+
+Download the latest release from GitHub:
+
+<a href="https://github.com/manaflow-ai/cmuxterm/releases/latest/download/cmuxterm-macos.dmg">
+  <img src="/macos-badge.png" alt="Download cmuxterm for macOS" width="180" />
+</a>
+
+Then:
+
+1. Open the downloaded `.dmg` file
+2. Drag **cmuxterm** to your **Applications** folder
+3. Open cmuxterm from Applications
+
+<Callout type="info">
+  On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
+</Callout>
+
+## Verify Installation
+
+Open cmuxterm and you should see:
+
+- A terminal window with a vertical tab sidebar on the left
+- One initial tab already open
+- The Ghostty-powered terminal ready for input
+
+## CLI Tool
+
+cmuxterm includes a command-line tool for automation. It's bundled inside the app and works automatically when you run commands inside cmuxterm.
+
+To use the CLI from outside cmuxterm, you can create a symlink:
+
+```bash
+sudo ln -sf "/Applications/cmuxterm.app/Contents/MacOS/cmuxterm" /usr/local/bin/cmuxterm
+```
+
+Then you can run commands like:
+
+```bash
+cmuxterm list-tabs
+cmuxterm notify --title "Build Complete" --body "Your build finished successfully"
+```
+
+## Updates
+
+cmuxterm checks for updates automatically using Sparkle. When an update is available, you'll see an update pill in the titlebar. Click it to install the latest version.
+
+You can also check for updates manually via **cmuxterm → Check for Updates** in the menu bar.

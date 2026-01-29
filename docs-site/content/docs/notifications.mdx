@@ -1,0 +1,127 @@
+---
+title: Notifications
+description: Desktop notifications in cmuxterm for AI agents
+---
+
+# Notifications
+
+cmuxterm supports desktop notifications, allowing AI agents and scripts to alert you when they need attention.
+
+## How It Works
+
+1. A process in the terminal sends an OSC escape sequence
+2. cmuxterm parses the notification title and body
+3. If the terminal isn't focused, a desktop notification appears
+4. The tab shows an unread badge
+
+## Sending Notifications
+
+### Using the CLI
+
+The simplest way to send a notification:
+
+```bash
+cmuxterm notify --title "Task Complete" --body "Your build finished"
+```
+
+With a subtitle:
+
+```bash
+cmuxterm notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input"
+```
+
+### Using OSC Sequences
+
+You can send notifications directly using escape sequences:
+
+#### OSC 99 (Kitty Protocol)
+
+```bash
+# Basic notification
+printf '\e]99;i=1;e=1;d=0:Hello World\e\\'
+
+# With title and body
+printf '\e]99;i=1;e=1;d=0;p=title:My Title\e\\'
+printf '\e]99;i=1;e=1;d=0;p=body:Message body here\e\\'
+```
+
+#### OSC 777 (RXVT Protocol)
+
+```bash
+printf '\e]777;notify;My Title;Message body here\a'
+```
+
+See [OSC Sequences](/docs/osc-sequences) for full format documentation.
+
+## Notification Behavior
+
+### Suppression
+
+Notifications are suppressed (no desktop alert) when:
+
+- The cmuxterm window is focused
+- The specific tab sending the notification is active
+- The notification panel is open
+
+This prevents duplicate alerts when you're already looking at the terminal.
+
+### Notification Panel
+
+Press **⌘⇧I** to open the notification panel, showing all notifications:
+
+- Click a notification to jump to that tab
+- Notifications are marked as read when viewed
+- Clear all with the clear button
+
+### Quick Jump
+
+Press **⌘⇧U** to jump directly to the tab with the most recent unread notification.
+
+## Notification Lifecycle
+
+1. **Received** - Notification appears in panel, desktop alert fires (if not suppressed)
+2. **Unread** - Badge shown on tab
+3. **Read** - Cleared when you view that tab
+4. **Cleared** - Removed from panel
+
+## Integration Examples
+
+### Notify After Long Command
+
+```bash
+# Add to your shell config
+notify-after() {
+  "$@"
+  local exit_code=$?
+  if [ $exit_code -eq 0 ]; then
+    cmuxterm notify --title "✓ Command Complete" --body "$1"
+  else
+    cmuxterm notify --title "✗ Command Failed" --body "$1 (exit $exit_code)"
+  fi
+  return $exit_code
+}
+
+# Usage
+notify-after npm run build
+```
+
+### Notify When Build Finishes
+
+```bash
+npm run build && cmuxterm notify --title "Build Success" --body "Ready to deploy"
+```
+
+### Watch Script Completion
+
+```bash
+#!/bin/bash
+# long-running-task.sh
+
+do_work() {
+  # ... your task
+  sleep 10
+}
+
+do_work
+cmuxterm notify --title "Task Complete" --body "long-running-task.sh finished"
+```

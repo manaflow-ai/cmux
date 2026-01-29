@@ -1,0 +1,222 @@
+---
+title: CLI Reference
+description: Command-line interface for cmuxterm
+---
+
+# CLI Reference
+
+cmuxterm includes a command-line tool for controlling the terminal from scripts and other tools.
+
+## Installation
+
+The CLI is bundled with cmuxterm. Inside cmuxterm terminals, it's available automatically. For external use:
+
+```bash
+# Create symlink to CLI
+sudo ln -sf "/Applications/cmuxterm.app/Contents/MacOS/cmuxterm" /usr/local/bin/cmuxterm
+```
+
+## Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--socket PATH` | Use a custom socket path |
+| `--json` | Output in JSON format |
+| `--tab ID` | Target a specific tab |
+| `--panel ID` | Target a specific panel |
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `CMUX_SOCKET_PATH` | Default socket path |
+| `CMUX_TAB_ID` | Default tab ID |
+| `CMUX_PANEL_ID` | Default panel ID |
+
+## Commands
+
+### Tab Management
+
+#### list-tabs
+
+List all open tabs.
+
+```bash
+cmuxterm list-tabs
+cmuxterm list-tabs --json
+```
+
+#### new-tab
+
+Create a new tab.
+
+```bash
+cmuxterm new-tab
+```
+
+#### select-tab
+
+Switch to a specific tab.
+
+```bash
+cmuxterm select-tab --tab <tab-id>
+```
+
+#### current-tab
+
+Get the current tab info.
+
+```bash
+cmuxterm current-tab
+cmuxterm current-tab --json
+```
+
+#### close-tab
+
+Close a tab.
+
+```bash
+cmuxterm close-tab --tab <tab-id>
+```
+
+### Split Management
+
+#### new-split
+
+Create a new split pane.
+
+```bash
+cmuxterm new-split right
+cmuxterm new-split down
+cmuxterm new-split left
+cmuxterm new-split up
+```
+
+#### list-panels
+
+List panels in the current tab.
+
+```bash
+cmuxterm list-panels
+cmuxterm list-panels --json
+```
+
+#### focus-panel
+
+Focus a specific panel.
+
+```bash
+cmuxterm focus-panel --panel <panel-id>
+```
+
+### Input Commands
+
+#### send
+
+Send text to the terminal.
+
+```bash
+cmuxterm send "echo hello"
+cmuxterm send "ls -la\n"  # Include newline to execute
+```
+
+#### send-key
+
+Send a key press.
+
+```bash
+cmuxterm send-key enter
+cmuxterm send-key tab
+cmuxterm send-key escape
+```
+
+#### send-panel
+
+Send text to a specific panel.
+
+```bash
+cmuxterm send-panel --panel <panel-id> "command"
+```
+
+#### send-key-panel
+
+Send a key press to a specific panel.
+
+```bash
+cmuxterm send-key-panel --panel <panel-id> enter
+```
+
+### Notifications
+
+#### notify
+
+Send a notification.
+
+```bash
+cmuxterm notify --title "Title" --body "Message body"
+cmuxterm notify --title "Title" --subtitle "Subtitle" --body "Body"
+```
+
+#### list-notifications
+
+List all notifications.
+
+```bash
+cmuxterm list-notifications
+cmuxterm list-notifications --json
+```
+
+#### clear-notifications
+
+Clear all notifications.
+
+```bash
+cmuxterm clear-notifications
+```
+
+### Utility
+
+#### ping
+
+Check if cmuxterm is running and responsive.
+
+```bash
+cmuxterm ping
+```
+
+## Examples
+
+### Build Script with Notification
+
+```bash
+#!/bin/bash
+npm run build
+if [ $? -eq 0 ]; then
+    cmuxterm notify --title "✓ Build Success" --body "Ready to deploy"
+else
+    cmuxterm notify --title "✗ Build Failed" --body "Check the logs"
+fi
+```
+
+### Create Tab and Run Command
+
+```bash
+#!/bin/bash
+# Create a new tab
+result=$(cmuxterm new-tab --json)
+tab_id=$(echo "$result" | jq -r '.id')
+
+# Select the new tab
+cmuxterm select-tab --tab "$tab_id"
+
+# Send a command
+cmuxterm send "npm run dev\n"
+```
+
+### Monitor Multiple Tabs
+
+```bash
+#!/bin/bash
+# List all tabs and their directories
+cmuxterm list-tabs --json | jq -r '.tabs[] | "\(.title): \(.directory)"'
+```

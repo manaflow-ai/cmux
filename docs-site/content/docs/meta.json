@@ -1,0 +1,21 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Getting Started---",
+    "installation",
+    "configuration",
+    "---Features---",
+    "tabs",
+    "notifications",
+    "splits",
+    "keyboard-shortcuts",
+    "---Automation---",
+    "socket-api",
+    "cli",
+    "claude-code-hooks",
+    "---Reference---",
+    "osc-sequences",
+    "environment-variables"
+  ]
+}

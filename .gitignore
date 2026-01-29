@@ -16,6 +16,7 @@ xcuserdata/
 
 # GhosttyKit binary (rebuild from /tmp/ghostty with zig build)
 GhosttyKit.xcframework/
+GhosttyKit.xcframework.bak-*/
 
 # Release artifacts
 GhosttyTabs-*.zip
@@ -25,3 +26,4 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+homebrew-cmuxterm/
