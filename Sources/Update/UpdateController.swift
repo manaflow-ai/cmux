@@ -40,6 +40,7 @@ class UpdateController {
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     func startUpdater() {
+        ensureSparkleInstallationCache()
         do {
             try updater.start()
         } catch {
@@ -74,6 +75,7 @@ class UpdateController {
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
         UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
+        ensureSparkleInstallationCache()
         if viewModel.state == .idle {
             updater.checkForUpdates()
             return
@@ -163,5 +165,40 @@ class UpdateController {
             try? data.write(to: url)
         }
 #endif
+    }
+
+    private func ensureSparkleInstallationCache() {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+        guard let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+
+        let baseURL = cachesURL
+            .appendingPathComponent(bundleIdentifier)
+            .appendingPathComponent("org.sparkle-project.Sparkle")
+        let installURL = baseURL.appendingPathComponent("Installation")
+
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: installURL.path, isDirectory: &isDirectory) {
+            if !isDirectory.boolValue {
+                do {
+                    try FileManager.default.removeItem(at: installURL)
+                } catch {
+                    UpdateLogStore.shared.append("Failed removing Sparkle installation cache file: \(error)")
+                    return
+                }
+            } else {
+                return
+            }
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: installURL,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            UpdateLogStore.shared.append("Ensured Sparkle installation cache at \(installURL.path)")
+        } catch {
+            UpdateLogStore.shared.append("Failed creating Sparkle installation cache: \(error)")
+        }
     }
 }

@@ -4,6 +4,7 @@ struct NotificationsPage: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
+    @FocusState private var focusedNotificationId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,7 +27,8 @@ struct NotificationsPage: View {
                                 },
                                 onClear: {
                                     notificationStore.remove(id: notification.id)
-                                }
+                                },
+                                focusedNotificationId: $focusedNotificationId
                             )
                         }
                     }
@@ -36,6 +38,20 @@ struct NotificationsPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear(perform: setInitialFocus)
+        .onChange(of: notificationStore.notifications.first?.id) { _ in
+            setInitialFocus()
+        }
+    }
+
+    private func setInitialFocus() {
+        guard let firstId = notificationStore.notifications.first?.id else {
+            focusedNotificationId = nil
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            focusedNotificationId = firstId
+        }
     }
 
     private var header: some View {
@@ -91,44 +107,56 @@ private struct NotificationRow: View {
     let tabTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
+    let focusedNotificationId: FocusState<UUID?>.Binding
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(notification.isRead ? Color.clear : Color.accentColor)
-                .frame(width: 8, height: 8)
-                .overlay(
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 12) {
                     Circle()
-                        .stroke(Color.accentColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
-                )
-                .padding(.top, 6)
+                        .fill(notification.isRead ? Color.clear : Color.accentColor)
+                        .frame(width: 8, height: 8)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.accentColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                        )
+                        .padding(.top, 6)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(notification.title)
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text(notification.createdAt, style: .time)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(notification.title)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(notification.createdAt, style: .time)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
 
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .lineLimit(3)
-                }
+                        if !notification.body.isEmpty {
+                            Text(notification.body)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .lineLimit(3)
+                        }
 
-                if let tabTitle {
-                    Text(tabTitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        if let tabTitle {
+                            Text(tabTitle)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
                 }
+                .padding(.trailing, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
+            .focusable()
+            .focused(focusedNotificationId, equals: notification.id)
+            .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
@@ -141,7 +169,17 @@ private struct NotificationRow: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
+    }
+}
+
+private struct DefaultActionModifier: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.keyboardShortcut(.defaultAction)
+        } else {
+            content
+        }
     }
 }

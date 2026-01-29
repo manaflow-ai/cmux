@@ -428,7 +428,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         popover.animates = true
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: NotificationsPopoverView(notificationStore: notificationStore)
+            rootView: NotificationsPopoverView(
+                notificationStore: notificationStore,
+                onDismiss: { [weak popover] in
+                    popover?.performClose(nil)
+                }
+            )
         )
         return popover
     }
@@ -436,6 +441,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
+    let onDismiss: () -> Void
+    @FocusState private var focusedNotificationId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -475,7 +482,8 @@ private struct NotificationsPopoverView: View {
                                 notification: notification,
                                 tabTitle: tabTitle(for: notification.tabId),
                                 onOpen: { open(notification) },
-                                onClear: { notificationStore.remove(id: notification.id) }
+                                onClear: { notificationStore.remove(id: notification.id) },
+                                focusedNotificationId: $focusedNotificationId
                             )
                         }
                     }
@@ -485,6 +493,20 @@ private struct NotificationsPopoverView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear(perform: setInitialFocus)
+        .onChange(of: notificationStore.notifications.first?.id) { _ in
+            setInitialFocus()
+        }
+    }
+
+    private func setInitialFocus() {
+        guard let firstId = notificationStore.notifications.first?.id else {
+            focusedNotificationId = nil
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            focusedNotificationId = firstId
+        }
     }
 
     private func tabTitle(for tabId: UUID) -> String? {
@@ -494,6 +516,7 @@ private struct NotificationsPopoverView: View {
     private func open(_ notification: TerminalNotification) {
         AppDelegate.shared?.tabManager?.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
         markReadIfFocused(notification)
+        onDismiss()
     }
 
     private func markReadIfFocused(_ notification: TerminalNotification) {
@@ -513,44 +536,56 @@ private struct NotificationPopoverRow: View {
     let tabTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
+    let focusedNotificationId: FocusState<UUID?>.Binding
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(notification.isRead ? Color.clear : Color.accentColor)
-                .frame(width: 8, height: 8)
-                .overlay(
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 10) {
                     Circle()
-                        .stroke(Color.accentColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
-                )
-                .padding(.top, 6)
+                        .fill(notification.isRead ? Color.clear : Color.accentColor)
+                        .frame(width: 8, height: 8)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.accentColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                        )
+                        .padding(.top, 6)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(notification.title)
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text(notification.createdAt, style: .time)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(notification.title)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(notification.createdAt, style: .time)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
 
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .lineLimit(3)
-                }
+                        if !notification.body.isEmpty {
+                            Text(notification.body)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .lineLimit(3)
+                        }
 
-                if let tabTitle {
-                    Text(tabTitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        if let tabTitle {
+                            Text(tabTitle)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
                 }
+                .padding(.trailing, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
+            .focusable()
+            .focused(focusedNotificationId, equals: notification.id)
+            .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
@@ -563,8 +598,18 @@ private struct NotificationPopoverRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
+    }
+}
+
+private struct DefaultActionModifier: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.keyboardShortcut(.defaultAction)
+        } else {
+            content
+        }
     }
 }
 
