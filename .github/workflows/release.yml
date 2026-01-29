@@ -106,8 +106,8 @@ jobs:
           DMG_RELEASE="cmuxterm-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-          APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"id\"])' <<<"$APP_SUBMIT_JSON")"
-          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"status\"])' <<<"$APP_SUBMIT_JSON")"
+          APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
+          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
           if [ "$APP_STATUS" != "Accepted" ]; then
             echo "App notarization failed with status: $APP_STATUS" >&2
             xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
@@ -123,8 +123,8 @@ jobs:
           hdiutil create -volname "cmuxterm" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
           rm -rf "$STAGING_DIR"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-          DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"id\"])' <<<"$DMG_SUBMIT_JSON")"
-          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"status\"])' <<<"$DMG_SUBMIT_JSON")"
+          DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
+          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
           if [ "$DMG_STATUS" != "Accepted" ]; then
             echo "DMG notarization failed with status: $DMG_STATUS" >&2
             xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
