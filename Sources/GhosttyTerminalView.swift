@@ -594,15 +594,22 @@ class TerminalSurface: Identifiable {
     let tabId: UUID
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
+    private let workingDirectory: String?
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var ownsDisplayLink = false
 
-    init(tabId: UUID, context: ghostty_surface_context_e, configTemplate: ghostty_surface_config_s?) {
+    init(
+        tabId: UUID,
+        context: ghostty_surface_context_e,
+        configTemplate: ghostty_surface_config_s?,
+        workingDirectory: String? = nil
+    ) {
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
+        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let view = GhosttyNSView(frame: .zero)
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
@@ -692,15 +699,26 @@ class TerminalSurface: Identifiable {
             }
         }
 
-        if !envVars.isEmpty {
-            let envVarsCount = envVars.count
-            envVars.withUnsafeMutableBufferPointer { buffer in
-                surfaceConfig.env_vars = buffer.baseAddress
-                surfaceConfig.env_var_count = envVarsCount
-                surface = ghostty_surface_new(app, &surfaceConfig)
+        let createSurface = { [self] in
+            if !envVars.isEmpty {
+                let envVarsCount = envVars.count
+                envVars.withUnsafeMutableBufferPointer { buffer in
+                    surfaceConfig.env_vars = buffer.baseAddress
+                    surfaceConfig.env_var_count = envVarsCount
+                    self.surface = ghostty_surface_new(app, &surfaceConfig)
+                }
+            } else {
+                self.surface = ghostty_surface_new(app, &surfaceConfig)
+            }
+        }
+
+        if let workingDirectory, !workingDirectory.isEmpty {
+            workingDirectory.withCString { cWorkingDir in
+                surfaceConfig.working_directory = cWorkingDir
+                createSurface()
             }
         } else {
-            surface = ghostty_surface_new(app, &surfaceConfig)
+            createSurface()
         }
 
         if surface == nil {

@@ -16,11 +16,20 @@ class Tab: Identifiable, ObservableObject {
     @Published var surfaceDirectories: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
 
-    init(title: String = "Terminal") {
+    init(title: String = "Terminal", workingDirectory: String? = nil) {
         self.id = UUID()
         self.title = title
-        self.currentDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-        let surface = TerminalSurface(tabId: id, context: GHOSTTY_SURFACE_CONTEXT_TAB, configTemplate: nil)
+        let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
+        self.currentDirectory = hasWorkingDirectory
+            ? trimmedWorkingDirectory
+            : FileManager.default.homeDirectoryForCurrentUser.path
+        let surface = TerminalSurface(
+            tabId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_TAB,
+            configTemplate: nil,
+            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+        )
         self.splitTree = SplitTree(view: surface)
         self.focusedSurfaceId = surface.id
     }
@@ -302,8 +311,14 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addTab() -> Tab {
-        let newTab = Tab(title: "Terminal \(tabs.count + 1)")
-        tabs.append(newTab)
+        let workingDirectory = preferredWorkingDirectoryForNewTab()
+        let newTab = Tab(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
+        let insertIndex = newTabInsertIndex()
+        if insertIndex >= 0 && insertIndex <= tabs.count {
+            tabs.insert(newTab, at: insertIndex)
+        } else {
+            tabs.append(newTab)
+        }
         selectedTabId = newTab.id
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
@@ -311,6 +326,27 @@ class TabManager: ObservableObject {
             userInfo: [GhosttyNotificationKey.tabId: newTab.id]
         )
         return newTab
+    }
+
+    private func newTabInsertIndex() -> Int {
+        guard let selectedTabId,
+              let index = tabs.firstIndex(where: { $0.id == selectedTabId }) else {
+            return tabs.count
+        }
+        return min(index + 1, tabs.count)
+    }
+
+    private func preferredWorkingDirectoryForNewTab() -> String? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+            return nil
+        }
+        let focusedDirectory = tab.focusedSurfaceId
+            .flatMap { tab.surfaceDirectories[$0] }
+        let candidate = focusedDirectory ?? tab.currentDirectory
+        let normalized = normalizeDirectory(candidate)
+        let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : normalized
     }
 
     func moveTabToTop(_ tabId: UUID) {
