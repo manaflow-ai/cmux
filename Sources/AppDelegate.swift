@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceObserver: NSObjectProtocol?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
+    private let windowDecorationsController = WindowDecorationsController()
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configureUserNotifications()
         updateController.startUpdater()
         titlebarAccessoryController.start()
+        windowDecorationsController.start()
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
@@ -131,6 +133,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func attachUpdateAccessory(to window: NSWindow) {
         titlebarAccessoryController.start()
         titlebarAccessoryController.attach(to: window)
+    }
+
+    func applyWindowDecorations(to window: NSWindow) {
+        windowDecorationsController.apply(to: window)
     }
 
     func toggleNotificationsPopover(animated: Bool = true) {

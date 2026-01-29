@@ -146,6 +146,7 @@ struct ContentView: View {
         .background(WindowAccessor { window in
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             AppDelegate.shared?.attachUpdateAccessory(to: window)
+            AppDelegate.shared?.applyWindowDecorations(to: window)
         })
     }
 

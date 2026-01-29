@@ -373,20 +373,7 @@ class TabManager: ObservableObject {
         guard let selectedId = selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedId }),
               let focusedSurfaceId = tab.focusedSurfaceId else { return }
-        guard tab.splitTree.isSplit else {
-            closeTabIfRunningProcess(tab)
-            return
-        }
-
-        let focusedSurface = tab.surface(for: focusedSurfaceId)
-        if focusedSurface?.needsConfirmClose() == true {
-            guard confirmClose(
-                title: "Close panel?",
-                message: "This will close the current split panel in this tab."
-            ) else { return }
-        }
-
-        _ = closeSurface(tabId: selectedId, surfaceId: focusedSurfaceId)
+        closePanelWithConfirmation(tab: tab, surfaceId: focusedSurfaceId)
     }
 
     func closeCurrentTabWithConfirmation() {
@@ -419,6 +406,28 @@ class TabManager: ObservableObject {
             return
         }
         closeTab(tab)
+    }
+
+    private func closePanelWithConfirmation(tab: Tab, surfaceId: UUID) {
+        guard tab.splitTree.isSplit else {
+            closeTabIfRunningProcess(tab)
+            return
+        }
+
+        let surface = tab.surface(for: surfaceId)
+        if surface?.needsConfirmClose() == true {
+            guard confirmClose(
+                title: "Close panel?",
+                message: "This will close the current split panel in this tab."
+            ) else { return }
+        }
+
+        _ = closeSurface(tabId: tab.id, surfaceId: surfaceId)
+    }
+
+    func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        closePanelWithConfirmation(tab: tab, surfaceId: surfaceId)
     }
 
     private func tabNeedsConfirmClose(_ tab: Tab) -> Bool {

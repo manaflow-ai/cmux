@@ -176,7 +176,7 @@ class GhosttyApp {
                 GhosttyPasteboardHelper.writeString(fallback, to: location)
             }
         }
-        runtimeConfig.close_surface_cb = { userdata, processAlive in
+        runtimeConfig.close_surface_cb = { userdata, _ in
             guard let userdata else { return }
             let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
             guard let tabId = surfaceView.tabId,
@@ -185,10 +185,15 @@ class GhosttyApp {
             }
 
             DispatchQueue.main.async {
-                _ = AppDelegate.shared?.tabManager?.closeSurface(
-                    tabId: tabId,
-                    surfaceId: surfaceId
-                )
+                if let surface = surfaceView.terminalSurface,
+                   surface.needsConfirmClose() {
+                    AppDelegate.shared?.tabManager?.closePanelWithConfirmation(
+                        tabId: tabId,
+                        surfaceId: surfaceId
+                    )
+                    return
+                }
+                _ = AppDelegate.shared?.tabManager?.closeSurface(tabId: tabId, surfaceId: surfaceId)
             }
         }
 

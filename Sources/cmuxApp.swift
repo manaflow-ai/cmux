@@ -310,9 +310,9 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
     static let shared = AboutWindowController()
 
     private init() {
-        let window = NSWindow(
+        let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
         )
@@ -321,11 +321,10 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         window.center()
         window.contentView = NSHostingView(rootView: AboutPanelView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
     }
@@ -604,5 +603,6 @@ private struct SettingsRootView: View {
             guard identifier.hasPrefix("cmux.") else { continue }
             window.removeTitlebarAccessoryViewController(at: index)
         }
+        AppDelegate.shared?.applyWindowDecorations(to: window)
     }
 }
