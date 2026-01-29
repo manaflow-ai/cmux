@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 
 /// Unix socket-based controller for programmatic terminal control
@@ -694,6 +695,123 @@ class TerminalController {
         return result.isEmpty ? "ERROR: No tab selected" : result
     }
 
+    private func sendKeyEvent(
+        surface: ghostty_surface_t,
+        keycode: UInt32,
+        mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
+        text: String? = nil
+    ) {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = keycode
+        keyEvent.mods = mods
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        if let text {
+            text.withCString { ptr in
+                keyEvent.text = ptr
+                _ = ghostty_surface_key(surface, keyEvent)
+            }
+        } else {
+            keyEvent.text = nil
+            _ = ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
+    private func sendTextEvent(surface: ghostty_surface_t, text: String) {
+        sendKeyEvent(surface: surface, keycode: 0, text: text)
+    }
+
+    private func handleControlScalar(_ scalar: UnicodeScalar, surface: ghostty_surface_t) -> Bool {
+        switch scalar.value {
+        case 0x0A, 0x0D:
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Return))
+            return true
+        case 0x09:
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab))
+            return true
+        case 0x1B:
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Escape))
+            return true
+        case 0x7F:
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func keycodeForLetter(_ letter: Character) -> UInt32? {
+        switch String(letter).lowercased() {
+        case "a": return UInt32(kVK_ANSI_A)
+        case "b": return UInt32(kVK_ANSI_B)
+        case "c": return UInt32(kVK_ANSI_C)
+        case "d": return UInt32(kVK_ANSI_D)
+        case "e": return UInt32(kVK_ANSI_E)
+        case "f": return UInt32(kVK_ANSI_F)
+        case "g": return UInt32(kVK_ANSI_G)
+        case "h": return UInt32(kVK_ANSI_H)
+        case "i": return UInt32(kVK_ANSI_I)
+        case "j": return UInt32(kVK_ANSI_J)
+        case "k": return UInt32(kVK_ANSI_K)
+        case "l": return UInt32(kVK_ANSI_L)
+        case "m": return UInt32(kVK_ANSI_M)
+        case "n": return UInt32(kVK_ANSI_N)
+        case "o": return UInt32(kVK_ANSI_O)
+        case "p": return UInt32(kVK_ANSI_P)
+        case "q": return UInt32(kVK_ANSI_Q)
+        case "r": return UInt32(kVK_ANSI_R)
+        case "s": return UInt32(kVK_ANSI_S)
+        case "t": return UInt32(kVK_ANSI_T)
+        case "u": return UInt32(kVK_ANSI_U)
+        case "v": return UInt32(kVK_ANSI_V)
+        case "w": return UInt32(kVK_ANSI_W)
+        case "x": return UInt32(kVK_ANSI_X)
+        case "y": return UInt32(kVK_ANSI_Y)
+        case "z": return UInt32(kVK_ANSI_Z)
+        default: return nil
+        }
+    }
+
+    private func sendNamedKey(_ surface: ghostty_surface_t, keyName: String) -> Bool {
+        switch keyName.lowercased() {
+        case "ctrl-c", "ctrl+c", "sigint":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_C), mods: GHOSTTY_MODS_CTRL)
+            return true
+        case "ctrl-d", "ctrl+d", "eof":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_D), mods: GHOSTTY_MODS_CTRL)
+            return true
+        case "ctrl-z", "ctrl+z", "sigtstp":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_Z), mods: GHOSTTY_MODS_CTRL)
+            return true
+        case "ctrl-\\", "ctrl+\\", "sigquit":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_Backslash), mods: GHOSTTY_MODS_CTRL)
+            return true
+        case "enter", "return":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Return))
+            return true
+        case "tab":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab))
+            return true
+        case "escape", "esc":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Escape))
+            return true
+        case "backspace":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
+            return true
+        default:
+            if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {
+                let letter = keyName.dropFirst(5)
+                if letter.count == 1, let char = letter.first, let keycode = keycodeForLetter(char) {
+                    sendKeyEvent(surface: surface, keycode: keycode, mods: GHOSTTY_MODS_CTRL)
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     private func sendInput(_ text: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -712,18 +830,13 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            // Send each character as a key event (like typing)
             for char in unescaped {
-                String(char).withCString { ptr in
-                    var keyEvent = ghostty_input_key_s()
-                    keyEvent.action = GHOSTTY_ACTION_PRESS
-                    keyEvent.keycode = 0
-                    keyEvent.mods = GHOSTTY_MODS_NONE
-                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                    keyEvent.text = ptr
-                    keyEvent.composing = false
-                    _ = ghostty_surface_key(surface, keyEvent)
+                if char.unicodeScalars.count == 1,
+                   let scalar = char.unicodeScalars.first,
+                   handleControlScalar(scalar, surface: surface) {
+                    continue
                 }
+                sendTextEvent(surface: surface, text: String(char))
             }
             success = true
         }
@@ -748,16 +861,12 @@ class TerminalController {
                 .replacingOccurrences(of: "\\t", with: "\t")
 
             for char in unescaped {
-                String(char).withCString { ptr in
-                    var keyEvent = ghostty_input_key_s()
-                    keyEvent.action = GHOSTTY_ACTION_PRESS
-                    keyEvent.keycode = 0
-                    keyEvent.mods = GHOSTTY_MODS_NONE
-                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                    keyEvent.text = ptr
-                    keyEvent.composing = false
-                    _ = ghostty_surface_key(surface, keyEvent)
+                if char.unicodeScalars.count == 1,
+                   let scalar = char.unicodeScalars.first,
+                   handleControlScalar(scalar, surface: surface) {
+                    continue
                 }
+                sendTextEvent(surface: surface, text: String(char))
             }
             success = true
         }
@@ -776,72 +885,7 @@ class TerminalController {
                 return
             }
 
-            // Helper to send a key event with text
-            func sendKeyEvent(text: String, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
-                text.withCString { ptr in
-                    var keyEvent = ghostty_input_key_s()
-                    keyEvent.action = GHOSTTY_ACTION_PRESS
-                    keyEvent.keycode = 0
-                    keyEvent.mods = mods
-                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                    keyEvent.text = ptr
-                    keyEvent.composing = false
-                    _ = ghostty_surface_key(surface, keyEvent)
-                }
-            }
-
-            switch keyName.lowercased() {
-            case "ctrl-c", "ctrl+c", "sigint":
-                // Send Ctrl+C - the control character 0x03 (ETX)
-                // Note: We send the raw control character, which the terminal
-                // interprets as an interrupt signal
-                sendKeyEvent(text: "\u{03}")
-                success = true
-
-            case "ctrl-d", "ctrl+d", "eof":
-                // Send Ctrl+D - the control character 0x04 (EOT)
-                sendKeyEvent(text: "\u{04}")
-                success = true
-
-            case "ctrl-z", "ctrl+z", "sigtstp":
-                // Send Ctrl+Z - the control character 0x1A (SUB)
-                sendKeyEvent(text: "\u{1A}")
-                success = true
-
-            case "ctrl-\\", "ctrl+\\", "sigquit":
-                // Send Ctrl+\ - the control character 0x1C (FS)
-                sendKeyEvent(text: "\u{1C}")
-                success = true
-
-            case "enter", "return":
-                sendKeyEvent(text: "\r")
-                success = true
-
-            case "tab":
-                sendKeyEvent(text: "\t")
-                success = true
-
-            case "escape", "esc":
-                sendKeyEvent(text: "\u{1B}")
-                success = true
-
-            case "backspace":
-                sendKeyEvent(text: "\u{7F}")
-                success = true
-
-            default:
-                // Check for ctrl-<letter> pattern
-                if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {
-                    let letter = keyName.dropFirst(5).lowercased()
-                    if letter.count == 1, let char = letter.first, char.isLetter {
-                        // Convert letter to control character (a=1, b=2, ..., z=26)
-                        let ctrlCode = UInt8(char.asciiValue! - Character("a").asciiValue! + 1)
-                        let ctrlChar = String(UnicodeScalar(ctrlCode))
-                        sendKeyEvent(text: ctrlChar)
-                        success = true
-                    }
-                }
-            }
+            success = sendNamedKey(surface, keyName: keyName)
         }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
@@ -857,59 +901,10 @@ class TerminalController {
         var success = false
         DispatchQueue.main.sync {
             guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
-
-            func sendKeyEvent(text: String, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
-                text.withCString { ptr in
-                    var keyEvent = ghostty_input_key_s()
-                    keyEvent.action = GHOSTTY_ACTION_PRESS
-                    keyEvent.keycode = 0
-                    keyEvent.mods = mods
-                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                    keyEvent.text = ptr
-                    keyEvent.composing = false
-                    _ = ghostty_surface_key(surface, keyEvent)
-                }
-            }
-
-            switch keyName.lowercased() {
-            case "ctrl-c", "ctrl+c", "sigint":
-                sendKeyEvent(text: "\u{03}")
-                success = true
-            case "ctrl-d", "ctrl+d", "eof":
-                sendKeyEvent(text: "\u{04}")
-                success = true
-            case "ctrl-z", "ctrl+z", "sigtstp":
-                sendKeyEvent(text: "\u{1A}")
-                success = true
-            case "ctrl-\\", "ctrl+\\", "sigquit":
-                sendKeyEvent(text: "\u{1C}")
-                success = true
-            case "enter", "return":
-                sendKeyEvent(text: "\r")
-                success = true
-            case "tab":
-                sendKeyEvent(text: "\t")
-                success = true
-            case "escape", "esc":
-                sendKeyEvent(text: "\u{1B}")
-                success = true
-            case "backspace":
-                sendKeyEvent(text: "\u{7F}")
-                success = true
-            default:
-                if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {
-                    let letter = keyName.dropFirst(5).lowercased()
-                    if letter.count == 1, let char = letter.first, char.isLetter {
-                        let ctrlCode = UInt8(char.asciiValue! - Character("a").asciiValue! + 1)
-                        let ctrlChar = String(UnicodeScalar(ctrlCode))
-                        sendKeyEvent(text: ctrlChar)
-                        success = true
-                    }
-                }
-            }
+            success = sendNamedKey(surface, keyName: keyName)
         }
 
-        return success ? "OK" : "ERROR: Failed to send key"
+        return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
 
     deinit {

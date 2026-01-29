@@ -173,6 +173,31 @@ def test_kitty_notification_chunked(client: cmux) -> TestResult:
     return result
 
 
+def test_rxvt_notification_osc777(client: cmux) -> TestResult:
+    result = TestResult("RXVT OSC 777 Notification")
+    try:
+        client.clear_notifications()
+        client.set_app_focus(False)
+        # Avoid Ghostty's 1s desktop notification rate limit.
+        time.sleep(1.1)
+        surface = focused_surface_index(client)
+        command = "printf '\\x1b]777;notify;OSC777 Title;OSC777 Body\\x07'"
+        client.send_surface(surface, command + "\\n")
+        items = wait_for_notifications(client, 1)
+        if len(items) != 1:
+            result.failure(f"Expected 1 notification, got {len(items)}")
+        elif items[0]["title"] != "OSC777 Title" or items[0]["body"] != "OSC777 Body":
+            result.failure(
+                f"Expected title/body 'OSC777 Title'/'OSC777 Body', got "
+                f"'{items[0]['title']}'/'{items[0]['body']}'"
+            )
+        else:
+            result.success("OSC 777 notification received")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
 def test_mark_read_on_focus_change(client: cmux) -> TestResult:
     result = TestResult("Mark Read On Panel Focus")
     try:
@@ -410,6 +435,7 @@ def run_tests() -> int:
         results.append(test_not_suppressed_when_inactive(client))
         results.append(test_kitty_notification_simple(client))
         results.append(test_kitty_notification_chunked(client))
+        results.append(test_rxvt_notification_osc777(client))
         results.append(test_mark_read_on_focus_change(client))
         results.append(test_mark_read_on_app_active(client))
         results.append(test_mark_read_on_tab_switch(client))
