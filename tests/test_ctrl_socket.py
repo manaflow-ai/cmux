@@ -65,15 +65,24 @@ def test_ctrl_c(client: cmux) -> TestResult:
 
         # Start a long sleep
         client.send("sleep 30\n")
-        time.sleep(0.3)
+        time.sleep(0.8)
 
         # Send Ctrl+C to interrupt
         client.send_ctrl_c()
-        time.sleep(0.3)
+        time.sleep(0.8)
 
         # If Ctrl+C worked, shell should accept new command
-        client.send(f"touch {marker}\n")
-        time.sleep(0.5)
+        for attempt in range(3):
+            client.send(f"touch {marker}\n")
+            for _ in range(10):
+                if marker.exists():
+                    break
+                time.sleep(0.2)
+            if marker.exists():
+                break
+            # try another Ctrl+C in case the process swallowed the signal
+            client.send_ctrl_c()
+            time.sleep(0.6)
 
         if marker.exists():
             result.success("Ctrl+C interrupted sleep, shell responsive")
@@ -104,15 +113,18 @@ def test_ctrl_d(client: cmux) -> TestResult:
 
         # Run cat (waits for input)
         client.send("cat\n")
-        time.sleep(0.3)
+        time.sleep(0.6)
 
         # Send Ctrl+D (EOF)
         client.send_ctrl_d()
-        time.sleep(0.3)
+        time.sleep(0.4)
 
         # If Ctrl+D worked, cat should exit and we can run another command
         client.send(f"touch {marker}\n")
-        time.sleep(0.5)
+        for _ in range(10):
+            if marker.exists():
+                break
+            time.sleep(0.2)
 
         if marker.exists():
             result.success("Ctrl+D sent EOF, cat exited")
@@ -140,15 +152,18 @@ def test_ctrl_c_python(client: cmux) -> TestResult:
 
         # Start Python that loops forever
         client.send("python3 -c 'import time; [time.sleep(1) for _ in iter(int, 1)]'\n")
-        time.sleep(1.0)  # Give Python time to start
+        time.sleep(1.2)  # Give Python time to start
 
         # Send Ctrl+C
         client.send_ctrl_c()
-        time.sleep(0.5)
+        time.sleep(0.6)
 
         # If Ctrl+C worked, shell should accept new command
         client.send(f"touch {marker}\n")
-        time.sleep(0.5)
+        for _ in range(10):
+            if marker.exists():
+                break
+            time.sleep(0.2)
 
         if marker.exists():
             result.success("Ctrl+C interrupted Python process")

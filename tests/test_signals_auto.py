@@ -202,13 +202,27 @@ print("TIMEOUT", flush=True)
     )
 
     try:
-        # Wait for process to start
-        time.sleep(0.2)
+        # Wait for process to start and emit the ready line
+        output = b""
+        start = time.time()
+        while time.time() - start < 2.0:
+            if select.select([proc.stdout], [], [], 0.1)[0]:
+                chunk = os.read(proc.stdout.fileno(), 1024)
+                if not chunk:
+                    break
+                output += chunk
+                if b"WAITING" in output:
+                    break
+
+        if b"WAITING" not in output:
+            print(f"  ❌ FAILED: Process not ready. Output: {output}")
+            return False
 
         # Send SIGINT directly
         proc.send_signal(signal.SIGINT)
 
         stdout, stderr = proc.communicate(timeout=2)
+        stdout = output + stdout
 
         if b"SIGINT_RECEIVED" in stdout:
             print("  ✅ PASSED: Direct SIGINT works")

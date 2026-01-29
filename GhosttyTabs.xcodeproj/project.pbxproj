@@ -14,6 +14,7 @@
 		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
 		A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
+		A5001226 /* SocketControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlSettings.swift */; };
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
@@ -36,7 +37,10 @@
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
+		B9000002A1B2C3D4E5F60719 /* cmuxterm.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmuxterm.swift */; };
+		B900000BA1B2C3D4E5F60719 /* cmuxterm in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmuxterm */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
+		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
 /* End PBXBuildFile section */
@@ -52,6 +56,17 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B900000AA1B2C3D4E5F60719 /* Copy CLI */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "bin";
+			dstSubfolderSpec = 7;
+			files = (
+				B900000BA1B2C3D4E5F60719 /* cmuxterm in Copy CLI */,
+			);
+			name = "Copy CLI";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +76,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A5001050 /* GhosttyTabs */;
 			remoteInfo = GhosttyTabs;
+		};
+		B900000DA1B2C3D4E5F60719 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9000005A1B2C3D4E5F60719 /* cmuxterm-cli */;
+			remoteInfo = "cmuxterm-cli";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -76,6 +98,7 @@
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
+		A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
@@ -99,7 +122,10 @@
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
+		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
+		B9000001A1B2C3D4E5F60719 /* cmuxterm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxterm.swift; sourceTree = "<group>"; };
+		B9000004A1B2C3D4E5F60719 /* cmuxterm */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmuxterm; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,6 +139,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AB408954939A11B8A87BB5DE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B900000CA1B2C3D4E5F60719 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -140,11 +173,32 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A5001300A1B2C3D4E5F60719 /* Copy Ghostty Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ghostty\"\nSRC=\"${SRCROOT}/ghostty/zig-out/share/ghostty\"\nFALLBACK=\"${SRCROOT}/Resources/ghostty\"\nif [ -d \"$SRC\" ]; then\n  mkdir -p \"$DEST\"\n  rsync -a --delete \"$SRC/\" \"$DEST/\"\nelif [ -d \"$FALLBACK\" ]; then\n  mkdir -p \"$DEST\"\n  rsync -a \"$FALLBACK/\" \"$DEST/\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXGroup section */
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
 				A5001041 /* Sources */,
+				B9000003A1B2C3D4E5F60719 /* CLI */,
 				087C454FFF74443AB06942C3 /* Resources */,
 				A5001101 /* Assets.xcassets */,
 				A5001016 /* GhosttyKit.xcframework */,
@@ -164,6 +218,7 @@
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
 				A5001019 /* TerminalController.swift */,
+				A5001225 /* SocketControlSettings.swift */,
 				A5001090 /* AppDelegate.swift */,
 				A5001091 /* NotificationsPage.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
@@ -188,6 +243,14 @@
 			path = Sources;
 			sourceTree = "<group>";
 		};
+		B9000003A1B2C3D4E5F60719 /* CLI */ = {
+			isa = PBXGroup;
+			children = (
+				B9000001A1B2C3D4E5F60719 /* cmuxterm.swift */,
+			);
+			path = CLI;
+			sourceTree = "<group>";
+		};
 		087C454FFF74443AB06942C3 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -200,6 +263,7 @@
 			isa = PBXGroup;
 			children = (
 				A5001000 /* cmuxterm.app */,
+				B9000004A1B2C3D4E5F60719 /* cmuxterm */,
 				7E7E6EF344A568AC7FEE3715 /* GhosttyTabsUITests.xctest */,
 			);
 			name = Products;
@@ -208,6 +272,7 @@
 		3196C9C2D01F054C1D3385DD /* GhosttyTabsUITests */ = {
 			isa = PBXGroup;
 			children = (
+				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
 				C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
 			);
@@ -223,12 +288,15 @@
 			buildPhases = (
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
+				A5001300A1B2C3D4E5F60719 /* Copy Ghostty Resources */,
 				A5001102 /* Resources */,
 				A5001020 /* Embed Frameworks */,
+				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */,
 			);
 			packageProductDependencies = (
 				A5001231 /* Sparkle */,
@@ -237,6 +305,22 @@
 			productName = GhosttyTabs;
 			productReference = A5001000 /* cmuxterm.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B9000005A1B2C3D4E5F60719 /* cmuxterm-cli */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9000007A1B2C3D4E5F60719 /* Build configuration list for PBXNativeTarget "cmuxterm-cli" */;
+			buildPhases = (
+				B9000006A1B2C3D4E5F60719 /* Sources */,
+				B900000CA1B2C3D4E5F60719 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "cmuxterm-cli";
+			productName = cmuxterm;
+			productReference = B9000004A1B2C3D4E5F60719 /* cmuxterm */;
+			productType = "com.apple.product-type.tool";
 		};
 		CB450DF0F0B3839599082C4D /* GhosttyTabsUITests */ = {
 			isa = PBXNativeTarget;
@@ -283,6 +367,7 @@
 			projectRoot = "";
 			targets = (
 				A5001050 /* GhosttyTabs */,
+				B9000005A1B2C3D4E5F60719 /* cmuxterm-cli */,
 				CB450DF0F0B3839599082C4D /* GhosttyTabsUITests */,
 			);
 		};
@@ -299,6 +384,7 @@
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
+				A5001226 /* SocketControlSettings.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
 				A5001095 /* TerminalNotificationStore.swift in Sources */,
@@ -326,8 +412,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9000006A1B2C3D4E5F60719 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9000002A1B2C3D4E5F60719 /* cmuxterm.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -338,6 +433,11 @@
 			isa = PBXTargetDependency;
 			target = A5001050 /* GhosttyTabs */;
 			targetProxy = 738BF3D3196765B250928A93 /* PBXContainerItemProxy */;
+		};
+		B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B9000005A1B2C3D4E5F60719 /* cmuxterm-cli */;
+			targetProxy = B900000DA1B2C3D4E5F60719 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -494,6 +594,30 @@
 			};
 			name = Release;
 		};
+		B9000008A1B2C3D4E5F60719 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_NAME = cmuxterm;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B9000009A1B2C3D4E5F60719 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_NAME = cmuxterm;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		C117776A77E71D1432F570D7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -563,6 +687,15 @@
 		buildConfigurations = (
 			C117776A77E71D1432F570D7 /* Debug */,
 			442A6A86CAC6E8AD27FDD8F2 /* Release */,
+		);
+		defaultConfigurationIsVisible = 0;
+		defaultConfigurationName = Release;
+	};
+	B9000007A1B2C3D4E5F60719 /* Build configuration list for PBXNativeTarget "cmuxterm-cli" */ = {
+		isa = XCConfigurationList;
+		buildConfigurations = (
+			B9000008A1B2C3D4E5F60719 /* Debug */,
+			B9000009A1B2C3D4E5F60719 /* Release */,
 		);
 		defaultConfigurationIsVisible = 0;
 		defaultConfigurationName = Release;

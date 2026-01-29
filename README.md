@@ -12,7 +12,6 @@
 - **Vertical tabs** — See all your terminals at a glance in a sidebar
 - **Notification panel** — Tabs flash when AI agents (Claude Code, Codex) need your attention
 - **Built on libghostty** — Native macOS performance with Ghostty's GPU-accelerated rendering
-- **Auto-updates** — Stay current with Sparkle-powered updates
 
 ## Why cmuxterm?
 

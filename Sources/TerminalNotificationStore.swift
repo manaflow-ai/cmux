@@ -5,6 +5,13 @@ import UserNotifications
 enum AppFocusState {
     static var overrideIsFocused: Bool?
 
+    static func isAppActive() -> Bool {
+        if let overrideIsFocused {
+            return overrideIsFocused
+        }
+        return NSApp.isActive
+    }
+
     static func isAppFocused() -> Bool {
         if let overrideIsFocused {
             return overrideIsFocused
@@ -18,6 +25,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let tabId: UUID
     let surfaceId: UUID?
     let title: String
+    let subtitle: String
     let body: String
     let createdAt: Date
     var isRead: Bool
@@ -56,7 +64,7 @@ final class TerminalNotificationStore: ObservableObject {
         return notifications.first(where: { $0.tabId == tabId })
     }
 
-    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, body: String) {
+    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
         clearNotifications(forTabId: tabId, surfaceId: surfaceId)
 
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
@@ -73,6 +81,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
+            subtitle: subtitle,
             body: body,
             createdAt: Date(),
             isRead: false
@@ -168,8 +177,8 @@ final class TerminalNotificationStore: ObservableObject {
             let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
                 ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
                 ?? "cmuxterm"
-            content.title = appName
-            content.subtitle = notification.title
+            content.title = notification.title.isEmpty ? appName : notification.title
+            content.subtitle = notification.subtitle
             content.body = notification.body
             content.sound = UNNotificationSound.default
             content.categoryIdentifier = Self.categoryIdentifier

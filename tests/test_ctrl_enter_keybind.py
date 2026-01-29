@@ -13,6 +13,7 @@ import sys
 import time
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 # Add the directory containing cmux.py to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +36,7 @@ def has_ctrl_enter_keybind(config_text: str) -> bool:
     return False
 
 
-def find_config_with_keybind() -> Path | None:
+def find_config_with_keybind() -> Optional[Path]:
     home = Path.home()
     candidates = [
         home / "Library/Application Support/com.mitchellh.ghostty/config.ghostty",

@@ -45,8 +45,8 @@ class Tab: Identifiable, ObservableObject {
         if isSelectedTab {
             focusedSurface?.applyWindowBackgroundIfActive()
         }
-        let isAppFocused = AppFocusState.isAppFocused()
-        guard isSelectedTab && isAppFocused else { return }
+        let isAppActive = AppFocusState.isAppActive()
+        guard isSelectedTab && isAppActive else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         if notificationStore.hasUnreadNotification(forTabId: self.id, surfaceId: id) {
             triggerNotificationFocusFlash(surfaceId: id, requiresSplit: false, shouldFocus: false)
@@ -465,7 +465,7 @@ class TabManager: ObservableObject {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard AppFocusState.isAppFocused() else { return }
+        guard AppFocusState.isAppActive() else { return }
         guard let surfaceId = focusedSurfaceId(for: tabId) else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }

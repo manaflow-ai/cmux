@@ -31,7 +31,9 @@ Usage:
 import socket
 import select
 import os
-from typing import Optional, List, Tuple
+import time
+import errno
+from typing import Optional, List, Tuple, Union
 
 
 class cmuxError(Exception):
@@ -39,10 +41,21 @@ class cmuxError(Exception):
     pass
 
 
+def _default_socket_path() -> str:
+    override = os.environ.get("CMUX_SOCKET_PATH")
+    if override:
+        return override
+    candidates = ["/tmp/cmuxterm-debug.sock", "/tmp/cmuxterm.sock"]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return candidates[0]
+
+
 class cmux:
     """Client for controlling cmux via Unix socket"""
 
-    DEFAULT_SOCKET_PATH = "/tmp/cmux.sock"
+    DEFAULT_SOCKET_PATH = _default_socket_path()
 
     def __init__(self, socket_path: str = None):
         self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
@@ -54,19 +67,30 @@ class cmux:
         if self._socket is not None:
             return
 
-        if not os.path.exists(self.socket_path):
-            raise cmuxError(
-                f"Socket not found at {self.socket_path}. "
-                "Is cmux running?"
-            )
+        start = time.time()
+        while not os.path.exists(self.socket_path):
+            if time.time() - start >= 2.0:
+                raise cmuxError(
+                    f"Socket not found at {self.socket_path}. "
+                    "Is cmux running?"
+                )
+            time.sleep(0.1)
 
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            self._socket.connect(self.socket_path)
-            self._socket.settimeout(5.0)
-        except socket.error as e:
-            self._socket = None
-            raise cmuxError(f"Failed to connect: {e}")
+        last_error: Optional[socket.error] = None
+        while True:
+            self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                self._socket.connect(self.socket_path)
+                self._socket.settimeout(5.0)
+                return
+            except socket.error as e:
+                last_error = e
+                self._socket.close()
+                self._socket = None
+                if e.errno in (errno.ECONNREFUSED, errno.ENOENT) and time.time() - start < 2.0:
+                    time.sleep(0.1)
+                    continue
+                raise cmuxError(f"Failed to connect: {e}")
 
     def close(self) -> None:
         """Close the connection"""
@@ -91,20 +115,26 @@ class cmux:
             self._socket.sendall((command + "\n").encode())
             data = self._recv_buffer
             self._recv_buffer = ""
+            saw_newline = "\n" in data
+            start = time.time()
             while True:
-                if "\n" not in data:
-                    chunk = self._socket.recv(8192)
-                    if not chunk:
+                if saw_newline:
+                    ready, _, _ = select.select([self._socket], [], [], 0.1)
+                    if not ready:
                         break
-                    data += chunk.decode()
+                try:
+                    chunk = self._socket.recv(8192)
+                except socket.timeout:
+                    if saw_newline:
+                        break
+                    if time.time() - start >= 5.0:
+                        raise cmuxError("Command timed out")
                     continue
-                ready, _, _ = select.select([self._socket], [], [], 0.01)
-                if not ready:
-                    break
-                chunk = self._socket.recv(8192)
                 if not chunk:
                     break
                 data += chunk.decode()
+                if "\n" in data:
+                    saw_newline = True
             if data.endswith("\n"):
                 data = data[:-1]
             return data
@@ -159,13 +189,13 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def select_tab(self, tab: str | int) -> None:
+    def select_tab(self, tab: Union[str, int]) -> None:
         """Select a tab by ID or index"""
         response = self._send_command(f"select_tab {tab}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def list_surfaces(self, tab: str | int | None = None) -> List[Tuple[int, str, bool]]:
+    def list_surfaces(self, tab: Union[str, int, None] = None) -> List[Tuple[int, str, bool]]:
         """
         List surfaces for a tab. Returns list of (index, id, is_focused) tuples.
         If tab is None, uses the current tab.
@@ -187,7 +217,7 @@ class cmux:
                 surfaces.append((index, surface_id, selected))
         return surfaces
 
-    def focus_surface(self, surface: str | int) -> None:
+    def focus_surface(self, surface: Union[str, int]) -> None:
         """Focus a surface by ID or index in the current tab."""
         response = self._send_command(f"focus_surface {surface}")
         if not response.startswith("OK"):
@@ -216,7 +246,7 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def send_surface(self, surface: str | int, text: str) -> None:
+    def send_surface(self, surface: Union[str, int], text: str) -> None:
         """Send text to a specific surface by ID or index in the current tab."""
         escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
         response = self._send_command(f"send_surface {surface} {escaped}")
@@ -236,7 +266,7 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def send_key_surface(self, surface: str | int, key: str) -> None:
+    def send_key_surface(self, surface: Union[str, int], key: str) -> None:
         """Send a special key to a specific surface by ID or index in the current tab."""
         response = self._send_command(f"send_key_surface {surface} {key}")
         if not response.startswith("OK"):
@@ -258,16 +288,22 @@ class cmux:
         """Get help text from server"""
         return self._send_command("help")
 
-    def notify(self, title: str, body: str = "") -> None:
+    def notify(self, title: str, subtitle: str = "", body: str = "") -> None:
         """Create a notification for the focused surface."""
-        payload = f"{title}|{body}" if body else title
+        if subtitle or body:
+            payload = f"{title}|{subtitle}|{body}"
+        else:
+            payload = title
         response = self._send_command(f"notify {payload}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def notify_surface(self, surface: str | int, title: str, body: str = "") -> None:
+    def notify_surface(self, surface: Union[str, int], title: str, subtitle: str = "", body: str = "") -> None:
         """Create a notification for a specific surface by ID or index."""
-        payload = f"{title}|{body}" if body else title
+        if subtitle or body:
+            payload = f"{title}|{subtitle}|{body}"
+        else:
+            payload = title
         response = self._send_command(f"notify_surface {surface} {payload}")
         if not response.startswith("OK"):
             raise cmuxError(response)
@@ -275,7 +311,7 @@ class cmux:
     def list_notifications(self) -> list[dict]:
         """
         List notifications.
-        Returns list of dicts with keys: id, tab_id, surface_id, is_read, title, body.
+        Returns list of dicts with keys: id, tab_id, surface_id, is_read, title, subtitle, body.
         """
         response = self._send_command("list_notifications")
         if response == "No notifications":
@@ -286,16 +322,17 @@ class cmux:
             if not line.strip():
                 continue
             _, payload = line.split(":", 1)
-            parts = payload.split("|", 5)
-            if len(parts) < 6:
+            parts = payload.split("|", 6)
+            if len(parts) < 7:
                 continue
-            notif_id, tab_id, surface_id, read_text, title, body = parts
+            notif_id, tab_id, surface_id, read_text, title, subtitle, body = parts
             items.append({
                 "id": notif_id,
                 "tab_id": tab_id,
                 "surface_id": None if surface_id == "none" else surface_id,
                 "is_read": read_text == "read",
                 "title": title,
+                "subtitle": subtitle,
                 "body": body,
             })
         return items
@@ -306,7 +343,7 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def set_app_focus(self, active: bool | None) -> None:
+    def set_app_focus(self, active: Union[bool, None]) -> None:
         """Override app focus state. Use None to clear override."""
         if active is None:
             value = "clear"
@@ -322,7 +359,7 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def focus_notification(self, tab: str | int, surface: str | int | None = None) -> None:
+    def focus_notification(self, tab: Union[str, int], surface: Union[str, int, None] = None) -> None:
         """Focus tab/surface using the notification flow."""
         if surface is None:
             command = f"focus_notification {tab}"
@@ -332,7 +369,7 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def flash_count(self, surface: str | int) -> int:
+    def flash_count(self, surface: Union[str, int]) -> int:
         """Get flash count for a surface by ID or index."""
         response = self._send_command(f"flash_count {surface}")
         if response.startswith("OK "):

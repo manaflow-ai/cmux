@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Darwin
 
 @main
 struct cmuxApp: App {
@@ -12,6 +13,7 @@ struct cmuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        configureGhosttyEnvironment()
         // Start the terminal controller for programmatic control
         // This runs after TabManager is created via @StateObject
         let defaults = UserDefaults.standard
@@ -20,6 +22,57 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.full.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+    }
+
+    private func configureGhosttyEnvironment() {
+        let fileManager = FileManager.default
+        let ghosttyAppResources = "/Applications/Ghostty.app/Contents/Resources/ghostty"
+        let bundledGhosttyURL = Bundle.main.resourceURL?.appendingPathComponent("ghostty")
+        var resolvedResourcesDir: String?
+
+        if getenv("GHOSTTY_RESOURCES_DIR") == nil {
+            if let bundledGhosttyURL,
+               fileManager.fileExists(atPath: bundledGhosttyURL.path),
+               fileManager.fileExists(atPath: bundledGhosttyURL.appendingPathComponent("themes").path) {
+                resolvedResourcesDir = bundledGhosttyURL.path
+            } else if fileManager.fileExists(atPath: ghosttyAppResources) {
+                resolvedResourcesDir = ghosttyAppResources
+            } else if let bundledGhosttyURL, fileManager.fileExists(atPath: bundledGhosttyURL.path) {
+                resolvedResourcesDir = bundledGhosttyURL.path
+            }
+
+            if let resolvedResourcesDir {
+                setenv("GHOSTTY_RESOURCES_DIR", resolvedResourcesDir, 1)
+            }
+        }
+
+        if getenv("TERM") == nil {
+            setenv("TERM", "xterm-ghostty", 1)
+        }
+
+        if getenv("TERM_PROGRAM") == nil {
+            setenv("TERM_PROGRAM", "ghostty", 1)
+        }
+
+        if let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap({ String(cString: $0) }) {
+            let resourcesURL = URL(fileURLWithPath: resourcesDir)
+            let resourcesParent = resourcesURL.deletingLastPathComponent()
+            let dataDir = resourcesParent.path
+            let manDir = resourcesParent.appendingPathComponent("man").path
+
+            appendEnvPathIfMissing("XDG_DATA_DIRS", path: dataDir)
+            appendEnvPathIfMissing("MANPATH", path: manDir)
+        }
+    }
+
+    private func appendEnvPathIfMissing(_ key: String, path: String) {
+        if path.isEmpty { return }
+        let current = getenv(key).flatMap { String(cString: $0) } ?? ""
+        if current.split(separator: ":").contains(Substring(path)) {
+            return
+        }
+        let updated = current.isEmpty ? path : "\(current):\(path)"
+        setenv(key, updated, 1)
     }
 
     var body: some Scene {
@@ -50,6 +103,7 @@ struct cmuxApp: App {
         Settings {
             SettingsRootView()
         }
+        .defaultSize(width: 460, height: 280)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -327,6 +381,7 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
         }
         .padding(20)
+        .padding(.top, 4)
         .frame(minWidth: 360, minHeight: 280)
     }
 }
@@ -341,12 +396,21 @@ private struct SettingsRootView: View {
 
     private func configureSettingsWindow(_ window: NSWindow) {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+        window.title = ""
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        window.titlebarAppearsTransparent = false
+        window.styleMask.remove(.fullSizeContentView)
         window.styleMask.insert(.resizable)
         window.contentMinSize = NSSize(width: 360, height: 280)
-        if window.frame.width > 520 {
-            window.setContentSize(NSSize(width: 460, height: max(280, window.contentView?.frame.height ?? 280)))
+        if window.toolbar == nil {
+            let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.settings.toolbar"))
+            toolbar.displayMode = .iconOnly
+            toolbar.sizeMode = .regular
+            toolbar.allowsUserCustomization = false
+            toolbar.autosavesConfiguration = false
+            toolbar.showsBaselineSeparator = false
+            window.toolbar = toolbar
+            window.toolbarStyle = .unified
         }
 
         let accessories = window.titlebarAccessoryViewControllers

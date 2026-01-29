@@ -43,10 +43,18 @@ struct GhosttyConfig {
     static func load() -> GhosttyConfig {
         var config = GhosttyConfig()
 
-        // Load user config
-        let configPath = NSString(string: "~/Library/Application Support/com.mitchellh.ghostty/config").expandingTildeInPath
-        if let contents = try? String(contentsOfFile: configPath, encoding: .utf8) {
-            config.parse(contents)
+        // Match Ghostty's default load order on macOS.
+        let configPaths = [
+            "~/.config/ghostty/config",
+            "~/.config/ghostty/config.ghostty",
+            "~/Library/Application Support/com.mitchellh.ghostty/config",
+            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+        ].map { NSString(string: $0).expandingTildeInPath }
+
+        for path in configPaths {
+            if let contents = readConfigFile(at: path) {
+                config.parse(contents)
+            }
         }
 
         // Load theme if specified
@@ -137,11 +145,15 @@ struct GhosttyConfig {
     }
 
     mutating func loadTheme(_ name: String) {
-        // Try to load from Ghostty app resources
+        let bundleThemePath = Bundle.main.resourceURL?
+            .appendingPathComponent("ghostty/themes/\(name)")
+            .path
+
         let themePaths = [
+            bundleThemePath,
             "/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(name)",
-            NSString(string: "~/.config/ghostty/themes/\(name)").expandingTildeInPath
-        ]
+            NSString(string: "~/.config/ghostty/themes/\(name)").expandingTildeInPath,
+        ].compactMap { $0 }
 
         for path in themePaths {
             if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
@@ -149,6 +161,22 @@ struct GhosttyConfig {
                 return
             }
         }
+    }
+
+    private static func readConfigFile(at path: String) -> String? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: path) else { return nil }
+
+        if let attributes = try? fileManager.attributesOfItem(atPath: path) {
+            if let type = attributes[.type] as? FileAttributeType, type != .typeRegular {
+                return nil
+            }
+            if let size = attributes[.size] as? NSNumber, size.intValue == 0 {
+                return nil
+            }
+        }
+
+        return try? String(contentsOfFile: path, encoding: .utf8)
     }
 }
 

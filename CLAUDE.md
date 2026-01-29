@@ -2,10 +2,22 @@
 
 ## Local dev
 
+After making code changes, always run the reload script to launch the Debug app:
+
+```bash
+./scripts/reload.sh
+```
+
 After making code changes, always run the build:
 
 ```bash
 xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
+```
+
+When rebuilding GhosttyKit.xcframework, always use Release optimizations:
+
+```bash
+cd ghostty && zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ```
 
 `reload` = kill and launch the Debug app only:
@@ -28,10 +40,18 @@ xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -des
 
 ## E2E mac UI tests
 
-Run UI tests on the UTM macOS VM (never on the host machine):
+Run UI tests on the UTM macOS VM (never on the host machine). Always run e2e UI tests via `ssh cmux-vm`:
 
 ```bash
 ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+```
+
+## Basic tests
+
+Run basic automated tests on the UTM macOS VM (never on the host machine):
+
+```bash
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmuxterm DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmuxterm DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmuxterm.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
 ## Release

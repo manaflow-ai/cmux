@@ -12,6 +12,7 @@ Requirements:
 import os
 import sys
 import time
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -60,7 +61,7 @@ def focused_surface_index(client: cmux) -> int:
     return focused[0]
 
 
-def send_osc(client: cmux, sequence: str, surface: int | None = None) -> None:
+def send_osc(client: cmux, sequence: str, surface: Optional[int] = None) -> None:
     """Send an OSC sequence by printing it in the shell."""
     command = f"printf '{sequence}'\\n"
     if surface is None:

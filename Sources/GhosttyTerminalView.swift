@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Metal
 import QuartzCore
+import Darwin
 
 private enum GhosttyPasteboardHelper {
     private static let selectionPasteboard = NSPasteboard(
@@ -353,6 +354,7 @@ class GhosttyApp {
                         tabId: tabId,
                         surfaceId: surfaceId,
                         title: command,
+                        subtitle: "",
                         body: body
                     )
                 }
@@ -509,6 +511,7 @@ class GhosttyApp {
                     tabId: tabId,
                     surfaceId: surfaceId,
                     title: command,
+                    subtitle: "",
                     body: body
                 )
             }
@@ -637,8 +640,63 @@ class TerminalSurface: Identifiable {
         surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.scale_factor = scale
         surfaceConfig.context = surfaceContext
+        var envVars: [ghostty_env_var_s] = []
+        var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
+        defer {
+            for (key, value) in envStorage {
+                free(key)
+                free(value)
+            }
+        }
 
-        surface = ghostty_surface_new(app, &surfaceConfig)
+        var env: [String: String] = [:]
+        if surfaceConfig.env_var_count > 0, let existingEnv = surfaceConfig.env_vars {
+            let count = Int(surfaceConfig.env_var_count)
+            if count > 0 {
+                for i in 0..<count {
+                    let item = existingEnv[i]
+                    if let key = String(cString: item.key, encoding: .utf8),
+                       let value = String(cString: item.value, encoding: .utf8) {
+                        env[key] = value
+                    }
+                }
+            }
+        }
+
+        env["CMUX_PANEL_ID"] = id.uuidString
+        env["CMUX_TAB_ID"] = tabId.uuidString
+        env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+
+        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+            let currentPath = env["PATH"]
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
+                let separator = currentPath.isEmpty ? "" : ":"
+                env["PATH"] = "\(cliBinPath)\(separator)\(currentPath)"
+            }
+        }
+
+        if !env.isEmpty {
+            envVars.reserveCapacity(env.count)
+            envStorage.reserveCapacity(env.count)
+            for (key, value) in env {
+                guard let keyPtr = strdup(key), let valuePtr = strdup(value) else { continue }
+                envStorage.append((keyPtr, valuePtr))
+                envVars.append(ghostty_env_var_s(key: keyPtr, value: valuePtr))
+            }
+        }
+
+        if !envVars.isEmpty {
+            let envVarsCount = envVars.count
+            envVars.withUnsafeMutableBufferPointer { buffer in
+                surfaceConfig.env_vars = buffer.baseAddress
+                surfaceConfig.env_var_count = envVarsCount
+                surface = ghostty_surface_new(app, &surfaceConfig)
+            }
+        } else {
+            surface = ghostty_surface_new(app, &surfaceConfig)
+        }
 
         if surface == nil {
             print("Failed to create ghostty surface")

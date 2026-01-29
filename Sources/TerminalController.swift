@@ -6,16 +6,28 @@ import Foundation
 class TerminalController {
     static let shared = TerminalController()
 
-    private let socketPath = "/tmp/cmux.sock"
+    private var socketPath = "/tmp/cmuxterm.sock"
     private var serverSocket: Int32 = -1
     private var isRunning = false
     private var clientHandlers: [Int32: Thread] = [:]
     private weak var tabManager: TabManager?
+    private var accessMode: SocketControlMode = .full
 
     private init() {}
 
-    func start(tabManager: TabManager) {
+    func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
+        self.accessMode = accessMode
+
+        if isRunning {
+            if self.socketPath == socketPath {
+                self.accessMode = accessMode
+                return
+            }
+            stop()
+        }
+
+        self.socketPath = socketPath
 
         // Remove existing socket file
         unlink(socketPath)
@@ -133,6 +145,9 @@ class TerminalController {
 
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
+        if !isCommandAllowed(cmd) {
+            return "ERROR: Command disabled by socket access mode"
+        }
 
         switch cmd {
         case "ping":
@@ -179,6 +194,9 @@ class TerminalController {
 
         case "notify_surface":
             return notifySurface(args)
+
+        case "notify_target":
+            return notifyTarget(args)
 
         case "list_notifications":
             return listNotifications()
@@ -227,8 +245,9 @@ class TerminalController {
           send_key <key>          - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
           send_surface <id|idx> <text> - Send text to a surface in current tab
           send_key_surface <id|idx> <key> - Send special key to a surface in current tab
-          notify <title>|<body>   - Create a notification for the focused surface
-          notify_surface <id|idx> <title>|<body> - Create a notification for a surface
+          notify <title>|<subtitle>|<body>   - Create a notification for the focused surface
+          notify_surface <id|idx> <title>|<subtitle>|<body> - Create a notification for a surface
+          notify_target <tabId> <panelId> <title>|<subtitle>|<body> - Notify a specific panel
           list_notifications      - List all notifications
           clear_notifications     - Clear all notifications
           set_app_focus <active|inactive|clear> - Override app focus state
@@ -244,6 +263,26 @@ class TerminalController {
         """
 #endif
         return text
+    }
+
+    private func isCommandAllowed(_ command: String) -> Bool {
+        switch accessMode {
+        case .full:
+            return true
+        case .notifications:
+            let allowed: Set<String> = [
+                "ping",
+                "help",
+                "notify",
+                "notify_surface",
+                "notify_target",
+                "list_notifications",
+                "clear_notifications"
+            ]
+            return allowed.contains(command)
+        case .off:
+            return false
+        }
     }
 
     private func listTabs() -> String {
@@ -350,11 +389,12 @@ class TerminalController {
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, body) = parseNotificationPayload(args)
+            let (title, subtitle, body) = parseNotificationPayload(args)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
+                subtitle: subtitle,
                 body: body
             )
         }
@@ -381,11 +421,47 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            let (title, body) = parseNotificationPayload(payload)
+            let (title, subtitle, body) = parseNotificationPayload(payload)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
+        return result
+    }
+
+    private func notifyTarget(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <tabId> <panelId> <title>|<subtitle>|<body>" }
+
+        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage: notify_target <tabId> <panelId> <title>|<subtitle>|<body>" }
+
+        let tabArg = parts[0]
+        let panelArg = parts[1]
+        let payload = parts.count > 2 ? parts[2] : ""
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            guard let panelId = UUID(uuidString: panelArg),
+                  tab.surface(for: panelId) != nil else {
+                result = "ERROR: Panel not found"
+                return
+            }
+            let (title, subtitle, body) = parseNotificationPayload(payload)
+            TerminalNotificationStore.shared.addNotification(
+                tabId: tab.id,
+                surfaceId: panelId,
+                title: title,
+                subtitle: subtitle,
                 body: body
             )
         }
@@ -398,7 +474,7 @@ class TerminalController {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
-                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.body)"
+                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)"
             }
             result = lines.joined(separator: "\n")
         }
@@ -559,13 +635,16 @@ class TerminalController {
         return nil
     }
 
-    private func parseNotificationPayload(_ args: String) -> (String, String) {
+    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "") }
-        let parts = trimmed.split(separator: "|", maxSplits: 1).map(String.init)
+        guard !trimmed.isEmpty else { return ("Notification", "", "") }
+        let parts = trimmed.split(separator: "|", maxSplits: 2).map(String.init)
         let title = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        return (title.isEmpty ? "Notification" : title, body)
+        let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        let body = parts.count > 2
+            ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
+        return (title.isEmpty ? "Notification" : title, subtitle, body)
     }
 
     private func closeTab(_ tabId: String) -> String {
