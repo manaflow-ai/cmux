@@ -7,6 +7,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -70,6 +71,14 @@ struct cmuxApp: App {
             CommandMenu("Debug") {
                 Button("New Tab With Large Scrollback") {
                     appDelegate.openDebugScrollbackTab(nil)
+                }
+
+                Divider()
+
+                Picker("Titlebar Controls Style", selection: $titlebarControlsStyle) {
+                    ForEach(TitlebarControlsStyle.allCases) { style in
+                        Text(style.menuTitle).tag(style.rawValue)
+                    }
                 }
             }
 #endif
@@ -147,6 +156,18 @@ struct cmuxApp: App {
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
                 }
+
+                Divider()
+
+                Button("Jump to Latest Unread") {
+                    jumpToLatestUnread()
+                }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+
+                Button("Show Notifications") {
+                    showNotificationsPopover()
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
             }
         }
     }
@@ -177,6 +198,15 @@ struct cmuxApp: App {
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
         }
+    }
+
+    private func jumpToLatestUnread() {
+        guard let notification = notificationStore.notifications.first(where: { !$0.isRead }) else { return }
+        tabManager.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
+    }
+
+    private func showNotificationsPopover() {
+        AppDelegate.shared?.toggleNotificationsPopover()
     }
 }
 

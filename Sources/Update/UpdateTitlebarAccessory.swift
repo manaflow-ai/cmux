@@ -84,56 +84,224 @@ private struct TitlebarAccessoryView: View {
     }
 }
 
-private struct TitlebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    let onToggleSidebar: () -> Void
-    let onNewTab: () -> Void
-    @State private var isShowingNotifications = false
+enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
+    case classic
+    case compact
+    case roomy
+    case pillGroup
+    case softButtons
+
+    var id: Int { rawValue }
+
+    var menuTitle: String {
+        switch self {
+        case .classic:
+            return "Classic"
+        case .compact:
+            return "Compact"
+        case .roomy:
+            return "Roomy"
+        case .pillGroup:
+            return "Pill Group"
+        case .softButtons:
+            return "Soft Buttons"
+        }
+    }
+
+    var config: TitlebarControlsStyleConfig {
+        switch self {
+        case .classic:
+            return TitlebarControlsStyleConfig(
+                spacing: 10,
+                iconSize: 15,
+                buttonSize: 24,
+                badgeSize: 14,
+                badgeOffset: CGSize(width: 2, height: -2),
+                groupBackground: false,
+                groupPadding: EdgeInsets(),
+                buttonBackground: false,
+                buttonCornerRadius: 8,
+                hoverBackground: false
+            )
+        case .compact:
+            return TitlebarControlsStyleConfig(
+                spacing: 6,
+                iconSize: 13,
+                buttonSize: 20,
+                badgeSize: 12,
+                badgeOffset: CGSize(width: 1, height: -1),
+                groupBackground: false,
+                groupPadding: EdgeInsets(),
+                buttonBackground: false,
+                buttonCornerRadius: 6,
+                hoverBackground: false
+            )
+        case .roomy:
+            return TitlebarControlsStyleConfig(
+                spacing: 14,
+                iconSize: 16,
+                buttonSize: 28,
+                badgeSize: 16,
+                badgeOffset: CGSize(width: 3, height: -3),
+                groupBackground: false,
+                groupPadding: EdgeInsets(),
+                buttonBackground: false,
+                buttonCornerRadius: 10,
+                hoverBackground: false
+            )
+        case .pillGroup:
+            return TitlebarControlsStyleConfig(
+                spacing: 8,
+                iconSize: 14,
+                buttonSize: 24,
+                badgeSize: 14,
+                badgeOffset: CGSize(width: 2, height: -2),
+                groupBackground: false,
+                groupPadding: EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4),
+                buttonBackground: false,
+                buttonCornerRadius: 8,
+                hoverBackground: true
+            )
+        case .softButtons:
+            return TitlebarControlsStyleConfig(
+                spacing: 8,
+                iconSize: 15,
+                buttonSize: 26,
+                badgeSize: 14,
+                badgeOffset: CGSize(width: 2, height: -2),
+                groupBackground: false,
+                groupPadding: EdgeInsets(),
+                buttonBackground: true,
+                buttonCornerRadius: 8,
+                hoverBackground: false
+            )
+        }
+    }
+}
+
+struct TitlebarControlsStyleConfig {
+    let spacing: CGFloat
+    let iconSize: CGFloat
+    let buttonSize: CGFloat
+    let badgeSize: CGFloat
+    let badgeOffset: CGSize
+    let groupBackground: Bool
+    let groupPadding: EdgeInsets
+    let buttonBackground: Bool
+    let buttonCornerRadius: CGFloat
+    let hoverBackground: Bool
+}
+
+final class TitlebarControlsViewModel: ObservableObject {
+    @Published var isShowingNotifications = false
+}
+
+private struct TitlebarControlButton<Content: View>: View {
+    let config: TitlebarControlsStyleConfig
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onToggleSidebar) {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 24, height: 24)
+        Button(action: action) {
+            content()
+        }
+        .buttonStyle(.plain)
+        .background(hoverBackground)
+        .onHover { isHovering = $0 }
+    }
+
+    @ViewBuilder
+    private var hoverBackground: some View {
+        if config.hoverBackground && isHovering {
+            RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                .fill(Color.primary.opacity(0.08))
+        }
+    }
+}
+
+private struct TitlebarControlsView: View {
+    @ObservedObject var notificationStore: TerminalNotificationStore
+    @ObservedObject var viewModel: TitlebarControlsViewModel
+    let onToggleSidebar: () -> Void
+    let onNewTab: () -> Void
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+
+    var body: some View {
+        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let config = style.config
+        controlsGroup(config: config)
+            .padding(.leading, 4)
+    }
+
+    @ViewBuilder
+    private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
+        let content = HStack(spacing: config.spacing) {
+            TitlebarControlButton(config: config, action: onToggleSidebar) {
+                iconLabel(systemName: "sidebar.left", config: config)
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Toggle Sidebar")
 
-            Button(action: { isShowingNotifications.toggle() }) {
+            TitlebarControlButton(config: config, action: { viewModel.isShowingNotifications.toggle() }) {
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: "bell")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 24, height: 24)
+                    iconLabel(systemName: "bell", config: config)
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: max(8, config.badgeSize - 5), weight: .semibold))
                             .foregroundColor(.white)
-                            .frame(width: 14, height: 14)
+                            .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
                                 Circle().fill(Color.accentColor)
                             )
-                            .offset(x: 2, y: -2)
+                            .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
                     }
                 }
-                .frame(width: 26, height: 24)
+                .frame(width: config.buttonSize, height: config.buttonSize)
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Notifications")
-            .popover(isPresented: $isShowingNotifications, arrowEdge: .top) {
+            .popover(isPresented: $viewModel.isShowingNotifications, arrowEdge: .top) {
                 NotificationsPopoverView(notificationStore: notificationStore)
             }
 
-            Button(action: onNewTab) {
-                Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 24, height: 24)
+            TitlebarControlButton(config: config, action: onNewTab) {
+                iconLabel(systemName: "plus", config: config)
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("New Tab")
         }
-        .padding(.leading, 4)
+
+        let paddedContent = content.padding(config.groupPadding)
+
+        if config.groupBackground {
+            paddedContent
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
+                )
+        } else {
+            paddedContent
+        }
+    }
+
+    @ViewBuilder
+    private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
+        let icon = Image(systemName: systemName)
+            .font(.system(size: config.iconSize, weight: .semibold))
+            .frame(width: config.buttonSize, height: config.buttonSize)
+
+        if config.buttonBackground {
+            icon
+                .background(
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                )
+        } else {
+            icon
+        }
     }
 }
 
@@ -141,6 +309,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
     private let containerView = NSView()
     private var pendingSizeUpdate = false
+    private let viewModel = TitlebarControlsViewModel()
+    private var userDefaultsObserver: NSObjectProtocol?
 
     init(notificationStore: TerminalNotificationStore) {
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
@@ -149,6 +319,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(
                 notificationStore: notificationStore,
+                viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
                 onNewTab: newTab
             )
@@ -162,11 +333,25 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.autoresizingMask = [.width, .height]
         containerView.addSubview(hostingView)
 
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleSizeUpdate()
+        }
+
         scheduleSizeUpdate()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let userDefaultsObserver {
+            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
     }
 
     override func viewDidAppear() {
@@ -200,6 +385,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
         containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
         hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+    }
+
+    func toggleNotificationsPopover() {
+        viewModel.isShowingNotifications.toggle()
     }
 }
 
@@ -235,7 +424,7 @@ private struct NotificationsPopoverView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                .frame(width: 320, height: 180)
+                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -250,7 +439,7 @@ private struct NotificationsPopoverView: View {
                     }
                     .padding(12)
                 }
-                .frame(width: 360, height: 360)
+                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 320, maxHeight: 480)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -413,6 +602,7 @@ final class UpdateTitlebarAccessoryController {
 #if DEBUG
     private let devIdentifier = NSUserInterfaceItemIdentifier("cmux.devAccessory")
 #endif
+    private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
 
     init(viewModel: UpdateViewModel) {
         self.updateViewModel = viewModel
@@ -476,12 +666,13 @@ final class UpdateTitlebarAccessoryController {
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
+            controlsControllers.add(controls)
         }
 
 #if DEBUG
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == devIdentifier }) {
             let devAccessory = DevBuildAccessoryViewController()
-            devAccessory.layoutAttribute = .left
+            devAccessory.layoutAttribute = .right
             devAccessory.view.identifier = devIdentifier
             window.addTitlebarAccessoryViewController(devAccessory)
         }
@@ -537,6 +728,12 @@ final class UpdateTitlebarAccessoryController {
             accessory.layoutAttribute = .right
             accessory.view.identifier = updateIdentifier
             window.addTitlebarAccessoryViewController(accessory)
+        }
+    }
+
+    func toggleNotificationsPopover() {
+        for controller in controlsControllers.allObjects {
+            controller.toggleNotificationsPopover()
         }
     }
 }

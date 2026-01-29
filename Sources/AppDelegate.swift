@@ -133,6 +133,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.attach(to: window)
     }
 
+    func toggleNotificationsPopover() {
+        titlebarAccessoryController.toggleNotificationsPopover()
+    }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         updateController.validateMenuItem(item)
     }
