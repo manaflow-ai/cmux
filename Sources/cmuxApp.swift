@@ -250,17 +250,7 @@ struct cmuxApp: App {
     }
 
     private func showAboutPanel() {
-        let bundle = Bundle.main
-        let appName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "cmuxterm"
-        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: appName,
-            .version: version,
-            .applicationVersion: build
-        ])
+        AboutWindowController.shared.show()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -313,6 +303,194 @@ struct cmuxApp: App {
 
     private func showNotificationsPopover() {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
+    }
+}
+
+private final class AboutWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = AboutWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = ""
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
+        window.center()
+        window.contentView = NSHostingView(rootView: AboutPanelView())
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct AboutPanelView: View {
+    @Environment(\.openURL) private var openURL
+
+    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmuxterm")
+    private let docsURL = URL(string: "https://github.com/manaflow-ai/cmuxterm#readme")
+
+    private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
+    private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
+    private var commit: String? {
+        if let value = Bundle.main.infoDictionary?["CMUXCommit"] as? String, !value.isEmpty {
+            return value
+        }
+        let env = ProcessInfo.processInfo.environment["CMUX_COMMIT"] ?? ""
+        return env.isEmpty ? nil : env
+    }
+    private var copyright: String? { Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String }
+
+    var body: some View {
+        VStack(alignment: .center) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .renderingMode(.original)
+                .frame(width: 96, height: 96)
+                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
+
+            VStack(alignment: .center, spacing: 32) {
+                VStack(alignment: .center, spacing: 8) {
+                    Text("cmuxterm")
+                        .bold()
+                        .font(.title)
+                    Text("A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS.")
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .font(.caption)
+                        .tint(.secondary)
+                        .opacity(0.8)
+                }
+                .textSelection(.enabled)
+
+                VStack(spacing: 2) {
+                    if let version {
+                        AboutPropertyRow(label: "Version", text: version)
+                    }
+                    if let build {
+                        AboutPropertyRow(label: "Build", text: build)
+                    }
+                    let commitText = commit ?? "—"
+                    let commitURL = commit.flatMap { hash in
+                        URL(string: "https://github.com/manaflow-ai/cmuxterm/commit/\(hash)")
+                    }
+                    AboutPropertyRow(label: "Commit", text: commitText, url: commitURL)
+                }
+                .frame(maxWidth: .infinity)
+
+                HStack(spacing: 8) {
+                    if let url = docsURL {
+                        Button("Docs") {
+                            openURL(url)
+                        }
+                    }
+                    if let url = githubURL {
+                        Button("GitHub") {
+                            openURL(url)
+                        }
+                    }
+                }
+
+                if let copy = copyright, !copy.isEmpty {
+                    Text(copy)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .tint(.secondary)
+                        .opacity(0.8)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.top, 8)
+        .padding(32)
+        .frame(minWidth: 280)
+        .background(AboutVisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
+    }
+}
+
+private struct AboutPropertyRow: View {
+    private let label: String
+    private let text: String
+    private let url: URL?
+
+    init(label: String, text: String, url: URL? = nil) {
+        self.label = label
+        self.text = text
+        self.url = url
+    }
+
+    @ViewBuilder private var textView: some View {
+        Text(text)
+            .frame(width: 140, alignment: .leading)
+            .padding(.leading, 2)
+            .tint(.secondary)
+            .opacity(0.8)
+            .monospaced()
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .frame(width: 126, alignment: .trailing)
+                .padding(.trailing, 2)
+            if let url {
+                Link(destination: url) {
+                    textView
+                }
+            } else {
+                textView
+            }
+        }
+        .font(.callout)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct AboutVisualEffectBackground: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+    let isEmphasized: Bool
+
+    init(
+        material: NSVisualEffectView.Material,
+        blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
+        isEmphasized: Bool = false
+    ) {
+        self.material = material
+        self.blendingMode = blendingMode
+        self.isEmphasized = isEmphasized
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+        nsView.isEmphasized = isEmphasized
+    }
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let visualEffect = NSVisualEffectView()
+        visualEffect.autoresizingMask = [.width, .height]
+        return visualEffect
     }
 }
 

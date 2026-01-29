@@ -744,6 +744,7 @@ final class UpdateTitlebarAccessoryController {
         guard let updateViewModel else { return }
         guard !attachedWindows.contains(window) else { return }
         guard window.styleMask.contains(.titled) else { return }
+        guard isMainTerminalWindow(window) else { return }
         guard !isSettingsWindow(window) else { return }
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
@@ -780,6 +781,10 @@ final class UpdateTitlebarAccessoryController {
             return true
         }
         return window.title == "Settings"
+    }
+
+    private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
+        window.identifier?.rawValue == "cmux.main"
     }
 
     private func installStateObserver() {

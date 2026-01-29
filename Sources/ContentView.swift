@@ -19,7 +19,6 @@ struct ContentView: View {
     @State private var isResizerHovering = false
     @State private var isResizerDragging = false
     private let sidebarHandleWidth: CGFloat = 6
-    @FocusState private var focusedTabId: UUID?
     @State private var sidebarSelection: SidebarSelection = .tabs
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
@@ -97,8 +96,6 @@ struct ContentView: View {
                         TerminalSplitTreeView(tab: tab, isTabActive: isActive)
                             .opacity(isActive ? 1 : 0)
                             .allowsHitTesting(isActive)
-                            .focusable()
-                            .focused($focusedTabId, equals: tab.id)
                     }
                 }
                 .opacity(sidebarSelection == .tabs ? 1 : 0)
@@ -112,7 +109,6 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 600)
         .background(Color.clear)
         .onAppear {
-            focusedTabId = tabManager.selectedTabId
             tabManager.applyWindowBackgroundForSelectedTab()
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -120,7 +116,6 @@ struct ContentView: View {
             }
         }
         .onChange(of: tabManager.selectedTabId) { newValue in
-            focusedTabId = newValue
             tabManager.applyWindowBackgroundForSelectedTab()
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
@@ -149,6 +144,7 @@ struct ContentView: View {
             sidebarMinX = frame.minX
         }
         .background(WindowAccessor { window in
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             AppDelegate.shared?.attachUpdateAccessory(to: window)
         })
     }
