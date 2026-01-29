@@ -24,10 +24,8 @@ jobs:
           else
             VERSION="${{ github.event.release.tag_name }}"
           fi
-          # Strip 'v' prefix if present
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
 
       - name: Download DMG and get SHA256
         id: sha
@@ -36,7 +34,6 @@ jobs:
           curl -sL "https://github.com/manaflow-ai/cmuxterm/releases/download/v${VERSION}/cmuxterm-macos.dmg" -o cmuxterm.dmg
           SHA256=$(shasum -a 256 cmuxterm.dmg | cut -d' ' -f1)
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "SHA256: $SHA256"
 
       - name: Checkout homebrew-cmuxterm
         uses: actions/checkout@v4
@@ -46,14 +43,14 @@ jobs:
           path: homebrew-cmuxterm
 
       - name: Update cask formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          SHA256="${{ steps.sha.outputs.sha256 }}"
-
-          cat > homebrew-cmuxterm/Casks/cmuxterm.rb << EOF
+          cat > homebrew-cmuxterm/Casks/cmuxterm.rb << CASKEOF
           cask "cmuxterm" do
-            version "$VERSION"
-            sha256 "$SHA256"
+            version "${VERSION}"
+            sha256 "${SHA256}"
 
             url "https://github.com/manaflow-ai/cmuxterm/releases/download/v#{version}/cmuxterm-macos.dmg"
             name "cmuxterm"
@@ -75,13 +72,21 @@ jobs:
               "~/Library/Preferences/ai.manaflow.cmuxterm.plist",
             ]
           end
-          EOF
+          CASKEOF
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' homebrew-cmuxterm/Casks/cmuxterm.rb
 
       - name: Commit and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           cd homebrew-cmuxterm
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/cmuxterm.rb
-          git commit -m "Update cmuxterm to ${{ steps.version.outputs.version }}"
-          git push
+          if git diff --staged --quiet; then
+            echo "No changes - cask already up to date"
+          else
+            git commit -m "Update cmuxterm to ${VERSION}"
+            git push
+          fi
