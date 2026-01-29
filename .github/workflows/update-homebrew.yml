@@ -1,0 +1,87 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.9.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-cask:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+          fi
+          # Strip 'v' prefix if present
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Download DMG and get SHA256
+        id: sha
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          curl -sL "https://github.com/manaflow-ai/cmuxterm/releases/download/v${VERSION}/cmuxterm-macos.dmg" -o cmuxterm.dmg
+          SHA256=$(shasum -a 256 cmuxterm.dmg | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA256"
+
+      - name: Checkout homebrew-cmuxterm
+        uses: actions/checkout@v4
+        with:
+          repository: manaflow-ai/homebrew-cmuxterm
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-cmuxterm
+
+      - name: Update cask formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA256="${{ steps.sha.outputs.sha256 }}"
+
+          cat > homebrew-cmuxterm/Casks/cmuxterm.rb << EOF
+          cask "cmuxterm" do
+            version "$VERSION"
+            sha256 "$SHA256"
+
+            url "https://github.com/manaflow-ai/cmuxterm/releases/download/v#{version}/cmuxterm-macos.dmg"
+            name "cmuxterm"
+            desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
+            homepage "https://github.com/manaflow-ai/cmuxterm"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on macos: ">= :ventura"
+
+            app "cmuxterm.app"
+
+            zap trash: [
+              "~/Library/Application Support/cmuxterm",
+              "~/Library/Caches/cmuxterm",
+              "~/Library/Preferences/ai.manaflow.cmuxterm.plist",
+            ]
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          cd homebrew-cmuxterm
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/cmuxterm.rb
+          git commit -m "Update cmuxterm to ${{ steps.version.outputs.version }}"
+          git push
