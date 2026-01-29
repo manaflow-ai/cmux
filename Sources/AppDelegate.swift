@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
+    weak var sidebarState: SidebarState?
     private var workspaceObserver: NSObjectProtocol?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
@@ -61,9 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore?.clearAll()
     }
 
-    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore) {
+    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.sidebarState = sidebarState
     }
 
     @objc func checkForUpdates(_ sender: Any?) {

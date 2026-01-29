@@ -5,6 +5,8 @@ import SwiftUI
 struct cmuxApp: App {
     @StateObject private var tabManager = TabManager()
     @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject private var sidebarState = SidebarState()
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -17,13 +19,21 @@ struct cmuxApp: App {
             ContentView(updateViewModel: appDelegate.updateViewModel)
                 .environmentObject(tabManager)
                 .environmentObject(notificationStore)
+                .environmentObject(sidebarState)
                 .onAppear {
                     // Start the Unix socket controller for programmatic access
                     TerminalController.shared.start(tabManager: tabManager)
-                    appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore)
+                    appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                    applyAppearance()
+                }
+                .onChange(of: appearanceMode) { _ in
+                    applyAppearance()
                 }
         }
         .windowToolbarStyle(.automatic)
+        Settings {
+            SettingsRootView()
+        }
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About cmuxterm") {
@@ -97,6 +107,13 @@ struct cmuxApp: App {
 
             // Tab navigation
             CommandGroup(after: .toolbar) {
+                Button("Toggle Sidebar") {
+                    sidebarState.toggle()
+                }
+                .keyboardShortcut("b", modifiers: .command)
+
+                Divider()
+
                 Button("Next Tab") {
                     tabManager.selectNextTab()
                 }
@@ -147,5 +164,55 @@ struct cmuxApp: App {
             .applicationVersion: build
         ])
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func applyAppearance() {
+        guard let mode = AppearanceMode(rawValue: appearanceMode) else { return }
+        switch mode {
+        case .auto:
+            NSApp.appearance = nil
+        case .system:
+            let match = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
+            NSApp.appearance = NSAppearance(named: match)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case auto
+    case system
+    case dark
+
+    var id: String { rawValue }
+}
+
+struct SettingsView: View {
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Theme")
+                .font(.headline)
+
+            Picker("Theme", selection: $appearanceMode) {
+                Text("Auto").tag(AppearanceMode.auto.rawValue)
+                Text("System").tag(AppearanceMode.system.rawValue)
+                Text("Dark").tag(AppearanceMode.dark.rawValue)
+            }
+            .pickerStyle(.radioGroup)
+        }
+        .padding(20)
+        .frame(minWidth: 360, minHeight: 180)
+    }
+}
+
+private struct SettingsRootView: View {
+    var body: some View {
+        SettingsView()
+            .background(WindowAccessor { window in
+                window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+            })
     }
 }

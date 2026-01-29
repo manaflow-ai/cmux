@@ -119,11 +119,9 @@ class TerminalController {
                 guard !trimmed.isEmpty else { continue }
 
                 let response = processCommand(trimmed)
-                response.withCString { ptr in
+                let payload = response + "\n"
+                payload.withCString { ptr in
                     _ = write(socket, ptr, strlen(ptr))
-                }
-                "\n".withCString { ptr in
-                    _ = write(socket, ptr, 1)
                 }
             }
         }

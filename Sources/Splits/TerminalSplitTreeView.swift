@@ -67,19 +67,18 @@ fileprivate struct TerminalSplitSubtreeView: View {
                 )
                 .background(Color.clear)
 
-                if notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surface.id) {
-                    Circle()
-                        .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
-                        .frame(width: 14, height: 14)
-                        .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 2)
-                        .padding(6)
-                        .allowsHitTesting(false)
-                }
-
                 if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
                     Rectangle()
                         .fill(appearance.unfocusedOverlayColor)
                         .opacity(appearance.unfocusedOverlayOpacity)
+                        .allowsHitTesting(false)
+                }
+
+                if notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surface.id) {
+                    Rectangle()
+                        .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
+                        .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 3)
+                        .padding(2)
                         .allowsHitTesting(false)
                 }
             }

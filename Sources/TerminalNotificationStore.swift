@@ -149,6 +149,17 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func clearNotifications(forTabId tabId: UUID) {
+        let ids = notifications
+            .filter { $0.tabId == tabId }
+            .map { $0.id.uuidString }
+        notifications.removeAll { $0.tabId == tabId }
+        if !ids.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+            center.removePendingNotificationRequests(withIdentifiers: ids)
+        }
+    }
+
     private func scheduleUserNotification(_ notification: TerminalNotification) {
         ensureAuthorization { [weak self] authorized in
             guard let self, authorized else { return }

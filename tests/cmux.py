@@ -29,6 +29,7 @@ Usage:
 """
 
 import socket
+import select
 import os
 from typing import Optional, List, Tuple
 
@@ -46,6 +47,7 @@ class cmux:
     def __init__(self, socket_path: str = None):
         self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
         self._socket: Optional[socket.socket] = None
+        self._recv_buffer: str = ""
 
     def connect(self) -> None:
         """Connect to the cmux socket"""
@@ -87,8 +89,25 @@ class cmux:
 
         try:
             self._socket.sendall((command + "\n").encode())
-            response = self._socket.recv(8192).decode().strip()
-            return response
+            data = self._recv_buffer
+            self._recv_buffer = ""
+            while True:
+                if "\n" not in data:
+                    chunk = self._socket.recv(8192)
+                    if not chunk:
+                        break
+                    data += chunk.decode()
+                    continue
+                ready, _, _ = select.select([self._socket], [], [], 0.01)
+                if not ready:
+                    break
+                chunk = self._socket.recv(8192)
+                if not chunk:
+                    break
+                data += chunk.decode()
+            if data.endswith("\n"):
+                data = data[:-1]
+            return data
         except socket.timeout:
             raise cmuxError("Command timed out")
         except socket.error as e:

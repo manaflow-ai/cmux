@@ -49,6 +49,7 @@ class Tab: Identifiable, ObservableObject {
         guard isSelectedTab && isAppFocused else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         if notificationStore.hasUnreadNotification(forTabId: self.id, surfaceId: id) {
+            triggerNotificationFocusFlash(surfaceId: id, requiresSplit: false, shouldFocus: false)
             notificationStore.markRead(forTabId: self.id, surfaceId: id)
             return
         }
@@ -347,6 +348,8 @@ class TabManager: ObservableObject {
     func closeTab(_ tab: Tab) {
         guard tabs.count > 1 else { return }
 
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+
         if let index = tabs.firstIndex(where: { $0.id == tab.id }) {
             tabs.remove(at: index)
 
@@ -383,7 +386,7 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        _ = tab.closeSurface(focusedSurfaceId)
+        _ = closeSurface(tabId: selectedId, surfaceId: focusedSurfaceId)
     }
 
     func closeCurrentTabWithConfirmation() {
@@ -466,6 +469,9 @@ class TabManager: ObservableObject {
         guard let surfaceId = focusedSurfaceId(for: tabId) else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
+        if let tab = tabs.first(where: { $0.id == tabId }) {
+            tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false, shouldFocus: false)
+        }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
@@ -612,6 +618,7 @@ class TabManager: ObservableObject {
         guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let tab = tabs[tabIndex]
         guard tab.closeSurface(surfaceId) else { return false }
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)
 
         if tab.splitTree.isEmpty {
             if tabs.count > 1 {

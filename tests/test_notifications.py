@@ -52,6 +52,23 @@ def ensure_two_surfaces(client: cmux) -> list[tuple[int, str, bool]]:
     return surfaces
 
 
+def focused_surface_index(client: cmux) -> int:
+    surfaces = client.list_surfaces()
+    focused = next((s for s in surfaces if s[2]), None)
+    if focused is None:
+        raise RuntimeError("No focused surface")
+    return focused[0]
+
+
+def send_osc(client: cmux, sequence: str, surface: int | None = None) -> None:
+    """Send an OSC sequence by printing it in the shell."""
+    command = f"printf '{sequence}'\\n"
+    if surface is None:
+        client.send(command)
+    else:
+        client.send_surface(surface, command)
+
+
 def test_clear_prior_notifications(client: cmux) -> TestResult:
     result = TestResult("Clear Prior Panel Notifications")
     try:
@@ -106,10 +123,60 @@ def test_not_suppressed_when_inactive(client: cmux) -> TestResult:
     return result
 
 
+def test_kitty_notification_simple(client: cmux) -> TestResult:
+    result = TestResult("Kitty OSC 99 Simple")
+    try:
+        client.clear_notifications()
+        client.set_app_focus(False)
+        surface = focused_surface_index(client)
+        send_osc(client, "\\x1b]99;;Kitty Simple\\x1b\\\\", surface)
+        items = wait_for_notifications(client, 1)
+        if len(items) != 1:
+            result.failure(f"Expected 1 notification, got {len(items)}")
+        elif items[0]["title"] != "Kitty Simple":
+            result.failure(f"Expected title 'Kitty Simple', got '{items[0]['title']}'")
+        else:
+            result.success("OSC 99 simple notification received")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
+def test_kitty_notification_chunked(client: cmux) -> TestResult:
+    result = TestResult("Kitty OSC 99 Chunked Title/Body")
+    try:
+        client.clear_notifications()
+        client.set_app_focus(False)
+        # Avoid Ghostty's 1s desktop notification rate limit.
+        time.sleep(1.1)
+        surface = focused_surface_index(client)
+        send_osc(client, "\\x1b]99;i=kitty:d=0:p=title;Kitty Title\\x1b\\\\", surface)
+        time.sleep(0.1)
+        items = client.list_notifications()
+        if items:
+            result.failure("Expected no notification before final chunk")
+            return result
+        send_osc(client, "\\x1b]99;i=kitty:p=body;Kitty Body\\x1b\\\\", surface)
+        items = wait_for_notifications(client, 1)
+        if len(items) != 1:
+            result.failure(f"Expected 1 notification, got {len(items)}")
+        elif items[0]["title"] != "Kitty Title" or items[0]["body"] != "Kitty Body":
+            result.failure(
+                f"Expected title/body 'Kitty Title'/'Kitty Body', got "
+                f"'{items[0]['title']}'/'{items[0]['body']}'"
+            )
+        else:
+            result.success("OSC 99 chunked notification received")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
 def test_mark_read_on_focus_change(client: cmux) -> TestResult:
     result = TestResult("Mark Read On Panel Focus")
     try:
         client.clear_notifications()
+        client.reset_flash_counts()
         surfaces = ensure_two_surfaces(client)
         focused = next((s for s in surfaces if s[2]), None)
         other = next((s for s in surfaces if not s[2]), None)
@@ -131,6 +198,8 @@ def test_mark_read_on_focus_change(client: cmux) -> TestResult:
             result.failure("Expected notification for target surface")
         elif not target["is_read"]:
             result.failure("Expected notification to be marked read on focus")
+        elif client.flash_count(other[1]) < 1:
+            result.failure("Expected flash on panel focus dismissal")
         else:
             result.success("Notification marked read on focus")
     except Exception as e:
@@ -195,8 +264,8 @@ def test_mark_read_on_tab_switch(client: cmux) -> TestResult:
     return result
 
 
-def test_no_flash_on_tab_switch(client: cmux) -> TestResult:
-    result = TestResult("No Flash On Tab Switch")
+def test_flash_on_tab_switch(client: cmux) -> TestResult:
+    result = TestResult("Flash On Tab Switch")
     try:
         client.clear_notifications()
         client.reset_flash_counts()
@@ -220,10 +289,10 @@ def test_no_flash_on_tab_switch(client: cmux) -> TestResult:
         time.sleep(0.2)
 
         count = client.flash_count(focused[1])
-        if count != 0:
-            result.failure(f"Expected flash count 0, got {count}")
+        if count < 1:
+            result.failure(f"Expected flash count >= 1, got {count}")
         else:
-            result.success("No flash triggered on tab switch")
+            result.success("Flash triggered on tab switch dismissal")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
@@ -303,18 +372,50 @@ def test_restore_focus_on_tab_switch(client: cmux) -> TestResult:
     return result
 
 
+def test_clear_on_tab_close(client: cmux) -> TestResult:
+    result = TestResult("Clear On Tab Close")
+    try:
+        client.clear_notifications()
+        client.set_app_focus(False)
+        tab1 = client.current_tab()
+        client.notify("closetab")
+        time.sleep(0.1)
+
+        items = wait_for_notifications(client, 1)
+        if len(items) != 1:
+            result.failure(f"Expected 1 notification, got {len(items)}")
+            return result
+
+        client.new_tab()
+        time.sleep(0.1)
+        client.close_tab(tab1)
+        time.sleep(0.2)
+
+        items = client.list_notifications()
+        if items:
+            result.failure(f"Expected 0 notifications after tab close, got {len(items)}")
+        else:
+            result.success("Notifications cleared when tab closed")
+    except Exception as e:
+        result.failure(f"Exception: {e}")
+    return result
+
+
 def run_tests() -> int:
     results = []
     with cmux() as client:
         results.append(test_clear_prior_notifications(client))
         results.append(test_suppress_when_focused(client))
         results.append(test_not_suppressed_when_inactive(client))
+        results.append(test_kitty_notification_simple(client))
+        results.append(test_kitty_notification_chunked(client))
         results.append(test_mark_read_on_focus_change(client))
         results.append(test_mark_read_on_app_active(client))
         results.append(test_mark_read_on_tab_switch(client))
-        results.append(test_no_flash_on_tab_switch(client))
+        results.append(test_flash_on_tab_switch(client))
         results.append(test_focus_on_notification_click(client))
         results.append(test_restore_focus_on_tab_switch(client))
+        results.append(test_clear_on_tab_close(client))
         client.set_app_focus(None)
         client.clear_notifications()
 

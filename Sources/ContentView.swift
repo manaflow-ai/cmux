@@ -1,10 +1,19 @@
 import AppKit
 import SwiftUI
 
+final class SidebarState: ObservableObject {
+    @Published var isVisible: Bool = true
+
+    func toggle() {
+        isVisible.toggle()
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @EnvironmentObject var sidebarState: SidebarState
     @State private var sidebarWidth: CGFloat = 200
     @State private var sidebarMinX: CGFloat = 0
     @State private var isResizerHovering = false
@@ -17,9 +26,8 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-                // Vertical Tabs Sidebar
+            if sidebarState.isVisible {
                 VerticalTabsSidebar(
-                    sidebarWidth: sidebarWidth,
                     selection: $sidebarSelection,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -79,23 +87,24 @@ struct ContentView: View {
                                 }
                         )
                 }
+            }
 
-                // Terminal Content - use ZStack to keep all surfaces alive
+            // Terminal Content - use ZStack to keep all surfaces alive
+            ZStack {
                 ZStack {
-                    ZStack {
-                        ForEach(tabManager.tabs) { tab in
-                            let isActive = tabManager.selectedTabId == tab.id
-                            TerminalSplitTreeView(tab: tab, isTabActive: isActive)
-                                .opacity(isActive ? 1 : 0)
-                                .allowsHitTesting(isActive)
-                                .focusable()
-                                .focused($focusedTabId, equals: tab.id)
-                        }
+                    ForEach(tabManager.tabs) { tab in
+                        let isActive = tabManager.selectedTabId == tab.id
+                        TerminalSplitTreeView(tab: tab, isTabActive: isActive)
+                            .opacity(isActive ? 1 : 0)
+                            .allowsHitTesting(isActive)
+                            .focusable()
+                            .focused($focusedTabId, equals: tab.id)
                     }
-                    .opacity(sidebarSelection == .tabs ? 1 : 0)
-                    .allowsHitTesting(sidebarSelection == .tabs)
+                }
+                .opacity(sidebarSelection == .tabs ? 1 : 0)
+                .allowsHitTesting(sidebarSelection == .tabs)
 
-                    NotificationsPage(selection: $sidebarSelection)
+                NotificationsPage(selection: $sidebarSelection)
                     .opacity(sidebarSelection == .notifications ? 1 : 0)
                     .allowsHitTesting(sidebarSelection == .notifications)
             }
@@ -144,86 +153,46 @@ struct ContentView: View {
         })
     }
 
+    private func addTab() {
+        tabManager.addTab()
+        sidebarSelection = .tabs
+    }
+
 }
 
 struct VerticalTabsSidebar: View {
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
-    let sidebarWidth: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with title
-            HStack {
-                Button(action: { selection = .tabs }) {
-                    Text("Tabs")
-                        .font(.headline)
-                        .foregroundColor(selection == .tabs ? .primary : .secondary)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Button(action: { selection = .notifications }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "bell")
-                            .font(.system(size: 12, weight: .medium))
-                        if notificationStore.unreadCount > 0 {
-                            Text("\(notificationStore.unreadCount)")
-                                .font(.system(size: 10, weight: .semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.accentColor))
-                                .foregroundColor(.white)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                            TabItemView(
+                                tab: tab,
+                                index: index,
+                                selection: $selection,
+                                selectedTabIds: $selectedTabIds,
+                                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                            )
                         }
                     }
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(selection == .notifications ? .primary : .secondary)
+                    .padding(.vertical, 8)
 
-                Button(action: { tabManager.addTab() }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
+                    SidebarEmptyArea(
+                        selection: $selection,
+                        selectedTabIds: $selectedTabIds,
+                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
+                .frame(minHeight: proxy.size.height, alignment: .top)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            Divider()
-
-            // Tab List
-            GeometryReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        LazyVStack(spacing: 2) {
-                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                TabItemView(
-                                    tab: tab,
-                                    index: index,
-                                    selection: $selection,
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-                                )
-                            }
-                        }
-                        .padding(.vertical, 4)
-
-                        SidebarEmptyArea(
-                            selection: $selection,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(minHeight: proxy.size.height, alignment: .top)
-                }
-                .accessibilityIdentifier("Sidebar")
-            }
+            .accessibilityIdentifier("Sidebar")
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
