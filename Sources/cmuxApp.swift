@@ -8,11 +8,18 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // Start the terminal controller for programmatic control
         // This runs after TabManager is created via @StateObject
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: SocketControlSettings.appStorageKey) == nil,
+           let legacy = defaults.object(forKey: SocketControlSettings.legacyEnabledKey) as? Bool {
+            defaults.set(legacy ? SocketControlMode.full.rawValue : SocketControlMode.off.rawValue,
+                         forKey: SocketControlSettings.appStorageKey)
+        }
     }
 
     var body: some Scene {
@@ -23,18 +30,27 @@ struct cmuxApp: App {
                 .environmentObject(sidebarState)
                 .onAppear {
                     // Start the Unix socket controller for programmatic access
-                    TerminalController.shared.start(tabManager: tabManager)
+                    updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
                     applyAppearance()
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
+                        DispatchQueue.main.async {
+                            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                        }
+                    }
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
+                }
+                .onChange(of: socketControlMode) { _ in
+                    updateSocketController()
                 }
         }
         .windowToolbarStyle(.automatic)
         Settings {
             SettingsRootView()
         }
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About cmuxterm") {
@@ -104,7 +120,7 @@ struct cmuxApp: App {
             // Close tab
             CommandGroup(after: .newItem) {
                 Button("Close Panel") {
-                    tabManager.closeCurrentPanelWithConfirmation()
+                    closePanelOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: .command)
 
@@ -190,13 +206,16 @@ struct cmuxApp: App {
     private func applyAppearance() {
         guard let mode = AppearanceMode(rawValue: appearanceMode) else { return }
         switch mode {
-        case .auto:
-            NSApp.appearance = nil
         case .system:
-            let match = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
-            NSApp.appearance = NSAppearance(named: match)
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .auto:
+            // Legacy value; treat like system and migrate.
+            NSApp.appearance = nil
+            appearanceMode = AppearanceMode.system.rawValue
         }
     }
 
@@ -205,36 +224,110 @@ struct cmuxApp: App {
         tabManager.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
     }
 
+    private func updateSocketController() {
+        let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
+        if mode != .off {
+            TerminalController.shared.start(
+                tabManager: tabManager,
+                socketPath: SocketControlSettings.socketPath(),
+                accessMode: mode
+            )
+        } else {
+            TerminalController.shared.stop()
+        }
+    }
+
+    private var currentSocketMode: SocketControlMode {
+        SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+    }
+
+    private func closePanelOrWindow() {
+        if let window = NSApp.keyWindow,
+           window.identifier?.rawValue == "cmux.settings" {
+            window.performClose(nil)
+            return
+        }
+        tabManager.closeCurrentPanelWithConfirmation()
+    }
+
     private func showNotificationsPopover() {
-        AppDelegate.shared?.toggleNotificationsPopover()
+        AppDelegate.shared?.toggleNotificationsPopover(animated: false)
     }
 }
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
-    case auto
     case system
+    case light
     case dark
+    case auto
 
     var id: String { rawValue }
+
+    static var visibleCases: [AppearanceMode] {
+        [.system, .light, .dark]
+    }
+
+    var displayName: String {
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
+        case .auto:
+            return "Auto"
+        }
+    }
 }
 
 struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Theme")
                 .font(.headline)
 
-            Picker("Theme", selection: $appearanceMode) {
-                Text("Auto").tag(AppearanceMode.auto.rawValue)
-                Text("System").tag(AppearanceMode.system.rawValue)
-                Text("Dark").tag(AppearanceMode.dark.rawValue)
+            Picker("", selection: $appearanceMode) {
+                ForEach(AppearanceMode.visibleCases) { mode in
+                    Text(mode.displayName).tag(mode.rawValue)
+                }
             }
             .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            Divider()
+
+            Text("Automation")
+                .font(.headline)
+
+            Picker("", selection: $socketControlMode) {
+                ForEach(SocketControlMode.allCases) { mode in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(mode.displayName)
+                        Text(mode.description)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            .accessibilityIdentifier("AutomationSocketModePicker")
+
+            Text("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding(20)
-        .frame(minWidth: 360, minHeight: 180)
+        .frame(minWidth: 360, minHeight: 280)
     }
 }
 
@@ -242,7 +335,25 @@ private struct SettingsRootView: View {
     var body: some View {
         SettingsView()
             .background(WindowAccessor { window in
-                window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+                configureSettingsWindow(window)
             })
+    }
+
+    private func configureSettingsWindow(_ window: NSWindow) {
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.resizable)
+        window.contentMinSize = NSSize(width: 360, height: 280)
+        if window.frame.width > 520 {
+            window.setContentSize(NSSize(width: 460, height: max(280, window.contentView?.frame.height ?? 280)))
+        }
+
+        let accessories = window.titlebarAccessoryViewControllers
+        for index in accessories.indices.reversed() {
+            guard let identifier = accessories[index].view.identifier?.rawValue else { continue }
+            guard identifier.hasPrefix("cmux.") else { continue }
+            window.removeTitlebarAccessoryViewController(at: index)
+        }
     }
 }

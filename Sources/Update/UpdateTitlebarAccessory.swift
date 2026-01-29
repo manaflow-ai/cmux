@@ -193,7 +193,25 @@ struct TitlebarControlsStyleConfig {
 }
 
 final class TitlebarControlsViewModel: ObservableObject {
-    @Published var isShowingNotifications = false
+    weak var notificationsAnchorView: NSView?
+}
+
+private struct NotificationsAnchorView: NSViewRepresentable {
+    let onResolve: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            onResolve(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onResolve(nsView)
+        }
+    }
 }
 
 private struct TitlebarControlButton<Content: View>: View {
@@ -224,6 +242,7 @@ private struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
+    let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
 
@@ -241,8 +260,9 @@ private struct TitlebarControlsView: View {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
             .accessibilityLabel("Toggle Sidebar")
+            .help("Show or hide the sidebar (Cmd+B)")
 
-            TitlebarControlButton(config: config, action: { viewModel.isShowingNotifications.toggle() }) {
+            TitlebarControlButton(config: config, action: onToggleNotifications) {
                 ZStack(alignment: .topTrailing) {
                     iconLabel(systemName: "bell", config: config)
 
@@ -259,15 +279,15 @@ private struct TitlebarControlsView: View {
                 }
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
+            .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .accessibilityLabel("Notifications")
-            .popover(isPresented: $viewModel.isShowingNotifications, arrowEdge: .top) {
-                NotificationsPopoverView(notificationStore: notificationStore)
-            }
+            .help("Show notifications (Cmd+Shift+I)")
 
             TitlebarControlButton(config: config, action: onNewTab) {
                 iconLabel(systemName: "plus", config: config)
             }
             .accessibilityLabel("New Tab")
+            .help("Open a new tab (Cmd+T or Cmd+N)")
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -305,15 +325,19 @@ private struct TitlebarControlsView: View {
     }
 }
 
-final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController {
+final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
     private let containerView = NSView()
+    private let notificationStore: TerminalNotificationStore
+    private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
 
     init(notificationStore: TerminalNotificationStore) {
+        self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
+        let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
         let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
 
         hostingView = NonDraggableHostingView(
@@ -321,6 +345,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 notificationStore: notificationStore,
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
+                onToggleNotifications: toggleNotifications,
                 onNewTab: newTab
             )
         )
@@ -387,8 +412,25 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
-    func toggleNotificationsPopover() {
-        viewModel.isShowingNotifications.toggle()
+    func toggleNotificationsPopover(animated: Bool = true) {
+        if notificationsPopover.isShown {
+            notificationsPopover.performClose(nil)
+            return
+        }
+        let anchorView = viewModel.notificationsAnchorView ?? hostingView
+        notificationsPopover.animates = animated
+        notificationsPopover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
+    }
+
+    private func makeNotificationsPopover() -> NSPopover {
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.animates = true
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(
+            rootView: NotificationsPopoverView(notificationStore: notificationStore)
+        )
+        return popover
     }
 }
 
@@ -731,9 +773,9 @@ final class UpdateTitlebarAccessoryController {
         }
     }
 
-    func toggleNotificationsPopover() {
+    func toggleNotificationsPopover(animated: Bool = true) {
         for controller in controlsControllers.allObjects {
-            controller.toggleNotificationsPopover()
+            controller.toggleNotificationsPopover(animated: animated)
         }
     }
 }
