@@ -60,14 +60,21 @@ struct cmuxApp: App {
             let dataDir = resourcesParent.path
             let manDir = resourcesParent.appendingPathComponent("man").path
 
-            appendEnvPathIfMissing("XDG_DATA_DIRS", path: dataDir)
+            appendEnvPathIfMissing(
+                "XDG_DATA_DIRS",
+                path: dataDir,
+                defaultValue: "/usr/local/share:/usr/share"
+            )
             appendEnvPathIfMissing("MANPATH", path: manDir)
         }
     }
 
-    private func appendEnvPathIfMissing(_ key: String, path: String) {
+    private func appendEnvPathIfMissing(_ key: String, path: String, defaultValue: String? = nil) {
         if path.isEmpty { return }
-        let current = getenv(key).flatMap { String(cString: $0) } ?? ""
+        var current = getenv(key).flatMap { String(cString: $0) } ?? ""
+        if current.isEmpty, let defaultValue {
+            current = defaultValue
+        }
         if current.split(separator: ":").contains(Substring(path)) {
             return
         }
