@@ -54,6 +54,37 @@ Run basic automated tests on the UTM macOS VM (never on the host machine):
 ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmuxterm DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmuxterm DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmuxterm.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
+## Ghostty submodule workflow
+
+Ghostty changes must be committed in the `ghostty` submodule and pushed to the `manaflow-ai/ghostty` fork.
+
+```bash
+cd ghostty
+git remote -v  # origin = upstream, manaflow = fork
+git checkout -b <branch>
+git add <files>
+git commit -m "..."
+git push manaflow <branch>
+```
+
+To keep the fork up to date with upstream:
+
+```bash
+cd ghostty
+git fetch origin
+git checkout main
+git merge origin/main
+git push manaflow main
+```
+
+Then update the parent repo with the new submodule SHA:
+
+```bash
+cd ..
+git add ghostty
+git commit -m "Update ghostty submodule"
+```
+
 ## Release
 
 Tagging a version triggers the GitHub Actions release workflow and uploads the notarized zip.
