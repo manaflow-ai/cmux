@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+# Ensure the downloaded Node.js version is used
+export PATH="$LAMBDA_RUNTIME_DIR/bin:$PATH"
+
+# Execute the "nodejs" runtime bootstrap
+export LAMBDA_RUNTIME_DIR="$(dirname "$0")/../nodejs"
+exec "$LAMBDA_RUNTIME_DIR/bootstrap" "$@"

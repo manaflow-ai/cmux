@@ -1,0 +1,49 @@
+{
+  "name": "yauzl-clone",
+  "version": "1.0.4",
+  "description": "Clone yauzl for patching",
+  "main": "./lib/",
+  "author": {
+    "name": "Overlook Motel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/overlookmotel/yauzl-clone.git"
+  },
+  "bugs": {
+    "url": "https://github.com/overlookmotel/yauzl-clone/issues"
+  },
+  "dependencies": {
+    "events-intercept": "^2.0.0"
+  },
+  "devDependencies": {
+    "chai": "^4.1.2",
+    "coveralls": "^3.0.1",
+    "cross-env": "^5.1.6",
+    "fd-slicer": "^1.0.1",
+    "istanbul": "^0.4.5",
+    "jshint": "^2.9.5",
+    "mocha": "^5.2.0",
+    "yauzl": "^2.9.1"
+  },
+  "keywords": [
+    "yauzl",
+    "clone",
+    "patch",
+    "plugin"
+  ],
+  "scripts": {
+    "test": "npm run jshint && npm run test-main",
+    "jshint": "jshint lib test",
+    "test-main": "mocha --check-leaks --colors -t 10000 -R spec \"test/**/*.test.js\"",
+    "cover": "npm run cover-main && rm -rf coverage",
+    "coveralls": "npm run cover-main && cat ./coverage/lcov.info | coveralls && rm -rf ./coverage",
+    "cover-main": "cross-env COVERAGE=true istanbul cover _mocha --report lcovonly -- -t 10000 -R spec \"test/**/*.test.js\"",
+    "travis": "if [ $COVERAGE ]; then npm run coveralls; else npm test; fi"
+  },
+  "engines": {
+    "node": ">=6"
+  },
+  "readmeFilename": "README.md",
+  "license": "MIT"
+}

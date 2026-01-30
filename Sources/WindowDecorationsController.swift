@@ -42,10 +42,10 @@ final class WindowDecorationsController {
         if window.isSheet {
             return true
         }
-        if window is NSPanel {
+        if window.styleMask.contains(.docModalWindow) {
             return true
         }
-        if window.styleMask.contains(.utilityWindow) || window.styleMask.contains(.docModalWindow) {
+        if window.styleMask.contains(.nonactivatingPanel) {
             return true
         }
         return false

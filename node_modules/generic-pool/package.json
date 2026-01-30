@@ -1,0 +1,85 @@
+{
+  "name": "generic-pool",
+  "description": "Generic resource pooling for Node.JS",
+  "version": "3.4.2",
+  "author": "James Cooper <james@bitmechanic.com>",
+  "contributors": [
+    {
+      "name": "James Cooper",
+      "email": "james@bitmechanic.com"
+    },
+    {
+      "name": "Peter Galiba",
+      "email": "poetro@poetro.hu",
+      "url": "http://poetro.hu/"
+    },
+    {
+      "name": "Gary Dusbabek"
+    },
+    {
+      "name": "Tom MacWright",
+      "url": "http://www.developmentseed.org/"
+    },
+    {
+      "name": "Douglas Christopher Wilson",
+      "email": "doug@somethingdoug.com",
+      "url": "http://somethingdoug.com/"
+    },
+    {
+      "name": "calibr"
+    },
+    {
+      "name": "Justin Robinson",
+      "email": "jrobinson@redventures.com>"
+    },
+    {
+      "name": "Nayana Hettiarachchi",
+      "email": "nayana@corp-gems.com"
+    },
+    {
+      "name": "Felipe Machado",
+      "email": "felipou@gmail.com"
+    },
+    {
+      "name": "Felix Becker",
+      "email": "felix.b@outlook.com"
+    },
+    {
+      "name": "sandfox",
+      "email": "james.butler@sandfox.co.uk"
+    },
+    {
+      "name": "Lewis J Ellis",
+      "email": "me@lewisjellis.com"
+    }
+  ],
+  "keywords": [
+    "pool",
+    "pooling",
+    "throttle"
+  ],
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/coopernurse/node-pool.git"
+  },
+  "devDependencies": {
+    "@types/node": "^8.5.1",
+    "eslint": "^4.9.0",
+    "eslint-config-prettier": "^2.6.0",
+    "eslint-plugin-prettier": "^2.3.1",
+    "eslint-plugin-promise": "^3.3.0",
+    "prettier": "^1.7.4",
+    "tap": "^8.0.0",
+    "typescript": "^2.6.2"
+  },
+  "engines": {
+    "node": ">= 4"
+  },
+  "scripts": {
+    "lint": "eslint lib test index.js .eslintrc.js",
+    "lint-fix": "eslint --fix lib test index.js .eslintrc.js",
+    "test": "tap test/*-test.js "
+  },
+  "license": "MIT"
+}

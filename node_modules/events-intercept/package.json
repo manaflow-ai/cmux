@@ -1,0 +1,40 @@
+{
+  "name": "events-intercept",
+  "version": "2.0.0",
+  "description": "event interceptors - like middleware for EventEmitter",
+  "main": "lib/events-intercept.js",
+  "scripts": {
+    "test": "mocha test",
+    "posttest": "istanbul cover _mocha -- -R spec",
+    "coveralls": "istanbul cover _mocha --report lcovonly -- -R spec && cat ./coverage/lcov.info | coveralls && rm -rf ./coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brandonhorst/events-intercept.git"
+  },
+  "keywords": [
+    "event",
+    "events",
+    "emit",
+    "intercept",
+    "tap",
+    "hook",
+    "report",
+    "mutate",
+    "EventEmitter"
+  ],
+  "author": "@brandonhorst",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/brandonhorst/events-intercept/issues"
+  },
+  "homepage": "https://github.com/brandonhorst/events-intercept",
+  "devDependencies": {
+    "chai": "^1.10.0",
+    "coveralls": "^2.11.2",
+    "istanbul": "^0.3.5",
+    "mocha": "^2.1.0",
+    "sinon": "^1.12.2",
+    "sinon-chai": "^2.6.0"
+  }
+}

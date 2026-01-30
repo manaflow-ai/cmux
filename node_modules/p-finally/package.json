@@ -1,0 +1,39 @@
+{
+	"name": "p-finally",
+	"version": "2.0.1",
+	"description": "`Promise#finally()` ponyfill - Invoked when the promise is settled regardless of outcome",
+	"license": "MIT",
+	"repository": "sindresorhus/p-finally",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "sindresorhus.com"
+	},
+	"engines": {
+		"node": ">=8"
+	},
+	"scripts": {
+		"test": "xo && ava"
+	},
+	"files": [
+		"index.js"
+	],
+	"keywords": [
+		"promise",
+		"finally",
+		"handler",
+		"function",
+		"async",
+		"await",
+		"promises",
+		"settled",
+		"ponyfill",
+		"polyfill",
+		"shim",
+		"bluebird"
+	],
+	"devDependencies": {
+		"ava": "^1.4.1",
+		"xo": "^0.24.0"
+	}
+}

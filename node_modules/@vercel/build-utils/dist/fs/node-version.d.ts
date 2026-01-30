@@ -1,0 +1,13 @@
+import { BunVersion, NodeVersion, Version } from '../types';
+export type NodeVersionMajor = ReturnType<typeof getOptions>[number]['major'];
+export declare const NODE_VERSIONS: NodeVersion[];
+export declare const BUN_VERSIONS: BunVersion[];
+export declare function getNodeVersionByMajor(major: number): NodeVersion | undefined;
+declare function getOptions(): NodeVersion[];
+export declare function getAvailableNodeVersions(): NodeVersionMajor[];
+export declare function getLatestNodeVersion(availableVersions?: NodeVersionMajor[]): NodeVersion;
+export declare function getDiscontinuedNodeVersions(): NodeVersion[];
+export declare function getSupportedNodeVersion(engineRange: string | undefined, isAuto?: boolean, availableVersions?: NodeVersionMajor[]): Promise<NodeVersion>;
+export declare function getSupportedBunVersion(engineRange: string): BunVersion;
+export declare function isBunVersion(version: Version): boolean;
+export {};

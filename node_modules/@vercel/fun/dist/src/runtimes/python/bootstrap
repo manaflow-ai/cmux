@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+# `PYTHONPATH` is *not* a restricted env var, so only set the
+# default one if the user did not provide one of their own
+if [ -z "${PYTHONPATH-}" ]; then
+	export PYTHONPATH="$LAMBDA_RUNTIME_DIR"
+fi
+
+exec python "$LAMBDA_RUNTIME_DIR/bootstrap.py"

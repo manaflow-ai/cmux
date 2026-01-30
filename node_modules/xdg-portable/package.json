@@ -1,0 +1,139 @@
+{
+	"name": "xdg-portable",
+	"version": "7.3.0",
+	"description": "Generate portable XDG Base Directory paths",
+	"license": "MIT",
+	"repository": "rivy/js.xdg-portable",
+	"author": {
+		"name": "Roy Ivy III",
+		"email": "rivy.dev@gmail.com"
+	},
+	"engines": {
+		"node": ">= 6.0"
+	},
+	"files": [
+		"src/**/*",
+		"CHANGELOG.mkd",
+		"LICENSE",
+		"README.md"
+	],
+	"main": "src/lib/index.js",
+	"types": "src/lib/index.d.ts",
+	"keywords": [
+		"base",
+		"cache",
+		"common",
+		"config",
+		"cross-platform",
+		"data",
+		"directory",
+		"environment",
+		"linux",
+		"mac",
+		"macos",
+		"node6",
+		"osx",
+		"path",
+		"paths",
+		"portable",
+		"runtime",
+		"state",
+		"unix",
+		"windows",
+		"xdg"
+	],
+	"scripts": {
+		"# coverage # calcuate and display (or send) code coverage [alias: 'cov']": "",
+		"coverage": "run-s --silent _:max-node-8 && echo-cli \"[coverage] WARN Code coverage skipped [for NodeJS < v10]\" 1>&2 || run-s _:coverage",
+		"cov": "run-s coverage",
+		"cov:html": "nyc report --reporter=html",
+		"cov:send": "nyc report --reporter=text-lcov | codecov --disable=gcov --pipe",
+		"cov:text": "nyc report",
+		"cov:view": "run-s cov:html && cd coverage && open-cli index.html",
+		"# fix # fix package issues (automated/non-interactive)": "",
+		"fix": "run-s fix:*",
+		"# fix:lint # fix `ESLint` issues": "",
+		"fix:lint": "eslint . --fix",
+		"# fix:style # fix `Prettier` formatting issues": "",
+		"fix:style": "prettier . --write",
+		"# help # display help": "",
+		"help": "< package.json node -e \"s = {p:'',e:'npm'}; if (new String(process.env.npm_execpath).match(/yarn.js$/)) { s = {p:'\\n',e:'yarn'}; }; console.log('%susage: \\`%s run TARGET [TARGET..]\\`\\n\\nTARGETs:\\n', s.p, s.e); re = /^.*?\\x22(?:\\W+\\s*)([^#\\x22]+)\\s+#+\\s+([^#\\x22]+?)(\\s+#+)?\\x22.*$/; require('readline').createInterface({ input: process.stdin, output: process.stdout, terminal: false }).on('line', function(line){ if (match = re.exec(line)) { console.log('%s %s', match[1].padEnd(19), match[2]); } });\"",
+		"# lint # check for package code 'lint'": "",
+		"lint": "run-s --silent _:max-node-8 && echo-cli \"[lint] WARN Lint checks skipped [for NodeJS < v10]\" 1>&2 || run-p lint:*",
+		"# lint:lint # check for code 'lint' (using `ESLint`)": "",
+		"lint:lint": "eslint .",
+		"# lint:spell # check for spelling errors (using `cSpell`)": "",
+		"lint:spell": "cspell {eg,examples,src,test}/**/* CHANGELOG{,.md,.mkd} README{,.md,.mkd} --no-summary",
+		"# lint:style # check for format imperfections (using `Prettier`)": "",
+		"lint:style": "prettier . --list-different",
+		"# lint:types # check for type declaration errors (using `tsd`)": "",
+		"lint:types": "tsd",
+		"# test # test package": "",
+		"test": "run-s lint && run-p test:*",
+		"# test:code # test package code": "",
+		"test:code": "nyc --silent ava",
+		"# update:changelog # update CHANGELOG (using `git changelog ...`)": "",
+		"update:changelog": "run-s --silent _:update:changelog && echo-cli \"[update] info CHANGELOG updated\"",
+		"_:coverage": "is-ci && run-s cov:send || run-s cov:view",
+		"_:exists:git-changelog": "node -e \"if (!require('command-exists').sync('git-changelog')){process.exit(1);};\" || (echo-cli \"WARN `git-changelog` missing (try `go get -u github.com/rivy-go/git-changelog/cmd/git-changelog`)\" & exit 1)",
+		"_:max-node-8": "is-node-not-modern 10",
+		"_:min-node-10": "is-node-modern 10",
+		"_:vcs-clean": "git diff --quiet",
+		"_:vcs-clean-err": "run-s --silent _:vcs-clean || (echo-cli \"[vcs] ERR! Uncommitted changes\" 1>&2 & exit 1)",
+		"_:vcs-strictly-clean": "git status --porcelain | node -e \"process.stdin.on('data',function(_){process.exit(1);});\"",
+		"_:vcs-strictly-clean-err": "run-s --silent _:vcs-strictly-clean || (echo-cli \"[vcs] ERR! Uncommitted changes and/or untracked files\" 1>&2 & exit 1)",
+		"_:update:changelog": "run-s --silent _:exists:git-changelog && git changelog > CHANGELOG.mkd || echo-cli \"[update] info CHANGELOG not updated\" 1>&2",
+		"_:version:update:changelog": "run-s --silent _:exists:git-changelog && node -e \"v=require('./package.json').version; result=require('child_process').spawnSync('git changelog --next-tag v'+v,{shell:true,encoding:'utf-8'}); if (result.status != 0) {console.error('ERR! '+result.stderr); process.exit(1);} else {require('fs').writeFileSync('CHANGELOG.mkd',result.stdout);};\" || echo-cli \"[version] WARN CHANGELOG not updated\" 1>&2",
+		"prepublishOnly": "run-s update:* test _:vcs-strictly-clean-err",
+		"preversion": "run-s test",
+		"version": "run-s _:version:update:changelog lint:spell && git add CHANGELOG.mkd"
+	},
+	"dependencies": {
+		"os-paths": "^4.0.1"
+	},
+	"devDependencies:#": "* for testing, Node-v6 requires ava < v2 and nyc < v15",
+	"devDependencies": {
+		"ava": "^1.4.1",
+		"codecov": "^3.5.0",
+		"command-exists": "^1.2.9",
+		"coveralls": "^3.0.5",
+		"cross-spawn": "^6.0.5",
+		"cspell": "^4.1.2",
+		"echo-cli": "^1.0.8",
+		"eslint": "^7.11.0",
+		"eslint-config-prettier": "^6.11.0",
+		"eslint-plugin-eslint-comments": "^3.2.0",
+		"eslint-plugin-import": "^2.22.0",
+		"is-ci": "^2.0.0",
+		"is-node-modern": "^1.0.0",
+		"npm-run-all": "^4.1.5",
+		"nyc": "^14.1.1",
+		"open-cli": "^6.0.1",
+		"prettier": "^2.1.1",
+		"tsd": "^0.13.1"
+	},
+	"optionalDependencies": {},
+	"prettier # overrides/[*.markdown]/tabWidth": "// set to 4 when https://github.com/prettier/prettier/issues/5019 is fixed",
+	"prettier": {
+		"printWidth": 100,
+		"singleQuote": true,
+		"useTabs": true,
+		"tabWidth": 2,
+		"overrides": [
+			{
+				"files": [
+					"*.md",
+					"*.mkd",
+					"*.markdown"
+				],
+				"options": {
+					"tabWidth": 2,
+					"useTabs": false
+				}
+			}
+		]
+	},
+	"tsd": {
+		"directory": "test"
+	}
+}
