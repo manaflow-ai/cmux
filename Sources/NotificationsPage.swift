@@ -45,6 +45,9 @@ struct NotificationsPage: View {
     }
 
     private func setInitialFocus() {
+        // Only set focus when the notifications page is visible
+        // to avoid stealing focus from the terminal when notifications arrive
+        guard selection == .notifications else { return }
         guard let firstId = notificationStore.notifications.first?.id else {
             focusedNotificationId = nil
             return
@@ -128,7 +131,7 @@ private struct NotificationRow: View {
                                 .font(.headline)
                                 .foregroundColor(.primary)
                             Spacer()
-                            Text(notification.createdAt, style: .time)
+                            Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

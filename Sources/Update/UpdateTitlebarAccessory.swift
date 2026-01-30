@@ -79,8 +79,12 @@ private struct TitlebarAccessoryView: View {
     @ObservedObject var model: UpdateViewModel
 
     var body: some View {
+        #if DEBUG
         UpdatePill(model: model)
-        .padding(.trailing, 8)
+            .padding(.trailing, 8)
+        #else
+        EmptyView()
+        #endif
     }
 }
 
@@ -208,9 +212,7 @@ private struct NotificationsAnchorView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            onResolve(nsView)
-        }
+        // Only need to resolve once in makeNSView - the view reference doesn't change
     }
 }
 
@@ -417,6 +419,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             notificationsPopover.performClose(nil)
             return
         }
+        // Recreate content view each time to avoid stale observers when popover is hidden
+        notificationsPopover.contentViewController = NSHostingController(
+            rootView: NotificationsPopoverView(
+                notificationStore: notificationStore,
+                onDismiss: { [weak notificationsPopover] in
+                    notificationsPopover?.performClose(nil)
+                }
+            )
+        )
         let anchorView = viewModel.notificationsAnchorView ?? hostingView
         notificationsPopover.animates = animated
         notificationsPopover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
@@ -427,15 +438,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         popover.behavior = .semitransient
         popover.animates = true
         popover.delegate = self
-        popover.contentViewController = NSHostingController(
-            rootView: NotificationsPopoverView(
-                notificationStore: notificationStore,
-                onDismiss: { [weak popover] in
-                    popover?.performClose(nil)
-                }
-            )
-        )
+        // Content view controller is set dynamically in toggleNotificationsPopover
         return popover
+    }
+
+    // MARK: - NSPopoverDelegate
+
+    func popoverDidClose(_ notification: Notification) {
+        // Clear the content view controller to stop SwiftUI observers when popover is hidden
+        notificationsPopover.contentViewController = nil
     }
 }
 
@@ -557,7 +568,7 @@ private struct NotificationPopoverRow: View {
                                 .font(.headline)
                                 .foregroundColor(.primary)
                             Spacer()
-                            Text(notification.createdAt, style: .time)
+                            Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

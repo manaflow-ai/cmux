@@ -20,6 +20,7 @@ final class UpdateLogStore {
     }
 
     func append(_ message: String) {
+        #if DEBUG
         let timestamp = formatter.string(from: Date())
         let line = "[\(timestamp)] \(message)"
         queue.async { [weak self] in
@@ -30,6 +31,7 @@ final class UpdateLogStore {
             }
             appendToFile(line: line)
         }
+        #endif
     }
 
     func snapshot() -> String {
