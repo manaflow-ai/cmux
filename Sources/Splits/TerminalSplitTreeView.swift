@@ -58,30 +58,16 @@ fileprivate struct TerminalSplitSubtreeView: View {
         switch node {
         case .leaf(let surface):
             let isFocused = isTabActive && focusedSurfaceId == surface.id
-            ZStack(alignment: .topLeading) {
-                GhosttyTerminalView(
-                    terminalSurface: surface,
-                    isActive: isFocused,
-                    onFocus: { _ in onFocus(surface.id) },
-                    onTriggerFlash: { onTriggerFlash(surface.id) }
-                )
-                .background(Color.clear)
-
-                if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
-                    Rectangle()
-                        .fill(appearance.unfocusedOverlayColor)
-                        .opacity(appearance.unfocusedOverlayOpacity)
-                        .allowsHitTesting(false)
-                }
-
-                if notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surface.id) {
-                    Rectangle()
-                        .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
-                        .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 3)
-                        .padding(2)
-                        .allowsHitTesting(false)
-                }
-            }
+            TerminalSurfaceView(
+                surface: surface,
+                isFocused: isFocused,
+                isSplit: isSplit,
+                appearance: appearance,
+                tabId: tabId,
+                notificationStore: notificationStore,
+                onFocus: { onFocus(surface.id) },
+                onTriggerFlash: { onTriggerFlash(surface.id) }
+            )
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch split.direction {
             case .horizontal: .horizontal
@@ -141,4 +127,53 @@ private struct SplitAppearance {
     let dividerColor: Color
     let unfocusedOverlayColor: Color
     let unfocusedOverlayOpacity: Double
+}
+
+private struct TerminalSurfaceView: View {
+    @ObservedObject var surface: TerminalSurface
+    let isFocused: Bool
+    let isSplit: Bool
+    let appearance: SplitAppearance
+    let tabId: UUID
+    let notificationStore: TerminalNotificationStore
+    let onFocus: () -> Void
+    let onTriggerFlash: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            GhosttyTerminalView(
+                terminalSurface: surface,
+                isActive: isFocused,
+                onFocus: { _ in onFocus() },
+                onTriggerFlash: onTriggerFlash
+            )
+            .background(Color.clear)
+
+            if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
+                Rectangle()
+                    .fill(appearance.unfocusedOverlayColor)
+                    .opacity(appearance.unfocusedOverlayOpacity)
+                    .allowsHitTesting(false)
+            }
+
+            if notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surface.id) {
+                Rectangle()
+                    .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
+                    .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 3)
+                    .padding(2)
+                    .allowsHitTesting(false)
+            }
+
+            if let searchState = surface.searchState {
+                SurfaceSearchOverlay(
+                    surface: surface,
+                    searchState: searchState,
+                    onClose: {
+                        surface.searchState = nil
+                        surface.hostedView.moveFocus()
+                    }
+                )
+            }
+        }
+    }
 }

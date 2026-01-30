@@ -132,6 +132,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sendTextWhenReady(command, to: tab)
     }
 
+    @objc func openDebugLoremTab(_ sender: Any?) {
+        guard let tabManager else { return }
+        let tab = tabManager.addTab()
+        let lineCount = 2000
+        let base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore."
+        var lines: [String] = []
+        lines.reserveCapacity(lineCount)
+        for index in 1...lineCount {
+            lines.append(String(format: "%04d %@", index, base))
+        }
+        let payload = lines.joined(separator: "\n") + "\n"
+        sendTextWhenReady(payload, to: tab)
+    }
+
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
         let maxAttempts = 60
         if let surface = tab.focusedSurface, surface.surface != nil {

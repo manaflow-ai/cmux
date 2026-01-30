@@ -9,11 +9,39 @@ extension View {
     var backport: Backport<Self> { Backport(content: self) }
 }
 
+extension Scene {
+    var backport: Backport<Self> { Backport(content: self) }
+}
+
+/// Result type for backported onKeyPress handler
+enum BackportKeyPressResult {
+    case handled
+    case ignored
+}
+
 extension Backport where Content: View {
     func pointerStyle(_ style: BackportPointerStyle?) -> some View {
         #if canImport(AppKit)
         if #available(macOS 15, *) {
             return content.pointerStyle(style?.official)
+        } else {
+            return content
+        }
+        #else
+        return content
+        #endif
+    }
+
+    /// Backported onKeyPress that works on macOS 14+ and is a no-op on macOS 13.
+    func onKeyPress(_ key: KeyEquivalent, action: @escaping (EventModifiers) -> BackportKeyPressResult) -> some View {
+        #if canImport(AppKit)
+        if #available(macOS 14, *) {
+            return content.onKeyPress(key, phases: .down, action: { keyPress in
+                switch action(keyPress.modifiers) {
+                case .handled: return .handled
+                case .ignored: return .ignored
+                }
+            })
         } else {
             return content
         }
