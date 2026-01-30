@@ -617,6 +617,17 @@ class TerminalSurface: Identifiable {
         hostedView.attachSurface(self)
     }
 
+    private func scaleFactors(for view: GhosttyNSView) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
+        let layerScale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        guard view.bounds.width > 0 && view.bounds.height > 0 else {
+            return (layerScale, layerScale, layerScale)
+        }
+        let backingBounds = view.convertToBacking(view.bounds)
+        let xScale = backingBounds.width / view.bounds.width
+        let yScale = backingBounds.height / view.bounds.height
+        return (xScale, yScale, layerScale)
+    }
+
     func attachToView(_ view: GhosttyNSView) {
         // If already attached to this view, nothing to do
         if attachedView === view && surface != nil {
@@ -642,7 +653,7 @@ class TerminalSurface: Identifiable {
             return
         }
 
-        let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let scaleFactors = scaleFactors(for: view)
 
         updateMetalLayer(for: view)
 
@@ -650,7 +661,7 @@ class TerminalSurface: Identifiable {
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform.macos.nsview = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
-        surfaceConfig.scale_factor = scale
+        surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
         var envVars: [ghostty_env_var_s] = []
         var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
@@ -726,11 +737,11 @@ class TerminalSurface: Identifiable {
             return
         }
 
-        ghostty_surface_set_content_scale(surface, scale, scale)
+        ghostty_surface_set_content_scale(surface, scaleFactors.x, scaleFactors.y)
         ghostty_surface_set_size(
             surface,
-            UInt32(view.bounds.width * scale),
-            UInt32(view.bounds.height * scale)
+            UInt32(view.bounds.width * scaleFactors.x),
+            UInt32(view.bounds.height * scaleFactors.y)
         )
         ghostty_surface_refresh(surface)
         if !ownsDisplayLink {
@@ -740,7 +751,7 @@ class TerminalSurface: Identifiable {
     }
 
     private func updateMetalLayer(for view: GhosttyNSView) {
-        let scale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         if let metalLayer = view.layer as? CAMetalLayer {
             metalLayer.contentsScale = scale
             if view.bounds.width > 0 && view.bounds.height > 0 {
@@ -752,15 +763,15 @@ class TerminalSurface: Identifiable {
         }
     }
 
-    func updateSize(width: CGFloat, height: CGFloat, scale: CGFloat) {
+    func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
         guard let surface = surface else { return }
-        ghostty_surface_set_content_scale(surface, scale, scale)
-        ghostty_surface_set_size(surface, UInt32(width * scale), UInt32(height * scale))
+        ghostty_surface_set_content_scale(surface, xScale, yScale)
+        ghostty_surface_set_size(surface, UInt32(width * xScale), UInt32(height * yScale))
         ghostty_surface_refresh(surface)
 
         if let view = attachedView, let metalLayer = view.layer as? CAMetalLayer {
-            metalLayer.contentsScale = scale
-            metalLayer.drawableSize = CGSize(width: width * scale, height: height * scale)
+            metalLayer.contentsScale = layerScale
+            metalLayer.drawableSize = CGSize(width: width * layerScale, height: height * layerScale)
         }
     }
 
@@ -819,6 +830,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTables: [String] = []
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
+    private var windowObserver: NSObjectProtocol?
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -928,7 +940,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil {
+        if let windowObserver {
+            NotificationCenter.default.removeObserver(windowObserver)
+            self.windowObserver = nil
+        }
+        if let window {
+            windowObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] notification in
+                self?.windowDidChangeScreen(notification)
+            }
             attachSurfaceIfNeeded()
             updateSurfaceSize()
             applySurfaceBackground()
@@ -938,6 +961,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        if let window {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = window.backingScaleFactor
+            CATransaction.commit()
+        }
         updateSurfaceSize()
     }
 
@@ -956,8 +985,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func updateSurfaceSize() {
         guard let terminalSurface = terminalSurface else { return }
-        let scale = window?.screen?.backingScaleFactor ?? 2.0
-        terminalSurface.updateSize(width: bounds.width, height: bounds.height, scale: scale)
+        guard bounds.width > 0 && bounds.height > 0 else { return }
+        let backingBounds = convertToBacking(bounds)
+        let xScale = backingBounds.width / bounds.width
+        let yScale = backingBounds.height / bounds.height
+        let layerScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        terminalSurface.updateSize(
+            width: bounds.width,
+            height: bounds.height,
+            xScale: xScale,
+            yScale: yScale,
+            layerScale: layerScale
+        )
     }
 
     // Convenience accessor for the ghostty surface
@@ -1512,6 +1551,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
+        if let windowObserver {
+            NotificationCenter.default.removeObserver(windowObserver)
+        }
         terminalSurface = nil
     }
 
@@ -1537,6 +1579,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             addTrackingArea(trackingArea)
         }
+    }
+
+    private func windowDidChangeScreen(_ notification: Notification) {
+        guard let window else { return }
+        guard let object = notification.object as? NSWindow, window == object else { return }
+        guard let screen = window.screen else { return }
+        guard let surface = terminalSurface?.surface else { return }
+
+        ghostty_surface_set_display_id(surface, screen.displayID ?? 0)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.viewDidChangeBackingProperties()
+        }
+    }
+}
+
+private extension NSScreen {
+    var displayID: UInt32? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
     }
 }
 
