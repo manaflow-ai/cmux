@@ -584,8 +584,14 @@ class TabManager: ObservableObject {
 
     func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) {
         let wasSelected = selectedTabId == tabId
+        let desiredSurfaceId = surfaceId ?? tabs.first(where: { $0.id == tabId })?.focusedSurfaceId
+#if DEBUG
+        if let desiredSurfaceId {
+            AppDelegate.shared?.armJumpUnreadFocusRecord(tabId: tabId, surfaceId: desiredSurfaceId)
+        }
+#endif
         suppressFocusFlash = true
-        focusTab(tabId)
+        focusTab(tabId, surfaceId: desiredSurfaceId, suppressFlash: true)
         if wasSelected {
             suppressFocusFlash = false
         }
@@ -593,7 +599,7 @@ class TabManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self,
                   let tab = self.tabs.first(where: { $0.id == tabId }) else { return }
-            let targetSurfaceId = surfaceId ?? tab.focusedSurfaceId
+            let targetSurfaceId = desiredSurfaceId ?? tab.focusedSurfaceId
             guard let targetSurfaceId,
                   tab.surface(for: targetSurfaceId) != nil else { return }
             guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
