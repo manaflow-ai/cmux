@@ -50,6 +50,11 @@ jobs:
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
           test -d GhosttyKit.xcframework
 
+      - name: Clean DerivedData
+        run: |
+          # Remove stale build cache to avoid incremental build errors
+          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+
       - name: Run UI tests
         run: |
           set -euo pipefail
