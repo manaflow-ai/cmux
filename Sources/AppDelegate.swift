@@ -1,6 +1,7 @@
 import AppKit
 import CoreServices
 import UserNotifications
+import Sentry
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -23,6 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SentrySDK.start { options in
+            options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+            options.debug = true
+            options.sendDefaultPii = true
+        }
+
         registerLaunchServicesBundle()
         enforceSingleInstance()
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -75,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdates()
     }
 
+    #if DEBUG
     @objc func showUpdatePill(_ sender: Any?) {
         updateViewModel.overrideState = .notFound(.init(acknowledgement: {}))
     }
@@ -103,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
     }
+    #endif
 
 #if DEBUG
     @objc func openDebugScrollbackTab(_ sender: Any?) {
@@ -127,6 +136,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.sendTextWhenReady(text, to: tab, attempt: attempt + 1)
         }
+    }
+
+    @objc func triggerSentryTestCrash(_ sender: Any?) {
+        SentrySDK.crash()
     }
 #endif
 

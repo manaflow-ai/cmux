@@ -123,6 +123,7 @@ struct cmuxApp: App {
                 }
             }
 
+#if DEBUG
             CommandMenu("Update Pill") {
                 Button("Show Update Pill") {
                     appDelegate.showUpdatePill(nil)
@@ -143,6 +144,7 @@ struct cmuxApp: App {
                     appDelegate.copyUpdateLogs(nil)
                 }
             }
+#endif
 
 #if DEBUG
             CommandMenu("Debug") {
@@ -156,6 +158,12 @@ struct cmuxApp: App {
                     ForEach(TitlebarControlsStyle.allCases) { style in
                         Text(style.menuTitle).tag(style.rawValue)
                     }
+                }
+
+                Divider()
+
+                Button("Trigger Sentry Test Crash") {
+                    appDelegate.triggerSentryTestCrash(nil)
                 }
             }
 #endif

@@ -18,6 +18,7 @@
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
+		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A50010A4 /* SplitTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A0 /* SplitTree.swift */; };
 		A50010A5 /* SplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A1 /* SplitView.swift */; };
 		A50010A6 /* TerminalSplitTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50010A2 /* TerminalSplitTreeView.swift */; };
@@ -137,6 +138,7 @@
 			files = (
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
 				A5001230 /* Sparkle in Frameworks */,
+				A5001250 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,6 +305,7 @@
 			);
 			packageProductDependencies = (
 				A5001231 /* Sparkle */,
+				A5001251 /* Sentry */,
 			);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -364,6 +367,7 @@
 			mainGroup = A5001040;
 			packageReferences = (
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -668,6 +672,14 @@
 				minimumVersion = 2.5.1;
 			};
 		};
+		A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.3.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -675,6 +687,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		A5001251 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 /* End XCSwiftPackageProductDependency section */
 
