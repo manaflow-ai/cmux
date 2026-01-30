@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A split view shows a left and right (or top and bottom) view with a divider in the middle to do resizing.
@@ -141,6 +142,16 @@ private struct Divider: View {
     let invisibleSize: CGFloat
     let color: Color
     @Binding var split: CGFloat
+    @State private var isHovering = false
+
+    private var pointerStyle: BackportPointerStyle {
+        switch direction {
+        case .horizontal:
+            return .resizeLeftRight
+        case .vertical:
+            return .resizeUpDown
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -155,6 +166,33 @@ private struct Divider: View {
         }
         .frame(width: direction == .horizontal ? invisibleSize : nil,
                height: direction == .vertical ? invisibleSize : nil)
+        .contentShape(Rectangle())
+        .backport.pointerStyle(pointerStyle)
+        .onHover { hovering in
+            if #available(macOS 15, *) {
+                return
+            }
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+            if hovering {
+                switch direction {
+                case .horizontal:
+                    NSCursor.resizeLeftRight.push()
+                case .vertical:
+                    NSCursor.resizeUpDown.push()
+                }
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .onDisappear {
+            if #available(macOS 15, *) {
+                return
+            }
+            guard isHovering else { return }
+            isHovering = false
+            NSCursor.pop()
+        }
     }
 }
 

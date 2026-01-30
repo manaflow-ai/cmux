@@ -1,0 +1,33 @@
+{
+  "name": "micro",
+  "version": "9.3.5-canary.3",
+  "description": "Asynchronous HTTP microservices",
+  "license": "MIT",
+  "main": "./lib/index.js",
+  "types": "./micro.d.ts",
+  "files": [
+    "bin",
+    "lib",
+    "micro.d.ts"
+  ],
+  "bin": {
+    "micro": "./bin/micro.js"
+  },
+  "engines": {
+    "node": ">= 8.0.0"
+  },
+  "repository": "zeit/micro",
+  "keywords": [
+    "micro",
+    "service",
+    "microservice",
+    "serverless",
+    "API"
+  ],
+  "dependencies": {
+    "arg": "4.1.0",
+    "content-type": "1.0.4",
+    "raw-body": "2.4.1"
+  },
+  "gitHead": "5d4b6748fa6e005579423a1d12cc838340117bc4"
+}

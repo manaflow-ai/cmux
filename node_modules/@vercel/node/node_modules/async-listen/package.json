@@ -1,0 +1,58 @@
+{
+  "name": "async-listen",
+  "description": "`net.Server#listen()` helper that returns a Promise for async / await",
+  "homepage": "https://github.com/vercel/async-listen#readme",
+  "version": "3.0.0",
+  "main": "./dist/index.js",
+  "contributors": [
+    {
+      "name": "Ethan Arrowood",
+      "email": "ethan.arrowood@vercel.com"
+    },
+    {
+      "name": "Nathan Rajlich",
+      "email": "nathan@tootallnate.net"
+    },
+    {
+      "name": "Kiko Beats",
+      "email": "josefrancisco.verdu@gmail.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/vercel/async-listen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel/async-listen/issues"
+  },
+  "keywords": [
+    "async",
+    "await",
+    "es6",
+    "http",
+    "listen",
+    "net",
+    "promise",
+    "server"
+  ],
+  "devDependencies": {
+    "@types/node": "^18.15.10",
+    "@types/tap": "^15.0.8",
+    "tap": "^16.3.4",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.2"
+  },
+  "engines": {
+    "node": ">= 14"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublish": "tsc",
+    "test": "tap --no-check-coverage --ts"
+  },
+  "license": "MIT",
+  "types": "./dist/index.d.ts"
+}

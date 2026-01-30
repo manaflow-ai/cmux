@@ -1,0 +1,32 @@
+{
+  "name": "@vercel/static-config",
+  "version": "3.1.2",
+  "license": "Apache-2.0",
+  "main": "./dist/index",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel/vercel.git",
+    "directory": "packages/static-config"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "ajv": "8.6.3",
+    "json-schema-to-ts": "1.6.4",
+    "ts-morph": "12.0.0"
+  },
+  "devDependencies": {
+    "@swc/core": "1.2.182",
+    "@types/jest": "27.4.1",
+    "@types/node": "14.18.33",
+    "jest-junit": "16.0.0",
+    "typescript": "4.9.5"
+  },
+  "scripts": {
+    "build": "node ../../utils/build.mjs",
+    "test-unit": "pnpm test",
+    "test": "jest --reporters=default --reporters=jest-junit --env node --verbose --runInBand --bail",
+    "type-check": "tsc --noEmit"
+  }
+}

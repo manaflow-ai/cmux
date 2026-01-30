@@ -1,0 +1,53 @@
+{
+  "name": "async-sema",
+  "version": "3.1.1",
+  "description": "Semaphore using `async` and `await`",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/async-sema.git"
+  },
+  "author": "Olli Vanhoja",
+  "keywords": [
+    "semaphore",
+    "async",
+    "await"
+  ],
+  "homepage": "https://github.com/vercel/async-sema",
+  "bugs": {
+    "url": "https://github.com/vercel/async-sema/issues"
+  },
+  "license": "MIT",
+  "files": [
+    "lib"
+  ],
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "lint:staged": "lint-staged",
+    "prepublishOnly": "yarn build",
+    "prettier": "prettier --write --single-quote './{src,test}/**/*.ts'",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/jest": "27.0.1",
+    "@types/node": "16.6.1",
+    "jest": "27.0.6",
+    "lint-staged": "11.1.2",
+    "pre-commit": "1.2.2",
+    "prettier": "2.3.2",
+    "ts-jest": "27.0.4",
+    "typescript": "4.3.5"
+  },
+  "pre-commit": "lint:staged",
+  "lint-staged": {
+    "*.{js,ts}": [
+      "prettier --write --single-quote",
+      "git add"
+    ]
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "verbose": false,
+    "testURL": "http://localhost/"
+  }
+}

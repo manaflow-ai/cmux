@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+# Credit: https://github.com/lambci/node-custom-lambda/blob/master/v10.x/bootstrap
+
+# `NODE_PATH` is *not* a restricted env var, so only set the
+# default one if the user did not provide one of their own
+if [ -z "${NODE_PATH-}" ]; then
+	export NODE_PATH="/opt/nodejs/node8/node_modules:/opt/nodejs/node_modules:${LAMBDA_RUNTIME_DIR}/node_modules:${LAMBDA_RUNTIME_DIR}:${LAMBDA_TASK_ROOT}"
+fi
+
+exec node \
+  --expose-gc \
+  --max-semi-space-size=$((AWS_LAMBDA_FUNCTION_MEMORY_SIZE * 5 / 100)) \
+  --max-old-space-size=$((AWS_LAMBDA_FUNCTION_MEMORY_SIZE * 90 / 100)) \
+  "$LAMBDA_RUNTIME_DIR/bootstrap.js"

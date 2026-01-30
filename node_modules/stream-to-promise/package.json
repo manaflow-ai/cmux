@@ -1,0 +1,40 @@
+{
+  "name": "stream-to-promise",
+  "version": "2.2.0",
+  "description": "Convert streams (readable or writable) to promises",
+  "main": "index.js",
+  "scripts": {
+    "test": "standard && mocha test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/bendrucker/stream-to-promise.git"
+  },
+  "keywords": [
+    "stream",
+    "promise"
+  ],
+  "author": "Ben Drucker <bvdrucker@gmail.com> (http://www.bendrucker.me)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bendrucker/stream-to-promise/issues"
+  },
+  "homepage": "https://github.com/bendrucker/stream-to-promise",
+  "dependencies": {
+    "any-promise": "~1.3.0",
+    "end-of-stream": "~1.1.0",
+    "stream-to-array": "~2.3.0"
+  },
+  "devDependencies": {
+    "bluebird": "~3.4.1",
+    "chai": "^3.4.1",
+    "chai-as-promised": "^5.1.0",
+    "delayed-stream": "^1.0.0",
+    "mocha": "^2.3.4",
+    "rimraf": "^2.4.4",
+    "standard": "^7.1.2"
+  },
+  "files": [
+    "index.js"
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "name": "ts-morph",
+  "version": "12.0.0",
+  "description": "TypeScript compiler wrapper for static analysis and code manipulation.",
+  "main": "dist/ts-morph.js",
+  "typings": "lib/ts-morph.d.ts",
+  "scripts": {
+    "dopublish": "yarn type-check-docs && yarn package && yarn publish-code-verification && echo \"Run: npm publish --otp\"",
+    "build": "yarn build:declarations && yarn build:deno && yarn build:node",
+    "build:node": "rimraf dist && rollup -c ",
+    "build:deno": "rimraf dist-deno && rollup -c --environment BUILD:deno && ts-node scripts/buildDeno.ts",
+    "build:declarations": "ts-node --transpile-only scripts/generation/main create-declaration-file",
+    "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha",
+    "test:debug": "yarn test --inspect-brk",
+    "test:watch": "yarn test --watch-extensions ts --watch",
+    "test:ci": "yarn run test",
+    "test:ts-versions": "ts-node --transpile-only scripts/test/testTypeScriptVersions",
+    "test:coverage": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" nyc --reporter=lcov mocha",
+    "test:performance": "yarn build && node ./dist/tests/performance/run.js",
+    "test:performance-save": "yarn test:performance --save",
+    "type-check": "yarn type-check:library && yarn type-check:scripts",
+    "type-check:library": "ts-node --transpile-only scripts/typeCheckLibrary",
+    "type-check:scripts": "tsc --noEmit --project scripts/tsconfig.json",
+    "code-generate": "ts-node --transpile-only --compiler ttypescript scripts/generation/main",
+    "refactor": "ts-node --transpile-only scripts/refactor",
+    "output-wrapped-nodes": "ts-node --transpile-only scripts/generation/outputWrappedNodesInfo",
+    "package": "yarn build",
+    "publish-code-verification": "yarn code-verification && yarn ensure-no-declaration-file-errors",
+    "code-verification": "ts-node --transpile-only scripts/verification/main ensure-structures-match-classes ensure-overload-structures-match ensure-array-inputs-readonly ensure-classes-implement-structure-methods ensure-mixin-not-applied-multiple-times validate-public-api-class-member-names validate-compiler-node-to-wrapped-type validate-code-fences",
+    "ensure-structures-match-classes": "ts-node --transpile-only scripts/verification/main ensure-structures-match-classes",
+    "ensure-overload-structures-match": "ts-node --transpile-only scripts/verification/main ensure-overload-structures-match",
+    "ensure-no-project-compile-errors": "ts-node --transpile-only scripts/verification/ensureNoProjectCompileErrors",
+    "ensure-no-declaration-file-errors": "ts-node --transpile-only scripts/verification/ensureNoDeclarationFileErrors",
+    "ensure-array-inputs-readonly": "ts-node --transpile-only scripts/verification/main ensure-array-inputs-readonly",
+    "ensure-or-throw-exists": "ts-node --transpile-only scripts/verification/main ensure-or-throw-exists",
+    "type-check-docs": "ts-node --transpile-only scripts/typeCheckDocumentation.ts"
+  },
+  "repository": "git+https://github.com/dsherret/ts-morph.git",
+  "keywords": [
+    "typescript",
+    "ast",
+    "static analysis",
+    "code generation",
+    "code refactor"
+  ],
+  "author": "David Sherret",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dsherret/ts-morph/issues"
+  },
+  "homepage": "https://github.com/dsherret/ts-morph#readme",
+  "nyc": {
+    "extension": [
+      ".ts",
+      ".tsx"
+    ],
+    "include": [
+      "src/**/*.ts",
+      "!src/tests/**/*.ts",
+      "!src/structures/utils/forEachStructureChild.ts"
+    ],
+    "reporter": [
+      "html"
+    ],
+    "all": true
+  },
+  "dependencies": {
+    "@ts-morph/common": "~0.11.0",
+    "code-block-writer": "^10.1.1"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.2.21",
+    "@types/diff": "^5.0.1",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^16.7.2",
+    "@types/ts-nameof": "^4.2.1",
+    "@ts-morph/scripts": "~0.2.0",
+    "chai": "^4.3.4",
+    "conditional-type-checks": "^1.0.5",
+    "cross-env": "^7.0.3",
+    "diff": "^5.0.0",
+    "mocha": "9.1.0",
+    "nyc": "15.1.0",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.56.3",
+    "rollup-plugin-typescript2": "^0.30.0",
+    "ts-nameof": "^5.0.0",
+    "ts-node": "10.2.1",
+    "ttypescript": "1.5.12",
+    "typescript": "~4.4.2"
+  },
+  "standard-version": {
+    "tagPrefix": "",
+    "skip": {
+      "tag": true,
+      "commit": true
+    }
+  },
+  "browser": {
+    "fs": false,
+    "os": false,
+    "fs.realpath": false,
+    "mkdirp": false,
+    "dir-glob": false,
+    "graceful-fs": false,
+    "fast-glob": false,
+    "source-map-support": false,
+    "glob-parent": false,
+    "glob": false
+  }
+}

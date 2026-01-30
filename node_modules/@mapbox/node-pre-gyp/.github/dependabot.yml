@@ -1,0 +1,20 @@
+# For all possible configuration options see:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+
+# Note that limitations on version updates applied in this file don't apply to security updates,
+# which are separately managed by dependabot
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 20
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"

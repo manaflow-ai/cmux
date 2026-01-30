@@ -1,0 +1,54 @@
+{
+  "name": "@edge-runtime/ponyfill",
+  "description": "A ponyfill (doesn't overwrite the native methods) to use Edge Runtime APIs in any environment.",
+  "homepage": "https://edge-runtime.vercel.app/packages/ponyfill",
+  "version": "2.4.2",
+  "main": "src/index.js",
+  "module": "dist/index.mjs",
+  "repository": {
+    "directory": "packages/ponyfill",
+    "type": "git",
+    "url": "git+https://github.com/vercel/edge-runtime.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel/edge-runtime/issues"
+  },
+  "keywords": [
+    "apis",
+    "edge",
+    "edge-runtime",
+    "functions",
+    "polyfill",
+    "ponyfill",
+    "primitives",
+    "runtime",
+    "shim",
+    "standard",
+    "web"
+  ],
+  "devDependencies": {
+    "acorn": "8.11.3",
+    "acorn-loose": "8.4.0",
+    "acorn-walk": "8.3.2",
+    "@edge-runtime/jest-environment": "2.3.8",
+    "@edge-runtime/primitives": "4.0.6",
+    "@edge-runtime/vm": "3.1.8"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MPL-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "types": "src/index.d.ts",
+  "scripts": {
+    "clean": "rm -rf node_modules",
+    "test": "pnpm test:edge && pnpm test:node",
+    "test:edge": "EDGE_RUNTIME_EXISTS=true jest --env=@edge-runtime/jest-environment --testPathIgnorePatterns='.node.test.ts$'",
+    "test:node": "jest --env=node"
+  }
+}

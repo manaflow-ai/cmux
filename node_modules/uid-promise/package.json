@@ -1,0 +1,23 @@
+{
+  "name": "uid-promise",
+  "version": "1.0.0",
+  "description": "generates a cryptographically strong random uid",
+  "main": "lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "test": "xo && ava"
+  },
+  "repository": "zeit/uid-promise",
+  "license": "MIT",
+  "xo": {
+    "esnext": true,
+    "space": true,
+    "semicolon": false
+  },
+  "devDependencies": {
+    "ava": "0.19.1",
+    "xo": "0.17.0"
+  }
+}

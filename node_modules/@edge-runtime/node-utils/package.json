@@ -1,0 +1,50 @@
+{
+  "name": "@edge-runtime/node-utils",
+  "description": "A set of helpers for running edge-compliant code in Node.js environment",
+  "homepage": "https://edge-runtime.vercel.app/packages/node-utils",
+  "version": "2.3.0",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "repository": {
+    "directory": "packages/node-utils",
+    "type": "git",
+    "url": "git+https://github.com/vercel/edge-runtime.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel/edge-runtime/issues"
+  },
+  "keywords": [
+    "edge",
+    "edge-runtime",
+    "functions",
+    "node",
+    "runtime",
+    "standard",
+    "utils",
+    "web"
+  ],
+  "devDependencies": {
+    "@types/test-listen": "1.1.2",
+    "test-listen": "1.1.0",
+    "tsup": "8",
+    "@edge-runtime/primitives": "4.1.0"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MPL-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "clean:build": "rm -rf dist",
+    "clean:node": "rm -rf node_modules",
+    "prebuild": "pnpm run clean:build",
+    "test": "jest"
+  }
+}

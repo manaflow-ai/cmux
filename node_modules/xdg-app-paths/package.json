@@ -1,0 +1,56 @@
+{
+	"name": "xdg-app-paths",
+	"version": "5.1.0",
+	"description": "Generate portable (and XDG-compatible) paths for storing cache, config, data, etc",
+	"license": "MIT",
+	"repository": "rivy/js.xdg-app-paths",
+	"author": {
+		"name": "Roy Ivy III",
+		"email": "rivy.dev@gmail.com"
+	},
+	"engines": {
+		"node": ">=6"
+	},
+	"scripts": {
+		"coverage": "nyc report --reporter=text-lcov | codecov --disable=gcov --pipe",
+		"test": "xo && nyc --silent ava && tsd"
+	},
+	"files": [
+		"index.js",
+		"index.d.ts"
+	],
+	"keywords": [
+		"appdir",
+		"cache",
+		"common",
+		"config",
+		"data",
+		"dir",
+		"directory",
+		"env",
+		"environment",
+		"linux",
+		"logs",
+		"path",
+		"paths",
+		"temp",
+		"unix",
+		"user",
+		"windows",
+		"xdg"
+	],
+	"devDependencies": {
+		"ava": "^1.4.1",
+		"codecov": "^3.5.0",
+		"coveralls": "^3.0.5",
+		"eslint": "^6.1.0",
+		"lodash": "^4.17.11",
+		"nyc": "^14.1.1",
+		"tsd": "^0.7.1",
+		"util": "^0.12.1",
+		"xo": "^0.24.0"
+	},
+	"dependencies": {
+		"xdg-portable": "^7.0.0"
+	}
+}

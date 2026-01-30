@@ -1,0 +1,56 @@
+{
+  "name": "code-block-writer",
+  "version": "10.1.1",
+  "description": "A simple code writer that assists with formatting and visualizing blocks of code.",
+  "main": "dist/code-block-writer.js",
+  "typings": "dist/code-block-writer.d.ts",
+  "scripts": {
+    "test": "nyc --reporter=lcov mocha",
+    "test:debug": "cross-env TS_NODE_TRANSPILE_ONLY=\"true\" mocha --inspect-brk",
+    "build": "rimraf dist && tsc",
+    "format": "dprint",
+    "dopublish": "npm run build && echo \"Run: npm publish --otp\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsherret/code-block-writer.git"
+  },
+  "keywords": [
+    "typescript",
+    "writer",
+    "printer"
+  ],
+  "author": "David Sherret",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dsherret/code-block-writer/issues"
+  },
+  "homepage": "https://github.com/dsherret/code-block-writer#readme",
+  "nyc": {
+    "extension": [
+      ".ts",
+      ".tsx"
+    ],
+    "include": [
+      "src/**/*.ts",
+      "!src/tests/**/*.ts"
+    ],
+    "reporter": [
+      "html"
+    ],
+    "all": true
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/chai": "^4.2.12",
+    "@types/mocha": "^8.0.3",
+    "@types/node": "^14.6.0",
+    "chai": "^4.2.0",
+    "coveralls": "^3.1.0",
+    "cross-env": "^7.0.2",
+    "mocha": "^8.1.1",
+    "nyc": "^15.1.0",
+    "ts-node": "^8.10.2",
+    "typescript": "^4.0.2"
+  }
+}
