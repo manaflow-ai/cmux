@@ -55,6 +55,14 @@ jobs:
           rm -rf ~/Library/Caches/org.swift.swiftpm
           rm -rf ~/Library/Developer/Xcode/DerivedData
 
+      - name: Configure SwiftPM cache
+        run: |
+          set -euo pipefail
+          CACHE_DIR="${RUNNER_TEMP}/swiftpm-cache/${GITHUB_RUN_ID}"
+          rm -rf "$CACHE_DIR"
+          mkdir -p "$CACHE_DIR"
+          echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
+
       - name: Build app (Release)
         env:
           SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
