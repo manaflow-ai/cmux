@@ -148,6 +148,10 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                Button("New Tab With Lorem Search Text") {
+                    appDelegate.openDebugLoremTab(nil)
+                }
+
                 Button("New Tab With Large Scrollback") {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
@@ -197,6 +201,42 @@ struct cmuxApp: App {
                     tabManager.closeCurrentTabWithConfirmation()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
+            }
+
+            // Find
+            CommandGroup(after: .textEditing) {
+                Menu("Find") {
+                    Button("Find…") {
+                        tabManager.startSearch()
+                    }
+                    .keyboardShortcut("f", modifiers: .command)
+
+                    Button("Find Next") {
+                        tabManager.findNext()
+                    }
+                    .keyboardShortcut("g", modifiers: .command)
+
+                    Button("Find Previous") {
+                        tabManager.findPrevious()
+                    }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+
+                    Divider()
+
+                    Button("Hide Find Bar") {
+                        tabManager.hideFind()
+                    }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .disabled(!tabManager.isFindVisible)
+
+                    Divider()
+
+                    Button("Use Selection for Find") {
+                        tabManager.searchSelection()
+                    }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .disabled(!tabManager.canUseSelectionForFind)
+                }
             }
 
             // Tab navigation
