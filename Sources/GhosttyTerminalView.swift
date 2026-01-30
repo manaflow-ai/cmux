@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Metal
 import QuartzCore
+import Combine
 import Darwin
 
 private enum GhosttyPasteboardHelper {
@@ -472,6 +473,42 @@ class GhosttyApp {
                 userInfo: [GhosttyNotificationKey.cellSize: cellSize]
             )
             return true
+        case GHOSTTY_ACTION_START_SEARCH:
+            guard let terminalSurface = surfaceView.terminalSurface else { return true }
+            let needle = action.action.start_search.needle.flatMap { String(cString: $0) }
+            DispatchQueue.main.async {
+                if let searchState = terminalSurface.searchState {
+                    if let needle, !needle.isEmpty {
+                        searchState.needle = needle
+                    }
+                } else {
+                    terminalSurface.searchState = TerminalSurface.SearchState(needle: needle ?? "")
+                }
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            }
+            return true
+        case GHOSTTY_ACTION_END_SEARCH:
+            guard let terminalSurface = surfaceView.terminalSurface else { return true }
+            DispatchQueue.main.async {
+                terminalSurface.searchState = nil
+            }
+            return true
+        case GHOSTTY_ACTION_SEARCH_TOTAL:
+            guard let terminalSurface = surfaceView.terminalSurface else { return true }
+            let rawTotal = action.action.search_total.total
+            let total: UInt? = rawTotal >= 0 ? UInt(rawTotal) : nil
+            DispatchQueue.main.async {
+                terminalSurface.searchState?.total = total
+            }
+            return true
+        case GHOSTTY_ACTION_SEARCH_SELECTED:
+            guard let terminalSurface = surfaceView.terminalSurface else { return true }
+            let rawSelected = action.action.search_selected.selected
+            let selected: UInt? = rawSelected >= 0 ? UInt(rawSelected) : nil
+            DispatchQueue.main.async {
+                terminalSurface.searchState?.selected = selected
+            }
+            return true
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
@@ -587,7 +624,19 @@ class GhosttyApp {
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
-class TerminalSurface: Identifiable {
+final class TerminalSurface: Identifiable, ObservableObject {
+    final class SearchState: ObservableObject {
+        @Published var needle: String
+        @Published var selected: UInt?
+        @Published var total: UInt?
+
+        init(needle: String = "") {
+            self.needle = needle
+            self.selected = nil
+            self.total = nil
+        }
+    }
+
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
     let id: UUID
@@ -598,6 +647,35 @@ class TerminalSurface: Identifiable {
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var ownsDisplayLink = false
+    @Published var searchState: SearchState? = nil {
+        didSet {
+            if let searchState {
+                hostedView.cancelFocusRequest()
+                NSLog("Find: search state created tab=%@ surface=%@", tabId.uuidString, id.uuidString)
+                searchNeedleCancellable = searchState.$needle
+                    .removeDuplicates()
+                    .map { needle -> AnyPublisher<String, Never> in
+                        if needle.isEmpty || needle.count >= 3 {
+                            return Just(needle).eraseToAnyPublisher()
+                        }
+
+                        return Just(needle)
+                            .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+                            .eraseToAnyPublisher()
+                    }
+                    .switchToLatest()
+                    .sink { [weak self] needle in
+                        NSLog("Find: needle updated tab=%@ surface=%@ needle=%@", self?.tabId.uuidString ?? "unknown", self?.id.uuidString ?? "unknown", needle)
+                        _ = self?.performBindingAction("search:\(needle)")
+                    }
+            } else if oldValue != nil {
+                searchNeedleCancellable = nil
+                NSLog("Find: search state cleared tab=%@ surface=%@", tabId.uuidString, id.uuidString)
+                _ = performBindingAction("end_search")
+            }
+        }
+    }
+    private var searchNeedleCancellable: AnyCancellable?
 
     init(
         tabId: UUID,
@@ -802,6 +880,18 @@ class TerminalSurface: Identifiable {
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
+    }
+
+    func performBindingAction(_ action: String) -> Bool {
+        guard let surface = surface else { return false }
+        return action.withCString { cString in
+            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+        }
+    }
+
+    func hasSelection() -> Bool {
+        guard let surface = surface else { return false }
+        return ghostty_surface_has_selection(surface)
     }
 
     deinit {
@@ -1631,6 +1721,7 @@ enum GhosttyNotificationKey {
 extension Notification.Name {
     static let ghosttyDidUpdateScrollbar = Notification.Name("ghosttyDidUpdateScrollbar")
     static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
+    static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
@@ -1947,6 +2038,9 @@ final class GhosttySurfaceScrollView: NSView {
         guard let tabManager = AppDelegate.shared?.tabManager,
               tabManager.selectedTabId == tabId,
               tabManager.focusedSurfaceId(for: tabId) == surfaceId else { return }
+        if surfaceView.terminalSurface?.searchState != nil {
+            return
+        }
 
         guard let window else {
             scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
@@ -1984,6 +2078,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func requestFocus(delay: TimeInterval? = nil) {
         guard isActive else { return }
+        if surfaceView.terminalSurface?.searchState != nil {
+            return
+        }
         let maxDelay: TimeInterval = 0.5
         guard (delay ?? 0) < maxDelay else { return }
 
@@ -1997,6 +2094,9 @@ final class GhosttySurfaceScrollView: NSView {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard self.isActive else { return }
+            if self.surfaceView.terminalSurface?.searchState != nil {
+                return
+            }
             guard let window = self.window else {
                 self.requestFocus(delay: nextDelay)
                 return
@@ -2027,7 +2127,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    private func cancelFocusRequest() {
+    func cancelFocusRequest() {
         focusWorkItem?.cancel()
         focusWorkItem = nil
     }

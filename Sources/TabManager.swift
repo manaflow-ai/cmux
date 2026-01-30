@@ -301,6 +301,55 @@ class TabManager: ObservableObject {
         })
     }
 
+    var selectedTab: Tab? {
+        guard let selectedTabId else { return nil }
+        return tabs.first(where: { $0.id == selectedTabId })
+    }
+
+    var selectedSurface: TerminalSurface? {
+        selectedTab?.focusedSurface
+    }
+
+    var isFindVisible: Bool {
+        selectedSurface?.searchState != nil
+    }
+
+    var canUseSelectionForFind: Bool {
+        selectedSurface?.hasSelection() == true
+    }
+
+    func startSearch() {
+        guard let surface = selectedSurface else { return }
+        if surface.searchState == nil {
+            surface.searchState = TerminalSurface.SearchState()
+        }
+        NSLog("Find: startSearch tab=%@ surface=%@", surface.tabId.uuidString, surface.id.uuidString)
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: surface)
+        _ = surface.performBindingAction("start_search")
+    }
+
+    func searchSelection() {
+        guard let surface = selectedSurface else { return }
+        if surface.searchState == nil {
+            surface.searchState = TerminalSurface.SearchState()
+        }
+        NSLog("Find: searchSelection tab=%@ surface=%@", surface.tabId.uuidString, surface.id.uuidString)
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: surface)
+        _ = surface.performBindingAction("search_selection")
+    }
+
+    func findNext() {
+        _ = selectedSurface?.performBindingAction("search:next")
+    }
+
+    func findPrevious() {
+        _ = selectedSurface?.performBindingAction("search:previous")
+    }
+
+    func hideFind() {
+        selectedSurface?.searchState = nil
+    }
+
     func tickRender() {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
