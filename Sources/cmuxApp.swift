@@ -110,7 +110,7 @@ struct cmuxApp: App {
         Settings {
             SettingsRootView()
         }
-        .defaultSize(width: 460, height: 280)
+        .defaultSize(width: 460, height: 360)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -245,14 +245,12 @@ struct cmuxApp: App {
                 Divider()
 
                 Button("Jump to Latest Unread") {
-                    jumpToLatestUnread()
+                    AppDelegate.shared?.jumpToLatestUnread()
                 }
-                .keyboardShortcut("u", modifiers: [.command, .shift])
 
                 Button("Show Notifications") {
                     showNotificationsPopover()
                 }
-                .keyboardShortcut("i", modifiers: [.command, .shift])
             }
         }
     }
@@ -276,11 +274,6 @@ struct cmuxApp: App {
             NSApp.appearance = nil
             appearanceMode = AppearanceMode.system.rawValue
         }
-    }
-
-    private func jumpToLatestUnread() {
-        guard let notification = notificationStore.notifications.first(where: { !$0.isRead }) else { return }
-        tabManager.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
     }
 
     private func updateSocketController() {
@@ -352,7 +345,7 @@ private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmuxterm")
-    private let docsURL = URL(string: "https://github.com/manaflow-ai/cmuxterm#readme")
+    private let docsURL = URL(string: "https://term.cmux.dev")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -530,51 +523,93 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @State private var notificationsShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
+    @State private var jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Theme")
-                .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Theme")
+                    .font(.headline)
 
-            Picker("", selection: $appearanceMode) {
-                ForEach(AppearanceMode.visibleCases) { mode in
-                    Text(mode.displayName).tag(mode.rawValue)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-
-            Divider()
-
-            Text("Automation")
-                .font(.headline)
-
-            Picker("", selection: $socketControlMode) {
-                ForEach(SocketControlMode.allCases) { mode in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(mode.displayName)
-                        Text(mode.description)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                Picker("", selection: $appearanceMode) {
+                    ForEach(AppearanceMode.visibleCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
                     }
-                    .tag(mode.rawValue)
                 }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+
+                Divider()
+
+                Text("Keyboard Shortcuts")
+                    .font(.headline)
+
+                KeyboardShortcutRecorder(label: "Show Notifications", shortcut: $notificationsShortcut)
+                    .onChange(of: notificationsShortcut) { newValue in
+                        KeyboardShortcutSettings.setShowNotificationsShortcut(newValue)
+                    }
+
+                KeyboardShortcutRecorder(label: "Jump to Unread", shortcut: $jumpToUnreadShortcut)
+                    .onChange(of: jumpToUnreadShortcut) { newValue in
+                        KeyboardShortcutSettings.setJumpToUnreadShortcut(newValue)
+                    }
+
+                Text("Click to record a new shortcut.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
+                Text("Automation")
+                    .font(.headline)
+
+                Picker("", selection: $socketControlMode) {
+                    ForEach(SocketControlMode.allCases) { mode in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(mode.displayName)
+                            Text(mode.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                .accessibilityIdentifier("AutomationSocketModePicker")
+
+                Text("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
+                HStack {
+                    Spacer()
+                    Button("Reset All Settings") {
+                        resetAllSettings()
+                    }
+                    Spacer()
+                }
+                .padding(.top, 8)
             }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-            .accessibilityIdentifier("AutomationSocketModePicker")
-
-            Text("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Text("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .padding(20)
+            .padding(.top, 4)
         }
-        .padding(20)
-        .padding(.top, 4)
-        .frame(minWidth: 360, minHeight: 280)
+        .frame(minWidth: 420, minHeight: 360)
+    }
+
+    private func resetAllSettings() {
+        appearanceMode = AppearanceMode.dark.rawValue
+        socketControlMode = SocketControlSettings.defaultMode.rawValue
+        KeyboardShortcutSettings.resetAll()
+        notificationsShortcut = KeyboardShortcutSettings.showNotificationsDefault
+        jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadDefault
     }
 }
 
@@ -593,7 +628,7 @@ private struct SettingsRootView: View {
         window.titlebarAppearsTransparent = false
         window.styleMask.remove(.fullSizeContentView)
         window.styleMask.insert(.resizable)
-        window.contentMinSize = NSSize(width: 360, height: 280)
+        window.contentMinSize = NSSize(width: 420, height: 360)
         if window.toolbar == nil {
             let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.settings.toolbar"))
             toolbar.displayMode = .iconOnly
