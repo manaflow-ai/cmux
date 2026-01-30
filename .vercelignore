@@ -1,0 +1,19 @@
+# Large directories
+ghostty/
+.git/
+
+# Build artifacts
+build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+
+# Dependencies at root
+node_modules/
+
+# Other
+.build/
+*.framework/
+*.xcframework/
+scripts/
+tests/
