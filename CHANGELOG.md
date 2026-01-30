@@ -2,6 +2,17 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.13.0] - 2025-01-29
+
+### Added
+- Customizable keyboard shortcuts via Settings
+
+### Fixed
+- Find panel focus and search alignment with Ghostty behavior
+
+### Changed
+- Sentry environment now distinguishes between production and dev builds
+
 ## [1.12.0] - 2025-01-29
 
 ### Fixed
