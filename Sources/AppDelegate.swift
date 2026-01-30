@@ -10,9 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
     private var workspaceObserver: NSObjectProtocol?
+    private var shortcutMonitor: Any?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
+#if DEBUG
+    private var didSetupJumpUnreadUITest = false
+    private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
+#endif
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -40,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.startUpdater()
         titlebarAccessoryController.start()
         windowDecorationsController.start()
+        installShortcutMonitor()
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
@@ -75,6 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+#if DEBUG
+        setupJumpUnreadUITestIfNeeded()
+#endif
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -143,6 +152,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+#if DEBUG
+    private func setupJumpUnreadUITestIfNeeded() {
+        guard !didSetupJumpUnreadUITest else { return }
+        didSetupJumpUnreadUITest = true
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" else { return }
+        guard let tabManager, let notificationStore else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
+            let tab = tabManager.addTab()
+            guard let initialSurfaceId = tab.focusedSurfaceId else { return }
+
+            _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialSurfaceId, direction: .right)
+            guard let targetSurfaceId = tab.focusedSurfaceId else { return }
+            let otherSurfaceId = tab.splitTree.root?.leaves().first(where: { $0.id != targetSurfaceId })?.id
+            if let otherSurfaceId {
+                tab.focusedSurfaceId = otherSurfaceId
+            }
+
+            notificationStore.addNotification(
+                tabId: tab.id,
+                surfaceId: targetSurfaceId,
+                title: "JumpToUnread",
+                subtitle: "",
+                body: ""
+            )
+
+            self.writeJumpUnreadTestData([
+                "expectedTabId": tab.id.uuidString,
+                "expectedSurfaceId": targetSurfaceId.uuidString
+            ])
+
+            tabManager.selectTab(at: initialIndex)
+        }
+    }
+
+    func recordJumpToUnreadFocus(tabId: UUID, surfaceId: UUID) {
+        writeJumpUnreadTestData([
+            "focusedTabId": tabId.uuidString,
+            "focusedSurfaceId": surfaceId.uuidString
+        ])
+    }
+
+    func armJumpUnreadFocusRecord(tabId: UUID, surfaceId: UUID) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_JUMP_UNREAD_PATH"], !path.isEmpty else { return }
+        jumpUnreadFocusExpectation = (tabId: tabId, surfaceId: surfaceId)
+    }
+
+    func recordJumpUnreadFocusIfExpected(tabId: UUID, surfaceId: UUID) {
+        guard let expectation = jumpUnreadFocusExpectation else { return }
+        guard expectation.tabId == tabId && expectation.surfaceId == surfaceId else { return }
+        jumpUnreadFocusExpectation = nil
+        recordJumpToUnreadFocus(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    private func writeJumpUnreadTestData(_ updates: [String: String]) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_JUMP_UNREAD_PATH"], !path.isEmpty else { return }
+        var payload = loadJumpUnreadTestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadJumpUnreadTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+#endif
+
     func attachUpdateAccessory(to window: NSWindow) {
         titlebarAccessoryController.start()
         titlebarAccessoryController.attach(to: window)
@@ -154,6 +241,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func toggleNotificationsPopover(animated: Bool = true) {
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated)
+    }
+
+    func jumpToLatestUnread() {
+        guard let notificationStore, let tabManager else { return }
+        guard let notification = notificationStore.notifications.first(where: { !$0.isRead }) else { return }
+        tabManager.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
+    }
+
+    private func installShortcutMonitor() {
+        // Local monitor only receives events when app is active (not global)
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if self.handleCustomShortcut(event: event) {
+                return nil // Consume the event
+            }
+            return event // Pass through
+        }
+    }
+
+    private func handleCustomShortcut(event: NSEvent) -> Bool {
+        guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Check Show Notifications shortcut
+        let notifShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
+        if chars == notifShortcut.key && flags == notifShortcut.modifierFlags {
+            toggleNotificationsPopover(animated: false)
+            return true
+        }
+
+        // Check Jump to Unread shortcut
+        let unreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
+        if chars == unreadShortcut.key && flags == unreadShortcut.modifierFlags {
+            jumpToLatestUnread()
+            return true
+        }
+
+        return false
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

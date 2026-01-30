@@ -1043,6 +1043,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         if result, let surface = surface {
             onFocus?()
+#if DEBUG
+            if let terminalSurface {
+                AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
+                    tabId: terminalSurface.tabId,
+                    surfaceId: terminalSurface.id
+                )
+            }
+#endif
             ghostty_surface_set_focus(surface, true)
         }
         return result
