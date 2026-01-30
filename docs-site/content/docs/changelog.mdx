@@ -1,0 +1,117 @@
+---
+title: Changelog
+description: Release notes and version history for cmuxterm
+---
+
+# Changelog
+
+All notable changes to cmuxterm are documented here.
+
+## [1.12.0] - 2025-01-29
+
+### Fixed
+- Handle display scale changes when moving between monitors
+
+### Changed
+- Fix SwiftPM cache handling for release builds
+
+## [1.11.0] - 2025-01-29
+
+### Added
+- Notifications documentation for AI agent integrations
+
+### Changed
+- App and tooling updates
+
+## [1.10.0] - 2025-01-29
+
+### Added
+- Sentry SDK for crash reporting
+- Documentation site with Fumadocs
+- Homebrew installation support (`brew install --cask cmuxterm`)
+- Auto-update Homebrew cask on release
+
+### Fixed
+- High CPU usage from notification system
+- Release workflow SwiftPM cache issues
+
+### Changed
+- New tabs now insert after current tab and inherit working directory
+
+## [1.9.0] - 2025-01-29
+
+### Changed
+- Normalized window controls appearance
+- Added confirmation panel when closing windows with active processes
+
+## [1.8.0] - 2025-01-29
+
+### Fixed
+- Socket key input handling
+- OSC 777 notification sequence support
+
+### Changed
+- Customized About window
+- Restricted titlebar accessories for cleaner appearance
+
+## [1.7.0] - 2025-01-29
+
+### Fixed
+- Environment variable and terminfo packaging issues
+- XDG defaults handling
+
+## [1.6.0] - 2025-01-28
+
+### Fixed
+- Terminfo packaging for proper terminal compatibility
+
+## [1.5.0] - 2025-01-28
+
+### Added
+- Sparkle updater cache handling
+- Ghostty fork documentation
+
+## [1.4.0] - 2025-01-28
+
+### Added
+- cmuxterm CLI with socket control modes
+- NSPopover-based notifications
+
+### Fixed
+- Notarization and codesigning for embedded CLI
+- Release workflow reliability
+
+### Changed
+- Refined titlebar controls and variants
+- Clear notifications on window close
+
+## [1.3.0] - 2025-01-28
+
+### Added
+- Debug scrollback tab with smooth scroll wheel
+- Mock update feed UI tests
+- Dev build branding and reload scripts
+
+### Fixed
+- Notification focus handling and indicators
+- Tab focus for key input
+- Update UI error details and pill visibility
+
+### Changed
+- Renamed app to cmuxterm
+- Improved CI UI test stability
+
+## [1.1.0] - 2025-01-28
+
+### Added
+- Sparkle auto-update flow
+- Titlebar update UI indicator
+
+## [1.0.x] - 2025-01-28
+
+Initial releases with core terminal functionality:
+- GPU-accelerated terminal rendering via Ghostty
+- Tab management with native macOS UI
+- Split pane support
+- Keyboard shortcuts
+- Socket API for automation

@@ -88,7 +88,14 @@ git commit -m "Update ghostty submodule"
 
 ## Release
 
-Tagging a version triggers the GitHub Actions release workflow and uploads the notarized zip.
+Use the `/release` command to prepare a new release. This will:
+1. Determine the new version (bumps minor by default)
+2. Gather commits since the last tag and update the changelog
+3. Update `CHANGELOG.md` and `docs-site/content/docs/changelog.mdx`
+4. Bump `MARKETING_VERSION` in the Xcode project
+5. Commit, tag, and push
+
+Manual release steps (if not using the command):
 
 ```bash
 git tag vX.Y.Z
@@ -102,3 +109,4 @@ Notes:
 - The release asset is `cmuxterm-macos.dmg` attached to the tag.
 - README download button points to `releases/latest/download/cmuxterm-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
+- Changelog: always update both `CHANGELOG.md` and the docs-site version.

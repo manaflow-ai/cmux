@@ -16,6 +16,7 @@
     "claude-code-hooks",
     "---Reference---",
     "osc-sequences",
-    "environment-variables"
+    "environment-variables",
+    "changelog"
   ]
 }
