@@ -138,13 +138,16 @@ struct cmuxApp: App {
                     appDelegate.clearUpdatePillOverride(nil)
                 }
             }
+#endif
 
             CommandMenu("Update Logs") {
                 Button("Copy Update Logs") {
                     appDelegate.copyUpdateLogs(nil)
                 }
+                Button("Copy Focus Logs") {
+                    appDelegate.copyFocusLogs(nil)
+                }
             }
-#endif
 
 #if DEBUG
             CommandMenu("Debug") {
@@ -257,6 +260,16 @@ struct cmuxApp: App {
                     tabManager.selectPreviousTab()
                 }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
+
+                Button("Back") {
+                    tabManager.navigateBack()
+                }
+                .keyboardShortcut("[", modifiers: .command)
+
+                Button("Forward") {
+                    tabManager.navigateForward()
+                }
+                .keyboardShortcut("]", modifiers: .command)
 
                 Button("Next Tab") {
                     tabManager.selectNextTab()

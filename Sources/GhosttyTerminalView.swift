@@ -5,6 +5,7 @@ import Metal
 import QuartzCore
 import Combine
 import Darwin
+import Sentry
 
 private enum GhosttyPasteboardHelper {
     private static let selectionPasteboard = NSPasteboard(
@@ -88,6 +89,64 @@ class GhosttyApp {
     private var displayLink: CVDisplayLink?
     private var displayLinkUsers = 0
     private let displayLinkLock = NSLock()
+
+    // Scroll lag tracking
+    private(set) var isScrolling = false
+    private var scrollLagSampleCount = 0
+    private var scrollLagTotalMs: Double = 0
+    private var scrollLagMaxMs: Double = 0
+    private let scrollLagThresholdMs: Double = 25  // Alert if tick takes >25ms during scroll
+    private var scrollEndTimer: DispatchWorkItem?
+
+    func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
+        // Cancel any pending scroll-end timer
+        scrollEndTimer?.cancel()
+        scrollEndTimer = nil
+
+        if momentumEnded {
+            // Trackpad momentum ended - scrolling is done
+            endScrollSession()
+        } else if hasMomentum {
+            // Trackpad scrolling with momentum - wait for momentum to end
+            isScrolling = true
+        } else {
+            // Mouse wheel or non-momentum scroll - use timeout
+            isScrolling = true
+            let timer = DispatchWorkItem { [weak self] in
+                self?.endScrollSession()
+            }
+            scrollEndTimer = timer
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: timer)
+        }
+    }
+
+    private func endScrollSession() {
+        guard isScrolling else { return }
+        isScrolling = false
+
+        // Report accumulated lag stats if any exceeded threshold
+        if scrollLagSampleCount > 0 {
+            let avgLag = scrollLagTotalMs / Double(scrollLagSampleCount)
+            let maxLag = scrollLagMaxMs
+            let samples = scrollLagSampleCount
+            let threshold = scrollLagThresholdMs
+            if maxLag > threshold {
+                SentrySDK.capture(message: "Scroll lag detected") { scope in
+                    scope.setLevel(.warning)
+                    scope.setContext(value: [
+                        "samples": samples,
+                        "avg_ms": String(format: "%.2f", avgLag),
+                        "max_ms": String(format: "%.2f", maxLag),
+                        "threshold_ms": threshold
+                    ], key: "scroll_lag")
+                }
+            }
+            // Reset stats
+            scrollLagSampleCount = 0
+            scrollLagTotalMs = 0
+            scrollLagMaxMs = 0
+        }
+    }
 
     private init() {
         initializeGhostty()
@@ -232,8 +291,18 @@ class GhosttyApp {
 
     func tick() {
         guard let app = app else { return }
+
+        let start = CACurrentMediaTime()
         ghostty_app_tick(app)
         AppDelegate.shared?.tabManager?.tickRender()
+        let elapsedMs = (CACurrentMediaTime() - start) * 1000
+
+        // Track lag during scrolling
+        if isScrolling {
+            scrollLagSampleCount += 1
+            scrollLagTotalMs += elapsedMs
+            scrollLagMaxMs = max(scrollLagMaxMs, elapsedMs)
+        }
     }
 
     func retainDisplayLink() {
@@ -696,14 +765,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func scaleFactors(for view: GhosttyNSView) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
-        let layerScale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        guard view.bounds.width > 0 && view.bounds.height > 0 else {
-            return (layerScale, layerScale, layerScale)
-        }
-        let backingBounds = view.convertToBacking(view.bounds)
-        let xScale = backingBounds.width / view.bounds.width
-        let yScale = backingBounds.height / view.bounds.height
-        return (xScale, yScale, layerScale)
+        let layerScale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        return (layerScale, layerScale, layerScale)
     }
 
     func attachToView(_ view: GhosttyNSView) {
@@ -907,6 +970,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    private static let focusDebugEnabled: Bool = {
+        if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
+    }()
+    fileprivate static func focusLog(_ message: String) {
+        guard focusDebugEnabled else { return }
+        FocusLogStore.shared.append(message)
+        NSLog("[FOCUSDBG] %@", message)
+    }
+
     weak var terminalSurface: TerminalSurface?
     private var surfaceAttached = false
     var scrollbar: GhosttyScrollbar?
@@ -921,6 +996,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var lastSurfaceSize: CGSize = .zero
+    private var lastContentScale: CGSize = .zero
+    private var lastLayerScale: CGFloat = 0
+    private var hasSurfaceMetrics = false
+    private var lastScrollEventTime: CFTimeInterval = 0
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -1003,10 +1083,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let location = convert(event.locationInWindow, from: nil)
         guard hitTest(location) == self else { return event }
 
-        if window.firstResponder !== self {
-            window.makeFirstResponder(self)
-        }
-
+        Self.focusLog("localEventScrollWheel: window=\(ObjectIdentifier(window)) firstResponder=\(String(describing: window.firstResponder))")
         return event
     }
 
@@ -1014,6 +1091,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface = surface
         tabId = surface.tabId
         surfaceAttached = false
+        hasSurfaceMetrics = false
         attachSurfaceIfNeeded()
     }
 
@@ -1076,10 +1154,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func updateSurfaceSize() {
         guard let terminalSurface = terminalSurface else { return }
         guard bounds.width > 0 && bounds.height > 0 else { return }
-        let backingBounds = convertToBacking(bounds)
-        let xScale = backingBounds.width / bounds.width
-        let yScale = backingBounds.height / bounds.height
-        let layerScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let layerScale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let xScale = layerScale
+        let yScale = layerScale
+        if hasSurfaceMetrics {
+            let sameSize = nearlyEqual(lastSurfaceSize.width, bounds.width, epsilon: 0.01)
+                && nearlyEqual(lastSurfaceSize.height, bounds.height, epsilon: 0.01)
+            let sameScale = nearlyEqual(lastContentScale.width, xScale)
+                && nearlyEqual(lastContentScale.height, yScale)
+                && nearlyEqual(lastLayerScale, layerScale)
+            if sameSize && sameScale {
+                return
+            }
+        }
+        lastSurfaceSize = bounds.size
+        lastContentScale = CGSize(width: xScale, height: yScale)
+        lastLayerScale = layerScale
+        hasSurfaceMetrics = true
         terminalSurface.updateSize(
             width: bounds.width,
             height: bounds.height,
@@ -1087,6 +1178,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale
         )
+    }
+
+    private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
+        abs(lhs - rhs) <= epsilon
     }
 
     // Convenience accessor for the ghostty surface
@@ -1132,6 +1227,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result, let surface = surface {
+            let now = CACurrentMediaTime()
+            let deltaMs = (now - lastScrollEventTime) * 1000
+            Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
             onFocus?()
 #if DEBUG
             if let terminalSurface {
@@ -1603,7 +1701,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         guard let surface = surface else { return }
-        terminalSurface?.setFocus(true)
+        lastScrollEventTime = CACurrentMediaTime()
+        Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
         var y = event.scrollingDeltaY
         let precision = event.hasPreciseScrollingDeltas
@@ -1635,6 +1734,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             momentum = Int32(GHOSTTY_MOUSE_MOMENTUM_NONE.rawValue)
         }
         mods |= momentum << 1
+
+        // Track scroll state for lag detection
+        let hasMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
+        let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
+        GhosttyApp.shared.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
 
         ghostty_surface_mouse_scroll(
             surface,
@@ -1735,14 +1839,15 @@ private final class GhosttyScrollView: NSScrollView {
             return
         }
 
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
-        }
-
         if let surface = surfaceView.terminalSurface?.surface,
            ghostty_surface_mouse_captured(surface) {
+            GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: mouseCaptured -> surface scroll")
+            if window?.firstResponder !== surfaceView {
+                window?.makeFirstResponder(surfaceView)
+            }
             surfaceView.scrollWheel(with: event)
         } else {
+            GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: super scroll")
             super.scrollWheel(with: event)
         }
     }
@@ -1897,17 +2002,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 
-    override var acceptsFirstResponder: Bool { true }
-
-    override func becomeFirstResponder() -> Bool {
-        window?.makeFirstResponder(surfaceView)
-        return true
-    }
-
-    override func resignFirstResponder() -> Bool {
-        _ = surfaceView.resignFirstResponder()
-        return true
-    }
+    // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
+    override var acceptsFirstResponder: Bool { false }
 
     override func layout() {
         super.layout()
