@@ -2,6 +2,11 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.15.0] - 2025-01-30
+
+### Fixed
+- Typing lag caused by redundant render loop
+
 ## [1.14.0] - 2025-01-30
 
 ### Added
