@@ -14,8 +14,8 @@ xcuserdata/
 # Swift Package Manager
 .swiftpm/
 
-# GhosttyKit binary (rebuild from /tmp/ghostty with zig build)
-GhosttyKit.xcframework/
+# GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
+GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
 
 # Release artifacts

@@ -1,5 +1,13 @@
 # cmuxterm agent notes
 
+## Initial setup
+
+Run the setup script to initialize submodules and build GhosttyKit:
+
+```bash
+./scripts/setup.sh
+```
+
 ## Local dev
 
 After making code changes, always run the reload script to launch the Debug app:
