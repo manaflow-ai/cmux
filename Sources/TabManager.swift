@@ -274,6 +274,9 @@ class TabManager: ObservableObject {
                let previousSurfaceId = focusedSurfaceId(for: previousTabId) {
                 lastFocusedSurfaceByTab[previousTabId] = previousSurfaceId
             }
+            if !isNavigatingHistory, let selectedTabId {
+                recordTabInHistory(selectedTabId)
+            }
             DispatchQueue.main.async { [weak self] in
                 self?.focusSelectedTabSurface(previousTabId: previousTabId)
                 self?.updateWindowTitleForSelectedTab()
@@ -286,6 +289,12 @@ class TabManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
     private var lastFocusedSurfaceByTab: [UUID: UUID] = [:]
+
+    // Recent tab history for back/forward navigation (like browser history)
+    private var tabHistory: [UUID] = []
+    private var historyIndex: Int = -1
+    private var isNavigatingHistory = false
+    private let maxHistorySize = 50
 
     init() {
         addTab()
@@ -685,6 +694,82 @@ class TabManager: ObservableObject {
     func selectLastTab() {
         guard let lastTab = tabs.last else { return }
         selectedTabId = lastTab.id
+    }
+
+    // MARK: - Recent Tab History Navigation
+
+    private func recordTabInHistory(_ tabId: UUID) {
+        // If we're not at the end of history, truncate forward history
+        if historyIndex < tabHistory.count - 1 {
+            tabHistory = Array(tabHistory.prefix(historyIndex + 1))
+        }
+
+        // Don't add duplicate consecutive entries
+        if tabHistory.last == tabId {
+            return
+        }
+
+        tabHistory.append(tabId)
+
+        // Trim history if it exceeds max size
+        if tabHistory.count > maxHistorySize {
+            tabHistory.removeFirst(tabHistory.count - maxHistorySize)
+        }
+
+        historyIndex = tabHistory.count - 1
+    }
+
+    func navigateBack() {
+        guard historyIndex > 0 else { return }
+
+        // Find the previous valid tab in history (skip closed tabs)
+        var targetIndex = historyIndex - 1
+        while targetIndex >= 0 {
+            let tabId = tabHistory[targetIndex]
+            if tabs.contains(where: { $0.id == tabId }) {
+                isNavigatingHistory = true
+                historyIndex = targetIndex
+                selectedTabId = tabId
+                isNavigatingHistory = false
+                return
+            }
+            // Remove closed tab from history
+            tabHistory.remove(at: targetIndex)
+            historyIndex -= 1
+            targetIndex -= 1
+        }
+    }
+
+    func navigateForward() {
+        guard historyIndex < tabHistory.count - 1 else { return }
+
+        // Find the next valid tab in history (skip closed tabs)
+        let targetIndex = historyIndex + 1
+        while targetIndex < tabHistory.count {
+            let tabId = tabHistory[targetIndex]
+            if tabs.contains(where: { $0.id == tabId }) {
+                isNavigatingHistory = true
+                historyIndex = targetIndex
+                selectedTabId = tabId
+                isNavigatingHistory = false
+                return
+            }
+            // Remove closed tab from history
+            tabHistory.remove(at: targetIndex)
+            // Don't increment targetIndex since we removed the element
+        }
+    }
+
+    var canNavigateBack: Bool {
+        historyIndex > 0 && tabHistory.prefix(historyIndex).contains { tabId in
+            tabs.contains { $0.id == tabId }
+        }
+    }
+
+    var canNavigateForward: Bool {
+        historyIndex < tabHistory.count - 1 && tabHistory.suffix(from: historyIndex + 1).contains { tabId in
+            tabs.contains { $0.id == tabId }
+        }
     }
 
     func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.NewDirection) -> Bool {
