@@ -113,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func clearUpdatePillOverride(_ sender: Any?) {
         updateViewModel.overrideState = nil
     }
+#endif
 
     @objc func copyUpdateLogs(_ sender: Any?) {
         let logText = UpdateLogStore.shared.snapshot()
@@ -126,7 +127,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
     }
-    #endif
+    @objc func copyFocusLogs(_ sender: Any?) {
+        let logText = FocusLogStore.shared.snapshot()
+        let payload: String
+        if logText.isEmpty {
+            payload = "No focus logs captured.\nLog file: \(FocusLogStore.shared.logPath())"
+        } else {
+            payload = logText + "\nLog file: \(FocusLogStore.shared.logPath())"
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
 
 #if DEBUG
     @objc func openDebugScrollbackTab(_ sender: Any?) {
