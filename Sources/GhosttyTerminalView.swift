@@ -86,9 +86,6 @@ class GhosttyApp {
     }()
     private let backgroundLogURL = URL(fileURLWithPath: "/tmp/cmux-bg.log")
     private var appObservers: [NSObjectProtocol] = []
-    private var displayLink: CVDisplayLink?
-    private var displayLinkUsers = 0
-    private let displayLinkLock = NSLock()
 
     // Scroll lag tracking
     private(set) var isScrolling = false
@@ -294,7 +291,6 @@ class GhosttyApp {
 
         let start = CACurrentMediaTime()
         ghostty_app_tick(app)
-        AppDelegate.shared?.tabManager?.tickRender()
         let elapsedMs = (CACurrentMediaTime() - start) * 1000
 
         // Track lag during scrolling
@@ -302,49 +298,6 @@ class GhosttyApp {
             scrollLagSampleCount += 1
             scrollLagTotalMs += elapsedMs
             scrollLagMaxMs = max(scrollLagMaxMs, elapsedMs)
-        }
-    }
-
-    func retainDisplayLink() {
-        displayLinkLock.lock()
-        defer { displayLinkLock.unlock() }
-        displayLinkUsers += 1
-        if displayLinkUsers == 1 {
-            startDisplayLink()
-        }
-    }
-
-    func releaseDisplayLink() {
-        displayLinkLock.lock()
-        defer { displayLinkLock.unlock() }
-        displayLinkUsers = max(0, displayLinkUsers - 1)
-        if displayLinkUsers == 0 {
-            stopDisplayLink()
-        }
-    }
-
-    private func startDisplayLink() {
-        if displayLink == nil {
-            var link: CVDisplayLink?
-            CVDisplayLinkCreateWithActiveCGDisplays(&link)
-            guard let newLink = link else { return }
-            displayLink = newLink
-            let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, _ -> CVReturn in
-                DispatchQueue.main.async {
-                    GhosttyApp.shared.tick()
-                }
-                return kCVReturnSuccess
-            }
-            CVDisplayLinkSetOutputCallback(newLink, callback, nil)
-        }
-        if let displayLink, !CVDisplayLinkIsRunning(displayLink) {
-            CVDisplayLinkStart(displayLink)
-        }
-    }
-
-    private func stopDisplayLink() {
-        if let displayLink, CVDisplayLinkIsRunning(displayLink) {
-            CVDisplayLinkStop(displayLink)
         }
     }
 
@@ -715,7 +668,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let workingDirectory: String?
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
-    private var ownsDisplayLink = false
     @Published var searchState: SearchState? = nil {
         didSet {
             if let searchState {
@@ -885,10 +837,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             UInt32(view.bounds.height * scaleFactors.y)
         )
         ghostty_surface_refresh(surface)
-        if !ownsDisplayLink {
-            GhosttyApp.shared.retainDisplayLink()
-            ownsDisplayLink = true
-        }
     }
 
     private func updateMetalLayer(for view: GhosttyNSView) {
@@ -914,12 +862,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             metalLayer.contentsScale = layerScale
             metalLayer.drawableSize = CGSize(width: width * layerScale, height: height * layerScale)
         }
-    }
-
-    func renderIfVisible() {
-        guard let view = attachedView else { return }
-        guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
-        ghostty_surface_draw(surface)
     }
 
     func applyWindowBackgroundIfActive() {
@@ -958,9 +900,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        if ownsDisplayLink {
-            GhosttyApp.shared.releaseDisplayLink()
-        }
         if let surface = surface {
             ghostty_surface_free(surface)
         }

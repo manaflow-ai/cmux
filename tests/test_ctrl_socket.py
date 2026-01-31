@@ -197,12 +197,24 @@ def test_environment_paths(client: cmux) -> TestResult:
             "\"XDG_DATA_DIRS\": os.environ.get(\"XDG_DATA_DIRS\", \"\"),"
             "}))'"
         )
-        client.send(command + "\n")
 
-        for _ in range(20):
+        for attempt in range(3):
+            env_path.unlink(missing_ok=True)
+            # Reset any partial prompt state (e.g., unmatched quotes) before retrying.
+            client.send_ctrl_c()
+            time.sleep(0.2)
+            client.send(command + "\n")
+
+            for _ in range(20):
+                if env_path.exists():
+                    break
+                time.sleep(0.2)
+
             if env_path.exists():
                 break
-            time.sleep(0.2)
+
+            # Small backoff before retrying send in case the surface isn't ready yet.
+            time.sleep(0.3 * (attempt + 1))
 
         if not env_path.exists():
             result.failure("Env dump file was not created")
