@@ -359,14 +359,6 @@ class TabManager: ObservableObject {
         selectedSurface?.searchState = nil
     }
 
-    func tickRender() {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
-        for surface in tab.splitTree.map({ $0 }) {
-            surface.renderIfVisible()
-        }
-    }
-
     @discardableResult
     func addTab() -> Tab {
         let workingDirectory = preferredWorkingDirectoryForNewTab()
