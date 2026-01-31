@@ -14,13 +14,15 @@ Prepare a new release for cmuxterm. This command updates the changelog, bumps th
 3. **Gather changes since the last release**
    - Find the most recent git tag: `git describe --tags --abbrev=0`
    - Get commits since that tag: `git log --oneline <last-tag>..HEAD --no-merges`
+   - **Filter for end-user visible changes only** - ignore developer tooling, CI, docs, tests
    - Categorize changes into: Added, Changed, Fixed, Removed
 
 4. **Update the changelog**
    - Add a new section at the top of `CHANGELOG.md` with the new version and today's date
+   - **Only include changes that affect the end-user experience** - things users will see, feel, or interact with
    - Write clear, user-facing descriptions (not raw commit messages)
-   - Focus on what matters to users: new features, bug fixes, breaking changes
    - Also update `docs-site/content/docs/changelog.mdx` with the same content
+   - If there are no user-facing changes, ask the user if they still want to release
 
 5. **Bump the version in Xcode project**
    - Update all occurrences of `MARKETING_VERSION` in `GhosttyTabs.xcodeproj/project.pbxproj`
@@ -55,10 +57,26 @@ Prepare a new release for cmuxterm. This command updates the changelog, bumps th
 
 ## Changelog Guidelines
 
+**Include only end-user visible changes:**
+- New features users can see or interact with
+- Bug fixes users would notice (crashes, UI glitches, incorrect behavior)
+- Performance improvements users would feel
+- UI/UX changes
+- Breaking changes or removed features
+
+**Exclude internal/developer changes:**
+- Setup scripts, build scripts, reload scripts
+- CI/workflow changes
+- Documentation updates (README, CONTRIBUTING, CLAUDE.md)
+- Test additions or fixes
+- Internal refactoring with no user-visible effect
+- Dependency updates (unless they fix a user-facing bug)
+
+**Writing style:**
 - Use present tense ("Add feature" not "Added feature")
 - Group by category: Added, Changed, Fixed, Removed
 - Be concise but descriptive
-- Focus on user impact, not implementation details
+- Focus on what the user experiences, not how it was implemented
 - Link to issues/PRs if relevant
 
 ## Example Changelog Entry
