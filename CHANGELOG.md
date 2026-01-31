@@ -2,6 +2,18 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.14.0] - 2025-01-30
+
+### Added
+- Setup script for initializing submodules and building dependencies
+- Contributing guide for new contributors
+
+### Fixed
+- Terminal focus when scrolling with mouse/trackpad
+
+### Changed
+- Reload scripts are more robust with better error handling
+
 ## [1.13.0] - 2025-01-29
 
 ### Added
