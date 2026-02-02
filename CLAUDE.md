@@ -28,6 +28,12 @@ When rebuilding GhosttyKit.xcframework, always use Release optimizations:
 cd ghostty && zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ```
 
+When rebuilding cmuxd for release/bundling, always use ReleaseFast:
+
+```bash
+cd cmuxd && zig build -Doptimize=ReleaseFast
+```
+
 `reload` = kill and launch the Debug app only:
 
 ```bash
@@ -45,6 +51,10 @@ cd ghostty && zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ```bash
 ./scripts/reload2.sh
 ```
+
+## Pitfalls
+
+- Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
 
 ## E2E mac UI tests
 
@@ -100,8 +110,19 @@ Use the `/release` command to prepare a new release. This will:
 1. Determine the new version (bumps minor by default)
 2. Gather commits since the last tag and update the changelog
 3. Update `CHANGELOG.md` and `docs-site/content/docs/changelog.mdx`
-4. Bump `MARKETING_VERSION` in the Xcode project
+4. Run `./scripts/bump-version.sh` to update both versions
 5. Commit, tag, and push
+
+Version bumping:
+
+```bash
+./scripts/bump-version.sh          # bump minor (1.15.0 → 1.16.0)
+./scripts/bump-version.sh patch    # bump patch (1.15.0 → 1.15.1)
+./scripts/bump-version.sh major    # bump major (1.15.0 → 2.0.0)
+./scripts/bump-version.sh 2.0.0    # set specific version
+```
+
+This updates both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (build number). The build number is auto-incremented and is required for Sparkle auto-update to work.
 
 Manual release steps (if not using the command):
 
