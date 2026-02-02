@@ -301,20 +301,18 @@ export function Sidebar({ tasks, teamSlugOrId }: SidebarProps) {
             ))}
           </ul>
 
-          {isElectron && (
-            <div className="mt-4 flex flex-col">
-              <SidebarSectionLink
-                to="/$teamSlugOrId/prs"
-                params={{ teamSlugOrId }}
-                exact
-              >
-                Pull requests
-              </SidebarSectionLink>
-              <div className="ml-2 pt-px">
-                <SidebarPullRequestList teamSlugOrId={teamSlugOrId} />
-              </div>
+          <div className="mt-4 flex flex-col">
+            <SidebarSectionLink
+              to="/$teamSlugOrId/prs"
+              params={{ teamSlugOrId }}
+              exact
+            >
+              Pull requests
+            </SidebarSectionLink>
+            <div className="ml-2 pt-px">
+              <SidebarPullRequestList teamSlugOrId={teamSlugOrId} />
             </div>
-          )}
+          </div>
 
           <div className="mt-2 flex flex-col gap-0.5">
             <SidebarWorkspacesSection teamSlugOrId={teamSlugOrId} />
