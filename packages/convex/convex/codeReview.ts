@@ -1134,3 +1134,125 @@ export const listFileOutputsForComparison = authQuery({
     }));
   },
 });
+
+/**
+ * Get screenshot sets for a PR.
+ * This is a public query that doesn't require authentication,
+ * similar to how the heatmap data is fetched for public repos.
+ */
+export const getScreenshotSetsForPr = authQuery({
+  args: {
+    teamSlugOrId: v.string(),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 10, 50);
+    const normalizedRepoFullName = args.repoFullName.trim().toLowerCase();
+
+    // Try to find a teamId if possible
+    let teamId: string | undefined;
+    try {
+      teamId = await resolveTeamIdLoose(ctx, args.teamSlugOrId);
+    } catch {
+      // If team resolution fails, we'll proceed without it
+      // This allows the query to work for public repos
+    }
+
+    // Find preview configs for this repo
+    const previewConfigs = teamId
+      ? await ctx.db
+          .query("previewConfigs")
+          .withIndex("by_team_repo", (q) =>
+            q.eq("teamId", teamId).eq("repoFullName", normalizedRepoFullName)
+          )
+          .collect()
+      : [];
+
+    if (previewConfigs.length === 0) {
+      return [];
+    }
+
+    // Find preview runs for this PR from any of the configs
+    const allScreenshotSets: Array<{
+      _id: string;
+      status: "completed" | "failed" | "skipped";
+      commitSha: string | null;
+      capturedAt: number;
+      error: string | null;
+      images: Array<{
+        storageId: string;
+        mimeType: string;
+        fileName: string | null;
+        commitSha: string | null;
+        url: string | null;
+      }>;
+      previewRunId: string | null;
+      prNumber: number;
+    }> = [];
+
+    for (const config of previewConfigs) {
+      // Get preview runs for this PR
+      const previewRuns = await ctx.db
+        .query("previewRuns")
+        .withIndex("by_config_pr", (q) =>
+          q.eq("previewConfigId", config._id).eq("prNumber", args.prNumber)
+        )
+        .order("desc")
+        .take(limit);
+
+      // Get screenshot sets for runs that have them
+      for (const run of previewRuns) {
+        if (!run.screenshotSetId) {
+          continue;
+        }
+
+        const screenshotSet = await ctx.db.get(run.screenshotSetId);
+        if (!screenshotSet) {
+          continue;
+        }
+
+        // Get signed URLs for images
+        const imagesWithUrls = await Promise.all(
+          screenshotSet.images.map(async (image) => {
+            const url = await ctx.storage.getUrl(image.storageId);
+            return {
+              storageId: image.storageId as string,
+              mimeType: image.mimeType,
+              fileName: image.fileName ?? null,
+              commitSha: image.commitSha ?? null,
+              url: url ?? null,
+            };
+          })
+        );
+
+        allScreenshotSets.push({
+          _id: screenshotSet._id as string,
+          status: screenshotSet.status,
+          commitSha: screenshotSet.commitSha ?? null,
+          capturedAt: screenshotSet.capturedAt,
+          error: screenshotSet.error ?? null,
+          images: imagesWithUrls,
+          previewRunId: run._id as string,
+          prNumber: run.prNumber,
+        });
+      }
+    }
+
+    // Sort by capturedAt descending and deduplicate by screenshot set ID
+    const seenIds = new Set<string>();
+    const dedupedSets = allScreenshotSets
+      .sort((a, b) => b.capturedAt - a.capturedAt)
+      .filter((set) => {
+        if (seenIds.has(set._id)) {
+          return false;
+        }
+        seenIds.add(set._id);
+        return true;
+      })
+      .slice(0, limit);
+
+    return dedupedSets;
+  },
+});
