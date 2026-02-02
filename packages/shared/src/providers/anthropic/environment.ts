@@ -213,6 +213,17 @@ exit 0`;
     // Always use apiKeyHelper when not using OAuth (helper outputs correct key based on user config)
     ...(hasOAuthToken ? {} : { apiKeyHelper: claudeApiKeyHelperPath }),
     hooks: {
+      Notification: [
+        {
+          matcher: ".*",
+          hooks: [
+            {
+              type: "command",
+              command: `jq -r '.message // "Awaiting input"' | xargs -I{} cmux-bridge notify "Claude Code: {}" 2>>/tmp/claude-hook-error.log`,
+            },
+          ],
+        },
+      ],
       Stop: [
         {
           hooks: [
