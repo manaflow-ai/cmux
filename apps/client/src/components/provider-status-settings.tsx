@@ -1,3 +1,4 @@
+import { env } from "@/client-env";
 import { useSocket } from "@/contexts/socket/use-socket";
 import type { ProviderStatus, ProviderStatusResponse } from "@cmux/shared";
 import { AlertCircle, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
@@ -41,20 +42,24 @@ export function ProviderStatusSettings() {
         {/* Combined Status Grid skeleton */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
           {/* Docker skeleton */}
-          <div className="flex items-center gap-2">
-            <div className="w-3.5 h-3.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
-            <div className="w-20 leading-3 bg-neutral-200 text-transparent dark:bg-neutral-700 rounded text-xs">
-              loading...
+          {!env.NEXT_PUBLIC_WEB_MODE && (
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
+              <div className="w-20 leading-3 bg-neutral-200 text-transparent dark:bg-neutral-700 rounded text-xs">
+                loading...
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Git skeleton */}
-          <div className="flex items-center gap-2">
-            <div className="w-3.5 h-3.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
-            <div className="w-20 leading-3 bg-neutral-200 text-transparent dark:bg-neutral-700 rounded text-xs">
-              loading...
+          {/* Git skeleton - hidden in web mode */}
+          {!env.NEXT_PUBLIC_WEB_MODE && (
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
+              <div className="w-20 leading-3 bg-neutral-200 text-transparent dark:bg-neutral-700 rounded text-xs">
+                loading...
+              </div>
             </div>
-          </div>
+          )}
 
           {/* AI Provider skeletons - typically 10 providers */}
           {[...Array(8)].map((_, i) => (
@@ -96,23 +101,25 @@ export function ProviderStatusSettings() {
 
       {/* Combined Status Grid */}
       <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
-        {/* Docker Status */}
-        <div className="flex items-center gap-2">
-          {dockerOk ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-          ) : (
-            <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-          )}
-          <span className="text-xs text-neutral-700 dark:text-neutral-300 select-text">
-            Docker required
-            {dockerOk &&
-              status.dockerStatus?.version &&
-              ` ${status.dockerStatus.version}`}
-          </span>
-        </div>
+        {/* Docker Status - hidden in web mode */}
+        {!env.NEXT_PUBLIC_WEB_MODE && (
+          <div className="flex items-center gap-2">
+            {dockerOk ? (
+              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+            ) : (
+              <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+            )}
+            <span className="text-xs text-neutral-700 dark:text-neutral-300 select-text">
+              Docker required
+              {dockerOk &&
+                status.dockerStatus?.version &&
+                ` ${status.dockerStatus.version}`}
+            </span>
+          </div>
+        )}
 
-        {/* Docker Image Status */}
-        {dockerImage && (
+        {/* Docker Image Status - hidden in web mode */}
+        {!env.NEXT_PUBLIC_WEB_MODE && dockerImage && (
           <div className="flex items-center gap-2">
             {dockerImage.isAvailable ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
@@ -131,20 +138,22 @@ export function ProviderStatusSettings() {
           </div>
         )}
 
-        {/* Git Status */}
-        <div className="flex items-center gap-2">
-          {gitOk ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-          ) : (
-            <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-          )}
-          <span className="text-xs text-neutral-700 dark:text-neutral-300 select-text">
-            Git
-            {gitOk &&
-              status.gitStatus?.version &&
-              ` ${status.gitStatus.version}`}
-          </span>
-        </div>
+        {/* Git Status - hidden in web mode */}
+        {!env.NEXT_PUBLIC_WEB_MODE && (
+          <div className="flex items-center gap-2">
+            {gitOk ? (
+              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+            ) : (
+              <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+            )}
+            <span className="text-xs text-neutral-700 dark:text-neutral-300 select-text">
+              Git
+              {gitOk &&
+                status.gitStatus?.version &&
+                ` ${status.gitStatus.version}`}
+            </span>
+          </div>
+        )}
 
         {/* AI Providers */}
         {status.providers?.map((provider: ProviderStatus) => {
