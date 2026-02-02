@@ -152,13 +152,39 @@ async function main() {
   cleanupConvexProcesses();
   cleanupConvexState();
 
-  if (!fs.existsSync(ENV_FILE)) {
-    console.error("✗ .env file not found at root");
+  // Required env vars for seed to work (Stack Auth)
+  const requiredEnvVars = [
+    "NEXT_PUBLIC_STACK_PROJECT_ID",
+    "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
+    "STACK_SECRET_SERVER_KEY",
+    "STACK_SUPER_SECRET_ADMIN_KEY",
+  ];
+
+  const missingEnvVars = requiredEnvVars.filter((key) => !process.env[key]);
+  if (missingEnvVars.length > 0) {
+    console.error(
+      `✗ Missing required environment variables:\n  ${missingEnvVars.join("\n  ")}`
+    );
+    console.error(
+      "\nMake sure these are set in your environment or .env file"
+    );
     process.exit(1);
   }
 
-  const envVars = parseEnvFile(ENV_FILE);
-  const envVarsToSync = Object.entries(envVars);
+  // Collect env vars to sync from .env file if it exists, otherwise from process.env
+  const optionalEnvVars = ["MORPH_API_KEY"];
+  let envVarsToSync: [string, string][];
+
+  if (fs.existsSync(ENV_FILE)) {
+    const envVars = parseEnvFile(ENV_FILE);
+    envVarsToSync = Object.entries(envVars);
+  } else {
+    // Fall back to process.env for required + optional vars
+    const allEnvVars = [...requiredEnvVars, ...optionalEnvVars];
+    envVarsToSync = allEnvVars
+      .filter((key) => process.env[key])
+      .map((key) => [key, process.env[key]!]);
+  }
 
   if (fs.existsSync(CONVEX_ENV_LOCAL)) {
     logVerbose(`Removing ${CONVEX_ENV_LOCAL}`);
@@ -323,7 +349,7 @@ async function main() {
 
     log("\n✓ Setup complete!\n");
     log("Run the dev environment with:");
-    log("  ./scripts/dev.sh --convex-agent --skip-docker\n");
+    log("  ./scripts/dev.sh --convex-agent\n");
   } finally {
     await killDevServer();
   }
