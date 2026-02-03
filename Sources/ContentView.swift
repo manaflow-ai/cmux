@@ -24,6 +24,7 @@ struct ContentView: View {
     private let sidebarHandleWidth: CGFloat = 6
 
     var body: some View {
+        let minSize = uiTestWindowSize() ?? CGSize(width: 800, height: 600)
         HStack(spacing: 0) {
             if sidebarState.isVisible {
                 VerticalTabsSidebar(
@@ -91,7 +92,7 @@ struct ContentView: View {
 
             terminalContent
         }
-        .frame(minWidth: 800, minHeight: 600)
+        .frame(minWidth: minSize.width, minHeight: minSize.height)
         .background(Color.clear)
         .sheet(isPresented: $tabManager.isSessionPickerPresented) {
             SessionPickerView()
@@ -133,6 +134,7 @@ struct ContentView: View {
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
+            applyUITestWindowSize(to: window)
         })
     }
 
@@ -145,6 +147,38 @@ struct ContentView: View {
         max(140, min(360, width))
     }
 }
+
+private func applyUITestWindowSize(to window: NSWindow) {
+    guard window.identifier?.rawValue == "cmux.main" else { return }
+    guard let size = uiTestWindowSize() else { return }
+    let windowId = ObjectIdentifier(window)
+    if uiTestSizedWindows.contains(windowId) {
+        return
+    }
+    uiTestSizedWindows.insert(windowId)
+    window.isRestorable = false
+    window.contentMinSize = size
+    let delays: [TimeInterval] = [0.0, 0.2, 0.5, 1.0]
+    for delay in delays {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            window.setContentSize(size)
+        }
+    }
+}
+
+private func uiTestWindowSize() -> CGSize? {
+    guard let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_WINDOW_SIZE"],
+          !raw.isEmpty else { return nil }
+    let parts = raw.split { $0 == "x" || $0 == "," }
+    guard parts.count >= 2,
+          let width = Double(parts[0].trimmingCharacters(in: .whitespaces)),
+          let height = Double(parts[1].trimmingCharacters(in: .whitespaces)),
+          width > 0,
+          height > 0 else { return nil }
+    return CGSize(width: width, height: height)
+}
+
+private var uiTestSizedWindows = Set<ObjectIdentifier>()
 
 private extension ContentView {
     @ViewBuilder

@@ -3791,7 +3791,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollOffsetElement.setAccessibilityParent(self)
         scrollOffsetElement.setAccessibilityRole(.staticText)
         scrollOffsetElement.setAccessibilityIdentifier("TerminalScrollOffset")
-        scrollOffsetElement.setAccessibilityLabel("TerminalScrollOffset")
 
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor =
@@ -4195,7 +4194,7 @@ final class GhosttySurfaceScrollView: NSView {
         let cellHeight = surfaceView.cellSize.height
         if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
             let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-            let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
+            let padding = max(0, contentHeight - (CGFloat(scrollbar.len) * cellHeight))
             return documentGridHeight + padding
         }
         return contentHeight
@@ -4203,10 +4202,29 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateAccessibilityScrollOffset() {
         let origin = scrollView.contentView.documentVisibleRect.origin
-        let value = String(format: "x=%.1f y=%.1f", origin.x, origin.y)
+        let cellHeight = surfaceView.cellSize.height
+        let visibleHeight = scrollView.contentView.documentVisibleRect.height
+        let visibleRows = cellHeight > 0 ? floor(visibleHeight / cellHeight) : 0
+        var expectedMaxY: CGFloat = 0
+        if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
+            let rows = max(0, Int64(scrollbar.total) - Int64(scrollbar.len))
+            expectedMaxY = CGFloat(rows) * cellHeight
+        }
+        let scrollbarOffset = surfaceView.scrollbar?.offset ?? 0
+        let scrollbarLen = surfaceView.scrollbar?.len ?? 0
+        let scrollbarTotal = surfaceView.scrollbar?.total ?? 0
+        let value = String(
+            format: "x=%.1f y=%.1f expectedMaxY=%.1f cellHeight=%.2f visibleRows=%.0f",
+            origin.x,
+            origin.y,
+            expectedMaxY,
+            cellHeight,
+            visibleRows
+        ) + " offset=\(scrollbarOffset) len=\(scrollbarLen) total=\(scrollbarTotal)"
         setAccessibilityValue(value)
         surfaceView.setAccessibilityValue(value)
         scrollOffsetElement.setAccessibilityValue(value)
+        scrollOffsetElement.setAccessibilityLabel(value)
         scrollOffsetElement.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 }

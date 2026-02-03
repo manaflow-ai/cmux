@@ -48,6 +48,7 @@
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 		3C62D4BD914946418DC62B30 /* TerminalHorizontalScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4968C646D143F8B211EFAD /* TerminalHorizontalScrollUITests.swift */; };
+		44E4B6AE5F814D799F97751F /* TerminalSmallWindowScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 227411CEE721457F9ED34646 /* TerminalSmallWindowScrollUITests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
 /* End PBXBuildFile section */
@@ -132,6 +133,7 @@
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		1C4968C646D143F8B211EFAD /* TerminalHorizontalScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHorizontalScrollUITests.swift; sourceTree = "<group>"; };
+		227411CEE721457F9ED34646 /* TerminalSmallWindowScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSmallWindowScrollUITests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
@@ -294,6 +296,7 @@
 				B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
 				1C4968C646D143F8B211EFAD /* TerminalHorizontalScrollUITests.swift */,
+				227411CEE721457F9ED34646 /* TerminalSmallWindowScrollUITests.swift */,
 				C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
 			);
 			path = GhosttyTabsUITests;
@@ -442,6 +445,7 @@
 				B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
 				3C62D4BD914946418DC62B30 /* TerminalHorizontalScrollUITests.swift in Sources */,
+				44E4B6AE5F814D799F97751F /* TerminalSmallWindowScrollUITests.swift in Sources */,
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

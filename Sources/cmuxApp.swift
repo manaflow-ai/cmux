@@ -83,6 +83,7 @@ struct cmuxApp: App {
     }
 
     var body: some Scene {
+        let defaultSize = uiTestWindowSize() ?? CGSize(width: 460, height: 360)
         WindowGroup {
             ContentView(updateViewModel: appDelegate.updateViewModel)
                 .environmentObject(tabManager)
@@ -110,7 +111,7 @@ struct cmuxApp: App {
         Settings {
             SettingsRootView()
         }
-        .defaultSize(width: 460, height: 360)
+        .defaultSize(width: defaultSize.width, height: defaultSize.height)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -701,4 +702,16 @@ private struct SettingsRootView: View {
         }
         AppDelegate.shared?.applyWindowDecorations(to: window)
     }
+}
+
+private func uiTestWindowSize() -> CGSize? {
+    guard let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_WINDOW_SIZE"],
+          !raw.isEmpty else { return nil }
+    let parts = raw.split { $0 == "x" || $0 == "," }
+    guard parts.count >= 2,
+          let width = Double(parts[0].trimmingCharacters(in: .whitespaces)),
+          let height = Double(parts[1].trimmingCharacters(in: .whitespaces)),
+          width > 0,
+          height > 0 else { return nil }
+    return CGSize(width: width, height: height)
 }
