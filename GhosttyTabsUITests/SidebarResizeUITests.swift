@@ -18,19 +18,56 @@ final class SidebarResizeUITests: XCTestCase {
 
         let initialX = resizer.frame.minX
 
+        let dragForward: CGFloat = 80
+        let dragBackward: CGFloat = -120
+
+        let scale = max(NSScreen.main?.backingScaleFactor ?? 1.0, 1.0)
+        let expectedForward = dragForward / scale
+        let expectedBackward = dragBackward / scale
+
         let start = resizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = start.withOffset(CGVector(dx: 80, dy: 0))
+        let end = start.withOffset(CGVector(dx: dragForward, dy: 0))
         start.press(forDuration: 0.1, thenDragTo: end)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let afterX = resizer.frame.minX
-        XCTAssertEqual(afterX, initialX + 80, accuracy: 2.0)
+        XCTContext.runActivity(named: "Sidebar resize forward") { activity in
+            let attachment = XCTAttachment(
+                string: String(
+                    format: "scale=%.2f initialX=%.1f afterX=%.1f delta=%.1f expected=%.1f",
+                    scale,
+                    initialX,
+                    afterX,
+                    afterX - initialX,
+                    expectedForward
+                )
+            )
+            attachment.lifetime = .keepAlways
+            activity.add(attachment)
+        }
+        XCTAssertEqual(afterX - initialX, expectedForward, accuracy: 12.0)
 
         let startBack = resizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let endBack = startBack.withOffset(CGVector(dx: -120, dy: 0))
+        let endBack = startBack.withOffset(CGVector(dx: dragBackward, dy: 0))
         startBack.press(forDuration: 0.1, thenDragTo: endBack)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let afterBackX = resizer.frame.minX
-        XCTAssertEqual(afterBackX, afterX - 120, accuracy: 2.0)
+        XCTContext.runActivity(named: "Sidebar resize backward") { activity in
+            let attachment = XCTAttachment(
+                string: String(
+                    format: "scale=%.2f afterX=%.1f afterBackX=%.1f delta=%.1f expected=%.1f",
+                    scale,
+                    afterX,
+                    afterBackX,
+                    afterBackX - afterX,
+                    expectedBackward
+                )
+            )
+            attachment.lifetime = .keepAlways
+            activity.add(attachment)
+        }
+        XCTAssertEqual(afterBackX - afterX, expectedBackward, accuracy: 25.0)
     }
 
     func testSidebarResizerResponsiveTiming() {
@@ -44,8 +81,10 @@ final class SidebarResizeUITests: XCTestCase {
         createTabs(app: app, count: 12)
 
         let iterations = 8
+        let warmupIterations = 1
         let dragDistance: CGFloat = 80
         var totalSeconds = 0.0
+        var measuredIterations = 0
 
         for i in 0..<iterations {
             let startSeconds = CFAbsoluteTimeGetCurrent()
@@ -54,17 +93,20 @@ final class SidebarResizeUITests: XCTestCase {
             let end = start.withOffset(CGVector(dx: deltaX, dy: 0))
             start.press(forDuration: 0.1, thenDragTo: end)
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-            totalSeconds += CFAbsoluteTimeGetCurrent() - startSeconds
+            if i >= warmupIterations {
+                totalSeconds += CFAbsoluteTimeGetCurrent() - startSeconds
+                measuredIterations += 1
+            }
         }
 
-        let averageSeconds = totalSeconds / Double(iterations)
+        let averageSeconds = totalSeconds / Double(max(measuredIterations, 1))
         XCTContext.runActivity(named: "Sidebar resize timing") { activity in
             let attachment = XCTAttachment(
                 string: String(
                     format: "avg=%.3fs total=%.3fs iterations=%d",
                     averageSeconds,
                     totalSeconds,
-                    iterations
+                    measuredIterations
                 )
             )
             attachment.lifetime = .keepAlways

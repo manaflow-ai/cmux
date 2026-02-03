@@ -139,21 +139,27 @@ if [[ -n "$DERIVED_DATA" ]]; then
     APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${FALLBACK_APP_NAME}.app"
   fi
 else
-  APP_PATH="$(
-    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${SEARCH_APP_NAME}.app" -print0 \
+  APP_BINARY="$(
+    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
     | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
     | sort -nr \
     | head -n 1 \
     | cut -d' ' -f2-
   )"
+  if [[ -n "${APP_BINARY}" ]]; then
+    APP_PATH="$(dirname "$(dirname "$(dirname "$APP_BINARY")")")"
+  fi
   if [[ -z "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
-    APP_PATH="$(
-      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${FALLBACK_APP_NAME}.app" -print0 \
+    APP_BINARY="$(
+      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
       | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
       | sort -nr \
       | head -n 1 \
       | cut -d' ' -f2-
     )"
+    if [[ -n "${APP_BINARY}" ]]; then
+      APP_PATH="$(dirname "$(dirname "$(dirname "$APP_BINARY")")")"
+    fi
   fi
 fi
 if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then

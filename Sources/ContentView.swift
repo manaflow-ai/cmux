@@ -15,31 +15,81 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @State private var sidebarWidth: CGFloat = 200
+    @State private var isResizerHovering = false
     @State private var isResizerDragging = false
+    @State private var dragStartWidth: CGFloat = 0
     @State private var sidebarSelection: SidebarSelection = .tabs
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
+    private let sidebarHandleWidth: CGFloat = 6
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            HStack(spacing: 0) {
-                if sidebarState.isVisible {
-                    Color.clear
-                        .frame(width: sidebarWidth)
-                }
-
-                terminalContent
-            }
-
+        HStack(spacing: 0) {
             if sidebarState.isVisible {
-                SidebarOverlayView(
-                    width: $sidebarWidth,
-                    isResizerDragging: $isResizerDragging,
+                VerticalTabsSidebar(
                     selection: $sidebarSelection,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex
                 )
+                .frame(width: sidebarWidth)
+                .overlay(alignment: .trailing) {
+                    SidebarResizerHandle(
+                        accessibilityIdentifier: "SidebarResizer",
+                        onDragStart: {
+                            if !isResizerDragging {
+                                isResizerDragging = true
+                                dragStartWidth = sidebarWidth
+                                if !isResizerHovering {
+                                    NSCursor.resizeLeftRight.push()
+                                    isResizerHovering = true
+                                }
+                            }
+                        },
+                        onDrag: { deltaX in
+                            guard isResizerDragging else { return }
+                            let nextWidth = clampSidebarWidth(dragStartWidth + deltaX)
+                            withTransaction(Transaction(animation: nil)) {
+                                sidebarWidth = nextWidth
+                            }
+                        },
+                        onDragEnd: { deltaX in
+                            guard isResizerDragging else { return }
+                            isResizerDragging = false
+                            if !isResizerHovering {
+                                NSCursor.pop()
+                            }
+                            let finalWidth = clampSidebarWidth(dragStartWidth + deltaX)
+                            withTransaction(Transaction(animation: nil)) {
+                                sidebarWidth = finalWidth
+                            }
+                        }
+                    )
+                        .frame(width: sidebarHandleWidth)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            if hovering {
+                                if !isResizerHovering {
+                                    NSCursor.resizeLeftRight.push()
+                                    isResizerHovering = true
+                                }
+                            } else if isResizerHovering {
+                                if !isResizerDragging {
+                                    NSCursor.pop()
+                                    isResizerHovering = false
+                                }
+                            }
+                        }
+                        .onDisappear {
+                            if isResizerHovering || isResizerDragging {
+                                NSCursor.pop()
+                                isResizerHovering = false
+                                isResizerDragging = false
+                            }
+                        }
+                }
             }
+
+            terminalContent
         }
         .frame(minWidth: 800, minHeight: 600)
         .background(Color.clear)
@@ -90,6 +140,10 @@ struct ContentView: View {
         tabManager.beginNewTabFlow()
         sidebarSelection = .tabs
     }
+
+    private func clampSidebarWidth(_ width: CGFloat) -> CGFloat {
+        max(140, min(360, width))
+    }
 }
 
 private extension ContentView {
@@ -122,98 +176,61 @@ private extension ContentView {
 
 }
 
-private struct SidebarOverlayView: View {
-    @Binding var width: CGFloat
-    @Binding var isResizerDragging: Bool
-    @Binding var selection: SidebarSelection
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    @State private var isResizerHovering = false
-    @State private var dragStartWidth: CGFloat = 0
-    @GestureState private var dragOffset: CGFloat = 0
-    private let sidebarHandleWidth: CGFloat = 6
-    private let sidebarDragStep: CGFloat = 6
+private struct SidebarResizerHandle: NSViewRepresentable {
+    var accessibilityIdentifier: String
+    var onDragStart: () -> Void
+    var onDrag: (CGFloat) -> Void
+    var onDragEnd: (CGFloat) -> Void
 
-    var body: some View {
-        ZStack(alignment: .leading) {
-            VerticalTabsSidebar(
-                selection: $selection,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-            )
-            .frame(width: width)
-            .overlay(alignment: .trailing) {
-                Color.clear
-                    .frame(width: sidebarHandleWidth)
-                    .contentShape(Rectangle())
-                    .accessibilityIdentifier("SidebarResizer")
-                    .onHover { hovering in
-                        if hovering {
-                            if !isResizerHovering {
-                                NSCursor.resizeLeftRight.push()
-                                isResizerHovering = true
-                            }
-                        } else if isResizerHovering {
-                            if !isResizerDragging {
-                                NSCursor.pop()
-                                isResizerHovering = false
-                            }
-                        }
-                    }
-                    .onDisappear {
-                        if isResizerHovering || isResizerDragging {
-                            NSCursor.pop()
-                            isResizerHovering = false
-                            isResizerDragging = false
-                        }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                            .updating($dragOffset) { value, state, _ in
-                                let stepped = (value.translation.width / sidebarDragStep).rounded() * sidebarDragStep
-                                state = stepped
-                            }
-                            .onChanged { _ in
-                                if !isResizerDragging {
-                                    isResizerDragging = true
-                                    dragStartWidth = width
-                                    if !isResizerHovering {
-                                        NSCursor.resizeLeftRight.push()
-                                        isResizerHovering = true
-                                    }
-                                }
-                            }
-                            .onEnded { value in
-                                if isResizerDragging {
-                                    isResizerDragging = false
-                                    if !isResizerHovering {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                let finalWidth = max(140, min(360, dragStartWidth + value.translation.width))
-                                withTransaction(Transaction(animation: nil)) {
-                                    width = finalWidth
-                                }
-                            }
-                    )
-            }
-
-            if isResizerDragging {
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor))
-                    .frame(width: 1)
-                    .offset(x: previewWidth - 0.5)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    func makeNSView(context: Context) -> SidebarResizerNSView {
+        let view = SidebarResizerNSView()
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.group)
+        view.setAccessibilityIdentifier(accessibilityIdentifier)
+        view.onDragStart = onDragStart
+        view.onDrag = onDrag
+        view.onDragEnd = onDragEnd
+        return view
     }
 
-    private var previewWidth: CGFloat {
-        if isResizerDragging {
-            return max(140, min(360, dragStartWidth + dragOffset))
-        }
-        return width
+    func updateNSView(_ nsView: SidebarResizerNSView, context: Context) {
+        nsView.setAccessibilityElement(true)
+        nsView.setAccessibilityRole(.group)
+        nsView.setAccessibilityIdentifier(accessibilityIdentifier)
+        nsView.onDragStart = onDragStart
+        nsView.onDrag = onDrag
+        nsView.onDragEnd = onDragEnd
+    }
+}
+
+private final class SidebarResizerNSView: NSView {
+    var onDragStart: (() -> Void)?
+    var onDrag: ((CGFloat) -> Void)?
+    var onDragEnd: ((CGFloat) -> Void)?
+    private var dragStartX: CGFloat?
+    private var isDragging = false
+
+    override var isOpaque: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        isDragging = true
+        dragStartX = event.locationInWindow.x
+        onDragStart?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragging, let dragStartX else { return }
+        let deltaX = event.locationInWindow.x - dragStartX
+        onDrag?(deltaX)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isDragging, let dragStartX else { return }
+        let deltaX = event.locationInWindow.x - dragStartX
+        isDragging = false
+        onDragEnd?(deltaX)
     }
 }
 

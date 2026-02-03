@@ -15,7 +15,7 @@ struct TerminalSplitTreeView: View {
             unfocusedOverlayColor: Color(nsColor: config.unfocusedSplitOverlayFill),
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
         )
-        let shouldFreeze = !isTabActive || isResizing
+        let shouldFreeze = !isTabActive
         Group {
             if let node = tab.splitTree.zoomed ?? tab.splitTree.root {
                 TerminalSplitSubtreeView(
@@ -47,27 +47,22 @@ struct TerminalSplitTreeView: View {
         .background(GeometryReader { proxy in
             Color.clear
                 .onAppear {
-                    updateSize(proxy.size, isActive: isTabActive, isResizing: isResizing)
+                    updateSize(proxy.size, isActive: isTabActive)
                 }
                 .onChange(of: proxy.size) { size in
-                    updateSize(size, isActive: isTabActive, isResizing: isResizing)
+                    updateSize(size, isActive: isTabActive)
                 }
                 .onChange(of: isTabActive) { isActive in
                     if isActive {
-                        updateSize(proxy.size, isActive: true, isResizing: isResizing)
-                    }
-                }
-                .onChange(of: isResizing) { nowResizing in
-                    if !nowResizing, isTabActive {
-                        updateSize(proxy.size, isActive: true, isResizing: false)
+                        updateSize(proxy.size, isActive: true)
                     }
                 }
         })
     }
 
-    private func updateSize(_ size: CGSize, isActive: Bool, isResizing: Bool) {
+    private func updateSize(_ size: CGSize, isActive: Bool) {
         guard size.width > 0, size.height > 0 else { return }
-        if isActive && !isResizing {
+        if isActive {
             if lastActiveSize != size {
                 lastActiveSize = size
             }

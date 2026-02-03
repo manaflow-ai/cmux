@@ -2827,7 +2827,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastLayerScale: CGFloat = 0
     private var hasSurfaceMetrics = false
     private var lastScrollEventTime: CFTimeInterval = 0
-    private var suppressResizeUpdates = false
+    private var coalescesResizeUpdates = false
+    private var pendingResizeUpdate = false
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -2979,7 +2980,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override var isOpaque: Bool { false }
 
     private func updateSurfaceSize() {
-        guard !suppressResizeUpdates else { return }
+        if coalescesResizeUpdates {
+            scheduleSurfaceSizeUpdate()
+            return
+        }
+        updateSurfaceSizeNow()
+    }
+
+    private func scheduleSurfaceSizeUpdate() {
+        guard !pendingResizeUpdate else { return }
+        pendingResizeUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingResizeUpdate = false
+            self.updateSurfaceSizeNow()
+        }
+    }
+
+    private func updateSurfaceSizeNow() {
         guard let terminalSurface = terminalSurface else { return }
         guard bounds.width > 0 && bounds.height > 0 else { return }
         let layerScale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
@@ -3008,11 +3026,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    func setResizeSuspended(_ suspended: Bool) {
-        guard suppressResizeUpdates != suspended else { return }
-        suppressResizeUpdates = suspended
-        if !suspended {
-            updateSurfaceSize()
+    func setResizeCoalescing(_ coalescing: Bool) {
+        guard coalescesResizeUpdates != coalescing else { return }
+        coalescesResizeUpdates = coalescing
+        if !coalescing {
+            updateSurfaceSizeNow()
         }
     }
 
@@ -3885,8 +3903,8 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.attachSurface(terminalSurface)
     }
 
-    func setResizeSuspended(_ suspended: Bool) {
-        surfaceView.setResizeSuspended(suspended)
+    func setResizeCoalescing(_ coalescing: Bool) {
+        surfaceView.setResizeCoalescing(coalescing)
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -4247,7 +4265,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let view = terminalSurface.hostedView
         view.attachSurface(terminalSurface)
         view.setActive(isActive)
-        view.setResizeSuspended(isResizing)
+        view.setResizeCoalescing(isResizing)
         view.setFocusHandler { onFocus?(terminalSurface.id) }
         view.setTriggerFlashHandler(onTriggerFlash)
         return view
@@ -4256,7 +4274,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: GhosttySurfaceScrollView, context: Context) {
         nsView.attachSurface(terminalSurface)
         nsView.setActive(isActive)
-        nsView.setResizeSuspended(isResizing)
+        nsView.setResizeCoalescing(isResizing)
         nsView.setFocusHandler { onFocus?(terminalSurface.id) }
         nsView.setTriggerFlashHandler(onTriggerFlash)
     }
