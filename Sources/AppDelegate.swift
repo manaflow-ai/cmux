@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
 #if DEBUG
+    private var memoryLogger: MemoryLogger?
+#endif
+#if DEBUG
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
 #endif
@@ -64,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+        if CmuxdManager.shared.isEnabled {
+            CmuxdManager.shared.startIfNeeded()
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -81,12 +87,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         notificationStore?.clearAll()
+#if DEBUG
+        memoryLogger?.stop()
+#endif
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MEM_LOG"] != "0" {
+            memoryLogger?.stop()
+            memoryLogger = MemoryLogger(tabManagerProvider: { [weak self] in self?.tabManager })
+            memoryLogger?.start()
+        }
+#endif
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
 #endif
@@ -143,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        let tab = tabManager.addDefaultTab()
         let config = GhosttyConfig.load()
         let lineCount = min(max(config.scrollbackLimit * 2, 2000), 60000)
         let command = "for i in {1..\(lineCount)}; do printf \"scrollback %06d\\n\" $i; done\n"
@@ -152,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugLoremTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        let tab = tabManager.addDefaultTab()
         let lineCount = 2000
         let base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore."
         var lines: [String] = []
@@ -195,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self else { return }
             let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
-            let tab = tabManager.addTab()
+            let tab = tabManager.addDefaultTab()
             guard let initialSurfaceId = tab.focusedSurfaceId else { return }
 
             _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialSurfaceId, direction: .right)
@@ -482,3 +498,100 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 }
+
+#if DEBUG
+final class MemoryLogger {
+    private let queue = DispatchQueue(label: "cmuxterm.memory.logger")
+    private var timer: DispatchSourceTimer?
+    private let interval: TimeInterval
+    private let tabManagerProvider: () -> TabManager?
+    private var lastResident: UInt64 = 0
+
+    init(tabManagerProvider: @escaping () -> TabManager?) {
+        let env = ProcessInfo.processInfo.environment
+        if let intervalString = env["CMUX_MEM_LOG_INTERVAL"],
+           let interval = TimeInterval(intervalString),
+           interval > 0 {
+            self.interval = interval
+        } else {
+            self.interval = 30.0
+        }
+        self.tabManagerProvider = tabManagerProvider
+    }
+
+    func start() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard timer == nil else { return }
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 1.0, repeating: interval, leeway: .seconds(1))
+            timer.setEventHandler { [weak self] in
+                self?.logSnapshot()
+            }
+            self.timer = timer
+            timer.resume()
+            logSnapshot()
+        }
+    }
+
+    func stop() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            timer?.cancel()
+            timer = nil
+        }
+    }
+
+    private func logSnapshot() {
+        guard let stats = memoryUsage() else {
+            MemoryLogStore.shared.append("mem stats unavailable")
+            return
+        }
+        let counts = collectCounts()
+        let rss = formatBytes(stats.resident)
+        let vms = formatBytes(stats.virtual)
+        var message = "mem rss=\(rss) vms=\(vms) tabs=\(counts.tabs) surfaces=\(counts.surfaces) remote=\(counts.remoteSurfaces) live=\(counts.liveSurfaces)"
+        if stats.resident > lastResident {
+            let delta = stats.resident - lastResident
+            if delta > 512 * 1024 * 1024 {
+                message += " rss_delta=+\(formatBytes(delta))"
+            }
+        }
+        lastResident = stats.resident
+        MemoryLogStore.shared.append(message)
+    }
+
+    private func collectCounts() -> (tabs: Int, surfaces: Int, remoteSurfaces: Int, liveSurfaces: Int) {
+        guard let tabManager = tabManagerProvider() else {
+            return (0, 0, 0, TerminalSurface.liveSurfaceCount())
+        }
+        let tabs = tabManager.tabs.count
+        var surfaces = 0
+        var remoteSurfaces = 0
+        for tab in tabManager.tabs {
+            guard let root = tab.splitTree.root else { continue }
+            let leaves = root.leaves()
+            surfaces += leaves.count
+            remoteSurfaces += leaves.filter { $0.sessionRef != nil }.count
+        }
+        return (tabs, surfaces, remoteSurfaces, TerminalSurface.liveSurfaceCount())
+    }
+
+    private func memoryUsage() -> (resident: UInt64, virtual: UInt64)? {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let kerr = withUnsafeMutablePointer(to: &info) { ptr in
+            ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { infoPtr in
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), infoPtr, &count)
+            }
+        }
+        guard kerr == KERN_SUCCESS else { return nil }
+        return (UInt64(info.resident_size), UInt64(info.virtual_size))
+    }
+
+    private func formatBytes(_ bytes: UInt64) -> String {
+        let gb = Double(bytes) / 1024.0 / 1024.0 / 1024.0
+        return String(format: "%.2fGB", gb)
+    }
+}
+#endif

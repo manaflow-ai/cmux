@@ -6,6 +6,1267 @@ import QuartzCore
 import Combine
 import Darwin
 import Sentry
+import Network
+
+struct CmuxdSessionInfo: Identifiable, Hashable {
+    let id: String
+    let paneId: String
+    let title: String
+    let cwd: String
+}
+
+struct CmuxdSessionRef: Hashable {
+    let connectionId: String
+    var sessionId: String?
+    var paneId: String?
+}
+
+final class LineBuffer {
+    private var buffer = Data()
+
+    func append(_ data: Data) -> [String] {
+        buffer.append(data)
+        var lines: [String] = []
+        while let range = buffer.firstRange(of: Data([0x0A])) {
+            let lineData = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
+            buffer.removeSubrange(buffer.startIndex...range.lowerBound)
+            if lineData.isEmpty { continue }
+            if let line = String(data: lineData, encoding: .utf8) {
+                let trimmed = line.trimmingCharacters(in: .newlines)
+                if !trimmed.isEmpty {
+                    lines.append(trimmed)
+                }
+            }
+        }
+        return lines
+    }
+
+    func clear() {
+        buffer.removeAll()
+    }
+}
+
+protocol CmuxdTransport: AnyObject {
+    var onMessage: ((String) -> Void)? { get set }
+    var onClose: ((String) -> Void)? { get set }
+    func connect()
+    func send(_ text: String)
+    func close()
+}
+
+final class CmuxdWebSocketTransport: CmuxdTransport {
+    private let url: URL
+    private let session: URLSession
+    private let queue = DispatchQueue(label: "cmuxd.ws.transport")
+    private var task: URLSessionWebSocketTask?
+
+    var onMessage: ((String) -> Void)?
+    var onClose: ((String) -> Void)?
+
+    init(url: URL) {
+        self.url = url
+        self.session = URLSession(configuration: .default)
+    }
+
+    func connect() {
+        guard task == nil else { return }
+        let task = session.webSocketTask(with: url)
+        self.task = task
+        task.resume()
+        receiveLoop()
+    }
+
+    func send(_ text: String) {
+        queue.async { [weak self] in
+            guard let self, let task = self.task else {
+                self?.onClose?("Connection failed")
+                return
+            }
+            task.send(.string(text)) { [weak self] error in
+                if error != nil {
+                    self?.onClose?("Connection failed")
+                }
+            }
+        }
+    }
+
+    func close() {
+        queue.async { [weak self] in
+            self?.task?.cancel(with: .goingAway, reason: nil)
+            self?.task = nil
+        }
+    }
+
+    private func receiveLoop() {
+        guard let task else { return }
+        task.receive { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure:
+                self.onClose?("Connection failed")
+                return
+            case .success(let message):
+                switch message {
+                case .string(let text):
+                    self.onMessage?(text)
+                case .data(let data):
+                    if let text = String(data: data, encoding: .utf8) {
+                        self.onMessage?(text)
+                    }
+                @unknown default:
+                    break
+                }
+            }
+            self.receiveLoop()
+        }
+    }
+}
+
+final class CmuxdUnixSocketTransport: CmuxdTransport {
+    private let path: String
+    private let queue: DispatchQueue
+    private var connection: NWConnection?
+    private let buffer = LineBuffer()
+
+    var onMessage: ((String) -> Void)?
+    var onClose: ((String) -> Void)?
+
+    init(path: String, label: String) {
+        self.path = path
+        self.queue = DispatchQueue(label: "cmuxd.unix.\(label)")
+    }
+
+    var socketPath: String { path }
+
+    func isSocketPresent() -> Bool {
+        FileManager.default.fileExists(atPath: path)
+    }
+
+    func connect() {
+        guard connection == nil else { return }
+        let conn = NWConnection(to: .unix(path: path), using: .tcp)
+        connection = conn
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            if case .failed(let error) = state {
+                self.onClose?("Connection failed: \(error)")
+            }
+            if case .cancelled = state {
+                self.onClose?("Connection closed")
+            }
+        }
+        conn.start(queue: queue)
+        receiveLoop()
+    }
+
+    func send(_ text: String) {
+        guard let connection else {
+            onClose?("Connection failed")
+            return
+        }
+        let payload = (text + "\n").data(using: .utf8) ?? Data()
+        connection.send(content: payload, completion: .contentProcessed { [weak self] error in
+            if error != nil {
+                self?.onClose?("Connection failed")
+            }
+        })
+    }
+
+    func close() {
+        connection?.cancel()
+        connection = nil
+        buffer.clear()
+    }
+
+    private func receiveLoop() {
+        guard let connection else { return }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data {
+                for line in self.buffer.append(data) {
+                    self.onMessage?(line)
+                }
+            }
+            if error != nil || isComplete {
+                self.onClose?("Connection closed")
+                return
+            }
+            self.receiveLoop()
+        }
+    }
+}
+
+final class CmuxdStdioTransport: CmuxdTransport {
+    private let command: [String]
+    private let queue: DispatchQueue
+    private let buffer = LineBuffer()
+    private var process: Process?
+    private var stdinPipe: Pipe?
+    private var stdoutPipe: Pipe?
+
+    var onMessage: ((String) -> Void)?
+    var onClose: ((String) -> Void)?
+
+    init(command: [String], label: String) {
+        self.command = command
+        self.queue = DispatchQueue(label: "cmuxd.stdio.\(label)")
+    }
+
+    func connect() {
+        guard process == nil else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: command[0])
+        if command.count > 1 {
+            process.arguments = Array(command.dropFirst())
+        }
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        process.terminationHandler = { [weak self] _ in
+            self?.queue.async {
+                self?.onClose?("Connection closed")
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            onClose?("Failed to launch connection: \(error.localizedDescription)")
+            return
+        }
+
+        self.process = process
+        self.stdinPipe = stdinPipe
+        self.stdoutPipe = stdoutPipe
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            guard let self else { return }
+            let data = handle.availableData
+            if data.isEmpty {
+                self.onClose?("Connection closed")
+                return
+            }
+            for line in self.buffer.append(data) {
+                self.onMessage?(line)
+            }
+        }
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData
+        }
+    }
+
+    func send(_ text: String) {
+        queue.async { [weak self] in
+            guard let self, let pipe = self.stdinPipe else {
+                self?.onClose?("Connection failed")
+                return
+            }
+            let payload = (text + "\n").data(using: .utf8) ?? Data()
+            pipe.fileHandleForWriting.write(payload)
+        }
+    }
+
+    func close() {
+        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
+        stdinPipe?.fileHandleForWriting.closeFile()
+        stdoutPipe?.fileHandleForReading.closeFile()
+        process?.terminate()
+        process = nil
+        buffer.clear()
+    }
+}
+
+final class CmuxdPane {
+    let id: String
+    let sessionId: String?
+    let connectionId: String
+    let connectionLabel: String
+    private weak var connection: CmuxdConnection?
+    var onOutput: ((Data) -> Void)?
+    var onSnapshot: ((Data, Int, Int) -> Void)?
+    var onExit: ((Int) -> Void)?
+    var onTitle: ((String) -> Void)?
+    var onCwd: ((String) -> Void)?
+    var onNotify: ((String, String) -> Void)?
+
+    init(id: String, sessionId: String?, connection: CmuxdConnection) {
+        self.id = id
+        self.sessionId = sessionId
+        self.connection = connection
+        self.connectionId = connection.id
+        self.connectionLabel = connection.label
+    }
+
+    func sendInput(_ data: Data) {
+        connection?.sendMessage([
+            "type": "input",
+            "pane_id": id,
+            "data": data.base64EncodedString(),
+        ])
+    }
+
+    func sendResize(cols: Int, rows: Int) {
+        connection?.sendMessage([
+            "type": "resize",
+            "pane_id": id,
+            "cols": cols,
+            "rows": rows,
+        ])
+    }
+
+    func requestSnapshot() {
+        connection?.sendMessage([
+            "type": "snapshot_request",
+            "pane_id": id,
+        ])
+    }
+
+    func close() {
+        connection?.sendMessage([
+            "type": "close_pane",
+            "pane_id": id,
+        ])
+    }
+}
+
+final class CmuxdConnection {
+    enum State: Equatable {
+        case disconnected
+        case connecting
+        case ready
+        case failed(String)
+    }
+
+    struct SessionRequestOptions {
+        var cwd: String?
+        var term: String?
+        var cols: Int?
+        var rows: Int?
+
+        init(cwd: String? = nil, term: String? = nil, cols: Int? = nil, rows: Int? = nil) {
+            self.cwd = cwd
+            self.term = term
+            self.cols = cols
+            self.rows = rows
+        }
+    }
+
+    private struct PendingSessionRequest {
+        let options: SessionRequestOptions
+        let completion: (CmuxdPane) -> Void
+    }
+
+    let id: String
+    let label: String
+    private let transport: CmuxdTransport
+    private let queue: DispatchQueue
+    private var isReady = false
+    private var capabilities: Set<String> = []
+    private var defaultSessionId: String?
+    private var pendingSessionRequests: [PendingSessionRequest] = []
+    private var sessionRequestInFlight = false
+    private var pendingAttachRequests: [String: (CmuxdPane) -> Void] = [:]
+    private var pendingAttachSent: Set<String> = []
+    private var paneHandlers: [String: CmuxdPane] = [:]
+    private var pendingSessionListHandlers: [([CmuxdSessionInfo]) -> Void] = []
+    private var pendingSessionListRequest = false
+    private var reconnectWorkItem: DispatchWorkItem?
+    private var helloTimeoutWorkItem: DispatchWorkItem?
+    private var reconnectAttempts = 0
+    private var connectStart: Date?
+    private var awaitingSocket = false
+    private var socketWaitStart: Date?
+    private var state: State = .disconnected {
+        didSet {
+            if state != oldValue {
+                DispatchQueue.main.async { [state] in
+                    self.onStateChange?(state)
+                }
+            }
+        }
+    }
+
+    var onStateChange: ((State) -> Void)?
+    var onHandshakeTimeout: (() -> Void)?
+
+    init(id: String, label: String, transport: CmuxdTransport) {
+        self.id = id
+        self.label = label
+        self.transport = transport
+        self.queue = DispatchQueue(label: "cmuxd.connection.\(id)")
+        transport.onMessage = { [weak self] text in
+            self?.queue.async {
+                self?.handleMessage(text)
+            }
+        }
+        transport.onClose = { [weak self] message in
+            self?.resetConnection(error: message)
+        }
+    }
+
+    func stateSnapshot() -> State {
+        queue.sync { state }
+    }
+
+    func connectIfNeeded() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard !self.isReady else { return }
+            if self.state == .connecting, !self.awaitingSocket {
+                return
+            }
+            self.reconnectWorkItem?.cancel()
+            self.reconnectWorkItem = nil
+            self.state = .connecting
+            if self.connectStart == nil {
+                self.connectStart = Date()
+                CmuxdManager.logTiming("connect start conn=\(self.label) transport=\(self.transportDescription())")
+            }
+            if let unix = self.transport as? CmuxdUnixSocketTransport, !unix.isSocketPresent() {
+                if self.socketWaitStart == nil {
+                    self.socketWaitStart = Date()
+                    CmuxdManager.logTiming("waiting for unix socket conn=\(self.label) path=\(unix.socketPath)")
+                }
+                self.awaitingSocket = true
+                self.scheduleReconnect(delayOverride: 0.05, incrementAttempts: false)
+                return
+            }
+            if let unix = self.transport as? CmuxdUnixSocketTransport, let waitStart = self.socketWaitStart {
+                let elapsed = Date().timeIntervalSince(waitStart)
+                CmuxdManager.logTiming(String(format: "unix socket ready conn=%@ after %.3fs path=%@",
+                                              self.label, elapsed, unix.socketPath))
+            }
+            self.socketWaitStart = nil
+            self.awaitingSocket = false
+            self.transport.connect()
+            self.startHandshake()
+        }
+    }
+
+    func requestSession(options: SessionRequestOptions = SessionRequestOptions(), completion: @escaping (CmuxdPane) -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.connectIfNeeded()
+            self.pendingSessionRequests.append(.init(options: options, completion: completion))
+            self.flushSessionRequests()
+        }
+    }
+
+    func attachSession(id sessionId: String, completion: @escaping (CmuxdPane) -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.connectIfNeeded()
+            self.pendingAttachRequests[sessionId] = completion
+            self.flushAttachRequests()
+        }
+    }
+
+    func fetchSessionList(completion: @escaping ([CmuxdSessionInfo]) -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.connectIfNeeded()
+            self.pendingSessionListHandlers.append(completion)
+            self.pendingSessionListRequest = true
+            self.flushSessionListRequests()
+        }
+    }
+
+    func sendMessage(_ payload: [String: Any]) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.connectIfNeeded()
+            if let data = try? JSONSerialization.data(withJSONObject: payload),
+               let text = String(data: data, encoding: .utf8) {
+                self.transport.send(text)
+            }
+        }
+    }
+
+    private var supportsSessions: Bool {
+        capabilities.contains("sessions")
+    }
+
+    private func sendHello() {
+        sendMessage(["type": "hello", "version": 1])
+    }
+
+    private func startHandshake() {
+        sendHello()
+        scheduleHelloTimeout()
+    }
+
+    private func scheduleHelloTimeout() {
+        helloTimeoutWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if !self.isReady {
+                let start = self.connectStart ?? Date()
+                let elapsed = Date().timeIntervalSince(start)
+                if elapsed < 10.0 {
+                    self.sendHello()
+                    self.scheduleHelloTimeout()
+                    return
+                }
+                self.onHandshakeTimeout?()
+                self.resetConnection(error: "Handshake timeout")
+            }
+        }
+        helloTimeoutWorkItem = item
+        queue.asyncAfter(deadline: .now() + 3.0, execute: item)
+    }
+
+    private func clearHelloTimeout() {
+        helloTimeoutWorkItem?.cancel()
+        helloTimeoutWorkItem = nil
+    }
+
+    private func flushSessionRequests() {
+        guard isReady else { return }
+        guard !sessionRequestInFlight else { return }
+        guard !pendingSessionRequests.isEmpty else { return }
+        sessionRequestInFlight = true
+        let request = pendingSessionRequests[0]
+        var payload: [String: Any] = ["type": supportsSessions ? "new_session" : "new_pane"]
+        if let cwd = request.options.cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cwd.isEmpty {
+            payload["cwd"] = cwd
+        }
+        if let term = request.options.term?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !term.isEmpty {
+            payload["term"] = term
+        }
+        if let cols = request.options.cols, cols > 0 {
+            payload["cols"] = cols
+        }
+        if let rows = request.options.rows, rows > 0 {
+            payload["rows"] = rows
+        }
+        sendMessage(payload)
+    }
+
+    private func flushSessionListRequests() {
+        guard isReady else { return }
+        guard pendingSessionListRequest else { return }
+        pendingSessionListRequest = false
+        if supportsSessions {
+            sendMessage(["type": "list_sessions"])
+        } else {
+            sendMessage(["type": "list_panes"])
+        }
+    }
+
+    private func flushAttachRequests() {
+        guard isReady else { return }
+        if supportsSessions {
+            for sessionId in pendingAttachRequests.keys {
+                guard !pendingAttachSent.contains(sessionId) else { continue }
+                pendingAttachSent.insert(sessionId)
+                sendMessage(["type": "attach_session", "session_id": sessionId])
+            }
+        } else {
+            let requests = pendingAttachRequests
+            pendingAttachRequests.removeAll()
+            pendingAttachSent.removeAll()
+            for (sessionId, completion) in requests {
+                attachPane(id: sessionId, completion: completion)
+            }
+        }
+    }
+
+    private func drainSessionListHandlers(with list: [CmuxdSessionInfo]) {
+        guard !pendingSessionListHandlers.isEmpty else { return }
+        let handlers = pendingSessionListHandlers
+        pendingSessionListHandlers.removeAll()
+        DispatchQueue.main.async {
+            handlers.forEach { $0(list) }
+        }
+    }
+
+    private func attachPane(id: String, completion: @escaping (CmuxdPane) -> Void) {
+        let pane = CmuxdPane(id: id, sessionId: id, connection: self)
+        paneHandlers[id] = pane
+        DispatchQueue.main.async {
+            completion(pane)
+        }
+    }
+
+    private func resetConnection(error: String?) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.transport.close()
+            self.isReady = false
+            self.sessionRequestInFlight = false
+            self.pendingAttachSent.removeAll()
+            self.clearHelloTimeout()
+            self.connectStart = nil
+            self.awaitingSocket = false
+            self.socketWaitStart = nil
+            let message = error ?? "Disconnected"
+            self.state = .failed(message)
+            if !self.pendingSessionRequests.isEmpty || !self.pendingSessionListHandlers.isEmpty || !self.paneHandlers.isEmpty {
+                self.scheduleReconnect()
+            }
+        }
+    }
+
+    private func scheduleReconnect(delayOverride: TimeInterval? = nil, incrementAttempts: Bool = true) {
+        guard reconnectWorkItem == nil else { return }
+        let delay: TimeInterval
+        if let delayOverride {
+            delay = delayOverride
+        } else {
+            let attempt = reconnectAttempts
+            delay = min(0.2 * pow(2.0, Double(attempt)), 3.0)
+        }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.reconnectWorkItem = nil
+            if incrementAttempts {
+                self.reconnectAttempts += 1
+            }
+            self.connectIfNeeded()
+        }
+        reconnectWorkItem = item
+        queue.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func handleMessage(_ text: String) {
+        guard let data = text.data(using: .utf8) else { return }
+        guard let value = try? JSONSerialization.jsonObject(with: data) else { return }
+        guard let obj = value as? [String: Any] else { return }
+        guard let type = obj["type"] as? String else { return }
+
+        switch type {
+        case "welcome":
+            isReady = true
+            reconnectAttempts = 0
+            clearHelloTimeout()
+            if let start = connectStart {
+                let elapsed = Date().timeIntervalSince(start)
+                CmuxdManager.logTiming(String(format: "handshake ready conn=%@ after %.3fs", self.label, elapsed))
+            }
+            connectStart = nil
+            awaitingSocket = false
+            socketWaitStart = nil
+            if let caps = obj["capabilities"] as? [String] {
+                capabilities = Set(caps)
+            }
+            defaultSessionId = obj["session_id"] as? String
+            state = .ready
+            flushSessionRequests()
+            flushSessionListRequests()
+            flushAttachRequests()
+        case "capabilities":
+            if let caps = obj["capabilities"] as? [String] {
+                capabilities = Set(caps)
+            }
+            flushAttachRequests()
+        case "session_created", "pane_created":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            let sessionId = (obj["session_id"] as? String) ?? defaultSessionId ?? paneId
+            let pane = CmuxdPane(id: paneId, sessionId: sessionId, connection: self)
+            paneHandlers[paneId] = pane
+            if !pendingSessionRequests.isEmpty {
+                let request = pendingSessionRequests.removeFirst()
+                sessionRequestInFlight = false
+                DispatchQueue.main.async {
+                    request.completion(pane)
+                }
+                flushSessionRequests()
+            }
+        case "session_attached":
+            guard let sessionId = obj["session_id"] as? String else { return }
+            guard let paneId = obj["pane_id"] as? String else { return }
+            let pane = CmuxdPane(id: paneId, sessionId: sessionId, connection: self)
+            paneHandlers[paneId] = pane
+            pendingAttachSent.remove(sessionId)
+            if let completion = pendingAttachRequests.removeValue(forKey: sessionId) {
+                DispatchQueue.main.async {
+                    completion(pane)
+                }
+            }
+        case "sessions":
+            let sessions = (obj["sessions"] as? [[String: Any]] ?? []).compactMap { item -> CmuxdSessionInfo? in
+                guard let sessionId = item["session_id"] as? String else { return nil }
+                let paneId = item["pane_id"] as? String ?? sessionId
+                let title = item["title"] as? String ?? ""
+                let cwd = item["cwd"] as? String ?? ""
+                return CmuxdSessionInfo(id: sessionId, paneId: paneId, title: title, cwd: cwd)
+            }
+            drainSessionListHandlers(with: sessions)
+        case "panes":
+            let panes = (obj["panes"] as? [[String: Any]] ?? []).compactMap { item -> CmuxdSessionInfo? in
+                guard let paneId = item["pane_id"] as? String else { return nil }
+                let sessionId = (item["session_id"] as? String) ?? paneId
+                return CmuxdSessionInfo(id: sessionId, paneId: paneId, title: "", cwd: "")
+            }
+            drainSessionListHandlers(with: panes)
+        case "output":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            guard let b64 = obj["data"] as? String else { return }
+            guard let data = Data(base64Encoded: b64) else { return }
+            if let pane = paneHandlers[paneId] {
+                pane.onOutput?(data)
+            }
+        case "snapshot":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            guard let b64 = obj["data"] as? String else { return }
+            guard let data = Data(base64Encoded: b64) else { return }
+            let cols = obj["cols"] as? Int ?? 0
+            let rows = obj["rows"] as? Int ?? 0
+            if let pane = paneHandlers[paneId] {
+                pane.onSnapshot?(data, cols, rows)
+            }
+        case "title_update":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            let title = obj["title"] as? String ?? ""
+            if let pane = paneHandlers[paneId] {
+                DispatchQueue.main.async {
+                    pane.onTitle?(title)
+                }
+            }
+        case "cwd_update":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            let cwd = obj["cwd"] as? String ?? ""
+            if let pane = paneHandlers[paneId] {
+                DispatchQueue.main.async {
+                    pane.onCwd?(cwd)
+                }
+            }
+        case "notify":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            let title = obj["title"] as? String ?? ""
+            let body = obj["body"] as? String ?? ""
+            if let pane = paneHandlers[paneId] {
+                DispatchQueue.main.async {
+                    pane.onNotify?(title, body)
+                }
+            }
+        case "pane_exited":
+            guard let paneId = obj["pane_id"] as? String else { return }
+            let exitCode = obj["exit_code"] as? Int ?? 0
+            if let pane = paneHandlers.removeValue(forKey: paneId) {
+                DispatchQueue.main.async {
+                    pane.onExit?(exitCode)
+                }
+            }
+        case "error":
+            if let message = obj["message"] as? String {
+                state = .failed(message)
+            }
+        default:
+            break
+        }
+    }
+
+    private func transportDescription() -> String {
+        if let unix = transport as? CmuxdUnixSocketTransport {
+            return "unix:\(unix.socketPath)"
+        }
+        if transport is CmuxdWebSocketTransport {
+            return "ws"
+        }
+        if transport is CmuxdStdioTransport {
+            return "stdio"
+        }
+        return "unknown"
+    }
+}
+
+final class CmuxdManager {
+    static let shared = CmuxdManager()
+    static let timingsEnabled: Bool = {
+        let env = (ProcessInfo.processInfo.environment["CMUXD_TIMINGS"] ?? "").lowercased()
+        return env == "1" || env == "true" || env == "yes"
+    }()
+    private static let timingsQueue = DispatchQueue(label: "cmuxd.timing.log")
+
+    static func logTiming(_ message: String) {
+        guard timingsEnabled else { return }
+        NSLog("[cmuxd.timing] %@", message)
+        timingsQueue.async {
+            guard let url = timingLogURL() else { return }
+            let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
+            let line = "[\(timestamp)] \(message)\n"
+            let data = Data(line.utf8)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            if let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            }
+        }
+    }
+
+    private let port: UInt16
+    private let host = "127.0.0.1"
+    private let stateQueue = DispatchQueue(label: "cmuxd.manager")
+    private let localConnectionId = "local"
+    private let unixSocketPath: String?
+
+    private(set) var connections: [CmuxdConnection] = []
+    private var connectionsById: [String: CmuxdConnection] = [:]
+    var connection: CmuxdConnection? { connectionsById[localConnectionId] }
+    var defaultConnectionId: String? { connections.first?.id }
+    let isEnabled: Bool
+    private let cmuxdPath: String?
+    private var launchProcess: Process?
+    private var logHandle: FileHandle?
+    private var logPath: String?
+    private var lastErrorMessage: String?
+    private var lastRestartAttempt: Date?
+
+    private struct ConnectionsConfig: Codable {
+        let connections: [ConnectionConfig]
+    }
+
+    private struct ConnectionConfig: Codable {
+        let id: String
+        let name: String
+        let type: String
+        let url: String?
+        let path: String?
+        let host: String?
+        let command: String?
+        let args: [String]?
+    }
+
+    private init() {
+        self.port = Self.resolvePort()
+        if ProcessInfo.processInfo.environment["CMUXD_DISABLE"] == "1" {
+            self.isEnabled = false
+            self.cmuxdPath = nil
+            self.unixSocketPath = nil
+            return
+        }
+        let resolvedPath = Self.resolveCmuxdPathStatic()
+        self.cmuxdPath = resolvedPath
+        self.unixSocketPath = Self.resolveUnixSocketPath()
+        let remoteConnections = Self.loadRemoteConnections()
+        var builtConnections: [CmuxdConnection] = []
+
+        if resolvedPath != nil {
+            let transport: CmuxdTransport
+            if let unixSocketPath {
+                transport = CmuxdUnixSocketTransport(path: unixSocketPath, label: localConnectionId)
+            } else {
+                transport = CmuxdWebSocketTransport(url: URL(string: "ws://\(host):\(port)")!)
+            }
+            let local = CmuxdConnection(id: localConnectionId, label: "Local", transport: transport)
+            builtConnections.append(local)
+        }
+
+        builtConnections.append(contentsOf: remoteConnections)
+        self.connections = builtConnections
+        self.connectionsById = Dictionary(uniqueKeysWithValues: builtConnections.map { ($0.id, $0) })
+        self.isEnabled = !builtConnections.isEmpty
+        self.logPath = Self.defaultLogPath()
+        if let local = self.connectionsById[localConnectionId] {
+            local.onHandshakeTimeout = { [weak self] in
+                self?.handleLocalHandshakeTimeout()
+            }
+        }
+        if resolvedPath != nil {
+            startIfNeeded()
+        }
+        connection?.connectIfNeeded()
+    }
+
+    func startIfNeeded() {
+        guard cmuxdPath != nil else { return }
+        stateQueue.async {
+            if self.isLocalReady() {
+                return
+            }
+            guard let binPath = self.cmuxdPath else {
+                NSLog("cmuxd: binary not found; falling back to local PTY")
+                self.lastErrorMessage = "cmuxd binary not found"
+                return
+            }
+            self.launchCmuxd(binPath: binPath)
+        }
+    }
+
+    func isLocalReadySnapshot() -> Bool {
+        stateQueue.sync { isLocalReady() }
+    }
+
+    func connection(for id: String?) -> CmuxdConnection? {
+        if let id {
+            return connectionsById[id]
+        }
+        return connection
+    }
+
+    func fetchSessionList(connectionId: String? = nil, completion: @escaping ([CmuxdSessionInfo]) -> Void) {
+        connection(for: connectionId)?.fetchSessionList(completion: completion)
+    }
+
+    func requestSession(
+        connectionId: String? = nil,
+        options: CmuxdConnection.SessionRequestOptions = .init(),
+        completion: @escaping (CmuxdPane) -> Void
+    ) {
+        connection(for: connectionId)?.requestSession(options: options, completion: completion)
+    }
+
+    private static func resolveCmuxdPathStatic() -> String? {
+        if let env = ProcessInfo.processInfo.environment["CMUXD_BIN"], !env.isEmpty {
+            return env
+        }
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let supportBin = appSupport?.appendingPathComponent("cmuxterm/bin/cmuxd")
+        if let resourceBin = Bundle.main.resourceURL?.appendingPathComponent("bin/cmuxd"),
+           FileManager.default.isExecutableFile(atPath: resourceBin.path) {
+            if let supportDir = supportBin?.deletingLastPathComponent() {
+                try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
+                if let supportBin, FileManager.default.fileExists(atPath: supportBin.path) {
+                    try? FileManager.default.removeItem(at: supportBin)
+                }
+                try? FileManager.default.copyItem(at: resourceBin, to: supportBin!)
+                return supportBin?.path ?? resourceBin.path
+            }
+            return resourceBin.path
+        }
+        if let supportBin, FileManager.default.isExecutableFile(atPath: supportBin.path) {
+            return supportBin.path
+        }
+        return nil
+    }
+
+    private static func resolveUnixSocketPath() -> String? {
+        if let env = ProcessInfo.processInfo.environment["CMUXD_UNIX_PATH"] {
+            let trimmed = env.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            return NSString(string: trimmed).expandingTildeInPath
+        }
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let isDev = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)?
+            .localizedCaseInsensitiveContains("DEV") == true
+        let socketName = isDev ? "cmuxd-dev.sock" : "cmuxd.sock"
+        return appSupport
+            .appendingPathComponent("cmuxterm")
+            .appendingPathComponent(socketName)
+            .path
+    }
+
+    private static func connectionsConfigURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmuxterm/remote-connections.json")
+    }
+
+    private static func loadRemoteConnections() -> [CmuxdConnection] {
+        guard let url = connectionsConfigURL(),
+              let data = try? Data(contentsOf: url) else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        guard let config = try? decoder.decode(ConnectionsConfig.self, from: data) else {
+            return []
+        }
+        var results: [CmuxdConnection] = []
+        for entry in config.connections {
+            guard !entry.id.isEmpty else { continue }
+            let label = entry.name.isEmpty ? entry.id : entry.name
+            switch entry.type.lowercased() {
+            case "ws":
+                guard let urlString = entry.url, let url = URL(string: urlString) else { continue }
+                let transport = CmuxdWebSocketTransport(url: url)
+                results.append(CmuxdConnection(id: entry.id, label: label, transport: transport))
+            case "unix":
+                guard let path = entry.path, !path.isEmpty else { continue }
+                let transport = CmuxdUnixSocketTransport(path: path, label: entry.id)
+                results.append(CmuxdConnection(id: entry.id, label: label, transport: transport))
+            case "ssh", "stdio":
+                guard let host = entry.host, !host.isEmpty else { continue }
+                var command: [String] = ["/usr/bin/ssh", "-T", host]
+                if let args = entry.args {
+                    command.append(contentsOf: args)
+                }
+                command.append(entry.command ?? "cmuxd --stdio")
+                let transport = CmuxdStdioTransport(command: command, label: entry.id)
+                results.append(CmuxdConnection(id: entry.id, label: label, transport: transport))
+            default:
+                continue
+            }
+        }
+        return results
+    }
+
+    private func launchCmuxd(binPath: String) {
+        if let launchProcess, launchProcess.isRunning {
+            return
+        }
+        let unixPath = unixSocketPath ?? ""
+        let mode = unixPath.isEmpty ? "ws" : "unix"
+        Self.logTiming("launching cmuxd mode=\(mode) bin=\(binPath) unix=\(unixPath)")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binPath)
+        var arguments: [String] = []
+        if let unixSocketPath {
+            let socketDir = URL(fileURLWithPath: unixSocketPath).deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: socketDir, withIntermediateDirectories: true)
+            arguments.append(contentsOf: ["--unix", unixSocketPath])
+        } else {
+            arguments.append(contentsOf: ["--ws", "\(host):\(port)"])
+        }
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        if environment["CMUXD_DEFAULT_CWD"] == nil {
+            let config = GhosttyConfig.load()
+            let trimmed = config.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                environment["CMUXD_DEFAULT_CWD"] = NSString(string: trimmed).expandingTildeInPath
+            } else {
+                environment["CMUXD_DEFAULT_CWD"] = FileManager.default.homeDirectoryForCurrentUser.path
+            }
+        }
+        if environment["COLORTERM"] == nil {
+            environment["COLORTERM"] = "truecolor"
+        }
+        if environment["TERM_PROGRAM"] == nil {
+            environment["TERM_PROGRAM"] = "ghostty"
+        }
+        if environment["TERM_PROGRAM_VERSION"] == nil {
+            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+               !version.isEmpty {
+                environment["TERM_PROGRAM_VERSION"] = version
+            }
+        }
+        if environment["TERMINFO"] == nil {
+            let fileManager = FileManager.default
+            let resourceURL = Bundle.main.resourceURL
+            let candidates = [
+                resourceURL?.appendingPathComponent("ghostty/terminfo"),
+                resourceURL?.appendingPathComponent("terminfo"),
+            ]
+            for candidate in candidates {
+                if let candidate, fileManager.fileExists(atPath: candidate.path) {
+                    environment["TERMINFO"] = candidate.path
+                    break
+                }
+            }
+        }
+        if environment["GHOSTTY_RESOURCES_DIR"] == nil {
+            let fileManager = FileManager.default
+            let resourceURL = Bundle.main.resourceURL
+            let candidates = [
+                resourceURL?.appendingPathComponent("ghostty"),
+                resourceURL,
+            ]
+            for candidate in candidates {
+                guard let candidate else { continue }
+                let integrationDir = candidate.appendingPathComponent("shell-integration")
+                if fileManager.fileExists(atPath: integrationDir.path) {
+                    environment["GHOSTTY_RESOURCES_DIR"] = candidate.path
+                    break
+                }
+            }
+        }
+        process.environment = environment
+        if let logURL = prepareLogFile() {
+            logPath = logURL.path
+            if let handle = try? FileHandle(forWritingTo: logURL) {
+                logHandle = handle
+                try? handle.truncate(atOffset: 0)
+                process.standardOutput = handle
+                process.standardError = handle
+            } else {
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+            }
+        } else {
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+        }
+        lastErrorMessage = nil
+        process.terminationHandler = { [weak self] proc in
+            guard let self else { return }
+            self.stateQueue.async {
+                let code = proc.terminationStatus
+                let reason = proc.terminationReason
+                self.lastErrorMessage = "cmuxd exited (status \(code), reason \(reason))"
+            }
+        }
+        do {
+            try process.run()
+            launchProcess = process
+            Self.logTiming("cmuxd started pid=\(process.processIdentifier)")
+        } catch {
+            NSLog("cmuxd: failed to launch: \(error)")
+            lastErrorMessage = "Failed to launch cmuxd: \(error.localizedDescription)"
+        }
+    }
+
+    private func handleLocalHandshakeTimeout() {
+        stateQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.cmuxdPath != nil else { return }
+            let now = Date()
+            if let lastRestartAttempt, now.timeIntervalSince(lastRestartAttempt) < 5.0 {
+                return
+            }
+            lastRestartAttempt = now
+            Self.logTiming("handshake timeout: restarting local cmuxd")
+            if let unixSocketPath {
+                try? FileManager.default.removeItem(atPath: unixSocketPath)
+            }
+            if let launchProcess, launchProcess.isRunning {
+                launchProcess.terminate()
+            }
+            launchProcess = nil
+            self.launchCmuxd(binPath: self.cmuxdPath!)
+        }
+    }
+
+    private func prepareLogFile() -> URL? {
+        let fileManager = FileManager.default
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let logDir = appSupport.appendingPathComponent("cmuxterm")
+        do {
+            try fileManager.createDirectory(at: logDir, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        return logDir.appendingPathComponent("cmuxd.log")
+    }
+
+    private static func defaultLogPath() -> String? {
+        let fileManager = FileManager.default
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return appSupport
+            .appendingPathComponent("cmuxterm")
+            .appendingPathComponent("cmuxd.log")
+            .path
+    }
+
+    private static func timingLogURL() -> URL? {
+        let fileManager = FileManager.default
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let logDir = appSupport.appendingPathComponent("cmuxterm")
+        try? fileManager.createDirectory(at: logDir, withIntermediateDirectories: true)
+        return logDir.appendingPathComponent("cmuxd-timing.log")
+    }
+
+    func describeFailure() -> String? {
+        stateQueue.sync {
+            var parts: [String] = []
+            if let lastErrorMessage, !lastErrorMessage.isEmpty {
+                parts.append(lastErrorMessage)
+            }
+            let resolvedLogPath = logPath ?? Self.defaultLogPath()
+            if let resolvedLogPath, !resolvedLogPath.isEmpty {
+                parts.append("log: \(resolvedLogPath)")
+            }
+            if let unixSocketPath {
+                let exists = FileManager.default.fileExists(atPath: unixSocketPath)
+                parts.append("unix socket: \(exists ? "present" : "missing")")
+            } else {
+                let portStatus = isPortOpen() ? "port \(port) open" : "port \(port) closed"
+            parts.append(portStatus)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }
+    }
+
+    private func isLocalReady() -> Bool {
+        if let unixSocketPath {
+            return isUnixSocketActive(path: unixSocketPath)
+        }
+        return isPortOpen()
+    }
+
+    private func isPortOpen() -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        let host = NWEndpoint.Host(self.host)
+        guard let port = NWEndpoint.Port(rawValue: port) else { return false }
+        let queue = DispatchQueue(label: "cmuxd.portcheck")
+        let conn = NWConnection(host: host, port: port, using: .tcp)
+        var isOpen = false
+        conn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                isOpen = true
+                conn.cancel()
+                semaphore.signal()
+            case .failed, .cancelled:
+                semaphore.signal()
+            default:
+                break
+            }
+        }
+        conn.start(queue: queue)
+        if semaphore.wait(timeout: .now() + 0.3) == .timedOut {
+            conn.cancel()
+        }
+        return isOpen
+    }
+
+    private func isUnixSocketActive(path: String) -> Bool {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = path.utf8CString
+        guard pathBytes.count <= maxLen else { return false }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { sunPathPtr in
+            let rawPtr = UnsafeMutableRawPointer(sunPathPtr).assumingMemoryBound(to: Int8.self)
+            memset(rawPtr, 0, maxLen)
+            _ = pathBytes.withUnsafeBufferPointer { buffer in
+                strncpy(rawPtr, buffer.baseAddress, maxLen - 1)
+            }
+        }
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        if fd < 0 { return false }
+        defer { close(fd) }
+
+        var isActive = false
+        let addrLen = socklen_t(MemoryLayout.size(ofValue: addr))
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
+                connect(fd, saPtr, addrLen)
+            }
+        }
+        if result == 0 {
+            isActive = true
+        } else {
+            if errno == ECONNREFUSED {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+            isActive = false
+        }
+        return isActive
+    }
+
+    private static func resolvePort() -> UInt16 {
+        if let env = ProcessInfo.processInfo.environment["CMUXD_PORT"],
+           let value = UInt16(env) {
+            return value
+        }
+        if let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String,
+           name.localizedCaseInsensitiveContains("DEV") {
+            return 4071
+        }
+        return 4070
+    }
+}
 
 private enum GhosttyPasteboardHelper {
     private static let selectionPasteboard = NSPasteboard(
@@ -646,7 +1907,38 @@ class GhosttyApp {
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
+enum CmuxdSurfaceState: Equatable {
+    case disabled
+    case connecting
+    case ready
+    case failed(String)
+
+    var isConnecting: Bool {
+        if case .connecting = self { return true }
+        return false
+    }
+
+    var errorMessage: String? {
+        if case .failed(let message) = self { return message }
+        return nil
+    }
+}
+
 final class TerminalSurface: Identifiable, ObservableObject {
+    private static let liveCountQueue = DispatchQueue(label: "cmuxterm.surface.count")
+    private static var liveCount: Int = 0
+
+    private static func bumpLiveCount(_ delta: Int) -> Int {
+        liveCountQueue.sync {
+            liveCount += delta
+            return liveCount
+        }
+    }
+
+    static func liveSurfaceCount() -> Int {
+        liveCountQueue.sync { liveCount }
+    }
+
     final class SearchState: ObservableObject {
         @Published var needle: String
         @Published var selected: UInt?
@@ -659,8 +1951,32 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private static let ioWriteCallback: ghostty_io_write_cb = { userdata, ptr, len in
+        guard let userdata, let ptr, len > 0 else { return }
+        let surface = Unmanaged<TerminalSurface>.fromOpaque(userdata).takeUnretainedValue()
+        surface.handleIoWrite(ptr: ptr, len: len)
+    }
+
     private(set) var surface: ghostty_surface_t?
+    private var cmuxdPane: CmuxdPane?
+    private(set) var sessionRef: CmuxdSessionRef?
+    private var pendingInput: [Data] = []
+    private var pendingOutput: [Data] = []
+    private var outputBuffer: [Data] = []
+    private var outputBufferIndex: Int = 0
+    private var isOutputDraining: Bool = false
+    private var pendingRefresh: Bool = false
+    private var awaitingSnapshot: Bool = false
+    private var hasProcessedOutput: Bool = false
+    private var snapshotReplayBuffer: [Data] = []
+    private var snapshotReplayActive: Bool = false
+    private var snapshotReplayDeadline: Date?
+    private var snapshotTimeoutWorkItem: DispatchWorkItem?
     private weak var attachedView: GhosttyNSView?
+    private var cmuxdTimeoutWorkItem: DispatchWorkItem?
+    private var cmuxdConnectStart: Date?
+    private var cmuxdOverlayWorkItem: DispatchWorkItem?
+    private let outputQueue = DispatchQueue(label: "cmuxd.output")
     let id: UUID
     let tabId: UUID
     private let surfaceContext: ghostty_surface_context_e
@@ -668,6 +1984,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let workingDirectory: String?
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
+    @Published var cmuxdState: CmuxdSurfaceState = .disabled
+    @Published var showCmuxdOverlay: Bool = false
     @Published var searchState: SearchState? = nil {
         didSet {
             if let searchState {
@@ -702,18 +2020,31 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        sessionRef: CmuxdSessionRef? = nil
     ) {
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.sessionRef = sessionRef
         let view = GhosttyNSView(frame: .zero)
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
+        if CmuxdManager.shared.connection(for: sessionRef?.connectionId) != nil {
+            setCmuxdState(.connecting)
+        }
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
+#if DEBUG
+        let liveCount = Self.bumpLiveCount(1)
+        let sessionLabel = sessionRef?.sessionId ?? sessionRef?.paneId ?? "nil"
+        let connectionLabel = sessionRef?.connectionId ?? "local"
+        MemoryLogStore.shared.append(
+            "surface create id=\(id.uuidString) tab=\(tabId.uuidString) live=\(liveCount) session=\(sessionLabel) conn=\(connectionLabel)"
+        )
+#endif
     }
 
     private func scaleFactors(for view: GhosttyNSView) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
@@ -756,6 +2087,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        if CmuxdManager.shared.isEnabled {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = TerminalSurface.ioWriteCallback
+            surfaceConfig.io_write_userdata = Unmanaged.passUnretained(self).toOpaque()
+        }
         var envVars: [ghostty_env_var_s] = []
         var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
         defer {
@@ -837,6 +2173,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             UInt32(view.bounds.height * scaleFactors.y)
         )
         ghostty_surface_refresh(surface)
+        attachCmuxdIfNeeded()
     }
 
     private func updateMetalLayer(for view: GhosttyNSView) {
@@ -862,10 +2199,338 @@ final class TerminalSurface: Identifiable, ObservableObject {
             metalLayer.contentsScale = layerScale
             metalLayer.drawableSize = CGSize(width: width * layerScale, height: height * layerScale)
         }
+
+        sendResizeToCmuxd()
+    }
+
+    private func attachCmuxdIfNeeded() {
+        guard CmuxdManager.shared.isEnabled else { return }
+        guard cmuxdPane == nil else { return }
+        CmuxdManager.shared.startIfNeeded()
+        guard let connection = CmuxdManager.shared.connection(for: sessionRef?.connectionId) else { return }
+
+        if cmuxdConnectStart == nil {
+            cmuxdConnectStart = Date()
+        }
+        setCmuxdState(.connecting)
+        scheduleCmuxdTimeout()
+
+        let requestedSessionId = sessionRef?.sessionId ?? sessionRef?.paneId
+        let shouldRequestSnapshot = requestedSessionId != nil
+        outputQueue.sync { [weak self] in
+            guard let self else { return }
+            awaitingSnapshot = shouldRequestSnapshot
+            if shouldRequestSnapshot {
+                pendingOutput.removeAll()
+                outputBuffer.removeAll()
+                outputBufferIndex = 0
+                isOutputDraining = false
+                pendingRefresh = false
+                hasProcessedOutput = false
+                snapshotReplayBuffer.removeAll()
+                snapshotReplayActive = false
+                snapshotReplayDeadline = nil
+            }
+        }
+        if shouldRequestSnapshot {
+            scheduleSnapshotTimeout()
+        }
+        let attachPane: (CmuxdPane) -> Void = { [weak self] pane in
+            guard let self else { return }
+            self.cmuxdPane = pane
+            self.markCmuxdReady()
+            let updatedRef = CmuxdSessionRef(
+                connectionId: connection.id,
+                sessionId: pane.sessionId ?? requestedSessionId,
+                paneId: pane.id
+            )
+            self.sessionRef = updatedRef
+            AppDelegate.shared?.tabManager?.updateSurfaceSessionRef(
+                tabId: self.tabId,
+                surfaceId: self.id,
+                sessionRef: updatedRef
+            )
+#if DEBUG
+            MemoryLogStore.shared.append(
+                "surface attach id=\(self.id.uuidString) tab=\(self.tabId.uuidString) pane=\(pane.id) session=\(updatedRef.sessionId ?? "nil") conn=\(updatedRef.connectionId)"
+            )
+#endif
+            pane.onOutput = { [weak self] data in
+                self?.enqueueOutput(data)
+            }
+            pane.onSnapshot = { [weak self] data, _, _ in
+                self?.enqueueSnapshot(data)
+            }
+            pane.onExit = { [weak self] _ in
+                guard let self else { return }
+                self.resetOutputState()
+                DispatchQueue.main.async {
+                    _ = AppDelegate.shared?.tabManager?.closeSurface(tabId: self.tabId, surfaceId: self.id)
+                }
+            }
+            pane.onTitle = { [weak self] title in
+                guard let self else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyDidSetTitle,
+                    object: self,
+                    userInfo: [
+                        GhosttyNotificationKey.tabId: self.tabId,
+                        GhosttyNotificationKey.title: title,
+                    ]
+                )
+            }
+            pane.onCwd = { [weak self] cwd in
+                guard let self else { return }
+                let normalized = self.normalizeRemoteCwd(cwd)
+                AppDelegate.shared?.tabManager?.updateSurfaceDirectory(
+                    tabId: self.tabId,
+                    surfaceId: self.id,
+                    directory: normalized
+                )
+            }
+            pane.onNotify = { [weak self] title, body in
+                guard let self else { return }
+                let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(self.tabId) ?? "Terminal"
+                let command = title.isEmpty ? tabTitle : title
+                let sessionLabel = pane.sessionId.map { String($0.prefix(8)) } ?? "session"
+                let subtitle = "\(pane.connectionLabel) · \(sessionLabel)"
+                AppDelegate.shared?.tabManager?.moveTabToTop(self.tabId)
+                TerminalNotificationStore.shared.addNotification(
+                    tabId: self.tabId,
+                    surfaceId: self.id,
+                    title: command,
+                    subtitle: subtitle,
+                    body: body
+                )
+            }
+            self.sendResizeToCmuxd()
+            self.scheduleDelayedResize()
+            self.flushPendingInput()
+            if shouldRequestSnapshot {
+                pane.requestSnapshot()
+            }
+        }
+
+        if let sessionId = requestedSessionId {
+            connection.attachSession(id: sessionId, completion: attachPane)
+        } else {
+            var cols: Int?
+            var rows: Int?
+            if let surface {
+                let size = ghostty_surface_size(surface)
+                if size.columns > 0 && size.rows > 0 {
+                    cols = Int(size.columns)
+                    rows = Int(size.rows)
+                }
+            }
+            let options = CmuxdConnection.SessionRequestOptions(
+                cwd: workingDirectory,
+                term: "xterm-ghostty",
+                cols: cols,
+                rows: rows
+            )
+            connection.requestSession(options: options, completion: attachPane)
+        }
+    }
+
+    private func normalizeRemoteCwd(_ cwd: String) -> String {
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        if let url = URL(string: trimmed), url.isFileURL {
+            return url.path
+        }
+        if trimmed.hasPrefix("kitty-shell-cwd://") {
+            let replaced = trimmed.replacingOccurrences(of: "kitty-shell-cwd://", with: "file://")
+            if let url = URL(string: replaced), url.isFileURL {
+                return url.path
+            }
+        }
+        return trimmed
+    }
+
+    fileprivate func scheduleDelayedResize() {
+        let delays: [TimeInterval] = [0.1, 0.4]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.sendResizeToCmuxd()
+            }
+        }
+    }
+
+    private func handleIoWrite(ptr: UnsafePointer<CChar>, len: UInt) {
+        let data = Data(bytes: ptr, count: Int(len))
+        if let pane = cmuxdPane {
+            pane.sendInput(data)
+        } else {
+            pendingInput.append(data)
+        }
+    }
+
+    private func flushPendingInput() {
+        guard let pane = cmuxdPane else { return }
+        guard !pendingInput.isEmpty else { return }
+        for data in pendingInput {
+            pane.sendInput(data)
+        }
+        pendingInput.removeAll()
+    }
+
+    private func sendResizeToCmuxd() {
+        guard let pane = cmuxdPane else { return }
+        guard let surface else { return }
+        let size = ghostty_surface_size(surface)
+        pane.sendResize(cols: Int(size.columns), rows: Int(size.rows))
+    }
+
+    private func enqueueOutput(_ data: Data) {
+        outputQueue.async { [weak self] in
+            self?.handleOutputLocked(data)
+        }
+    }
+
+    private func enqueueSnapshot(_ data: Data) {
+        outputQueue.async { [weak self] in
+            self?.handleSnapshotLocked(data)
+        }
+    }
+
+    private func handleOutputLocked(_ data: Data) {
+        if awaitingSnapshot {
+            pendingOutput.append(data)
+            return
+        }
+        if snapshotReplayActive {
+            snapshotReplayBuffer.append(data)
+            if let deadline = snapshotReplayDeadline, Date() > deadline {
+                snapshotReplayActive = false
+                snapshotReplayDeadline = nil
+                snapshotReplayBuffer.removeAll()
+            }
+        }
+        outputBuffer.append(data)
+        scheduleOutputDrain()
+    }
+
+    private func handleSnapshotLocked(_ data: Data) {
+        snapshotTimeoutWorkItem?.cancel()
+        if awaitingSnapshot {
+            awaitingSnapshot = false
+            processOutputLocked(data)
+            flushPendingOutputLocked()
+            if let cursorSeq = configuredCursorStyleSequence() {
+                processOutputLocked(cursorSeq)
+            }
+        } else {
+            if snapshotReplayActive {
+                let withinDeadline = snapshotReplayDeadline.map { Date() <= $0 } ?? true
+                if withinDeadline {
+                    let replay = snapshotReplayBuffer
+                    snapshotReplayBuffer.removeAll()
+                    snapshotReplayActive = false
+                    snapshotReplayDeadline = nil
+                    processOutputLocked(data)
+                    if let cursorSeq = configuredCursorStyleSequence() {
+                        processOutputLocked(cursorSeq)
+                    }
+                    for chunk in replay {
+                        processOutputLocked(chunk)
+                    }
+                    return
+                }
+                snapshotReplayActive = false
+                snapshotReplayDeadline = nil
+                snapshotReplayBuffer.removeAll()
+            }
+            if !hasProcessedOutput {
+                processOutputLocked(data)
+                flushPendingOutputLocked()
+                return
+            }
+            // Late snapshot after live output started; apply cursor style only.
+            if let cursorSeq = extractCursorStyleSequence(from: data) {
+                processOutputLocked(cursorSeq)
+            }
+        }
+    }
+
+    private func scheduleOutputDrain() {
+        guard !isOutputDraining else { return }
+        isOutputDraining = true
+        drainOutputLocked()
+    }
+
+    private func drainOutputLocked() {
+        while outputBufferIndex < outputBuffer.count {
+            let chunk = outputBuffer[outputBufferIndex]
+            outputBufferIndex += 1
+            processOutputLocked(chunk)
+        }
+        outputBuffer.removeAll(keepingCapacity: true)
+        outputBufferIndex = 0
+        isOutputDraining = false
+    }
+
+    private func processOutputLocked(_ data: Data) {
+        guard let surface else { return }
+        markCmuxdReady()
+        hasProcessedOutput = true
+        data.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(surface, base, UInt(data.count))
+        }
+        scheduleRefreshLocked()
+    }
+
+    private func scheduleRefreshLocked() {
+        guard !pendingRefresh else { return }
+        pendingRefresh = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
+            guard let self, let surface = self.surface else { return }
+            ghostty_surface_refresh(surface)
+            self.outputQueue.async { [weak self] in
+                self?.pendingRefresh = false
+            }
+        }
+    }
+
+    private func flushPendingOutputLocked() {
+        guard !pendingOutput.isEmpty else { return }
+        for data in pendingOutput {
+            outputBuffer.append(data)
+        }
+        pendingOutput.removeAll()
+        scheduleOutputDrain()
     }
 
     func applyWindowBackgroundIfActive() {
         surfaceView.applyWindowBackgroundIfActive()
+    }
+
+    func closeRemote() {
+        cmuxdPane?.close()
+        cmuxdPane = nil
+        pendingInput.removeAll()
+        resetOutputState()
+        snapshotTimeoutWorkItem?.cancel()
+        cmuxdTimeoutWorkItem?.cancel()
+        cmuxdConnectStart = nil
+#if DEBUG
+        MemoryLogStore.shared.append(
+            "surface closeRemote id=\(id.uuidString) tab=\(tabId.uuidString) pending_in=\(pendingInput.count) pending_out=\(pendingOutput.count)"
+        )
+#endif
+    }
+
+    func retryCmuxd() {
+        cmuxdPane = nil
+        pendingInput.removeAll()
+        resetOutputState()
+        snapshotTimeoutWorkItem?.cancel()
+        cmuxdTimeoutWorkItem?.cancel()
+        cmuxdConnectStart = nil
+        CmuxdManager.shared.startIfNeeded()
+        CmuxdManager.shared.connection(for: sessionRef?.connectionId)?.connectIfNeeded()
+        attachCmuxdIfNeeded()
     }
 
     func setFocus(_ focused: Bool) {
@@ -903,6 +2568,178 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let surface = surface {
             ghostty_surface_free(surface)
         }
+#if DEBUG
+        let liveCount = Self.bumpLiveCount(-1)
+        let sessionLabel = sessionRef?.sessionId ?? sessionRef?.paneId ?? "nil"
+        let connectionLabel = sessionRef?.connectionId ?? "local"
+        MemoryLogStore.shared.append(
+            "surface deinit id=\(id.uuidString) tab=\(tabId.uuidString) live=\(liveCount) session=\(sessionLabel) conn=\(connectionLabel)"
+        )
+#endif
+    }
+
+    private func resetOutputState() {
+        outputQueue.async { [weak self] in
+            guard let self else { return }
+            pendingOutput.removeAll()
+            outputBuffer.removeAll()
+            outputBufferIndex = 0
+            isOutputDraining = false
+            pendingRefresh = false
+            awaitingSnapshot = false
+            hasProcessedOutput = false
+            snapshotReplayBuffer.removeAll()
+            snapshotReplayActive = false
+            snapshotReplayDeadline = nil
+        }
+    }
+
+    private func extractCursorStyleSequence(from data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
+        let bytes = [UInt8](data)
+        guard let qIndex = bytes.lastIndex(of: UInt8(ascii: "q")),
+              qIndex == bytes.count - 1 else {
+            return nil
+        }
+        guard let escIndex = bytes[..<qIndex].lastIndex(of: 0x1B) else {
+            return nil
+        }
+        let seq = bytes[escIndex...]
+        guard seq.count >= 4, seq.count <= 8 else { return nil }
+        guard seq.count >= 3, seq[1] == UInt8(ascii: "[") else { return nil }
+        guard seq[seq.count - 2] == 0x20 else { return nil }
+        return Data(seq)
+    }
+
+    private func configuredCursorStyleSequence() -> Data? {
+        guard let config = GhosttyApp.shared.config else { return nil }
+        var stylePtr: UnsafePointer<Int8>? = nil
+        let styleKey = "cursor-style"
+        guard ghostty_config_get(config, &stylePtr, styleKey, UInt(styleKey.lengthOfBytes(using: .utf8))),
+              let cString = stylePtr else {
+            return nil
+        }
+        let style = String(cString: cString).lowercased()
+        if style.isEmpty {
+            return nil
+        }
+        var blink = true
+        let blinkKey = "cursor-style-blink"
+        _ = ghostty_config_get(config, &blink, blinkKey, UInt(blinkKey.lengthOfBytes(using: .utf8)))
+
+        let code: Int
+        switch style {
+        case "block":
+            code = blink ? 1 : 2
+        case "underline":
+            code = blink ? 3 : 4
+        case "bar":
+            code = blink ? 5 : 6
+        default:
+            return nil
+        }
+
+        return Data("\u{1b}[\(code) q".utf8)
+    }
+
+    private func scheduleCmuxdTimeout() {
+        cmuxdTimeoutWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.cmuxdPane == nil {
+                let start = self.cmuxdConnectStart ?? Date()
+                let elapsed = Date().timeIntervalSince(start)
+                let connection = CmuxdManager.shared.connection(for: self.sessionRef?.connectionId)
+                let state = connection?.stateSnapshot()
+                let localReady = CmuxdManager.shared.isLocalReadySnapshot()
+                let shouldKeepWaiting: Bool = {
+                    switch state {
+                    case .connecting, .ready:
+                        return elapsed < 30.0
+                    case .failed:
+                        return localReady && elapsed < 30.0
+                    case .disconnected, .none:
+                        return localReady && elapsed < 30.0
+                    }
+                }()
+                if shouldKeepWaiting {
+                    self.scheduleCmuxdTimeout()
+                    return
+                }
+                var message = "Unable to connect to cmuxd"
+                if case let .failed(reason)? = state {
+                    message += "\n\(reason)"
+                }
+                if let detail = CmuxdManager.shared.describeFailure() {
+                    message += "\n\(detail)"
+                }
+                self.setCmuxdState(.failed(message))
+            }
+        }
+        cmuxdTimeoutWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: item)
+    }
+
+    private func scheduleSnapshotTimeout() {
+        snapshotTimeoutWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.outputQueue.async { [weak self] in
+                guard let self else { return }
+                if self.awaitingSnapshot {
+                    self.awaitingSnapshot = false
+                    self.snapshotReplayBuffer = self.pendingOutput
+                    self.snapshotReplayActive = true
+                    self.snapshotReplayDeadline = Date().addingTimeInterval(2.0)
+                    self.flushPendingOutputLocked()
+                }
+            }
+        }
+        snapshotTimeoutWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: item)
+    }
+
+    private func markCmuxdReady() {
+        if cmuxdState == .ready { return }
+        cmuxdTimeoutWorkItem?.cancel()
+        if let start = cmuxdConnectStart {
+            let elapsed = Date().timeIntervalSince(start)
+            CmuxdManager.logTiming(String(format: "surface ready tab=%@ surface=%@ after %.3fs",
+                                          self.tabId.uuidString, self.id.uuidString, elapsed))
+        }
+        cmuxdConnectStart = nil
+        setCmuxdState(.ready)
+    }
+
+    private func setCmuxdState(_ state: CmuxdSurfaceState) {
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.cmuxdState = state
+            switch state {
+            case .connecting:
+                self.scheduleCmuxdOverlay()
+            case .disabled, .ready, .failed:
+                self.cmuxdOverlayWorkItem?.cancel()
+                self.cmuxdOverlayWorkItem = nil
+                self.showCmuxdOverlay = false
+            }
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func scheduleCmuxdOverlay() {
+        cmuxdOverlayWorkItem?.cancel()
+        showCmuxdOverlay = false
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.cmuxdState.isConnecting else { return }
+            self.showCmuxdOverlay = true
+        }
+        cmuxdOverlayWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
     }
 }
 
@@ -1926,6 +3763,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.surfaceView.terminalSurface?.scheduleDelayedResize()
         })
     }
 

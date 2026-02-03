@@ -178,6 +178,7 @@ struct GhosttyConfig {
 
         return try? String(contentsOfFile: path, encoding: .utf8)
     }
+
 }
 
 extension NSColor {

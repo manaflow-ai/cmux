@@ -7,6 +7,7 @@ class Tab: Identifiable, ObservableObject {
     @Published var title: String
     @Published var currentDirectory: String
     @Published var splitTree: SplitTree<TerminalSurface>
+    @Published var surfaceSessions: [UUID: CmuxdSessionRef] = [:]
     @Published var focusedSurfaceId: UUID? {
         didSet {
             guard let focusedSurfaceId else { return }
@@ -16,7 +17,7 @@ class Tab: Identifiable, ObservableObject {
     @Published var surfaceDirectories: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
 
-    init(title: String = "Terminal", workingDirectory: String? = nil) {
+    init(title: String = "Terminal", workingDirectory: String? = nil, sessionRef: CmuxdSessionRef? = nil) {
         self.id = UUID()
         self.title = title
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -28,7 +29,8 @@ class Tab: Identifiable, ObservableObject {
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: nil,
-            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+            sessionRef: sessionRef
         )
         self.splitTree = SplitTree(view: surface)
         self.focusedSurfaceId = surface.id
@@ -74,6 +76,12 @@ class Tab: Identifiable, ObservableObject {
             surfaceDirectories[surfaceId] = trimmed
         }
         currentDirectory = trimmed
+    }
+
+    func updateSurfaceSession(surfaceId: UUID, sessionRef: CmuxdSessionRef) {
+        if surfaceSessions[surfaceId] != sessionRef {
+            surfaceSessions[surfaceId] = sessionRef
+        }
     }
 
     func triggerNotificationFocusFlash(
@@ -143,11 +151,17 @@ class Tab: Identifiable, ObservableObject {
         } else {
             nil
         }
+        let inheritedDirectory = surfaceDirectories[targetSurface.id] ?? currentDirectory
+        let inheritedSessionRef: CmuxdSessionRef? = targetSurface.sessionRef.map {
+            CmuxdSessionRef(connectionId: $0.connectionId, sessionId: nil, paneId: nil)
+        }
 
         let newSurface = TerminalSurface(
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            workingDirectory: inheritedDirectory,
+            sessionRef: inheritedSessionRef
         )
 
         do {
@@ -224,6 +238,9 @@ class Tab: Identifiable, ObservableObject {
               let targetNode = root.find(id: surfaceId) else {
             return false
         }
+        if case .leaf(let view) = targetNode {
+            view.closeRemote()
+        }
 
         let oldFocusedSurface = focusedSurface
         let shouldMoveFocus = if let focusedSurfaceId {
@@ -266,6 +283,7 @@ class Tab: Identifiable, ObservableObject {
 
 class TabManager: ObservableObject {
     @Published var tabs: [Tab] = []
+    @Published var isSessionPickerPresented: Bool = false
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -289,6 +307,7 @@ class TabManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
     private var lastFocusedSurfaceByTab: [UUID: UUID] = [:]
+    private let defaultWorkingDirectory: String
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -297,7 +316,12 @@ class TabManager: ObservableObject {
     private let maxHistorySize = 50
 
     init() {
-        addTab()
+        defaultWorkingDirectory = Self.resolveDefaultWorkingDirectory()
+        if CmuxdManager.shared.isEnabled {
+            restoreFromCmuxd()
+        } else {
+            addTab()
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -308,6 +332,51 @@ class TabManager: ObservableObject {
             guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
             self.updateTabTitle(tabId: tabId, title: title)
         })
+    }
+
+    private func restoreFromCmuxd() {
+        CmuxdManager.shared.startIfNeeded()
+        let connections = CmuxdManager.shared.connections
+        guard !connections.isEmpty else {
+            _ = addTab()
+            return
+        }
+        let group = DispatchGroup()
+        var didCreate = false
+        var didFallback = false
+        let fallback = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard !didCreate, !didFallback, self.tabs.isEmpty else { return }
+            didFallback = true
+            _ = self.addDefaultTab()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: fallback)
+        for connection in connections {
+            group.enter()
+            connection.fetchSessionList { [weak self] sessions in
+                defer { group.leave() }
+                guard let self else { return }
+                guard !sessions.isEmpty else { return }
+                didCreate = true
+                for session in sessions {
+                    let ref = CmuxdSessionRef(
+                        connectionId: connection.id,
+                        sessionId: session.id,
+                        paneId: session.paneId
+                    )
+                    _ = self.addTab(sessionRef: ref)
+                }
+            }
+        }
+        group.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            fallback.cancel()
+            if !didCreate {
+                if !didFallback, self.tabs.isEmpty {
+                    _ = self.addDefaultTab()
+                }
+            }
+        }
     }
 
     var selectedTab: Tab? {
@@ -359,10 +428,24 @@ class TabManager: ObservableObject {
         selectedSurface?.searchState = nil
     }
 
+    func beginNewTabFlow() {
+        _ = addDefaultTab()
+    }
+
     @discardableResult
-    func addTab() -> Tab {
+    func addDefaultTab() -> Tab {
+        if CmuxdManager.shared.isEnabled,
+           let connectionId = CmuxdManager.shared.defaultConnectionId {
+            let ref = CmuxdSessionRef(connectionId: connectionId, sessionId: nil, paneId: nil)
+            return addTab(sessionRef: ref)
+        }
+        return addTab()
+    }
+
+    @discardableResult
+    func addTab(sessionRef: CmuxdSessionRef? = nil) -> Tab {
         let workingDirectory = preferredWorkingDirectoryForNewTab()
-        let newTab = Tab(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
+        let newTab = Tab(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory, sessionRef: sessionRef)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newTab, at: insertIndex)
@@ -375,7 +458,19 @@ class TabManager: ObservableObject {
             object: nil,
             userInfo: [GhosttyNotificationKey.tabId: newTab.id]
         )
+#if DEBUG
+        let sessionLabel = sessionRef?.sessionId ?? sessionRef?.paneId ?? "nil"
+        let connectionLabel = sessionRef?.connectionId ?? "local"
+        MemoryLogStore.shared.append(
+            "tab add id=\(newTab.id.uuidString) tabs=\(tabs.count) session=\(sessionLabel) conn=\(connectionLabel)"
+        )
+#endif
         return newTab
+    }
+
+    func updateSurfaceSessionRef(tabId: UUID, surfaceId: UUID, sessionRef: CmuxdSessionRef) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.updateSurfaceSession(surfaceId: surfaceId, sessionRef: sessionRef)
     }
 
     private func newTabInsertIndex() -> Int {
@@ -389,14 +484,24 @@ class TabManager: ObservableObject {
     private func preferredWorkingDirectoryForNewTab() -> String? {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else {
-            return nil
+            return defaultWorkingDirectory
         }
         let focusedDirectory = tab.focusedSurfaceId
             .flatMap { tab.surfaceDirectories[$0] }
         let candidate = focusedDirectory ?? tab.currentDirectory
         let normalized = normalizeDirectory(candidate)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : normalized
+        return trimmed.isEmpty ? defaultWorkingDirectory : normalized
+    }
+
+    private static func resolveDefaultWorkingDirectory() -> String {
+        let config = GhosttyConfig.load()
+        if let configDir = config.workingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !configDir.isEmpty {
+            return NSString(string: configDir).expandingTildeInPath
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     func moveTabToTop(_ tabId: UUID) {
@@ -447,6 +552,9 @@ class TabManager: ObservableObject {
                 }
             }
         }
+#if DEBUG
+        MemoryLogStore.shared.append("tab close id=\(tab.id.uuidString) tabs=\(tabs.count)")
+#endif
     }
 
     func closeCurrentTab() {
@@ -796,6 +904,11 @@ class TabManager: ObservableObject {
         let tab = tabs[tabIndex]
         guard tab.closeSurface(surfaceId) else { return false }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)
+#if DEBUG
+        MemoryLogStore.shared.append(
+            "surface close request tab=\(tabId.uuidString) surface=\(surfaceId.uuidString) tabs=\(tabs.count)"
+        )
+#endif
 
         if tab.splitTree.isEmpty {
             if tabs.count > 1 {

@@ -25,8 +25,9 @@ Prepare a new release for cmuxterm. This command updates the changelog, bumps th
    - If there are no user-facing changes, ask the user if they still want to release
 
 5. **Bump the version in Xcode project**
-   - Update all occurrences of `MARKETING_VERSION` in `GhosttyTabs.xcodeproj/project.pbxproj`
-   - There are typically 4 occurrences (Debug/Release for main app and CLI)
+   - Run: `./scripts/bump-version.sh X.Y.Z` (or `patch`/`minor`/`major`)
+   - This script updates both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (build number)
+   - The build number is auto-incremented to ensure Sparkle detects updates
 
 6. **Commit and push the release branch**
    - Stage: `CHANGELOG.md`, `docs-site/content/docs/changelog.mdx`, `GhosttyTabs.xcodeproj/project.pbxproj`

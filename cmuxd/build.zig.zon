@@ -1,0 +1,18 @@
+.{
+    .name = .cmuxd,
+    .version = "0.0.0",
+    .fingerprint = 0x2eff295a75d25bd2,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .dependencies = .{
+        .uucode = .{
+            .url = "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
+            .hash = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
+        },
+        .oniguruma = .{ .path = "../ghostty/pkg/oniguruma" },
+        .wuffs = .{ .path = "../ghostty/pkg/wuffs" },
+    },
+}

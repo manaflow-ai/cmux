@@ -178,17 +178,17 @@ struct cmuxApp: App {
             // New tab commands
             CommandGroup(replacing: .newItem) {
                 Button("New Tab") {
-                    tabManager.addTab()
+                    tabManager.beginNewTabFlow()
                 }
                 .keyboardShortcut("t", modifiers: .command)
 
                 Button("New Tab") {
-                    tabManager.addTab()
+                    tabManager.beginNewTabFlow()
                 }
                 .keyboardShortcut("n", modifiers: .command)
 
                 Button("New Tab") {
-                    tabManager.addTab()
+                    tabManager.beginNewTabFlow()
                 }
                 .keyboardShortcut("`", modifiers: [.control, .shift])
             }

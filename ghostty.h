@@ -437,6 +437,13 @@ typedef enum {
   GHOSTTY_SURFACE_CONTEXT_SPLIT = 2,
 } ghostty_surface_context_e;
 
+typedef enum {
+  GHOSTTY_SURFACE_IO_EXEC = 0,
+  GHOSTTY_SURFACE_IO_MANUAL = 1,
+} ghostty_surface_io_mode_e;
+
+typedef void (*ghostty_io_write_cb)(void*, const char*, uintptr_t);
+
 typedef struct {
   ghostty_platform_e platform_tag;
   ghostty_platform_u platform;
@@ -450,6 +457,9 @@ typedef struct {
   const char* initial_input;
   bool wait_after_command;
   ghostty_surface_context_e context;
+  ghostty_surface_io_mode_e io_mode;
+  ghostty_io_write_cb io_write_cb;
+  void* io_write_userdata;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -1079,6 +1089,7 @@ bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                     ghostty_binding_flags_e*);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
+void ghostty_surface_process_output(ghostty_surface_t, const char*, uintptr_t);
 bool ghostty_surface_mouse_captured(ghostty_surface_t);
 bool ghostty_surface_mouse_button(ghostty_surface_t,
                                   ghostty_input_mouse_state_e,

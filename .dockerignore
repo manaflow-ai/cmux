@@ -1,0 +1,11 @@
+.git
+.DS_Store
+node_modules
+**/node_modules
+GhosttyKit.xcframework
+**/DerivedData
+**/zig-cache
+**/zig-out
+**/.build
+**/.pytest_cache
+**/__pycache__

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct TerminalSplitTreeView: View {
     @ObservedObject var tab: Tab
@@ -174,6 +175,69 @@ private struct TerminalSurfaceView: View {
                     }
                 )
             }
+
+            if surface.showCmuxdOverlay {
+                SurfaceConnectionOverlay(
+                    title: "Connecting to cmuxd…",
+                    message: "Starting a remote PTY session."
+                )
+            } else if let error = surface.cmuxdState.errorMessage {
+                SurfaceConnectionErrorOverlay(
+                    title: "cmuxd connection failed",
+                    message: error,
+                    onRetry: { surface.retryCmuxd() }
+                )
+            }
         }
+    }
+}
+
+private struct SurfaceConnectionOverlay: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct SurfaceConnectionErrorOverlay: View {
+    let title: String
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+            Button("Retry") {
+                onRetry()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Copy Error") {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString("\(title)\n\(message)", forType: .string)
+            }
+        }
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }

@@ -22,6 +22,23 @@ When we change the fork, update this document and the parent submodule SHA.
 - Summary:
   - Adds a parser for kitty OSC 99 notifications and wires it into the OSC dispatcher.
 
+### 2) Manual termio backend + embedded IO mode (cmuxd support)
+
+- Commit: `8851d16a6` (manual backend + embedded IO mode + C API hook)
+- Files:
+  - `src/termio/Manual.zig`
+  - `src/termio/backend.zig`
+  - `src/termio.zig`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/cmuxd.zig`
+  - `include/ghostty.h`
+- Summary:
+  - Adds a manual termio backend for driving the terminal with externally-fed output.
+  - Adds embedded `io_mode` to select between pty and manual backends.
+  - Adds `ghostty_surface_process_output` C API for feeding output into surfaces.
+  - Adds a small `cmuxd.zig` re-export entrypoint for terminal+pty use in cmuxd.
+
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:
@@ -32,5 +49,11 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser.
+
+- `src/termio/backend.zig`
+  - Backend enum/dispatch changes often; ensure manual backend wiring is preserved.
+
+- `src/apprt/embedded.zig`
+  - Embedded config surface changes often; re-check `io_mode` additions.
 
 If you resolve a conflict, update this doc with what changed.

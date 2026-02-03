@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in the Xcode project.
+# Usage:
+#   ./scripts/bump-version.sh           # Auto-bump minor (1.15.0 -> 1.16.0)
+#   ./scripts/bump-version.sh 1.16.0    # Set specific version
+#   ./scripts/bump-version.sh patch     # Bump patch (1.15.0 -> 1.15.1)
+#   ./scripts/bump-version.sh major     # Bump major (1.15.0 -> 2.0.0)
+
+PROJECT_FILE="GhosttyTabs.xcodeproj/project.pbxproj"
+
+if [[ ! -f "$PROJECT_FILE" ]]; then
+  echo "Error: $PROJECT_FILE not found. Run from repo root." >&2
+  exit 1
+fi
+
+# Get current versions
+CURRENT_MARKETING=$(grep -m1 'MARKETING_VERSION = ' "$PROJECT_FILE" | sed 's/.*= \(.*\);/\1/')
+CURRENT_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION = ' "$PROJECT_FILE" | sed 's/.*= \(.*\);/\1/')
+
+echo "Current: MARKETING_VERSION=$CURRENT_MARKETING, CURRENT_PROJECT_VERSION=$CURRENT_BUILD"
+
+# Parse current marketing version
+IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_MARKETING"
+
+# Determine new marketing version
+if [[ $# -eq 0 ]] || [[ "$1" == "minor" ]]; then
+  NEW_MARKETING="$MAJOR.$((MINOR + 1)).0"
+elif [[ "$1" == "patch" ]]; then
+  NEW_MARKETING="$MAJOR.$MINOR.$((PATCH + 1))"
+elif [[ "$1" == "major" ]]; then
+  NEW_MARKETING="$((MAJOR + 1)).0.0"
+elif [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  NEW_MARKETING="$1"
+else
+  echo "Usage: $0 [version|minor|patch|major]" >&2
+  echo "  version: specific version like 1.16.0" >&2
+  echo "  minor: bump minor version (default)" >&2
+  echo "  patch: bump patch version" >&2
+  echo "  major: bump major version" >&2
+  exit 1
+fi
+
+# Always increment build number
+NEW_BUILD=$((CURRENT_BUILD + 1))
+
+echo "New:     MARKETING_VERSION=$NEW_MARKETING, CURRENT_PROJECT_VERSION=$NEW_BUILD"
+
+# Update project file
+sed -i '' "s/MARKETING_VERSION = $CURRENT_MARKETING;/MARKETING_VERSION = $NEW_MARKETING;/g" "$PROJECT_FILE"
+sed -i '' "s/CURRENT_PROJECT_VERSION = $CURRENT_BUILD;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PROJECT_FILE"
+
+# Verify
+UPDATED_MARKETING=$(grep -m1 'MARKETING_VERSION = ' "$PROJECT_FILE" | sed 's/.*= \(.*\);/\1/')
+UPDATED_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION = ' "$PROJECT_FILE" | sed 's/.*= \(.*\);/\1/')
+
+if [[ "$UPDATED_MARKETING" != "$NEW_MARKETING" ]] || [[ "$UPDATED_BUILD" != "$NEW_BUILD" ]]; then
+  echo "Error: Version update failed!" >&2
+  exit 1
+fi
+
+echo "Updated $PROJECT_FILE successfully."

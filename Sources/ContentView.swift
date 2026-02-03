@@ -72,9 +72,7 @@ struct ContentView: View {
                                         }
                                     }
                                     let nextWidth = max(140, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
-                                    withTransaction(Transaction(animation: nil)) {
-                                        sidebarWidth = nextWidth
-                                    }
+                                    applySidebarWidth(nextWidth)
                                 }
                                 .onEnded { _ in
                                     if isResizerDragging {
@@ -83,6 +81,7 @@ struct ContentView: View {
                                             NSCursor.pop()
                                         }
                                     }
+                                    applySidebarWidth(sidebarWidth)
                                 }
                         )
                 }
@@ -108,6 +107,10 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 600)
         .background(Color.clear)
+        .sheet(isPresented: $tabManager.isSessionPickerPresented) {
+            SessionPickerView()
+                .environmentObject(tabManager)
+        }
         .onAppear {
             tabManager.applyWindowBackgroundForSelectedTab()
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
@@ -151,10 +154,15 @@ struct ContentView: View {
     }
 
     private func addTab() {
-        tabManager.addTab()
+        tabManager.beginNewTabFlow()
         sidebarSelection = .tabs
     }
 
+    private func applySidebarWidth(_ width: CGFloat) {
+        withTransaction(Transaction(animation: nil)) {
+            sidebarWidth = width
+        }
+    }
 }
 
 struct VerticalTabsSidebar: View {
@@ -214,7 +222,7 @@ private struct SidebarEmptyArea: View {
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onTapGesture(count: 2) {
-                tabManager.addTab()
+                tabManager.beginNewTabFlow()
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
                     lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -500,4 +508,132 @@ struct TabItemView: View {
 enum SidebarSelection {
     case tabs
     case notifications
+}
+
+struct SessionPickerView: View {
+    @EnvironmentObject var tabManager: TabManager
+    @State private var selectedConnectionId: String = ""
+    @State private var sessions: [CmuxdSessionInfo] = []
+    @State private var selectedSessionId: String? = nil
+    @State private var isLoading = false
+    @State private var sessionListRequestId: Int = 0
+
+    private var connections: [CmuxdConnection] {
+        CmuxdManager.shared.connections
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Remote Sessions")
+                .font(.headline)
+
+            if connections.isEmpty {
+                Text("No remote connections configured.")
+                    .foregroundColor(.secondary)
+            } else {
+                Picker("Connection", selection: $selectedConnectionId) {
+                    ForEach(connections, id: \.id) { connection in
+                        Text(connection.label).tag(connection.id)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                }
+
+                List(sessions) { session in
+                    let isSelected = selectedSessionId == session.id
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.title.isEmpty ? String(session.id.prefix(8)) : session.title)
+                                .font(.body)
+                            if !session.cwd.isEmpty {
+                                Text(session.cwd)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .onTapGesture {
+                        selectedSessionId = session.id
+                    }
+                }
+                .frame(minHeight: 200)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    tabManager.isSessionPickerPresented = false
+                }
+
+                Spacer()
+
+                Button("New Session") {
+                    createNewSession()
+                }
+                .disabled(selectedConnectionId.isEmpty)
+
+                Button("Attach") {
+                    attachSelectedSession()
+                }
+                .disabled(selectedSessionId == nil)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 420, minHeight: 320)
+        .onAppear {
+            if selectedConnectionId.isEmpty {
+                selectedConnectionId = CmuxdManager.shared.defaultConnectionId ?? connections.first?.id ?? ""
+            }
+            loadSessions()
+        }
+        .onChange(of: selectedConnectionId) { _ in
+            selectedSessionId = nil
+            loadSessions()
+        }
+    }
+
+    private func loadSessions() {
+        guard !selectedConnectionId.isEmpty,
+              let connection = CmuxdManager.shared.connection(for: selectedConnectionId) else {
+            sessions = []
+            isLoading = false
+            return
+        }
+        sessionListRequestId += 1
+        let requestId = sessionListRequestId
+        let requestedConnectionId = selectedConnectionId
+        isLoading = true
+        connection.fetchSessionList { list in
+            guard requestId == sessionListRequestId,
+                  requestedConnectionId == selectedConnectionId else {
+                return
+            }
+            sessions = list
+            if selectedSessionId != nil, sessions.contains(where: { $0.id == selectedSessionId }) == false {
+                selectedSessionId = nil
+            }
+            isLoading = false
+        }
+    }
+
+    private func createNewSession() {
+        guard !selectedConnectionId.isEmpty else { return }
+        let ref = CmuxdSessionRef(connectionId: selectedConnectionId, sessionId: nil, paneId: nil)
+        _ = tabManager.addTab(sessionRef: ref)
+        tabManager.isSessionPickerPresented = false
+    }
+
+    private func attachSelectedSession() {
+        guard let sessionId = selectedSessionId else { return }
+        guard let session = sessions.first(where: { $0.id == sessionId }) else { return }
+        let ref = CmuxdSessionRef(connectionId: selectedConnectionId, sessionId: session.id, paneId: session.paneId)
+        _ = tabManager.addTab(sessionRef: ref)
+        tabManager.isSessionPickerPresented = false
+    }
 }

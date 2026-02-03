@@ -305,7 +305,7 @@ class TerminalController {
 
         var newTabId: UUID?
         DispatchQueue.main.sync {
-            tabManager.addTab()
+            _ = tabManager.addDefaultTab()
             newTabId = tabManager.selectedTabId
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
