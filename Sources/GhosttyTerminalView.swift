@@ -1977,6 +1977,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var cmuxdConnectStart: Date?
     private var cmuxdOverlayWorkItem: DispatchWorkItem?
     private let outputQueue = DispatchQueue(label: "cmuxd.output")
+    private var pendingResize: PendingResize?
+    private var resizeWorkItem: DispatchWorkItem?
+    private var lastAppliedSize: CGSize = .zero
+    private var lastAppliedScale: (x: CGFloat, y: CGFloat, layer: CGFloat) = (0, 0, 0)
+    private let resizeCoalesceInterval: TimeInterval = 1.0 / 60.0
     let id: UUID
     let tabId: UUID
     private let surfaceContext: ghostty_surface_context_e
@@ -2015,6 +2020,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
     private var searchNeedleCancellable: AnyCancellable?
+    private struct PendingResize {
+        let size: CGSize
+        let xScale: CGFloat
+        let yScale: CGFloat
+        let layerScale: CGFloat
+    }
 
     init(
         tabId: UUID,
@@ -2190,17 +2201,53 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
-        guard let surface = surface else { return }
-        ghostty_surface_set_content_scale(surface, xScale, yScale)
-        ghostty_surface_set_size(surface, UInt32(width * xScale), UInt32(height * yScale))
-        ghostty_surface_refresh(surface)
+        pendingResize = PendingResize(
+            size: CGSize(width: width, height: height),
+            xScale: xScale,
+            yScale: yScale,
+            layerScale: layerScale
+        )
+        guard resizeWorkItem == nil else { return }
 
-        if let view = attachedView, let metalLayer = view.layer as? CAMetalLayer {
-            metalLayer.contentsScale = layerScale
-            metalLayer.drawableSize = CGSize(width: width * layerScale, height: height * layerScale)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            resizeWorkItem = nil
+            guard let pending = pendingResize else { return }
+            pendingResize = nil
+            applyPendingResize(pending)
+        }
+        resizeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + resizeCoalesceInterval, execute: workItem)
+    }
+
+    private func applyPendingResize(_ pending: PendingResize) {
+        guard let surface = surface else { return }
+        let sizeChanged = pending.size != lastAppliedSize
+        let scaleChanged = pending.xScale != lastAppliedScale.x || pending.yScale != lastAppliedScale.y
+        let layerChanged = pending.layerScale != lastAppliedScale.layer
+
+        if sizeChanged || scaleChanged {
+            ghostty_surface_set_content_scale(surface, pending.xScale, pending.yScale)
+            ghostty_surface_set_size(
+                surface,
+                UInt32(pending.size.width * pending.xScale),
+                UInt32(pending.size.height * pending.yScale)
+            )
+            ghostty_surface_refresh(surface)
+            lastAppliedSize = pending.size
+            lastAppliedScale = (pending.xScale, pending.yScale, pending.layerScale)
+            sendResizeToCmuxd()
+        } else if layerChanged {
+            lastAppliedScale.layer = pending.layerScale
         }
 
-        sendResizeToCmuxd()
+        if let view = attachedView, let metalLayer = view.layer as? CAMetalLayer {
+            metalLayer.contentsScale = pending.layerScale
+            metalLayer.drawableSize = CGSize(
+                width: pending.size.width * pending.layerScale,
+                height: pending.size.height * pending.layerScale
+            )
+        }
     }
 
     private func attachCmuxdIfNeeded() {

@@ -15,13 +15,17 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @State private var sidebarWidth: CGFloat = 200
-    @State private var sidebarMinX: CGFloat = 0
     @State private var isResizerHovering = false
     @State private var isResizerDragging = false
+    @State private var dragStartWidth: CGFloat = 0
+    @State private var pendingSidebarWidth: CGFloat? = nil
+    @State private var isSidebarUpdateScheduled = false
     private let sidebarHandleWidth: CGFloat = 6
     @State private var sidebarSelection: SidebarSelection = .tabs
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
+    private let sidebarDragStep: CGFloat = 6
+    private let sidebarUpdateInterval: TimeInterval = 1.0 / 20.0
 
     var body: some View {
         HStack(spacing: 0) {
@@ -32,10 +36,6 @@ struct ContentView: View {
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex
                 )
                 .frame(width: sidebarWidth)
-                .background(GeometryReader { proxy in
-                    Color.clear
-                        .preference(key: SidebarFramePreferenceKey.self, value: proxy.frame(in: .global))
-                })
                 .overlay(alignment: .trailing) {
                     Color.clear
                         .frame(width: sidebarHandleWidth)
@@ -66,22 +66,27 @@ struct ContentView: View {
                                 .onChanged { value in
                                     if !isResizerDragging {
                                         isResizerDragging = true
+                                        dragStartWidth = sidebarWidth
                                         if !isResizerHovering {
                                             NSCursor.resizeLeftRight.push()
                                             isResizerHovering = true
                                         }
                                     }
-                                    let nextWidth = max(140, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
-                                    applySidebarWidth(nextWidth)
+                                    let nextWidth = max(140, min(360, dragStartWidth + value.translation.width))
+                                    if abs(nextWidth - sidebarWidth) >= sidebarDragStep {
+                                        scheduleSidebarWidth(nextWidth)
+                                    }
                                 }
-                                .onEnded { _ in
+                                .onEnded { value in
                                     if isResizerDragging {
                                         isResizerDragging = false
                                         if !isResizerHovering {
                                             NSCursor.pop()
                                         }
                                     }
-                                    applySidebarWidth(sidebarWidth)
+                                    let finalWidth = max(140, min(360, dragStartWidth + value.translation.width))
+                                    pendingSidebarWidth = nil
+                                    applySidebarWidth(finalWidth)
                                 }
                         )
                 }
@@ -92,7 +97,11 @@ struct ContentView: View {
                 ZStack {
                     ForEach(tabManager.tabs) { tab in
                         let isActive = tabManager.selectedTabId == tab.id
-                        TerminalSplitTreeView(tab: tab, isTabActive: isActive)
+                        TerminalSplitTreeView(
+                            tab: tab,
+                            isTabActive: isActive,
+                            isResizing: isResizerDragging
+                        )
                             .opacity(isActive ? 1 : 0)
                             .allowsHitTesting(isActive)
                     }
@@ -143,9 +152,6 @@ struct ContentView: View {
                 }
             }
         }
-        .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
-            sidebarMinX = frame.minX
-        }
         .background(WindowAccessor { window in
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             AppDelegate.shared?.attachUpdateAccessory(to: window)
@@ -163,6 +169,19 @@ struct ContentView: View {
             sidebarWidth = width
         }
     }
+
+    private func scheduleSidebarWidth(_ width: CGFloat) {
+        pendingSidebarWidth = width
+        guard !isSidebarUpdateScheduled else { return }
+        isSidebarUpdateScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + sidebarUpdateInterval) { [self] in
+            isSidebarUpdateScheduled = false
+            guard let pending = pendingSidebarWidth else { return }
+            applySidebarWidth(pending)
+            pendingSidebarWidth = nil
+        }
+    }
+
 }
 
 struct VerticalTabsSidebar: View {
@@ -200,14 +219,6 @@ struct VerticalTabsSidebar: View {
             .accessibilityIdentifier("Sidebar")
         }
         .background(Color(nsColor: .controlBackgroundColor))
-    }
-}
-
-private struct SidebarFramePreferenceKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
     }
 }
 

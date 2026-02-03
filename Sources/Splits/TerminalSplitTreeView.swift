@@ -4,7 +4,9 @@ import AppKit
 struct TerminalSplitTreeView: View {
     @ObservedObject var tab: Tab
     let isTabActive: Bool
+    let isResizing: Bool
     @State private var config = GhosttyConfig.load()
+    @State private var lastActiveSize: CGSize = .zero
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     var body: some View {
@@ -13,6 +15,7 @@ struct TerminalSplitTreeView: View {
             unfocusedOverlayColor: Color(nsColor: config.unfocusedSplitOverlayFill),
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
         )
+        let shouldFreeze = !isTabActive || isResizing
         Group {
             if let node = tab.splitTree.zoomed ?? tab.splitTree.root {
                 TerminalSplitSubtreeView(
@@ -32,12 +35,45 @@ struct TerminalSplitTreeView: View {
                 .id(node.structuralIdentity)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+            width: shouldFreeze ? lastActiveSize.width : nil,
+            height: shouldFreeze ? lastActiveSize.height : nil
+        )
+        .frame(
+            maxWidth: shouldFreeze ? nil : .infinity,
+            maxHeight: shouldFreeze ? nil : .infinity
+        )
         .background(GeometryReader { proxy in
             Color.clear
-                .onAppear { tab.updateSplitViewSize(proxy.size) }
-                .onChange(of: proxy.size) { tab.updateSplitViewSize($0) }
+                .onAppear {
+                    updateSize(proxy.size, isActive: isTabActive, isResizing: isResizing)
+                }
+                .onChange(of: proxy.size) { size in
+                    updateSize(size, isActive: isTabActive, isResizing: isResizing)
+                }
+                .onChange(of: isTabActive) { isActive in
+                    if isActive {
+                        updateSize(proxy.size, isActive: true, isResizing: isResizing)
+                    }
+                }
+                .onChange(of: isResizing) { nowResizing in
+                    if !nowResizing, isTabActive {
+                        updateSize(proxy.size, isActive: true, isResizing: false)
+                    }
+                }
         })
+    }
+
+    private func updateSize(_ size: CGSize, isActive: Bool, isResizing: Bool) {
+        guard size.width > 0, size.height > 0 else { return }
+        if isActive && !isResizing {
+            if lastActiveSize != size {
+                lastActiveSize = size
+            }
+            tab.updateSplitViewSize(size)
+        } else if lastActiveSize == .zero {
+            lastActiveSize = size
+        }
     }
 }
 
