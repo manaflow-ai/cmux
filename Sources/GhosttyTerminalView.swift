@@ -3890,6 +3890,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.frame.size.width = scrollView.bounds.width
         flashOverlayView.frame = bounds
         updateFlashPath()
+        clampScrollPocketOverlays()
         synchronizeScrollView()
         synchronizeSurfaceView()
         updateAccessibilityScrollOffset()
@@ -3917,6 +3918,16 @@ final class GhosttySurfaceScrollView: NSView {
         })
         updateFocusForWindow()
         if window.isKeyWindow { requestFocus() }
+    }
+
+    private func clampScrollPocketOverlays() {
+        guard let window else { return }
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        for view in scrollView.subviews where view.className.contains("NSScrollPocket") {
+            if view.frame != .zero {
+                view.frame = .zero
+            }
+        }
     }
 
     override func accessibilityChildren() -> [Any]? {
@@ -4156,6 +4167,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleScrollChange() {
+        clampScrollPocketOverlays()
         let visibleRect = scrollView.contentView.documentVisibleRect
         if visibleRect.origin.x != 0 && !isClampingHorizontalScroll {
             isClampingHorizontalScroll = true
@@ -4186,6 +4198,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         surfaceView.scrollbar = scrollbar
+        updateScrollerVisibility(scrollbar)
         synchronizeScrollView()
     }
 
@@ -4213,19 +4226,27 @@ final class GhosttySurfaceScrollView: NSView {
         let scrollbarOffset = surfaceView.scrollbar?.offset ?? 0
         let scrollbarLen = surfaceView.scrollbar?.len ?? 0
         let scrollbarTotal = surfaceView.scrollbar?.total ?? 0
+        let hasScroller = scrollView.hasVerticalScroller ? 1 : 0
+        let scrollerValue = Double(scrollView.verticalScroller?.floatValue ?? -1)
         let value = String(
-            format: "x=%.1f y=%.1f expectedMaxY=%.1f cellHeight=%.2f visibleRows=%.0f",
+            format: "x=%.1f y=%.1f expectedMaxY=%.1f cellHeight=%.2f visibleRows=%.0f hasScroller=%d scroller=%.3f",
             origin.x,
             origin.y,
             expectedMaxY,
             cellHeight,
-            visibleRows
+            visibleRows,
+            hasScroller,
+            scrollerValue
         ) + " offset=\(scrollbarOffset) len=\(scrollbarLen) total=\(scrollbarTotal)"
         setAccessibilityValue(value)
         surfaceView.setAccessibilityValue(value)
         scrollOffsetElement.setAccessibilityValue(value)
         scrollOffsetElement.setAccessibilityLabel(value)
         scrollOffsetElement.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    private func updateScrollerVisibility(_ scrollbar: GhosttyScrollbar) {
+        scrollView.hasVerticalScroller = scrollbar.total > scrollbar.len
     }
 }
 

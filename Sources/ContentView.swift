@@ -32,7 +32,8 @@ struct ContentView: View {
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex
                 )
-                .frame(width: sidebarWidth)
+                .frame(minWidth: sidebarWidth, maxWidth: sidebarWidth)
+                .layoutPriority(1)
                 .overlay(alignment: .trailing) {
                     SidebarResizerHandle(
                         accessibilityIdentifier: "SidebarResizer",
@@ -91,6 +92,7 @@ struct ContentView: View {
             }
 
             terminalContent
+                .layoutPriority(0)
         }
         .frame(minWidth: minSize.width, minHeight: minSize.height)
         .background(Color.clear)
@@ -136,6 +138,7 @@ struct ContentView: View {
             AppDelegate.shared?.applyWindowDecorations(to: window)
             applyWindowMinSize(to: window)
             applyUITestWindowSize(to: window)
+            applyUITestWindowResizes(to: window)
         })
     }
 
@@ -173,6 +176,21 @@ private func applyUITestWindowSize(to window: NSWindow) {
     }
 }
 
+private func applyUITestWindowResizes(to window: NSWindow) {
+    guard window.identifier?.rawValue == "cmux.main" else { return }
+    guard let sizes = uiTestWindowSizes(), !sizes.isEmpty else { return }
+    let windowId = ObjectIdentifier(window)
+    if uiTestResizedWindows.contains(windowId) {
+        return
+    }
+    uiTestResizedWindows.insert(windowId)
+    for (index, size) in sizes.enumerated() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.25) {
+            window.setContentSize(size)
+        }
+    }
+}
+
 private func uiTestWindowSize() -> CGSize? {
     guard let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_WINDOW_SIZE"],
           !raw.isEmpty else { return nil }
@@ -185,8 +203,26 @@ private func uiTestWindowSize() -> CGSize? {
     return CGSize(width: width, height: height)
 }
 
+private func uiTestWindowSizes() -> [CGSize]? {
+    guard let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_WINDOW_SIZES"],
+          !raw.isEmpty else { return nil }
+    let entries = raw.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+    var sizes: [CGSize] = []
+    for entry in entries where !entry.isEmpty {
+        let parts = entry.split { $0 == "x" || $0 == "," }
+        guard parts.count >= 2,
+              let width = Double(parts[0].trimmingCharacters(in: .whitespaces)),
+              let height = Double(parts[1].trimmingCharacters(in: .whitespaces)),
+              width > 0,
+              height > 0 else { continue }
+        sizes.append(CGSize(width: width, height: height))
+    }
+    return sizes.isEmpty ? nil : sizes
+}
+
 private let defaultMainWindowSize = CGSize(width: 800, height: 600)
 private var uiTestSizedWindows = Set<ObjectIdentifier>()
+private var uiTestResizedWindows = Set<ObjectIdentifier>()
 
 private extension ContentView {
     @ViewBuilder
