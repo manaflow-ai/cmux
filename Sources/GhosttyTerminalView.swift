@@ -3693,6 +3693,16 @@ private final class GhosttyScrollView: NSScrollView {
             return
         }
 
+        let absX = abs(event.scrollingDeltaX)
+        let absY = abs(event.scrollingDeltaY)
+        if absX > absY && absX > 0 {
+            if window?.firstResponder !== surfaceView {
+                window?.makeFirstResponder(surfaceView)
+            }
+            surfaceView.scrollWheel(with: event)
+            return
+        }
+
         if let surface = surfaceView.terminalSurface?.surface,
            ghostty_surface_mouse_captured(surface) {
             GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: mouseCaptured -> surface scroll")
@@ -3722,9 +3732,11 @@ final class GhosttySurfaceScrollView: NSView {
     private let surfaceView: GhosttyNSView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private let scrollOffsetElement = NSAccessibilityElement()
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
+    private var isClampingHorizontalScroll = false
     private var lastSentRow: Int?
     private var isActive = true
     private var focusWorkItem: DispatchWorkItem?
@@ -3752,6 +3764,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
         scrollView.scrollerStyle = .overlay
@@ -3769,6 +3782,16 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier("TerminalScrollView")
+        surfaceView.setAccessibilityElement(true)
+        surfaceView.setAccessibilityRole(.group)
+        surfaceView.setAccessibilityIdentifier("TerminalSurfaceView")
+        scrollOffsetElement.setAccessibilityParent(self)
+        scrollOffsetElement.setAccessibilityRole(.staticText)
+        scrollOffsetElement.setAccessibilityIdentifier("TerminalScrollOffset")
+        scrollOffsetElement.setAccessibilityLabel("TerminalScrollOffset")
 
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor =
@@ -3870,6 +3893,7 @@ final class GhosttySurfaceScrollView: NSView {
         updateFlashPath()
         synchronizeScrollView()
         synchronizeSurfaceView()
+        updateAccessibilityScrollOffset()
     }
 
     override func viewDidMoveToWindow() {
@@ -3894,6 +3918,12 @@ final class GhosttySurfaceScrollView: NSView {
         })
         updateFocusForWindow()
         if window.isKeyWindow { requestFocus() }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        children.append(scrollOffsetElement)
+        return children
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -4093,7 +4123,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
-        surfaceView.frame.origin = visibleRect.origin
+        surfaceView.frame.origin = CGPoint(x: 0, y: visibleRect.origin.y)
     }
 
     private func updateFlashPath() {
@@ -4123,10 +4153,19 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateAccessibilityScrollOffset()
     }
 
     private func handleScrollChange() {
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        if visibleRect.origin.x != 0 && !isClampingHorizontalScroll {
+            isClampingHorizontalScroll = true
+            scrollView.contentView.scroll(to: CGPoint(x: 0, y: visibleRect.origin.y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            isClampingHorizontalScroll = false
+        }
         synchronizeSurfaceView()
+        updateAccessibilityScrollOffset()
     }
 
     private func handleLiveScroll() {
@@ -4160,6 +4199,15 @@ final class GhosttySurfaceScrollView: NSView {
             return documentGridHeight + padding
         }
         return contentHeight
+    }
+
+    private func updateAccessibilityScrollOffset() {
+        let origin = scrollView.contentView.documentVisibleRect.origin
+        let value = String(format: "x=%.1f y=%.1f", origin.x, origin.y)
+        setAccessibilityValue(value)
+        surfaceView.setAccessibilityValue(value)
+        scrollOffsetElement.setAccessibilityValue(value)
+        scrollOffsetElement.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 }
 
