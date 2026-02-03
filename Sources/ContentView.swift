@@ -24,7 +24,7 @@ struct ContentView: View {
     private let sidebarHandleWidth: CGFloat = 6
 
     var body: some View {
-        let minSize = uiTestWindowSize() ?? CGSize(width: 800, height: 600)
+        let minSize = uiTestWindowSize() ?? defaultMainWindowSize
         HStack(spacing: 0) {
             if sidebarState.isVisible {
                 VerticalTabsSidebar(
@@ -134,6 +134,7 @@ struct ContentView: View {
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
+            applyWindowMinSize(to: window)
             applyUITestWindowSize(to: window)
         })
     }
@@ -146,6 +147,12 @@ struct ContentView: View {
     private func clampSidebarWidth(_ width: CGFloat) -> CGFloat {
         max(140, min(360, width))
     }
+}
+
+private func applyWindowMinSize(to window: NSWindow) {
+    guard window.identifier?.rawValue == "cmux.main" else { return }
+    let size = uiTestWindowSize() ?? defaultMainWindowSize
+    window.contentMinSize = size
 }
 
 private func applyUITestWindowSize(to window: NSWindow) {
@@ -178,6 +185,7 @@ private func uiTestWindowSize() -> CGSize? {
     return CGSize(width: width, height: height)
 }
 
+private let defaultMainWindowSize = CGSize(width: 800, height: 600)
 private var uiTestSizedWindows = Set<ObjectIdentifier>()
 
 private extension ContentView {
