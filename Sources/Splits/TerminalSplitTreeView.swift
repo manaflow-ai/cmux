@@ -23,6 +23,7 @@ struct TerminalSplitTreeView: View {
                     isRoot: node == tab.splitTree.root,
                     isSplit: tab.splitTree.isSplit,
                     isTabActive: isTabActive,
+                    isResizing: isResizing,
                     focusedSurfaceId: tab.focusedSurfaceId,
                     appearance: appearance,
                     tabId: tab.id,
@@ -82,6 +83,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
     let isRoot: Bool
     let isSplit: Bool
     let isTabActive: Bool
+    let isResizing: Bool
     let focusedSurfaceId: UUID?
     let appearance: SplitAppearance
     let tabId: UUID
@@ -99,6 +101,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
                 surface: surface,
                 isFocused: isFocused,
                 isSplit: isSplit,
+                isResizing: isResizing,
                 appearance: appearance,
                 tabId: tabId,
                 notificationStore: notificationStore,
@@ -126,6 +129,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
                         isRoot: false,
                         isSplit: isSplit,
                         isTabActive: isTabActive,
+                        isResizing: isResizing,
                         focusedSurfaceId: focusedSurfaceId,
                         appearance: appearance,
                         tabId: tabId,
@@ -142,6 +146,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
                         isRoot: false,
                         isSplit: isSplit,
                         isTabActive: isTabActive,
+                        isResizing: isResizing,
                         focusedSurfaceId: focusedSurfaceId,
                         appearance: appearance,
                         tabId: tabId,
@@ -170,6 +175,7 @@ private struct TerminalSurfaceView: View {
     @ObservedObject var surface: TerminalSurface
     let isFocused: Bool
     let isSplit: Bool
+    let isResizing: Bool
     let appearance: SplitAppearance
     let tabId: UUID
     let notificationStore: TerminalNotificationStore
@@ -181,6 +187,7 @@ private struct TerminalSurfaceView: View {
             GhosttyTerminalView(
                 terminalSurface: surface,
                 isActive: isFocused,
+                isResizing: isResizing,
                 onFocus: { _ in onFocus() },
                 onTriggerFlash: onTriggerFlash
             )

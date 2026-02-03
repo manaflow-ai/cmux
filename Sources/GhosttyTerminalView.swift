@@ -984,8 +984,11 @@ final class CmuxdManager {
                 let transport = CmuxdWebSocketTransport(url: url)
                 results.append(CmuxdConnection(id: entry.id, label: label, transport: transport))
             case "unix":
-                guard let path = entry.path, !path.isEmpty else { continue }
-                let transport = CmuxdUnixSocketTransport(path: path, label: entry.id)
+                guard let path = entry.path else { continue }
+                let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedPath.isEmpty else { continue }
+                let resolvedPath = NSString(string: trimmedPath).expandingTildeInPath
+                let transport = CmuxdUnixSocketTransport(path: resolvedPath, label: entry.id)
                 results.append(CmuxdConnection(id: entry.id, label: label, transport: transport))
             case "ssh", "stdio":
                 guard let host = entry.host, !host.isEmpty else { continue }
@@ -2824,6 +2827,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastLayerScale: CGFloat = 0
     private var hasSurfaceMetrics = false
     private var lastScrollEventTime: CFTimeInterval = 0
+    private var suppressResizeUpdates = false
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -2975,6 +2979,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override var isOpaque: Bool { false }
 
     private func updateSurfaceSize() {
+        guard !suppressResizeUpdates else { return }
         guard let terminalSurface = terminalSurface else { return }
         guard bounds.width > 0 && bounds.height > 0 else { return }
         let layerScale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
@@ -3001,6 +3006,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale
         )
+    }
+
+    func setResizeSuspended(_ suspended: Bool) {
+        guard suppressResizeUpdates != suspended else { return }
+        suppressResizeUpdates = suspended
+        if !suspended {
+            updateSurfaceSize()
+        }
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
@@ -3866,7 +3879,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
+        if surfaceView.terminalSurface === terminalSurface {
+            return
+        }
         surfaceView.attachSurface(terminalSurface)
+    }
+
+    func setResizeSuspended(_ suspended: Bool) {
+        surfaceView.setResizeSuspended(suspended)
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -3911,6 +3931,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setActive(_ active: Bool) {
+        guard isActive != active else { return }
         isActive = active
         updateFocusForWindow()
         if active {
@@ -4218,6 +4239,7 @@ extension GhosttyNSView: NSTextInputClient {
 struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
+    var isResizing: Bool = false
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
@@ -4225,6 +4247,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let view = terminalSurface.hostedView
         view.attachSurface(terminalSurface)
         view.setActive(isActive)
+        view.setResizeSuspended(isResizing)
         view.setFocusHandler { onFocus?(terminalSurface.id) }
         view.setTriggerFlashHandler(onTriggerFlash)
         return view
@@ -4233,6 +4256,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: GhosttySurfaceScrollView, context: Context) {
         nsView.attachSurface(terminalSurface)
         nsView.setActive(isActive)
+        nsView.setResizeSuspended(isResizing)
         nsView.setFocusHandler { onFocus?(terminalSurface.id) }
         nsView.setTriggerFlashHandler(onTriggerFlash)
     }

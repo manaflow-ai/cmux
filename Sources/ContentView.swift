@@ -15,103 +15,30 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @State private var sidebarWidth: CGFloat = 200
-    @State private var isResizerHovering = false
     @State private var isResizerDragging = false
-    @State private var dragStartWidth: CGFloat = 0
-    @State private var pendingSidebarWidth: CGFloat? = nil
-    @State private var isSidebarUpdateScheduled = false
-    private let sidebarHandleWidth: CGFloat = 6
     @State private var sidebarSelection: SidebarSelection = .tabs
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
-    private let sidebarDragStep: CGFloat = 6
-    private let sidebarUpdateInterval: TimeInterval = 1.0 / 20.0
 
     var body: some View {
-        HStack(spacing: 0) {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 0) {
+                if sidebarState.isVisible {
+                    Color.clear
+                        .frame(width: sidebarWidth)
+                }
+
+                terminalContent
+            }
+
             if sidebarState.isVisible {
-                VerticalTabsSidebar(
+                SidebarOverlayView(
+                    width: $sidebarWidth,
+                    isResizerDragging: $isResizerDragging,
                     selection: $sidebarSelection,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex
                 )
-                .frame(width: sidebarWidth)
-                .overlay(alignment: .trailing) {
-                    Color.clear
-                        .frame(width: sidebarHandleWidth)
-                        .contentShape(Rectangle())
-                        .accessibilityIdentifier("SidebarResizer")
-                        .onHover { hovering in
-                            if hovering {
-                                if !isResizerHovering {
-                                    NSCursor.resizeLeftRight.push()
-                                    isResizerHovering = true
-                                }
-                            } else if isResizerHovering {
-                                if !isResizerDragging {
-                                    NSCursor.pop()
-                                    isResizerHovering = false
-                                }
-                            }
-                        }
-                        .onDisappear {
-                            if isResizerHovering || isResizerDragging {
-                                NSCursor.pop()
-                                isResizerHovering = false
-                                isResizerDragging = false
-                            }
-                        }
-                        .gesture(
-                            DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                                .onChanged { value in
-                                    if !isResizerDragging {
-                                        isResizerDragging = true
-                                        dragStartWidth = sidebarWidth
-                                        if !isResizerHovering {
-                                            NSCursor.resizeLeftRight.push()
-                                            isResizerHovering = true
-                                        }
-                                    }
-                                    let nextWidth = max(140, min(360, dragStartWidth + value.translation.width))
-                                    if abs(nextWidth - sidebarWidth) >= sidebarDragStep {
-                                        scheduleSidebarWidth(nextWidth)
-                                    }
-                                }
-                                .onEnded { value in
-                                    if isResizerDragging {
-                                        isResizerDragging = false
-                                        if !isResizerHovering {
-                                            NSCursor.pop()
-                                        }
-                                    }
-                                    let finalWidth = max(140, min(360, dragStartWidth + value.translation.width))
-                                    pendingSidebarWidth = nil
-                                    applySidebarWidth(finalWidth)
-                                }
-                        )
-                }
-            }
-
-            // Terminal Content - use ZStack to keep all surfaces alive
-            ZStack {
-                ZStack {
-                    ForEach(tabManager.tabs) { tab in
-                        let isActive = tabManager.selectedTabId == tab.id
-                        TerminalSplitTreeView(
-                            tab: tab,
-                            isTabActive: isActive,
-                            isResizing: isResizerDragging
-                        )
-                            .opacity(isActive ? 1 : 0)
-                            .allowsHitTesting(isActive)
-                    }
-                }
-                .opacity(sidebarSelection == .tabs ? 1 : 0)
-                .allowsHitTesting(sidebarSelection == .tabs)
-
-                NotificationsPage(selection: $sidebarSelection)
-                    .opacity(sidebarSelection == .notifications ? 1 : 0)
-                    .allowsHitTesting(sidebarSelection == .notifications)
             }
         }
         .frame(minWidth: 800, minHeight: 600)
@@ -163,25 +90,131 @@ struct ContentView: View {
         tabManager.beginNewTabFlow()
         sidebarSelection = .tabs
     }
+}
 
-    private func applySidebarWidth(_ width: CGFloat) {
-        withTransaction(Transaction(animation: nil)) {
-            sidebarWidth = width
+private extension ContentView {
+    @ViewBuilder
+    var terminalContent: some View {
+        // Terminal Content - use ZStack to keep all surfaces alive
+        ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                ForEach(tabManager.tabs) { tab in
+                    let isActive = tabManager.selectedTabId == tab.id
+                    TerminalSplitTreeView(
+                        tab: tab,
+                        isTabActive: isActive,
+                        isResizing: isResizerDragging
+                    )
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .opacity(sidebarSelection == .tabs ? 1 : 0)
+            .allowsHitTesting(sidebarSelection == .tabs)
+
+            NotificationsPage(selection: $sidebarSelection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .opacity(sidebarSelection == .notifications ? 1 : 0)
+                .allowsHitTesting(sidebarSelection == .notifications)
         }
     }
 
-    private func scheduleSidebarWidth(_ width: CGFloat) {
-        pendingSidebarWidth = width
-        guard !isSidebarUpdateScheduled else { return }
-        isSidebarUpdateScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + sidebarUpdateInterval) { [self] in
-            isSidebarUpdateScheduled = false
-            guard let pending = pendingSidebarWidth else { return }
-            applySidebarWidth(pending)
-            pendingSidebarWidth = nil
+}
+
+private struct SidebarOverlayView: View {
+    @Binding var width: CGFloat
+    @Binding var isResizerDragging: Bool
+    @Binding var selection: SidebarSelection
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    @State private var isResizerHovering = false
+    @State private var dragStartWidth: CGFloat = 0
+    @GestureState private var dragOffset: CGFloat = 0
+    private let sidebarHandleWidth: CGFloat = 6
+    private let sidebarDragStep: CGFloat = 6
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            VerticalTabsSidebar(
+                selection: $selection,
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+            )
+            .frame(width: width)
+            .overlay(alignment: .trailing) {
+                Color.clear
+                    .frame(width: sidebarHandleWidth)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("SidebarResizer")
+                    .onHover { hovering in
+                        if hovering {
+                            if !isResizerHovering {
+                                NSCursor.resizeLeftRight.push()
+                                isResizerHovering = true
+                            }
+                        } else if isResizerHovering {
+                            if !isResizerDragging {
+                                NSCursor.pop()
+                                isResizerHovering = false
+                            }
+                        }
+                    }
+                    .onDisappear {
+                        if isResizerHovering || isResizerDragging {
+                            NSCursor.pop()
+                            isResizerHovering = false
+                            isResizerDragging = false
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                            .updating($dragOffset) { value, state, _ in
+                                let stepped = (value.translation.width / sidebarDragStep).rounded() * sidebarDragStep
+                                state = stepped
+                            }
+                            .onChanged { _ in
+                                if !isResizerDragging {
+                                    isResizerDragging = true
+                                    dragStartWidth = width
+                                    if !isResizerHovering {
+                                        NSCursor.resizeLeftRight.push()
+                                        isResizerHovering = true
+                                    }
+                                }
+                            }
+                            .onEnded { value in
+                                if isResizerDragging {
+                                    isResizerDragging = false
+                                    if !isResizerHovering {
+                                        NSCursor.pop()
+                                    }
+                                }
+                                let finalWidth = max(140, min(360, dragStartWidth + value.translation.width))
+                                withTransaction(Transaction(animation: nil)) {
+                                    width = finalWidth
+                                }
+                            }
+                    )
+            }
+
+            if isResizerDragging {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1)
+                    .offset(x: previewWidth - 0.5)
+                    .allowsHitTesting(false)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var previewWidth: CGFloat {
+        if isResizerDragging {
+            return max(140, min(360, dragStartWidth + dragOffset))
+        }
+        return width
+    }
 }
 
 struct VerticalTabsSidebar: View {
