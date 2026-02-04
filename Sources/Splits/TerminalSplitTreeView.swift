@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct TerminalSplitTreeView: View {
     @ObservedObject var tab: Tab
@@ -37,6 +38,9 @@ struct TerminalSplitTreeView: View {
                 .onAppear { tab.updateSplitViewSize(proxy.size) }
                 .onChange(of: proxy.size) { tab.updateSplitViewSize($0) }
         })
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            config = GhosttyConfig.load()
+        }
     }
 }
 

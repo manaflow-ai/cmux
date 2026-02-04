@@ -203,7 +203,13 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   APP_PATH="$TAG_APP_PATH"
 fi
 
-pkill -f "${APP_PATH}/Contents/MacOS/" || true
+# Ensure any running instance is fully terminated, regardless of DerivedData path.
+/usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+sleep 0.3
+pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+if [[ "${APP_NAME}" != "${BASE_APP_NAME}" ]]; then
+  pkill -f "/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" || true
+fi
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
