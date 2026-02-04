@@ -192,10 +192,12 @@ struct CMUXCLI {
             print(response)
 
         case "new-split":
-            guard let direction = commandArgs.first else {
+            let (panelArg, remaining) = parseOption(commandArgs, name: "--panel")
+            guard let direction = remaining.first else {
                 throw CLIError(message: "new-split requires a direction")
             }
-            let response = try client.send(command: "new_split \(direction)")
+            let cmd = panelArg != nil ? "new_split \(direction) \(panelArg!)" : "new_split \(direction)"
+            let response = try client.send(command: cmd)
             print(response)
 
         case "list-panels":
@@ -509,7 +511,7 @@ struct CMUXCLI {
           ping
           list-tabs
           new-tab
-          new-split <left|right|up|down>
+          new-split <left|right|up|down> [--panel <id|index>]
           list-panels [--tab <id|index>]
           focus-panel --panel <id|index>
           close-tab --tab <id|index>

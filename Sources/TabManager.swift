@@ -764,9 +764,9 @@ class TabManager: ObservableObject {
         }
     }
 
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.NewDirection) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        return tab.newSplit(from: surfaceId, direction: direction) != nil
+    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.NewDirection) -> UUID? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return tab.newSplit(from: surfaceId, direction: direction)?.id
     }
 
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.FocusDirection) -> Bool {
