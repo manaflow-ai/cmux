@@ -597,13 +597,15 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
-            if let tabId = surfaceView.tabId {
+            if let tabId = surfaceView.tabId,
+               let surfaceId = surfaceView.terminalSurface?.id {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
                         userInfo: [
                             GhosttyNotificationKey.tabId: tabId,
+                            GhosttyNotificationKey.surfaceId: surfaceId,
                             GhosttyNotificationKey.title: title,
                         ]
                     )
@@ -694,11 +696,21 @@ class GhosttyApp {
 
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
-        window.backgroundColor = color
-        window.isOpaque = color.alphaComponent >= 1.0
-        if backgroundLogEnabled {
-            logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
+        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
+        if sidebarBlendMode == "behindWindow" {
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            if backgroundLogEnabled {
+                logBackground("applied transparent window for behindWindow blur")
+            }
+        } else {
+            let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
+            window.backgroundColor = color
+            window.isOpaque = color.alphaComponent >= 1.0
+            if backgroundLogEnabled {
+                logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+            }
         }
     }
 
@@ -1072,8 +1084,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        window.backgroundColor = color
-        window.isOpaque = color.alphaComponent >= 1.0
+        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
+        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
+        if sidebarBlendMode == "behindWindow" {
+            window.backgroundColor = .clear
+            window.isOpaque = false
+        } else {
+            window.backgroundColor = color
+            window.isOpaque = color.alphaComponent >= 1.0
+        }
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground("applied window background tab=\(tabId?.uuidString ?? "unknown") color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
         }
@@ -1839,6 +1858,7 @@ enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"
     static let tabId = "ghostty.tabId"
+    static let surfaceId = "ghostty.surfaceId"
     static let title = "ghostty.title"
 }
 

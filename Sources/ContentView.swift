@@ -1,5 +1,114 @@
 import AppKit
 import SwiftUI
+import ObjectiveC
+
+/// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
+enum WindowGlassEffect {
+    private static var glassViewKey: UInt8 = 0
+    private static var tintOverlayKey: UInt8 = 0
+
+    static var isAvailable: Bool {
+        NSClassFromString("NSGlassEffectView") != nil
+    }
+
+    static func apply(to window: NSWindow, tintColor: NSColor? = nil) {
+        guard let originalContentView = window.contentView else { return }
+
+        // Check if we already applied glass (avoid re-wrapping)
+        if let existingGlass = objc_getAssociatedObject(window, &glassViewKey) as? NSView {
+            // Already applied, just update the tint
+            updateTint(on: existingGlass, color: tintColor, window: window)
+            return
+        }
+
+        let bounds = originalContentView.bounds
+
+        // Create the glass/blur view
+        let glassView: NSVisualEffectView
+
+        // Try NSGlassEffectView first (macOS 26 Tahoe+)
+        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSVisualEffectView.Type {
+            glassView = glassClass.init(frame: bounds)
+            glassView.wantsLayer = true
+            glassView.layer?.cornerRadius = 0
+
+            // Apply tint color via private API
+            if let color = tintColor {
+                let selector = NSSelectorFromString("setTintColor:")
+                if glassView.responds(to: selector) {
+                    glassView.perform(selector, with: color)
+                }
+            }
+        } else {
+            // Fallback to NSVisualEffectView
+            glassView = NSVisualEffectView(frame: bounds)
+            glassView.blendingMode = .behindWindow
+            glassView.material = .hudWindow
+            glassView.state = .active
+            glassView.wantsLayer = true
+        }
+
+        glassView.autoresizingMask = [.width, .height]
+
+        // Make glass view the new contentView, add original content on top
+        window.contentView = glassView
+
+        // Re-add the original SwiftUI hosting view on top of the glass, filling entire area
+        originalContentView.translatesAutoresizingMaskIntoConstraints = false
+        originalContentView.wantsLayer = true
+        originalContentView.layer?.backgroundColor = NSColor.clear.cgColor
+        glassView.addSubview(originalContentView)
+
+        // Pin to all edges
+        NSLayoutConstraint.activate([
+            originalContentView.topAnchor.constraint(equalTo: glassView.topAnchor),
+            originalContentView.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+            originalContentView.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            originalContentView.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
+        ])
+
+        // Add tint overlay between glass and content (for fallback)
+        if tintColor != nil, NSClassFromString("NSGlassEffectView") == nil {
+            let tintOverlay = NSView(frame: bounds)
+            tintOverlay.autoresizingMask = [.width, .height]
+            tintOverlay.wantsLayer = true
+            tintOverlay.layer?.backgroundColor = tintColor!.cgColor
+            glassView.addSubview(tintOverlay, positioned: .below, relativeTo: originalContentView)
+            objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
+        }
+
+        // Store reference
+        objc_setAssociatedObject(window, &glassViewKey, glassView, .OBJC_ASSOCIATION_RETAIN)
+    }
+
+    /// Update the tint color on an existing glass effect
+    static func updateTint(to window: NSWindow, color: NSColor?) {
+        guard let glassView = objc_getAssociatedObject(window, &glassViewKey) as? NSView else { return }
+        updateTint(on: glassView, color: color, window: window)
+    }
+
+    private static func updateTint(on glassView: NSView, color: NSColor?, window: NSWindow) {
+        // For NSGlassEffectView, use setTintColor:
+        if glassView.className == "NSGlassEffectView" {
+            let selector = NSSelectorFromString("setTintColor:")
+            if glassView.responds(to: selector) {
+                glassView.perform(selector, with: color)
+            }
+        } else {
+            // For NSVisualEffectView fallback, update the tint overlay
+            if let tintOverlay = objc_getAssociatedObject(window, &tintOverlayKey) as? NSView {
+                tintOverlay.layer?.backgroundColor = color?.cgColor
+            }
+        }
+    }
+
+    static func remove(from window: NSWindow) {
+        // Note: Removing would require restoring original contentView structure
+        // For now, just clear the reference
+        objc_setAssociatedObject(window, &glassViewKey, nil, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(window, &tintOverlayKey, nil, .OBJC_ASSOCIATION_RETAIN)
+    }
+}
 
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool = true
@@ -22,6 +131,7 @@ struct ContentView: View {
     @State private var sidebarSelection: SidebarSelection = .tabs
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
+    @State private var titlebarText: String = ""
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -69,7 +179,7 @@ struct ContentView: View {
                                     isResizerHovering = true
                                 }
                             }
-                            let nextWidth = max(140, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
+                            let nextWidth = max(186, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
                             withTransaction(Transaction(animation: nil)) {
                                 sidebarWidth = nextWidth
                             }
@@ -85,6 +195,9 @@ struct ContentView: View {
                 )
         }
     }
+
+    /// Space at top of content area for titlebar
+    private let titlebarPadding: CGFloat = 28
 
     private var terminalContent: some View {
         ZStack {
@@ -103,9 +216,72 @@ struct ContentView: View {
                 .opacity(sidebarSelection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelection == .notifications)
         }
+        .padding(.top, titlebarPadding)
+        .overlay(alignment: .top) {
+            // Titlebar with background - only over terminal content, not sidebar
+            customTitlebar
+                .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        }
     }
 
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+
+    // Background glass settings
+    @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
+    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.05
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+
+    private var customTitlebar: some View {
+        HStack(spacing: 8) {
+            Spacer()
+
+            // Draggable folder icon + focused command name
+            if let directory = focusedDirectory {
+                DraggableFolderIcon(directory: directory)
+            }
+
+            Text(titlebarText)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+
+            Spacer()
+        }
+        .frame(height: 28)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 8)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            NSApp.keyWindow?.zoom(nil)
+        }
+    }
+
+    private func updateTitlebarText() {
+        guard let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            titlebarText = ""
+            return
+        }
+        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        titlebarText = title
+    }
+
+    private var focusedDirectory: String? {
+        guard let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            return nil
+        }
+        // Use focused surface's directory if available
+        if let focusedSurfaceId = tab.focusedSurfaceId,
+           let surfaceDir = tab.surfaceDirectories[focusedSurfaceId] {
+            let trimmed = surfaceDir.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return dir.isEmpty ? nil : dir
+    }
 
     var body: some View {
         let useOverlay = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
@@ -139,6 +315,7 @@ struct ContentView: View {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
+            updateTitlebarText()
         }
         .onChange(of: tabManager.selectedTabId) { newValue in
             tabManager.applyWindowBackgroundForSelectedTab()
@@ -147,9 +324,21 @@ struct ContentView: View {
                 selectedTabIds = [newValue]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
+            updateTitlebarText()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId else { return }
+            updateTitlebarText()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelection = .tabs
+            updateTitlebarText()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId else { return }
+            updateTitlebarText()
         }
         .onReceive(tabManager.$tabs) { tabs in
             let existingIds = Set(tabs.map { $0.id })
@@ -168,8 +357,37 @@ struct ContentView: View {
         .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
             sidebarMinX = frame.minX
         }
-        .background(WindowAccessor { window in
+        .onChange(of: bgGlassTintHex) { _ in
+            updateWindowGlassTint()
+        }
+        .onChange(of: bgGlassTintOpacity) { _ in
+            updateWindowGlassTint()
+        }
+        .ignoresSafeArea()
+        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
+            window.titlebarAppearsTransparent = true
+            window.styleMask.insert(.fullSizeContentView)
+            // For behindWindow blur to work, window must be non-opaque with transparent content view
+            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled {
+                window.isOpaque = false
+                window.backgroundColor = .clear
+                // Configure contentView and all subviews for transparency
+                if let contentView = window.contentView {
+                    contentView.wantsLayer = true
+                    contentView.layer?.backgroundColor = NSColor.clear.cgColor
+                    contentView.layer?.isOpaque = false
+                    // Make SwiftUI hosting view transparent
+                    for subview in contentView.subviews {
+                        subview.wantsLayer = true
+                        subview.layer?.backgroundColor = NSColor.clear.cgColor
+                        subview.layer?.isOpaque = false
+                    }
+                }
+                // Apply liquid glass effect to the window with tint from settings
+                let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
+                WindowGlassEffect.apply(to: window, tintColor: tintColor)
+            }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
         })
@@ -180,6 +398,12 @@ struct ContentView: View {
         sidebarSelection = .tabs
     }
 
+    private func updateWindowGlassTint() {
+        // Find main window by identifier (keyWindow might be the debug panel)
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" }) else { return }
+        let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
+        WindowGlassEffect.updateTint(to: window, color: tintColor)
+    }
 }
 
 struct VerticalTabsSidebar: View {
@@ -188,10 +412,17 @@ struct VerticalTabsSidebar: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
 
+    /// Space at top of sidebar for traffic light buttons
+    private let trafficLightPadding: CGFloat = 28
+
     var body: some View {
         GeometryReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
+                    // Space for traffic lights
+                    Spacer()
+                        .frame(height: trafficLightPadding)
+
                     LazyVStack(spacing: 2) {
                         ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
                             TabItemView(
@@ -218,7 +449,8 @@ struct VerticalTabsSidebar: View {
             .modifier(ClearScrollBackground())
             .accessibilityIdentifier("Sidebar")
         }
-        .background(SidebarBackdrop())
+        .ignoresSafeArea()
+        .background(SidebarBackdrop().ignoresSafeArea())
     }
 }
 
@@ -603,12 +835,24 @@ private struct ScrollBackgroundClearer: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
             guard let scrollView = findScrollView(startingAt: nsView) else { return }
+            // Clear all backgrounds and mark as non-opaque for transparency
             scrollView.drawsBackground = false
             scrollView.backgroundColor = .clear
+            scrollView.wantsLayer = true
+            scrollView.layer?.backgroundColor = NSColor.clear.cgColor
+            scrollView.layer?.isOpaque = false
+
             scrollView.contentView.drawsBackground = false
             scrollView.contentView.backgroundColor = .clear
-            scrollView.documentView?.wantsLayer = true
-            scrollView.documentView?.layer?.backgroundColor = NSColor.clear.cgColor
+            scrollView.contentView.wantsLayer = true
+            scrollView.contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            scrollView.contentView.layer?.isOpaque = false
+
+            if let docView = scrollView.documentView {
+                docView.wantsLayer = true
+                docView.layer?.backgroundColor = NSColor.clear.cgColor
+                docView.layer?.isOpaque = false
+            }
         }
     }
 
@@ -624,65 +868,266 @@ private struct ScrollBackgroundClearer: NSViewRepresentable {
     }
 }
 
+private struct DraggableFolderIcon: View {
+    let directory: String
+
+    var body: some View {
+        DraggableFolderIconRepresentable(directory: directory)
+            .frame(width: 16, height: 16)
+            .help("Drag to open in Finder or another app")
+            .onTapGesture(count: 2) {
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
+            }
+    }
+}
+
+private struct DraggableFolderIconRepresentable: NSViewRepresentable {
+    let directory: String
+
+    func makeNSView(context: Context) -> DraggableFolderNSView {
+        DraggableFolderNSView(directory: directory)
+    }
+
+    func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
+        nsView.directory = directory
+        nsView.updateIcon()
+    }
+}
+
+private final class DraggableFolderNSView: NSView, NSDraggingSource {
+    var directory: String
+    private var imageView: NSImageView!
+
+    init(directory: String) {
+        self.directory = directory
+        super.init(frame: .zero)
+        setupImageView()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupImageView() {
+        imageView = NSImageView()
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        updateIcon()
+    }
+
+    func updateIcon() {
+        let icon = NSWorkspace.shared.icon(forFile: directory)
+        icon.size = NSSize(width: 16, height: 16)
+        imageView.image = icon
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        return context == .outsideApplication ? [.copy, .link] : .copy
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let fileURL = URL(fileURLWithPath: directory)
+        let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
+
+        let iconImage = NSWorkspace.shared.icon(forFile: directory)
+        iconImage.size = NSSize(width: 32, height: 32)
+        draggingItem.setDraggingFrame(bounds, contents: iconImage)
+
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = buildPathMenu()
+        // Pop up menu at bottom-left of icon (like native proxy icon)
+        let menuLocation = NSPoint(x: 0, y: bounds.height)
+        menu.popUp(positioning: nil, at: menuLocation, in: self)
+    }
+
+    private func buildPathMenu() -> NSMenu {
+        let menu = NSMenu()
+        let url = URL(fileURLWithPath: directory).standardized
+        var pathComponents: [URL] = []
+
+        // Build path from current directory up to root
+        var current = url
+        while current.path != "/" {
+            pathComponents.append(current)
+            current = current.deletingLastPathComponent()
+        }
+        pathComponents.append(URL(fileURLWithPath: "/"))
+
+        // Add path components (current dir at top, root at bottom - matches native macOS)
+        for pathURL in pathComponents {
+            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
+            icon.size = NSSize(width: 16, height: 16)
+
+            let displayName: String
+            if pathURL.path == "/" {
+                // Use the volume name for root
+                if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
+                    displayName = volumeName
+                } else {
+                    displayName = "Macintosh HD"
+                }
+            } else {
+                displayName = FileManager.default.displayName(atPath: pathURL.path)
+            }
+
+            let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
+            item.target = self
+            item.image = icon
+            item.representedObject = pathURL
+            menu.addItem(item)
+        }
+
+        // Add computer name at the bottom (like native proxy icon)
+        let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
+        computerIcon.size = NSSize(width: 16, height: 16)
+
+        let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
+        computerItem.target = self
+        computerItem.image = computerIcon
+        menu.addItem(computerItem)
+
+        return menu
+    }
+
+    @objc private func openPathComponent(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
+    }
+
+    @objc private func openComputer(_ sender: NSMenuItem) {
+        // Open "Computer" view in Finder (shows all volumes)
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
+    }
+}
+
+/// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
 private struct SidebarVisualEffectBackground: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blendingMode: NSVisualEffectView.BlendingMode
     let state: NSVisualEffectView.State
     let opacity: Double
+    let tintColor: NSColor?
+    let cornerRadius: CGFloat
+    let preferLiquidGlass: Bool
 
     init(
         material: NSVisualEffectView.Material = .hudWindow,
         blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
         state: NSVisualEffectView.State = .active,
-        opacity: Double = 1.0
+        opacity: Double = 1.0,
+        tintColor: NSColor? = nil,
+        cornerRadius: CGFloat = 0,
+        preferLiquidGlass: Bool = false
     ) {
         self.material = material
         self.blendingMode = blendingMode
         self.state = state
         self.opacity = opacity
+        self.tintColor = tintColor
+        self.cornerRadius = cornerRadius
+        self.preferLiquidGlass = preferLiquidGlass
     }
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
+    static var liquidGlassAvailable: Bool {
+        NSClassFromString("NSGlassEffectView") != nil
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        // Try NSGlassEffectView if preferred or if we want to test availability
+        if preferLiquidGlass, let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            let glass = glassClass.init(frame: .zero)
+            glass.autoresizingMask = [.width, .height]
+            glass.wantsLayer = true
+            return glass
+        }
+
+        // Use NSVisualEffectView
         let view = NSVisualEffectView()
         view.autoresizingMask = [.width, .height]
+        view.wantsLayer = true
+        view.layerContentsRedrawPolicy = .onSetNeedsDisplay
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
-        nsView.state = state
-        nsView.alphaValue = max(0.0, min(1.0, opacity))
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Configure based on view type
+        if nsView.className == "NSGlassEffectView" {
+            // NSGlassEffectView configuration via private API
+            nsView.alphaValue = max(0.0, min(1.0, opacity))
+            nsView.layer?.cornerRadius = cornerRadius
+            nsView.layer?.masksToBounds = cornerRadius > 0
+
+            // Try to set tint color via private selector
+            if let color = tintColor {
+                let selector = NSSelectorFromString("setTintColor:")
+                if nsView.responds(to: selector) {
+                    nsView.perform(selector, with: color)
+                }
+            }
+        } else if let visualEffect = nsView as? NSVisualEffectView {
+            // NSVisualEffectView configuration
+            visualEffect.material = material
+            visualEffect.blendingMode = blendingMode
+            visualEffect.state = state
+            visualEffect.alphaValue = max(0.0, min(1.0, opacity))
+            visualEffect.layer?.cornerRadius = cornerRadius
+            visualEffect.layer?.masksToBounds = cornerRadius > 0
+            visualEffect.needsDisplay = true
+        }
     }
 }
 
 
 private struct SidebarBackdrop: View {
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.62
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.active.rawValue
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.54
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#101010"
+    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.98
+    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.79
 
     var body: some View {
         let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)
         let blendingMode = SidebarBlendModeOption(rawValue: sidebarBlendMode)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: sidebarState)?.state ?? .active
-        let tintColor = NSColor(hex: sidebarTintHex) ?? .black
-        let cornerRadius = max(0, sidebarCornerRadius)
+        let tintColor = (NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
+        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
+        let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
+        let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
 
         return ZStack {
             if let material = materialOption?.material {
-                SidebarVisualEffectBackground(
-                    material: material,
-                    blendingMode: blendingMode,
-                    state: state,
-                    opacity: sidebarBlurOpacity
-                )
+                // When using liquidGlass + behindWindow, window handles glass + tint
+                // Sidebar is fully transparent
+                if !useWindowLevelGlass {
+                    SidebarVisualEffectBackground(
+                        material: material,
+                        blendingMode: blendingMode,
+                        state: state,
+                        opacity: sidebarBlurOpacity,
+                        tintColor: tintColor,
+                        cornerRadius: cornerRadius,
+                        preferLiquidGlass: useLiquidGlass
+                    )
+                    // Tint overlay for NSVisualEffectView fallback
+                    if !useLiquidGlass {
+                        Color(nsColor: tintColor)
+                    }
+                }
             }
-            Color(nsColor: tintColor).opacity(sidebarTintOpacity)
+            // When material is none or useWindowLevelGlass, render nothing
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
@@ -690,6 +1135,7 @@ private struct SidebarBackdrop: View {
 
 enum SidebarMaterialOption: String, CaseIterable, Identifiable {
     case none
+    case liquidGlass  // macOS 26+ NSGlassEffectView
     case sidebar
     case hudWindow
     case menu
@@ -707,6 +1153,7 @@ enum SidebarMaterialOption: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .none: return "None"
+        case .liquidGlass: return "Liquid Glass (macOS 26+)"
         case .sidebar: return "Sidebar"
         case .hudWindow: return "HUD Window"
         case .menu: return "Menu"
@@ -721,9 +1168,15 @@ enum SidebarMaterialOption: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Returns true if this option should use NSGlassEffectView (macOS 26+)
+    var usesLiquidGlass: Bool {
+        self == .liquidGlass
+    }
+
     var material: NSVisualEffectView.Material? {
         switch self {
         case .none: return nil
+        case .liquidGlass: return .underWindowBackground  // Fallback material
         case .sidebar: return .sidebar
         case .hudWindow: return .hudWindow
         case .menu: return .menu

@@ -106,7 +106,7 @@ struct cmuxApp: App {
                     updateSocketController()
                 }
         }
-        .windowToolbarStyle(.automatic)
+        .windowStyle(.hiddenTitleBar)
         Settings {
             SettingsRootView()
         }
@@ -170,6 +170,10 @@ struct cmuxApp: App {
 
                 Button("Sidebar Debug…") {
                     SidebarDebugWindowController.shared.show()
+                }
+
+                Button("Background Debug…") {
+                    BackgroundDebugWindowController.shared.show()
                 }
 
                 Divider()
@@ -528,14 +532,14 @@ private struct AboutPanelView: View {
 }
 
 private struct SidebarDebugView: View {
-    @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.hudGlass.rawValue
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.62
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.active.rawValue
+    @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.54
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#101010"
+    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.98
+    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.79
 
     var body: some View {
         ScrollView {
@@ -676,6 +680,145 @@ private struct SidebarDebugView: View {
         sidebarTintOpacity = preset.tintOpacity
         sidebarCornerRadius = preset.cornerRadius
         sidebarBlurOpacity = preset.blurOpacity
+    }
+}
+
+// MARK: - Background Debug Window
+
+private final class BackgroundDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = BackgroundDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Background Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.backgroundDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: BackgroundDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct BackgroundDebugView: View {
+    @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
+    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.05
+    @AppStorage("bgGlassMaterial") private var bgGlassMaterial = "hudWindow"
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Window Background Glass")
+                    .font(.headline)
+
+                GroupBox("Glass Effect") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Enable Glass Effect", isOn: $bgGlassEnabled)
+
+                        Picker("Material", selection: $bgGlassMaterial) {
+                            Text("HUD Window").tag("hudWindow")
+                            Text("Under Window").tag("underWindowBackground")
+                            Text("Sidebar").tag("sidebar")
+                            Text("Menu").tag("menu")
+                            Text("Popover").tag("popover")
+                        }
+                        .disabled(!bgGlassEnabled)
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Tint") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ColorPicker("Tint Color", selection: tintColorBinding, supportsOpacity: false)
+                            .disabled(!bgGlassEnabled)
+
+                        HStack(spacing: 8) {
+                            Text("Opacity")
+                            Slider(value: $bgGlassTintOpacity, in: 0...0.8)
+                                .disabled(!bgGlassEnabled)
+                            Text(String(format: "%.0f%%", bgGlassTintOpacity * 100))
+                                .font(.caption)
+                                .frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                HStack(spacing: 12) {
+                    Button("Reset") {
+                        bgGlassTintHex = "#000000"
+                        bgGlassTintOpacity = 0.05
+                        bgGlassMaterial = "hudWindow"
+                        bgGlassEnabled = true
+                        updateWindowGlassTint()
+                    }
+
+                    Button("Copy Config") {
+                        copyBgConfig()
+                    }
+                }
+
+                Text("Tint changes apply live. Enable/disable requires reload.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .onChange(of: bgGlassTintHex) { _ in updateWindowGlassTint() }
+        .onChange(of: bgGlassTintOpacity) { _ in updateWindowGlassTint() }
+    }
+
+    private func updateWindowGlassTint() {
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" }) else { return }
+        let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
+        WindowGlassEffect.updateTint(to: window, color: tintColor)
+    }
+
+    private var tintColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(nsColor: NSColor(hex: bgGlassTintHex) ?? .black)
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                bgGlassTintHex = nsColor.hexString()
+            }
+        )
+    }
+
+    private func copyBgConfig() {
+        let payload = """
+        bgGlassEnabled=\(bgGlassEnabled)
+        bgGlassMaterial=\(bgGlassMaterial)
+        bgGlassTintHex=\(bgGlassTintHex)
+        bgGlassTintOpacity=\(String(format: "%.2f", bgGlassTintOpacity))
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
     }
 }
 

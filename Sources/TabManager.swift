@@ -13,9 +13,19 @@ class Tab: Identifiable, ObservableObject {
         didSet {
             guard let focusedSurfaceId else { return }
             AppDelegate.shared?.tabManager?.rememberFocusedSurface(tabId: id, surfaceId: focusedSurfaceId)
+            AppDelegate.shared?.tabManager?.focusedSurfaceTitleDidChange(tabId: id)
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusSurface,
+                object: nil,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: id,
+                    GhosttyNotificationKey.surfaceId: focusedSurfaceId
+                ]
+            )
         }
     }
     @Published var surfaceDirectories: [UUID: String] = [:]
+    @Published var surfaceTitles: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
 
     private var processTitle: String
@@ -333,8 +343,9 @@ class TabManager: ObservableObject {
         ) { [weak self] notification in
             guard let self else { return }
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
             guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-            self.updateTabTitle(tabId: tabId, title: title)
+            self.updateSurfaceTitle(tabId: tabId, surfaceId: surfaceId, title: title)
         })
     }
 
@@ -641,12 +652,30 @@ class TabManager: ObservableObject {
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
-    private func updateTabTitle(tabId: UUID, title: String) {
+    private func updateSurfaceTitle(tabId: UUID, surfaceId: UUID, title: String) {
         guard !title.isEmpty else { return }
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        tabs[index].applyProcessTitle(title)
+        let tab = tabs[index]
+
+        // Store title per-surface
+        tab.surfaceTitles[surfaceId] = title
+
+        // Only update tab's display title if this surface is focused
+        if tab.focusedSurfaceId == surfaceId {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
+        }
+    }
+
+    func focusedSurfaceTitleDidChange(tabId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              let focusedSurfaceId = tab.focusedSurfaceId,
+              let title = tab.surfaceTitles[focusedSurfaceId] else { return }
+        tab.applyProcessTitle(title)
         if selectedTabId == tabId {
-            updateWindowTitle(for: tabs[index])
+            updateWindowTitle(for: tab)
         }
     }
 
@@ -887,4 +916,5 @@ class TabManager: ObservableObject {
 extension Notification.Name {
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
+    static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
 }
