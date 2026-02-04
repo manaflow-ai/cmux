@@ -305,8 +305,8 @@ struct TabItemView: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 16, height: 16)
-                .opacity((isHovering || isActive || isMultiSelected) && tabManager.tabs.count > 1 ? 1 : 0)
-                .allowsHitTesting((isHovering || isActive || isMultiSelected) && tabManager.tabs.count > 1)
+                .opacity((isHovering && tabManager.tabs.count > 1) ? 1 : 0)
+                .allowsHitTesting(isHovering && tabManager.tabs.count > 1)
             }
 
             if let subtitle = latestNotificationText {
@@ -415,9 +415,6 @@ struct TabItemView: View {
         }
         if isMultiSelected {
             return Color.accentColor.opacity(0.25)
-        }
-        if isHovering {
-            return Color(nsColor: .controlBackgroundColor).opacity(0.5)
         }
         return Color.clear
     }
