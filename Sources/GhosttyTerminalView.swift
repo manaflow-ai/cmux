@@ -429,7 +429,7 @@ class GhosttyApp {
                 return false
             }
             return performOnMain {
-                tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction)
+                tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,

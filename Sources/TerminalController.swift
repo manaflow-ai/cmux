@@ -351,8 +351,8 @@ class TerminalController {
                 return
             }
 
-            if tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
-                result = "OK"
+            if let newPanelId = tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
+                result = "OK \(newPanelId.uuidString)"
             }
         }
         return result
