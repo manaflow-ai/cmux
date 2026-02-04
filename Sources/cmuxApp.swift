@@ -117,6 +117,13 @@ struct cmuxApp: App {
                 Button("About cmuxterm") {
                     showAboutPanel()
                 }
+                Button("Ghostty Settings…") {
+                    GhosttyApp.shared.openConfigurationInTextEdit()
+                }
+                Button("Reload Configuration") {
+                    GhosttyApp.shared.reloadConfiguration()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
                 Divider()
                 Button("Check for Updates…") {
                     appDelegate.checkForUpdates(nil)
@@ -157,6 +164,12 @@ struct cmuxApp: App {
 
                 Button("New Tab With Large Scrollback") {
                     appDelegate.openDebugScrollbackTab(nil)
+                }
+
+                Divider()
+
+                Button("Sidebar Debug…") {
+                    SidebarDebugWindowController.shared.show()
                 }
 
                 Divider()
@@ -394,6 +407,40 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
     }
 }
 
+private final class SidebarDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SidebarDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Sidebar Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: SidebarDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
@@ -477,6 +524,158 @@ private struct AboutPanelView: View {
         .padding(32)
         .frame(minWidth: 280)
         .background(AboutVisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
+    }
+}
+
+private struct SidebarDebugView: View {
+    @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.hudGlass.rawValue
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.62
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
+    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.active.rawValue
+    @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
+    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.98
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Sidebar Appearance")
+                    .font(.headline)
+
+                GroupBox("Presets") {
+                    Picker("Preset", selection: $sidebarPreset) {
+                        ForEach(SidebarPresetOption.allCases) { option in
+                            Text(option.title).tag(option.rawValue)
+                        }
+                    }
+                    .onChange(of: sidebarPreset) { _ in
+                        applyPreset()
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Blur") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Material", selection: $sidebarMaterial) {
+                            ForEach(SidebarMaterialOption.allCases) { option in
+                                Text(option.title).tag(option.rawValue)
+                            }
+                        }
+
+                        Picker("Blending", selection: $sidebarBlendMode) {
+                            ForEach(SidebarBlendModeOption.allCases) { option in
+                                Text(option.title).tag(option.rawValue)
+                            }
+                        }
+
+                        Picker("State", selection: $sidebarState) {
+                            ForEach(SidebarStateOption.allCases) { option in
+                                Text(option.title).tag(option.rawValue)
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Strength")
+                            Slider(value: $sidebarBlurOpacity, in: 0...1)
+                            Text(String(format: "%.0f%%", sidebarBlurOpacity * 100))
+                                .font(.caption)
+                                .frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Tint") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ColorPicker("Tint Color", selection: tintColorBinding, supportsOpacity: false)
+
+                        HStack(spacing: 8) {
+                            Text("Opacity")
+                            Slider(value: $sidebarTintOpacity, in: 0...0.7)
+                            Text(String(format: "%.0f%%", sidebarTintOpacity * 100))
+                                .font(.caption)
+                                .frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Shape") {
+                    HStack(spacing: 8) {
+                        Text("Corner Radius")
+                        Slider(value: $sidebarCornerRadius, in: 0...20)
+                        Text(String(format: "%.0f", sidebarCornerRadius))
+                            .font(.caption)
+                            .frame(width: 32, alignment: .trailing)
+                    }
+                    .padding(.top, 2)
+                }
+
+                HStack(spacing: 12) {
+                    Button("Reset Tint") {
+                        sidebarTintOpacity = 0.62
+                        sidebarTintHex = "#000000"
+                    }
+                    Button("Reset Blur") {
+                        sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
+                        sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+                        sidebarState = SidebarStateOption.active.rawValue
+                        sidebarBlurOpacity = 0.98
+                    }
+                    Button("Reset Shape") {
+                        sidebarCornerRadius = 0.0
+                    }
+                }
+
+                Button("Copy Config") {
+                    copySidebarConfig()
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var tintColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(nsColor: NSColor(hex: sidebarTintHex) ?? .black)
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarTintHex = nsColor.hexString()
+            }
+        )
+    }
+
+    private func copySidebarConfig() {
+        let payload = """
+        sidebarPreset=\(sidebarPreset)
+        sidebarMaterial=\(sidebarMaterial)
+        sidebarBlendMode=\(sidebarBlendMode)
+        sidebarState=\(sidebarState)
+        sidebarBlurOpacity=\(String(format: "%.2f", sidebarBlurOpacity))
+        sidebarTintHex=\(sidebarTintHex)
+        sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
+        sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    private func applyPreset() {
+        guard let preset = SidebarPresetOption(rawValue: sidebarPreset) else { return }
+        sidebarMaterial = preset.material.rawValue
+        sidebarBlendMode = preset.blendMode.rawValue
+        sidebarState = preset.state.rawValue
+        sidebarTintHex = preset.tintHex
+        sidebarTintOpacity = preset.tintOpacity
+        sidebarCornerRadius = preset.cornerRadius
+        sidebarBlurOpacity = preset.blurOpacity
     }
 }
 
