@@ -204,15 +204,23 @@ private struct NotificationsAnchorView: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
+        let view = AnchorNSView()
+        view.onLayout = { [weak view] in
+            guard let view else { return }
             onResolve(view)
         }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // Only need to resolve once in makeNSView - the view reference doesn't change
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class AnchorNSView: NSView {
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
     }
 }
 
@@ -225,8 +233,12 @@ private struct TitlebarControlButton<Content: View>: View {
     var body: some View {
         Button(action: action) {
             content()
+                .frame(width: config.buttonSize, height: config.buttonSize)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(width: config.buttonSize, height: config.buttonSize)
+        .contentShape(Rectangle())
         .background(hoverBackground)
         .onHover { isHovering = $0 }
     }
@@ -281,7 +293,7 @@ private struct TitlebarControlsView: View {
                 }
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
-            .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
+            .overlay(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 }.allowsHitTesting(false))
             .accessibilityLabel("Notifications")
             .help("Show notifications (Cmd+Shift+I)")
 
@@ -420,7 +432,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         // Recreate content view each time to avoid stale observers when popover is hidden
-        notificationsPopover.contentViewController = NSHostingController(
+        let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: notificationStore,
                 onDismiss: { [weak notificationsPopover] in
@@ -428,9 +440,33 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 }
             )
         )
-        let anchorView = viewModel.notificationsAnchorView ?? hostingView
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.backgroundColor = .clear
+        notificationsPopover.contentViewController = hostingController
+
+        guard let window = view.window ?? hostingView.window ?? NSApp.keyWindow,
+              let contentView = window.contentView else {
+            return
+        }
+
+        // Force layout to ensure geometry is current.
+        contentView.layoutSubtreeIfNeeded()
+
+        if let anchorView = viewModel.notificationsAnchorView, anchorView.window != nil {
+            anchorView.superview?.layoutSubtreeIfNeeded()
+            let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
+            if !anchorRect.isEmpty {
+                notificationsPopover.animates = animated
+                notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
+                return
+            }
+        }
+
+        // Fallback: position near top-left of the window content.
+        let bounds = contentView.bounds
+        let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
-        notificationsPopover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
+        notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
     }
 
     private func makeNotificationsPopover() -> NSPopover {
