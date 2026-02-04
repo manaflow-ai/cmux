@@ -233,8 +233,6 @@ struct ContentView: View {
 
     private var customTitlebar: some View {
         HStack(spacing: 8) {
-            Spacer()
-
             // Draggable folder icon + focused command name
             if let directory = focusedDirectory {
                 DraggableFolderIcon(directory: directory)
@@ -249,7 +247,9 @@ struct ContentView: View {
         }
         .frame(height: 28)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 8)
+        .padding(.top, 2)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             NSApp.keyWindow?.zoom(nil)
