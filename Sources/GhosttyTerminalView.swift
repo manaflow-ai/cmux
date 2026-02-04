@@ -301,6 +301,61 @@ class GhosttyApp {
         }
     }
 
+    func reloadConfiguration(soft: Bool = false) {
+        guard let app else { return }
+        if soft, let config {
+            ghostty_app_update_config(app, config)
+            NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+            return
+        }
+
+        guard let newConfig = ghostty_config_new() else { return }
+        ghostty_config_load_default_files(newConfig)
+        ghostty_config_finalize(newConfig)
+        ghostty_app_update_config(app, newConfig)
+        updateDefaultBackground(from: newConfig)
+        DispatchQueue.main.async {
+            self.applyBackgroundToKeyWindow()
+        }
+        if let oldConfig = config {
+            ghostty_config_free(oldConfig)
+        }
+        config = newConfig
+        NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+    }
+
+    func reloadConfiguration(for surface: ghostty_surface_t, soft: Bool = false) {
+        if soft, let config {
+            ghostty_surface_update_config(surface, config)
+            return
+        }
+
+        guard let newConfig = ghostty_config_new() else { return }
+        ghostty_config_load_default_files(newConfig)
+        ghostty_config_finalize(newConfig)
+        ghostty_surface_update_config(surface, newConfig)
+        ghostty_config_free(newConfig)
+    }
+
+    func openConfigurationInTextEdit() {
+        #if os(macOS)
+        let path = ghosttyStringValue(ghostty_config_open_path())
+        guard !path.isEmpty else { return }
+        let fileURL = URL(fileURLWithPath: path)
+        let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
+        #endif
+    }
+
+    private func ghosttyStringValue(_ value: ghostty_string_s) -> String {
+        defer { ghostty_string_free(value) }
+        guard let ptr = value.ptr, value.len > 0 else { return "" }
+        let rawPtr = UnsafeRawPointer(ptr).assumingMemoryBound(to: UInt8.self)
+        let buffer = UnsafeBufferPointer(start: rawPtr, count: Int(value.len))
+        return String(decoding: buffer, as: UTF8.self)
+    }
+
     private func updateDefaultBackground(from config: ghostty_config_t?) {
         guard let config else { return }
 
@@ -385,6 +440,14 @@ class GhosttyApp {
                         subtitle: "",
                         body: body
                     )
+                }
+                return true
+            }
+
+            if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
+                let soft = action.action.reload_config.soft
+                performOnMain {
+                    GhosttyApp.shared.reloadConfiguration(soft: soft)
                 }
                 return true
             }
@@ -534,13 +597,15 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
-            if let tabId = surfaceView.tabId {
+            if let tabId = surfaceView.tabId,
+               let surfaceId = surfaceView.terminalSurface?.id {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
                         userInfo: [
                             GhosttyNotificationKey.tabId: tabId,
+                            GhosttyNotificationKey.surfaceId: surfaceId,
                             GhosttyNotificationKey.title: title,
                         ]
                     )
@@ -604,6 +669,16 @@ class GhosttyApp {
                 surfaceView.applyWindowBackgroundIfActive()
             }
             return true
+        case GHOSTTY_ACTION_RELOAD_CONFIG:
+            let soft = action.action.reload_config.soft
+            return performOnMain {
+                if let surface = surfaceView.terminalSurface?.surface {
+                    GhosttyApp.shared.reloadConfiguration(for: surface, soft: soft)
+                } else {
+                    GhosttyApp.shared.reloadConfiguration(soft: soft)
+                }
+                return true
+            }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
             return performOnMain {
                 surfaceView.updateKeySequence(action.action.key_sequence)
@@ -620,13 +695,31 @@ class GhosttyApp {
     }
 
     private func applyBackgroundToKeyWindow() {
-        guard let window = NSApp.keyWindow ?? NSApp.windows.first else { return }
-        let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
-        window.backgroundColor = color
-        window.isOpaque = color.alphaComponent >= 1.0
-        if backgroundLogEnabled {
-            logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+        guard let window = activeMainWindow() else { return }
+        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
+        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
+        if sidebarBlendMode == "behindWindow" {
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            if backgroundLogEnabled {
+                logBackground("applied transparent window for behindWindow blur")
+            }
+        } else {
+            let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
+            window.backgroundColor = color
+            window.isOpaque = color.alphaComponent >= 1.0
+            if backgroundLogEnabled {
+                logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+            }
         }
+    }
+
+    private func activeMainWindow() -> NSWindow? {
+        let keyWindow = NSApp.keyWindow
+        if keyWindow?.identifier?.rawValue == "cmux.main" {
+            return keyWindow
+        }
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" })
     }
 
     func logBackground(_ message: String) {
@@ -991,8 +1084,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        window.backgroundColor = color
-        window.isOpaque = color.alphaComponent >= 1.0
+        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
+        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
+        if sidebarBlendMode == "behindWindow" {
+            window.backgroundColor = .clear
+            window.isOpaque = false
+        } else {
+            window.backgroundColor = color
+            window.isOpaque = color.alphaComponent >= 1.0
+        }
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground("applied window background tab=\(tabId?.uuidString ?? "unknown") color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
         }
@@ -1758,6 +1858,7 @@ enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"
     static let tabId = "ghostty.tabId"
+    static let surfaceId = "ghostty.surfaceId"
     static let title = "ghostty.title"
 }
 
@@ -1765,6 +1866,7 @@ extension Notification.Name {
     static let ghosttyDidUpdateScrollbar = Notification.Name("ghosttyDidUpdateScrollbar")
     static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
+    static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
