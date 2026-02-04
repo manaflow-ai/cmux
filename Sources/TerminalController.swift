@@ -236,7 +236,7 @@ class TerminalController {
           ping                    - Check if server is running
           list_tabs               - List all tabs with IDs
           new_tab                 - Create a new tab
-          new_split <direction>   - Split focused surface (left/right/up/down)
+          new_split <direction> [panel] - Split surface (left/right/up/down), optionally specify panel
           list_surfaces [tab]     - List surfaces for tab (current tab if omitted)
           focus_surface <id|idx>  - Focus surface by ID or index (current tab)
           close_tab <id>          - Close tab by ID
@@ -311,24 +311,51 @@ class TerminalController {
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }
 
-    private func newSplit(_ directionArg: String) -> String {
+    private func newSplit(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        let trimmed = directionArg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let direction = parseSplitDirection(trimmed) else {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard !parts.isEmpty else {
             return "ERROR: Invalid direction. Use left, right, up, or down."
         }
 
-        var success = false
+        let directionArg = parts[0]
+        let panelArg = parts.count > 1 ? parts[1] : ""
+
+        guard let direction = parseSplitDirection(directionArg) else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        var result = "ERROR: Failed to create split"
         DispatchQueue.main.sync {
             guard let tabId = tabManager.selectedTabId,
-                  let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-                  let surfaceId = tab.focusedSurfaceId else {
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
             }
-            success = tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction)
+
+            // If panel arg provided, resolve it; otherwise use focused surface
+            let surfaceId: UUID?
+            if !panelArg.isEmpty {
+                surfaceId = resolveSurfaceId(from: panelArg, tab: tab)
+                if surfaceId == nil {
+                    result = "ERROR: Panel not found"
+                    return
+                }
+            } else {
+                surfaceId = tab.focusedSurfaceId
+            }
+
+            guard let targetSurface = surfaceId else {
+                result = "ERROR: No surface to split"
+                return
+            }
+
+            if tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
+                result = "OK"
+            }
         }
-        return success ? "OK" : "ERROR: Failed to create split"
+        return result
     }
 
     private func listSurfaces(_ tabArg: String) -> String {
