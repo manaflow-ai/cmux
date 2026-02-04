@@ -267,7 +267,7 @@ struct SwiftTermView: NSViewRepresentable {
         func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
             DispatchQueue.main.async {
                 if !title.isEmpty {
-                    self.tab.title = title
+                    self.tab.applyProcessTitle(title)
                 }
             }
         }

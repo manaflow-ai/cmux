@@ -5,6 +5,8 @@ import Foundation
 class Tab: Identifiable, ObservableObject {
     let id: UUID
     @Published var title: String
+    @Published var customTitle: String?
+    @Published var isPinned: Bool = false
     @Published var currentDirectory: String
     @Published var splitTree: SplitTree<TerminalSurface>
     @Published var focusedSurfaceId: UUID? {
@@ -16,9 +18,13 @@ class Tab: Identifiable, ObservableObject {
     @Published var surfaceDirectories: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
 
+    private var processTitle: String
+
     init(title: String = "Terminal", workingDirectory: String? = nil) {
         self.id = UUID()
+        self.processTitle = title
         self.title = title
+        self.customTitle = nil
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
         self.currentDirectory = hasWorkingDirectory
@@ -37,6 +43,28 @@ class Tab: Identifiable, ObservableObject {
     var focusedSurface: TerminalSurface? {
         guard let focusedSurfaceId else { return nil }
         return surface(for: focusedSurfaceId)
+    }
+
+    var hasCustomTitle: Bool {
+        let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !trimmed.isEmpty
+    }
+
+    func applyProcessTitle(_ title: String) {
+        processTitle = title
+        guard customTitle == nil else { return }
+        self.title = title
+    }
+
+    func setCustomTitle(_ title: String?) {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            customTitle = nil
+            self.title = processTitle
+        } else {
+            customTitle = trimmed
+            self.title = trimmed
+        }
     }
 
     func surface(for id: UUID) -> TerminalSurface? {
@@ -383,6 +411,11 @@ class TabManager: ObservableObject {
               let index = tabs.firstIndex(where: { $0.id == selectedTabId }) else {
             return tabs.count
         }
+        let selectedTab = tabs[index]
+        if selectedTab.isPinned {
+            let lastPinnedIndex = tabs.lastIndex(where: { $0.isPinned }) ?? -1
+            return min(lastPinnedIndex + 1, tabs.count)
+        }
         return min(index + 1, tabs.count)
     }
 
@@ -403,7 +436,9 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         guard index != 0 else { return }
         let tab = tabs.remove(at: index)
-        tabs.insert(tab, at: 0)
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        let insertIndex = tab.isPinned ? 0 : pinnedCount
+        tabs.insert(tab, at: insertIndex)
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
@@ -411,7 +446,43 @@ class TabManager: ObservableObject {
         let selectedTabs = tabs.filter { tabIds.contains($0.id) }
         guard !selectedTabs.isEmpty else { return }
         let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
-        tabs = selectedTabs + remainingTabs
+        let selectedPinned = selectedTabs.filter { $0.isPinned }
+        let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
+        let remainingPinned = remainingTabs.filter { $0.isPinned }
+        let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
+        tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+    }
+
+    func setCustomTitle(tabId: UUID, title: String?) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs[index].setCustomTitle(title)
+        if selectedTabId == tabId {
+            updateWindowTitle(for: tabs[index])
+        }
+    }
+
+    func clearCustomTitle(tabId: UUID) {
+        setCustomTitle(tabId: tabId, title: nil)
+    }
+
+    func togglePin(tabId: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let tab = tabs[index]
+        setPinned(tab, pinned: !tab.isPinned)
+    }
+
+    func setPinned(_ tab: Tab, pinned: Bool) {
+        guard tab.isPinned != pinned else { return }
+        tab.isPinned = pinned
+        reorderTabForPinnedState(tab)
+    }
+
+    private func reorderTabForPinnedState(_ tab: Tab) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        tabs.remove(at: index)
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        let insertIndex = min(pinnedCount, tabs.count)
+        tabs.insert(tab, at: insertIndex)
     }
 
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
@@ -573,11 +644,9 @@ class TabManager: ObservableObject {
     private func updateTabTitle(tabId: UUID, title: String) {
         guard !title.isEmpty else { return }
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        if tabs[index].title != title {
-            tabs[index].title = title
-            if selectedTabId == tabId {
-                updateWindowTitle(for: tabs[index])
-            }
+        tabs[index].applyProcessTitle(title)
+        if selectedTabId == tabId {
+            updateWindowTitle(for: tabs[index])
         }
     }
 
@@ -764,9 +833,9 @@ class TabManager: ObservableObject {
         }
     }
 
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.NewDirection) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        return tab.newSplit(from: surfaceId, direction: direction) != nil
+    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.NewDirection) -> UUID? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return tab.newSplit(from: surfaceId, direction: direction)?.id
     }
 
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: SplitTree<TerminalSurface>.FocusDirection) -> Bool {
