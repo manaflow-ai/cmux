@@ -2,6 +2,12 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.16.0] - 2025-02-04
+
+### Added
+- Sidebar blur effect with withinWindow blending for a polished look
+- `--panel` flag for `new-split` command to control split pane placement
+
 ## [1.15.0] - 2025-01-30
 
 ### Fixed
