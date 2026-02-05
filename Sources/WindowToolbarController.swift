@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
+@MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
     private let updateItemIdentifier = NSToolbarItem.Identifier("cmux.updatePill")

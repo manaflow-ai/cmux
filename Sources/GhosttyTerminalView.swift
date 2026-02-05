@@ -6,6 +6,7 @@ import QuartzCore
 import Combine
 import Darwin
 import Sentry
+import Bonsplit
 
 private enum GhosttyPasteboardHelper {
     private static let selectionPasteboard = NSPasteboard(
@@ -379,14 +380,16 @@ class GhosttyApp {
         }
     }
 
-    private func performOnMain<T>(_ work: () -> T) -> T {
+    private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
-            return work()
+            return MainActor.assumeIsolated { work() }
         }
-        return DispatchQueue.main.sync(execute: work)
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { work() }
+        }
     }
 
-    private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitTree<TerminalSurface>.NewDirection? {
+    private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
         switch direction {
         case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
         case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
@@ -396,19 +399,21 @@ class GhosttyApp {
         }
     }
 
-    private func focusDirection(from direction: ghostty_action_goto_split_e) -> SplitTree<TerminalSurface>.FocusDirection? {
+    private func focusDirection(from direction: ghostty_action_goto_split_e) -> NavigationDirection? {
         switch direction {
-        case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .previous
-        case GHOSTTY_GOTO_SPLIT_NEXT: return .next
-        case GHOSTTY_GOTO_SPLIT_UP: return .spatial(.up)
-        case GHOSTTY_GOTO_SPLIT_DOWN: return .spatial(.down)
-        case GHOSTTY_GOTO_SPLIT_LEFT: return .spatial(.left)
-        case GHOSTTY_GOTO_SPLIT_RIGHT: return .spatial(.right)
+        // For previous/next, we use left/right as a reasonable default
+        // Bonsplit doesn't have cycle-based navigation
+        case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .left
+        case GHOSTTY_GOTO_SPLIT_NEXT: return .right
+        case GHOSTTY_GOTO_SPLIT_UP: return .up
+        case GHOSTTY_GOTO_SPLIT_DOWN: return .down
+        case GHOSTTY_GOTO_SPLIT_LEFT: return .left
+        case GHOSTTY_GOTO_SPLIT_RIGHT: return .right
         default: return nil
         }
     }
 
-    private func resizeDirection(from direction: ghostty_action_resize_split_direction_e) -> SplitTree<TerminalSurface>.Spatial.Direction? {
+    private func resizeDirection(from direction: ghostty_action_resize_split_direction_e) -> ResizeDirection? {
         switch direction {
         case GHOSTTY_RESIZE_SPLIT_UP: return .up
         case GHOSTTY_RESIZE_SPLIT_DOWN: return .down
@@ -420,18 +425,20 @@ class GhosttyApp {
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
-            if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
-               let tabManager = AppDelegate.shared?.tabManager,
-               let tabId = tabManager.selectedTabId {
+            if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION {
                 let actionTitle = action.action.desktop_notification.title
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
-                let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                let body = actionBody
-                let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                DispatchQueue.main.async {
+                return performOnMain {
+                    guard let tabManager = AppDelegate.shared?.tabManager,
+                          let tabId = tabManager.selectedTabId else {
+                        return false
+                    }
+                    let tabTitle = tabManager.titleForTab(tabId) ?? "Terminal"
+                    let command = actionTitle.isEmpty ? tabTitle : actionTitle
+                    let body = actionBody
+                    let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                     tabManager.moveTabToTop(tabId)
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
@@ -440,8 +447,8 @@ class GhosttyApp {
                         subtitle: "",
                         body: body
                     )
+                    return true
                 }
-                return true
             }
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
@@ -487,33 +494,33 @@ class GhosttyApp {
         case GHOSTTY_ACTION_NEW_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = splitDirection(from: action.action.new_split),
-                  let tabManager = AppDelegate.shared?.tabManager else {
+                  let direction = splitDirection(from: action.action.new_split) else {
                 return false
             }
             return performOnMain {
-                tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
+                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                return tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = focusDirection(from: action.action.goto_split),
-                  let tabManager = AppDelegate.shared?.tabManager else {
+                  let direction = focusDirection(from: action.action.goto_split) else {
                 return false
             }
             return performOnMain {
-                tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
+                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = resizeDirection(from: action.action.resize_split.direction),
-                  let tabManager = AppDelegate.shared?.tabManager else {
+                  let direction = resizeDirection(from: action.action.resize_split.direction) else {
                 return false
             }
             let amount = action.action.resize_split.amount
             return performOnMain {
-                tabManager.resizeSplit(
+                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                return tabManager.resizeSplit(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     direction: direction,
@@ -521,21 +528,21 @@ class GhosttyApp {
                 )
             }
         case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-            guard let tabId = surfaceView.tabId,
-                  let tabManager = AppDelegate.shared?.tabManager else {
+            guard let tabId = surfaceView.tabId else {
                 return false
             }
             return performOnMain {
-                tabManager.equalizeSplits(tabId: tabId)
+                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                return tabManager.equalizeSplits(tabId: tabId)
             }
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
             guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id,
-                  let tabManager = AppDelegate.shared?.tabManager else {
+                  let surfaceId = surfaceView.terminalSurface?.id else {
                 return false
             }
             return performOnMain {
-                tabManager.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
+                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                return tabManager.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
@@ -631,10 +638,10 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
-            let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
-            let command = actionTitle.isEmpty ? tabTitle : actionTitle
-            let body = actionBody
-            DispatchQueue.main.async {
+            performOnMain {
+                let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
+                let command = actionTitle.isEmpty ? tabTitle : actionTitle
+                let body = actionBody
                 AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
@@ -815,13 +822,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func attachToView(_ view: GhosttyNSView) {
+        #if DEBUG
+        print("[TerminalSurface] attachToView: \(id) attachedView=\(attachedView != nil) surface=\(surface != nil)")
+        #endif
+
         // If already attached to this view, nothing to do
         if attachedView === view && surface != nil {
+            #if DEBUG
+            print("[TerminalSurface] attachToView: same view and surface exists, updating metal layer")
+            #endif
             updateMetalLayer(for: view)
+            // Force a redraw - the Metal layer may be stale after view hierarchy changes
+            ghostty_surface_refresh(surface)
             return
         }
 
         if let attachedView, attachedView !== view {
+            #if DEBUG
+            print("[TerminalSurface] attachToView: different view, returning")
+            #endif
             return
         }
 
@@ -829,7 +848,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // If surface doesn't exist yet, create it
         if surface == nil {
+            #if DEBUG
+            print("[TerminalSurface] attachToView: creating surface for \(id)")
+            #endif
             createSurface(for: view)
+            #if DEBUG
+            print("[TerminalSurface] attachToView: after createSurface, surface=\(surface != nil)")
+            #endif
         }
     }
 
@@ -1032,6 +1057,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastContentScale: CGSize = .zero
     private var lastLayerScale: CGFloat = 0
     private var hasSurfaceMetrics = false
+    private var needsRefreshAfterWindowChange = false
     private var lastScrollEventTime: CFTimeInterval = 0
 
     override func makeBackingLayer() -> CALayer {
@@ -1127,19 +1153,67 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func attachSurface(_ surface: TerminalSurface) {
+        // Only reset attachment state if surface is different
+        let surfaceChanged = terminalSurface?.id != surface.id
         terminalSurface = surface
         tabId = surface.tabId
-        surfaceAttached = false
-        hasSurfaceMetrics = false
+        if surfaceChanged {
+            surfaceAttached = false
+            hasSurfaceMetrics = false
+        }
         attachSurfaceIfNeeded()
+    }
+
+    private static var attachRetryCount: [UUID: Int] = [:]
+    private static let debugLogPath = "/tmp/cmux-attach-debug.log"
+
+    private static func debugLog(_ message: String) {
+        #if DEBUG
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        if let handle = FileHandle(forWritingAtPath: debugLogPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: debugLogPath, contents: line.data(using: .utf8))
+        }
+        #endif
     }
 
     private func attachSurfaceIfNeeded() {
         guard !surfaceAttached else { return }
         guard let terminalSurface = terminalSurface else { return }
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-        guard window != nil else { return }
 
+        let surfaceId = terminalSurface.id
+
+        // If we have a window but zero bounds, schedule a retry (max 10 retries)
+        // This can happen during split creation before layout runs
+        if window != nil && (bounds.width <= 0 || bounds.height <= 0) {
+            let retries = Self.attachRetryCount[surfaceId, default: 0]
+            if retries < 10 {
+                Self.attachRetryCount[surfaceId] = retries + 1
+                Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) retry \(retries + 1) - zero bounds \(bounds)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    self?.attachSurfaceIfNeeded()
+                }
+            } else {
+                Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) MAX RETRIES with bounds \(bounds)")
+            }
+            return
+        }
+
+        guard bounds.width > 0 && bounds.height > 0 else {
+            Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) SKIPPED - bounds \(bounds)")
+            return
+        }
+        guard window != nil else {
+            Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) SKIPPED - no window")
+            return
+        }
+
+        Self.debugLog("attachSurfaceIfNeeded: ATTACHING \(surfaceId) with bounds \(bounds)")
+        Self.attachRetryCount.removeValue(forKey: surfaceId)
         surfaceAttached = true
         terminalSurface.attachToView(self)
         terminalSurface.setFocus(desiredFocus)
@@ -1147,11 +1221,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        let surfaceId = terminalSurface?.id
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+        if window == nil {
+            // View was removed from window - reset attachment and metrics so we re-attach
+            // properly with correct size when added back (e.g., during split close operations)
+            Self.debugLog("viewDidMoveToWindow: \(surfaceId?.uuidString ?? "nil") - REMOVED from window, reset surfaceAttached=\(surfaceAttached)")
+            surfaceAttached = false
+            hasSurfaceMetrics = false
+        }
         if let window {
+            Self.debugLog("viewDidMoveToWindow: \(surfaceId?.uuidString ?? "nil") - ADDED to window, bounds=\(bounds), surfaceAttached=\(surfaceAttached)")
             windowObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didChangeScreenNotification,
                 object: window,
@@ -1159,6 +1242,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ) { [weak self] notification in
                 self?.windowDidChangeScreen(notification)
             }
+            // Mark that we need a refresh after window change, even if size is same
+            needsRefreshAfterWindowChange = true
             attachSurfaceIfNeeded()
             updateSurfaceSize()
             applySurfaceBackground()
@@ -1178,7 +1263,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let surfaceId = terminalSurface?.id
+        let oldSize = frame.size
         super.setFrameSize(newSize)
+        if !surfaceAttached && (oldSize.width <= 0 || oldSize.height <= 0) && newSize.width > 0 && newSize.height > 0 {
+            Self.debugLog("setFrameSize: \(surfaceId?.uuidString ?? "nil") - size changed from \(oldSize) to \(newSize), surfaceAttached=\(surfaceAttached)")
+        }
         attachSurfaceIfNeeded()
         updateSurfaceSize()
     }
@@ -1186,6 +1276,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func layout() {
         super.layout()
         attachSurfaceIfNeeded()
+        updateSurfaceSize()
     }
 
     override var isOpaque: Bool { false }
@@ -1196,7 +1287,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let layerScale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         let xScale = layerScale
         let yScale = layerScale
-        if hasSurfaceMetrics {
+
+        // Check if we need a forced refresh after window change
+        let forceRefresh = needsRefreshAfterWindowChange
+        needsRefreshAfterWindowChange = false
+
+        if hasSurfaceMetrics && !forceRefresh {
             let sameSize = nearlyEqual(lastSurfaceSize.width, bounds.width, epsilon: 0.01)
                 && nearlyEqual(lastSurfaceSize.height, bounds.height, epsilon: 0.01)
             let sameScale = nearlyEqual(lastContentScale.width, xScale)

@@ -1,8 +1,10 @@
 import AppKit
+import Bonsplit
 import CoreServices
 import UserNotifications
 import Sentry
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
 
@@ -74,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let surfaceId,
            let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false, shouldFocus: false)
+            tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
@@ -166,8 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
         let maxAttempts = 60
-        if let surface = tab.focusedSurface, surface.surface != nil {
-            surface.sendText(text)
+        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
+            terminalPanel.sendText(text)
             return
         }
         guard attempt < maxAttempts else {
@@ -196,18 +198,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
             let tab = tabManager.addTab()
-            guard let initialSurfaceId = tab.focusedSurfaceId else { return }
+            guard let initialPanelId = tab.focusedPanelId else { return }
 
-            _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialSurfaceId, direction: .right)
-            guard let targetSurfaceId = tab.focusedSurfaceId else { return }
-            let otherSurfaceId = tab.splitTree.root?.leaves().first(where: { $0.id != targetSurfaceId })?.id
-            if let otherSurfaceId {
-                tab.focusedSurfaceId = otherSurfaceId
+            _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialPanelId, direction: .right)
+            guard let targetPanelId = tab.focusedPanelId else { return }
+            // Find another panel that's not the currently focused one
+            let otherPanelId = tab.panels.keys.first(where: { $0 != targetPanelId })
+            if let otherPanelId {
+                tab.focusPanel(otherPanelId)
             }
 
             notificationStore.addNotification(
                 tabId: tab.id,
-                surfaceId: targetSurfaceId,
+                surfaceId: targetPanelId,
                 title: "JumpToUnread",
                 subtitle: "",
                 body: ""
@@ -215,7 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             self.writeJumpUnreadTestData([
                 "expectedTabId": tab.id.uuidString,
-                "expectedSurfaceId": targetSurfaceId.uuidString
+                "expectedSurfaceId": targetPanelId.uuidString
             ])
 
             tabManager.selectTab(at: initialIndex)
@@ -298,19 +301,114 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Check Show Notifications shortcut
         let notifShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
-        if chars == notifShortcut.key && flags == notifShortcut.modifierFlags {
+        if matchShortcut(event: event, shortcut: notifShortcut) {
             toggleNotificationsPopover(animated: false)
             return true
         }
 
         // Check Jump to Unread shortcut
         let unreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
-        if chars == unreadShortcut.key && flags == unreadShortcut.modifierFlags {
+        if matchShortcut(event: event, shortcut: unreadShortcut) {
             jumpToLatestUnread()
             return true
         }
 
+        // Sidebar tab navigation: Cmd+] / Cmd+[
+        let nextSidebarShortcut = KeyboardShortcutSettings.nextSidebarTabShortcut()
+        if matchShortcut(event: event, shortcut: nextSidebarShortcut) {
+            tabManager?.selectNextTab()
+            return true
+        }
+
+        let prevSidebarShortcut = KeyboardShortcutSettings.prevSidebarTabShortcut()
+        if matchShortcut(event: event, shortcut: prevSidebarShortcut) {
+            tabManager?.selectPreviousTab()
+            return true
+        }
+
+        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9
+        if flags == [.command] {
+            if let num = Int(chars), num >= 1 && num <= 9 {
+                tabManager?.selectTab(at: num - 1)
+                return true
+            }
+        }
+
+        // Pane focus navigation: Cmd+Option+Arrow
+        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusLeftShortcut(), keyCode: 123) {
+            tabManager?.movePaneFocus(direction: .left)
+            return true
+        }
+        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusRightShortcut(), keyCode: 124) {
+            tabManager?.movePaneFocus(direction: .right)
+            return true
+        }
+        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusUpShortcut(), keyCode: 126) {
+            tabManager?.movePaneFocus(direction: .up)
+            return true
+        }
+        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusDownShortcut(), keyCode: 125) {
+            tabManager?.movePaneFocus(direction: .down)
+            return true
+        }
+
+        // Split actions: Cmd+D / Cmd+Shift+D
+        let splitRightShortcut = KeyboardShortcutSettings.splitRightShortcut()
+        if matchShortcut(event: event, shortcut: splitRightShortcut) {
+            tabManager?.createSplit(direction: .right)
+            return true
+        }
+
+        let splitDownShortcut = KeyboardShortcutSettings.splitDownShortcut()
+        if matchShortcut(event: event, shortcut: splitDownShortcut) {
+            tabManager?.createSplit(direction: .down)
+            return true
+        }
+
+        // Bonsplit tab navigation: Ctrl+Tab / Ctrl+Shift+Tab
+        if matchTabShortcut(event: event, shortcut: KeyboardShortcutSettings.nextBonsplitTabShortcut()) {
+            tabManager?.selectNextBonsplitTab()
+            return true
+        }
+        if matchTabShortcut(event: event, shortcut: KeyboardShortcutSettings.prevBonsplitTabShortcut()) {
+            tabManager?.selectPreviousBonsplitTab()
+            return true
+        }
+
+        // New bonsplit tab: Cmd+Shift+T
+        let newBonsplitTabShortcut = KeyboardShortcutSettings.newBonsplitTabShortcut()
+        if matchShortcut(event: event, shortcut: newBonsplitTabShortcut) {
+            tabManager?.newBonsplitTab()
+            return true
+        }
+
+        // Open browser: Cmd+Shift+B
+        let openBrowserShortcut = KeyboardShortcutSettings.openBrowserShortcut()
+        if matchShortcut(event: event, shortcut: openBrowserShortcut) {
+            tabManager?.openBrowser()
+            return true
+        }
+
         return false
+    }
+
+    /// Match a shortcut against an event, handling normal keys
+    private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return chars == shortcut.key && flags == shortcut.modifierFlags
+    }
+
+    /// Match arrow key shortcuts using keyCode
+    private func matchArrowShortcut(event: NSEvent, shortcut: StoredShortcut, keyCode: UInt16) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == keyCode && flags == shortcut.modifierFlags
+    }
+
+    /// Match tab key shortcuts using keyCode 48
+    private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == 48 && flags == shortcut.modifierFlags
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

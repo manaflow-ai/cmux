@@ -382,6 +382,124 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    # Bonsplit pane commands
+
+    def list_panes(self) -> List[Tuple[int, str, int, bool]]:
+        """
+        List all panes in the current sidebar tab.
+        Returns list of (index, pane_id, tab_count, is_focused) tuples.
+        """
+        response = self._send_command("list_panes")
+        if response in ("No panes", "ERROR: No tab selected"):
+            return []
+
+        panes = []
+        for line in response.split("\n"):
+            if not line.strip():
+                continue
+            selected = line.startswith("*")
+            # Format: "* 0: <pane_id> [N tabs]" or "  0: <pane_id> [N tabs]"
+            parts = line.lstrip("* ").split()
+            if len(parts) >= 4:
+                index = int(parts[0].rstrip(":"))
+                pane_id = parts[1]
+                # Extract tab count from "[N tabs]"
+                tab_count = int(parts[2].lstrip("["))
+                panes.append((index, pane_id, tab_count, selected))
+        return panes
+
+    def focus_pane(self, pane: Union[str, int]) -> None:
+        """Focus a pane by ID or index in the current sidebar tab."""
+        response = self._send_command(f"focus_pane {pane}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def list_bonsplit_tabs(self, pane: Union[str, int, None] = None) -> List[Tuple[int, str, str, bool]]:
+        """
+        List bonsplit tabs in a pane.
+        Returns list of (index, tab_id, title, is_selected) tuples.
+        If pane is None, uses the focused pane.
+        """
+        if pane is not None:
+            response = self._send_command(f"list_bonsplit_tabs --pane={pane}")
+        else:
+            response = self._send_command("list_bonsplit_tabs")
+
+        if "ERROR" in response or response == "No tabs":
+            return []
+
+        tabs = []
+        for line in response.split("\n"):
+            if not line.strip():
+                continue
+            selected = line.startswith("*")
+            parts = line.lstrip("* ").split(" ", 2)
+            if len(parts) >= 2:
+                index = int(parts[0].rstrip(":"))
+                tab_id = parts[1]
+                title = parts[2] if len(parts) > 2 else ""
+                tabs.append((index, tab_id, title, selected))
+        return tabs
+
+    def focus_bonsplit_tab(self, tab_id: str) -> None:
+        """Focus a bonsplit tab by ID."""
+        response = self._send_command(f"focus_bonsplit_tab {tab_id}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def new_bonsplit_tab(self, pane: Union[str, int, None] = None,
+                         panel_type: str = "terminal", url: str = None) -> str:
+        """
+        Create a new bonsplit tab in a pane.
+        Returns the new tab ID.
+        """
+        args = []
+        if panel_type != "terminal":
+            args.append(f"--type={panel_type}")
+        if pane is not None:
+            args.append(f"--pane={pane}")
+        if url:
+            args.append(f"--url={url}")
+
+        cmd = "new_bonsplit_tab"
+        if args:
+            cmd += " " + " ".join(args)
+
+        response = self._send_command(cmd)
+        if response.startswith("OK "):
+            return response[3:]
+        raise cmuxError(response)
+
+    def new_pane(self, direction: str = "right", panel_type: str = "terminal",
+                 url: str = None) -> str:
+        """
+        Create a new pane (split).
+        Returns the new pane ID.
+        """
+        args = [f"--direction={direction}"]
+        if panel_type != "terminal":
+            args.append(f"--type={panel_type}")
+        if url:
+            args.append(f"--url={url}")
+
+        cmd = "new_pane " + " ".join(args)
+        response = self._send_command(cmd)
+        if response.startswith("OK "):
+            return response[3:]
+        raise cmuxError(response)
+
+    def close_surface(self, surface: Union[str, int, None] = None) -> None:
+        """
+        Close a surface (collapse split) by ID or index.
+        If surface is None, closes the focused surface.
+        """
+        if surface is None:
+            response = self._send_command("close_surface")
+        else:
+            response = self._send_command(f"close_surface {surface}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
 
 def main():
     """CLI interface for cmux"""

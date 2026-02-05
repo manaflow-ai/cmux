@@ -204,7 +204,7 @@ struct ContentView: View {
             ZStack {
                 ForEach(tabManager.tabs) { tab in
                     let isActive = tabManager.selectedTabId == tab.id
-                    TerminalSplitTreeView(tab: tab, isTabActive: isActive)
+                    SidebarTabContentView(sidebarTab: tab, isTabActive: isActive)
                         .opacity(isActive ? 1 : 0)
                         .allowsHitTesting(isActive)
                 }
@@ -271,10 +271,10 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
-        // Use focused surface's directory if available
-        if let focusedSurfaceId = tab.focusedSurfaceId,
-           let surfaceDir = tab.surfaceDirectories[focusedSurfaceId] {
-            let trimmed = surfaceDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Use focused panel's directory if available
+        if let focusedPanelId = tab.focusedPanelId,
+           let panelDir = tab.panelDirectories[focusedPanelId] {
+            let trimmed = panelDir.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return trimmed
             }
@@ -758,14 +758,12 @@ struct TabItemView: View {
     }
 
     private var directorySummary: String? {
-        guard let root = tab.splitTree.root else { return nil }
-        let surfaces = root.leaves()
-        guard !surfaces.isEmpty else { return nil }
+        guard !tab.panels.isEmpty else { return nil }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var seen: Set<String> = []
         var entries: [String] = []
-        for surface in surfaces {
-            let directory = tab.surfaceDirectories[surface.id] ?? tab.currentDirectory
+        for panelId in tab.panels.keys {
+            let directory = tab.panelDirectories[panelId] ?? tab.currentDirectory
             let shortened = shortenPath(directory, home: home)
             guard !shortened.isEmpty else { continue }
             if seen.insert(shortened).inserted {

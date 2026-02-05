@@ -328,6 +328,49 @@ struct CMUXCLI {
         case "help":
             print(usage())
 
+        // Browser commands
+        case "open-browser":
+            let url = commandArgs.first ?? ""
+            let response = try client.send(command: "open_browser \(url)".trimmingCharacters(in: .whitespaces))
+            print(response)
+
+        case "navigate":
+            guard let panel = optionValue(commandArgs, name: "--panel") else {
+                throw CLIError(message: "navigate requires --panel")
+            }
+            let url = remainingArgs(commandArgs, removing: ["--panel", panel]).joined(separator: " ")
+            guard !url.isEmpty else { throw CLIError(message: "navigate requires a URL") }
+            let response = try client.send(command: "navigate \(panel) \(url)")
+            print(response)
+
+        case "browser-back":
+            guard let panel = optionValue(commandArgs, name: "--panel") else {
+                throw CLIError(message: "browser-back requires --panel")
+            }
+            let response = try client.send(command: "browser_back \(panel)")
+            print(response)
+
+        case "browser-forward":
+            guard let panel = optionValue(commandArgs, name: "--panel") else {
+                throw CLIError(message: "browser-forward requires --panel")
+            }
+            let response = try client.send(command: "browser_forward \(panel)")
+            print(response)
+
+        case "browser-reload":
+            guard let panel = optionValue(commandArgs, name: "--panel") else {
+                throw CLIError(message: "browser-reload requires --panel")
+            }
+            let response = try client.send(command: "browser_reload \(panel)")
+            print(response)
+
+        case "get-url":
+            guard let panel = optionValue(commandArgs, name: "--panel") else {
+                throw CLIError(message: "get-url requires --panel")
+            }
+            let response = try client.send(command: "get_url \(panel)")
+            print(response)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -526,6 +569,12 @@ struct CMUXCLI {
           clear-notifications
           set-app-focus <active|inactive|clear>
           simulate-app-active
+          open-browser [url]
+          navigate --panel <id> <url>
+          browser-back --panel <id>
+          browser-forward --panel <id>
+          browser-reload --panel <id>
+          get-url --panel <id>
           help
 
         Environment:

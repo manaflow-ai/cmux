@@ -31,6 +31,7 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
 }
 
+@MainActor
 final class TerminalNotificationStore: ObservableObject {
     static let shared = TerminalNotificationStore()
 
