@@ -1,0 +1,42 @@
+---
+title: Git Integration
+description: 'Branches, diffs, and pull requests'
+---
+
+## How it works
+
+cmux works directly with your GitHub repos. When you start a task:
+
+1. You pick a repo and base branch
+2. cmux creates a new branch for each agent
+3. Each agent works on its own branch
+4. You review the diffs and pick a winner
+
+## Branches
+
+Each run gets its own branch, automatically named and tracked. Use "Copy branch" in the Open With menu if you need the branch name.
+
+## Diffs
+
+The Git Diff panel shows exactly what changed:
+- Compare any run's branch against the base branch
+- AI-powered heatmaps highlight risky changes
+- Screenshot comparisons for UI changes (when available)
+
+## Pull requests
+
+Create PRs directly from cmux:
+- Open a PR from any completed run
+- Track PR status (draft, open, merged, closed)
+- Merge or close PRs without leaving cmux
+
+<Tip>Enable "Auto-create pull request with the best diff" in Settings to automatically open a PR for the crowned run.</Tip>
+
+## GitHub access
+
+To work with private repos, you'll need to:
+
+1. **Connect GitHub OAuth** — Go to Settings > Connected Accounts
+2. **Install the GitHub App** — Click "Install GitHub App" in the repo picker
+
+The OAuth connection lets you clone private repos. The GitHub App enables repo listing and PR operations.

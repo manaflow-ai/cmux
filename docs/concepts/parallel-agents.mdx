@@ -1,0 +1,37 @@
+---
+title: Parallel Agents
+description: 'Run multiple agents on the same task'
+---
+
+## The idea
+
+Give the same task to Claude, Codex, and Gemini at the same time. Each one works independently on its own branch. Compare the results and ship the best one.
+
+## How to use it
+
+1. When creating a task, pick multiple agents from the dropdown
+2. You can even add multiple copies of the same agent (up to 6 each)
+3. Click Start—all agents begin working at once
+
+<Tip>Running 3 copies of Claude Opus often gives you better results than running it once, since each attempt may take a different approach.</Tip>
+
+## Complete isolation
+
+Each agent runs in its own sandbox:
+- **Separate branches** — No merge conflicts between agents
+- **Separate workspaces** — Each gets its own VS Code and terminal
+- **No shared state** — Agents can't see what the others are doing
+
+## Watching progress
+
+The Activity panel shows all runs in a tree view. You'll see:
+- **Pending** — Waiting to start
+- **Running** — Agent is working
+- **Completed** — Done successfully
+- **Failed** — Something went wrong
+
+Click any run to open its workspace and see what the agent is doing.
+
+## Picking a winner
+
+When all agents finish, cmux automatically evaluates them and crowns the best one. You can also manually pick a different winner if you prefer a different approach.

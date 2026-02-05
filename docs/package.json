@@ -1,0 +1,12 @@
+{
+  "name": "cmux-docs",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "mintlify dev",
+    "build": "mintlify build"
+  },
+  "devDependencies": {
+    "mintlify": "^4.2.312"
+  }
+}

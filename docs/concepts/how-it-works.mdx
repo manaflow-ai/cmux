@@ -1,0 +1,45 @@
+---
+title: How cmux Works
+description: 'Tasks, runs, and workspaces explained'
+---
+
+You give cmux a task. cmux spins up one workspace per agent, each on its own branch. The agents work in parallel, and you pick the best result.
+
+## The basics
+
+| Concept | What it is |
+|---------|------------|
+| **Task** | Your prompt + the repo and branch (or environment) |
+| **Run** | One agent working on the task. Has its own branch, workspace, and status |
+| **Workspace** | The agent's VS Code + terminal. Can be local (Docker) or cloud |
+| **Environment** | A saved cloud setup you can reuse across tasks |
+
+## How a task runs
+
+1. You describe what you want and pick a repo
+2. You choose which agents to run (and how many copies of each)
+3. cmux creates a branch and workspace for each agent
+4. Each agent starts working in its own isolated environment
+5. When they're done, you review the diffs and pick a winner (or let cmux pick)
+
+## Isolation
+
+Agents can't see each other. Each one gets:
+- Its own git branch
+- Its own file system
+- Its own terminal and processes
+
+This means you can safely run the same task against multiple agents without them interfering.
+
+## Local vs cloud
+
+| Mode | Where it runs | Preview URL | Requirements |
+|------|--------------|-------------|--------------|
+| **Local** | Docker on your machine | No | Desktop app + Docker |
+| **Cloud** | cmux cloud | Yes | None |
+
+The web app always uses cloud. The desktop app lets you choose.
+
+## Real-time updates
+
+Everything updates live—you can watch agents write code, see terminal output, and review diffs as they're created.

@@ -1,0 +1,55 @@
+---
+title: Environments
+description: 'Reusable workspace configurations'
+---
+
+## What's an environment?
+
+An environment is a saved cloud workspace you can reuse across tasks. Instead of starting from scratch each time, you can:
+
+- Pre-install dependencies
+- Set up your dev server
+- Configure environment variables
+- Keep data between tasks
+
+## Creating an environment
+
+1. Start a cloud workspace from a repo
+2. Set it up how you like (install deps, configure tools)
+3. Click **Save as Environment**
+4. Give it a name
+
+The environment is now available for future tasks.
+
+## Using an environment
+
+When creating a task:
+
+1. Click **Environment** instead of picking a repo
+2. Select your saved environment
+3. The task starts with everything pre-configured
+
+## Environment settings
+
+| Setting | What it does |
+|---------|--------------|
+| **Start command** | Runs when the workspace starts |
+| **Dev server command** | Starts your preview server |
+| **Port** | Which port to expose for preview |
+| **Ready text** | Text that indicates the server is ready |
+
+## Updating an environment
+
+1. Start a task using the environment
+2. Make your changes
+3. Click **Update Environment** to save the new state
+
+## Sharing environments
+
+Environments are scoped to your team. Anyone on the team can use environments created by other members.
+
+## Limitations
+
+- **Cloud only** — Environments don't work with local workspaces
+- **One repo** — Each environment is tied to a single repository
+- **Snapshot size** — Large node_modules or build artifacts may slow down startup

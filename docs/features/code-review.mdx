@@ -1,0 +1,42 @@
+---
+title: Code Review
+description: 'AI-powered diff review with heatmaps'
+---
+
+## Heatmap review
+
+cmux includes an AI-powered diff viewer that highlights potentially risky changes. Toggle it on with the flame icon in the diff header.
+
+Here's what you get:
+- **Color-coded lines** — Hotter colors mean higher risk
+- **AI tooltips** — Hover over highlighted lines for explanations
+- **Adjustable sensitivity** — Control how aggressive the highlighting is
+
+<Tip>The heatmap is great for catching issues like missing error handling, security concerns, or logic bugs.</Tip>
+
+## Models
+
+Choose your heatmap model in settings:
+- `anthropic-opus-4-5` (best quality)
+- `anthropic`
+- `cmux-heatmap-2`
+- `cmux-heatmap-1`
+- `cmux-heatmap-0`
+
+## Languages
+
+Tooltips support 20+ languages including English, Chinese (Traditional and Simplified), Japanese, Korean, Spanish, French, German, Portuguese, Russian, Hindi, Arabic, Vietnamese, Thai, and Indonesian.
+
+## Customization
+
+Adjust these in **Settings > Diff Heatmap Review** or directly in the diff view:
+- **Visibility threshold** — How much highlighting to show
+- **Line colors** — Gradient colors for the heatmap
+- **Token colors** — Colors for inline highlighting
+
+## Screenshot comparisons
+
+For runs with preview jobs, the diff page shows before/after screenshots. You'll see:
+- Screenshot status (completed, failed, skipped)
+- Whether UI changes were detected
+- Side-by-side visual comparison

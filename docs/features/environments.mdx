@@ -1,0 +1,45 @@
+---
+title: Environments
+description: 'Reusable cloud workspace templates'
+---
+
+## What's an environment?
+
+An environment is a saved cloud workspace that you can reuse. Set it up once with your repos, scripts, and login sessions—then every task starts from that exact state.
+
+## What's included
+
+| Part | What it does |
+|------|--------------|
+| **Repos** | GitHub repos to clone |
+| **Maintenance script** | Runs before the dev script (install deps, etc.) |
+| **Dev script** | Starts your dev server |
+| **Environment variables** | Secrets and config |
+| **Preview settings** | Which services get preview links |
+| **Snapshot** | Saved VM state with all of the above |
+
+## Creating an environment
+
+1. Pick your repos (or choose manual setup for a bare VM)
+2. Choose a machine size
+3. Set up scripts and env vars
+4. Run everything in VS Code and sign in to any services you need
+5. Save to capture a snapshot
+
+<Tip>The snapshot captures everything—running processes, logged-in sessions, installed packages. Runs start instantly from this state.</Tip>
+
+## Using an environment
+
+When creating a task, select your environment instead of a repo. That's it—cmux handles the rest.
+
+Environment tasks:
+- Run in cloud workspaces
+- Don't need a base branch
+- Use your saved scripts and env vars
+
+## Updating an environment
+
+From the environment page:
+- **Modify VM** — Launch a workspace from the current snapshot
+- **Create snapshot** — Save your changes as a new version
+- **Edit settings** — Change scripts, preview settings, or the name

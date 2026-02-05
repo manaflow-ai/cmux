@@ -13,6 +13,20 @@ const nextConfig: NextConfig = {
     "@cmux/convex",
     "refractor",
   ],
+  async redirects() {
+    return [
+      {
+        source: "/docs",
+        destination: "https://docs.cmux.dev",
+        permanent: false,
+      },
+      {
+        source: "/docs/:path*",
+        destination: "https://docs.cmux.dev/:path*",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

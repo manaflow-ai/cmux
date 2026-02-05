@@ -1,0 +1,55 @@
+---
+title: Git Integration
+description: 'Branches, diffs, and pull requests'
+---
+
+## Automatic branching
+
+When a task starts, each agent gets its own branch:
+
+```
+cmux/<task-name>-<agent>-<random>
+```
+
+Branches are created from your selected base branch. Agents push commits as they work.
+
+## Viewing diffs
+
+Open the **Git Diff** tab to see what changed:
+
+- Side-by-side or unified view
+- Syntax highlighting
+- AI-powered heatmaps showing risky changes
+
+## Creating pull requests
+
+From any completed run:
+
+1. Click **Create PR**
+2. Choose the target branch
+3. Review the auto-generated title and description
+4. Click **Create**
+
+cmux creates the PR on GitHub and links it to the run.
+
+## Managing PRs
+
+Once a PR exists:
+
+- **View on GitHub** — Opens the PR in a new tab
+- **Merge** — Merge, squash, or rebase directly from cmux
+- **Close** — Close without merging
+
+## CI status
+
+If your repo has GitHub Actions, cmux shows the check status:
+
+- ✅ All checks passed
+- ❌ Some checks failed
+- ⏳ Checks running
+
+Click the status to see details on GitHub.
+
+## Branch cleanup
+
+After merging, cmux can delete the agent's branch automatically. Enable this in task settings.

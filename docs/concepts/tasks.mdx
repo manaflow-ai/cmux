@@ -1,0 +1,69 @@
+---
+title: Tasks
+description: 'Tasks, runs, statuses, and review flow'
+---
+
+## What's a task?
+
+A task is what you give cmux to work on. It's your prompt plus some context:
+
+| Part | What it is |
+|------|------------|
+| **Prompt** | What you want the agents to do |
+| **Images** | Screenshots or mockups (optional) |
+| **Repo + branch** | Where the agents should work |
+| **Runs** | One per agent you picked |
+
+## Runs
+
+Each agent gets its own run. A run is completely isolated—its own branch, its own workspace, its own process.
+
+Run statuses:
+- **Pending** — Waiting to start
+- **Running** — Agent is working
+- **Completed** — Done successfully
+- **Failed** — Something went wrong
+- **Skipped** — Cancelled before starting
+
+<Tip>You can run the same agent multiple times on a single task. Each copy gets its own run.</Tip>
+
+## The crown
+
+When all agents finish, cmux picks a winner and gives it a crown. Here's how it works:
+
+- If multiple agents complete, cmux evaluates them and crowns the best one
+- If only one agent completes, it wins automatically
+- If all agents fail, no crown is awarded
+
+You can always override the crown and pick a different winner if you prefer a different approach.
+
+## Pull requests
+
+Runs can have pull requests attached:
+- **Draft** — PR is open as a draft
+- **Open** — PR is ready for review
+- **Merged** — PR was merged
+- **Closed** — PR was closed without merging
+
+Create a PR from any completed run, or enable auto-PR in settings to open one automatically for the crowned run.
+
+## Images
+
+Attach screenshots or mockups to your task. cmux saves them and makes them available to the agents in their workspaces—they can open the images just like any other file.
+
+## Managing tasks
+
+From the task list or task view:
+- **Rename** — Change the task prompt
+- **Pin** — Keep important tasks at the top
+- **Archive** — Hide completed tasks
+- **Archive runs** — Clean up individual runs you don't need
+
+## Notifications
+
+cmux notifies you when:
+- A run completes
+- A run fails
+- An agent needs input
+
+Check your notifications in the Notifications page.

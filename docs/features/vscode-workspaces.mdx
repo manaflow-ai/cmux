@@ -1,0 +1,44 @@
+---
+title: VS Code Workspaces
+description: 'A full VS Code for every run'
+---
+
+## Real-time editing
+
+Every run gets its own VS Code web instance. Watch agents write code in real time, or jump in and make edits yourself.
+
+## Opening workspaces
+
+From the task tree:
+- Select a run to see its workspace
+- Use the "Open with" menu for more options
+
+## Open with options
+
+Depending on what you have installed:
+
+| Editor | Type |
+|--------|------|
+| VS Code (web) | Browser |
+| VS Code (local) | Desktop |
+| Cursor | Desktop |
+| Windsurf | Desktop |
+| Finder | File manager |
+| iTerm / Terminal / Ghostty / Alacritty | Terminal |
+| Xcode | IDE |
+
+<Tip>Local editors open the worktree on disk. You can use your full local setup while cmux handles the branching.</Tip>
+
+## Local workspaces
+
+Local runs use git worktrees at `~/cmux/...` by default. The Open With menu opens that folder in whatever editor you choose.
+
+## Editor settings sync
+
+Want your VS Code settings in cloud workspaces? Go to **Settings > Editor Settings Sync** and upload:
+- `settings.json`
+- `keybindings.json`
+- Snippets
+- Extension list
+
+These settings apply to VS Code, Cursor, and Windsurf in cloud workspaces.

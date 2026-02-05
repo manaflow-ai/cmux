@@ -1,0 +1,39 @@
+---
+title: Live Preview
+description: 'Preview your app while agents work'
+---
+
+## Overview
+
+Cloud workspaces give you a live preview URL. Your app runs inside the workspace, and you can access it from any browser.
+
+## How it works
+
+1. Agent starts your dev server (npm run dev, etc.)
+2. cmux detects the running server
+3. You get a public preview URL
+4. The preview updates as the agent makes changes
+
+## Using the preview
+
+**In cmux:** Click the Preview tab in the workspace view to see your app inline.
+
+**External:** Copy the preview URL and open it in any browser. Great for testing on mobile or sharing with teammates.
+
+## Configuring your dev server
+
+cmux tries to detect your dev server automatically. If it doesn't, you can set it up in your environment config:
+
+- **Start command** — The command to start your server
+- **Port** — The port your server runs on
+- **Ready text** — Text that indicates the server is ready
+
+See [Environments](/features/environments) for details.
+
+## Limitations
+
+- **Cloud only** — Local workspaces don't have preview URLs
+- **HTTP only** — HTTPS not currently supported for preview
+- **Public URLs** — Anyone with the URL can access the preview while it's running
+
+<Tip>Preview URLs are unique per workspace and change each time a new workspace is created.</Tip>

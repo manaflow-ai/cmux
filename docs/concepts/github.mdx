@@ -1,0 +1,58 @@
+---
+title: GitHub Integration
+description: 'Connect your GitHub account'
+---
+
+## Connecting GitHub
+
+Go to **Settings → Connected Accounts** and click **Connect GitHub**. You'll be redirected to authorize the cmux GitHub app.
+
+## What cmux can do
+
+Once connected:
+
+- **Read repos** — Access your public and private repositories
+- **Create branches** — Make branches for agent work
+- **Push code** — Push agent commits
+- **Create PRs** — Open pull requests on your behalf
+- **Read CI status** — See GitHub Actions results
+
+## Repository access
+
+You can grant access to:
+
+- **All repositories** — cmux can access everything
+- **Selected repositories** — Only specific repos you choose
+
+Change this anytime in your GitHub settings.
+
+## Organization repos
+
+For org repos, an admin may need to approve the cmux app first. If you don't see an org repo:
+
+1. Check if the cmux app is approved for your org
+2. Ask an admin to approve it
+3. Or use a personal fork
+
+## Disconnecting
+
+To disconnect:
+
+1. Go to **Settings → Connected Accounts**
+2. Click **Disconnect** next to GitHub
+3. Optionally revoke the app in your GitHub settings
+
+## Troubleshooting
+
+**Can't see a repo?**
+- Check if you granted access to that repo
+- For org repos, verify the app is approved
+- Try disconnecting and reconnecting
+
+**PR creation fails?**
+- Make sure you have write access to the repo
+- Check if branch protection rules are blocking
+
+**CI status not showing?**
+- Verify GitHub Actions is enabled for the repo
+- Check if the cmux app has workflow permissions

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48" fill="none" preserveAspectRatio="xMinYMid meet">
+  <defs>
+    <linearGradient id="cmuxGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M8 8L32 24L8 40V31L20 24L8 17V8Z" fill="url(#cmuxGradient)"/>
+
+  <text x="44" y="32" font-size="28" font-weight="500" font-family="Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" fill="#ffffff">cmux</text>
+</svg>

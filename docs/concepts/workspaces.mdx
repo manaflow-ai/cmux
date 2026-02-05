@@ -1,0 +1,62 @@
+---
+title: Workspaces
+description: 'Local and cloud development environments'
+---
+
+## What's a workspace?
+
+A workspace is where your agent does its work. It's a complete VS Code environment with:
+
+- Full editor with syntax highlighting and IntelliSense
+- Integrated terminal
+- Git integration
+- Browser preview (cloud only)
+
+## Cloud workspaces
+
+Cloud workspaces run on cmux servers. They're available in both the web app and desktop app.
+
+**What you get:**
+- Instant startup
+- Live preview URL for testing your app
+- No local resources used
+- Accessible from anywhere
+
+## Local workspaces (desktop only)
+
+Local workspaces run on your machine using Docker. Only available in the desktop app.
+
+**What you get:**
+- Everything stays on your machine
+- Full control over the environment
+- Works offline
+- Uses your local compute
+
+**Requirements:**
+- Docker running
+- Git installed
+
+## Opening a workspace
+
+Click on any run to open its workspace. You'll see:
+
+- **Editor** — The agent's VS Code session
+- **Terminal** — Live output from the agent
+- **Preview** — Your app running (cloud only)
+
+## External editors
+
+In the desktop app, you can open any workspace in your local editor:
+
+1. Click the external editor button in the workspace toolbar
+2. Choose VS Code, Cursor, or another supported editor
+3. The project opens locally with all changes synced
+
+<Tip>This is great for debugging or making manual fixes while the agent is working.</Tip>
+
+## Workspace lifecycle
+
+1. **Created** — Workspace is provisioned when the run starts
+2. **Active** — Agent is working, you can watch in real time
+3. **Completed** — Run finished, workspace stays available for review
+4. **Cleaned up** — Workspace is removed after idle timeout or manual cleanup

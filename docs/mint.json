@@ -1,0 +1,89 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "cmux",
+  "logo": {
+    "dark": "/logo/logo-dark.svg",
+    "light": "/logo/logo-light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "css": "/styles.css",
+  "colors": {
+    "primary": "#3B82F6",
+    "light": "#3B82F6",
+    "dark": "#3B82F6",
+    "background": {
+      "dark": "#0A0A0A"
+    },
+    "anchors": {
+      "from": "#00D4FF",
+      "to": "#3B82F6"
+    }
+  },
+  "modeToggle": {
+    "default": "dark"
+  },
+  "topbarLinks": [
+    {
+      "name": "Discord",
+      "url": "https://discord.gg/SDbQmzQhRK"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Download",
+    "url": "https://www.cmux.dev/direct-download-macos"
+  },
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/manaflow-ai/cmux"
+    },
+    {
+      "name": "Discord",
+      "icon": "discord",
+      "url": "https://discord.gg/SDbQmzQhRK"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "getting-started/quickstart",
+        "getting-started/installation"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "concepts/how-it-works",
+        "concepts/agents",
+        "concepts/tasks",
+        "concepts/workspaces"
+      ]
+    },
+    {
+      "group": "Features",
+      "pages": [
+        "features/parallel-agents",
+        "features/vscode-workspaces",
+        "features/live-preview",
+        "features/git-integration",
+        "features/code-review",
+        "features/environments"
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/github",
+        "integrations/api-keys"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/manaflow-ai/cmux",
+    "discord": "https://discord.gg/SDbQmzQhRK",
+    "website": "https://cmux.dev"
+  }
+}

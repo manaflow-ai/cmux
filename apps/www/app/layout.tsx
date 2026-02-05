@@ -2,12 +2,18 @@ import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { Geist } from "next/font/google";
+import localFont from "next/font/local";
 
 import { stackServerApp } from "@/lib/utils/stack";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 
 import clsx from "clsx";
 import "./globals.css";
+
+const articulat = localFont({
+  src: "../public/fonts/articulat-cf-normal.ttf",
+  variable: "--font-articulat",
+});
 
 export const metadata: Metadata = {
   title: "cmux - Manage AI coding agents in parallel — 10x your 10x engineers",
@@ -43,6 +49,15 @@ const geist = Geist({
   variable: "--font-geist-sans",
 });
 
+const themeScript = `
+  (function() {
+    const stored = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const shouldBeDark = stored === 'dark' || (stored !== 'light' && prefersDark);
+    document.documentElement.classList.toggle('dark', shouldBeDark);
+  })();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -52,20 +67,16 @@ export default function RootLayout({
     <html
       lang="en"
       className={clsx(
-        "dark",
-        jetBrainsMono.className,
         jetBrainsMono.variable,
-        geist.className,
         geist.variable,
+        articulat.variable,
       )}
+      suppressHydrationWarning
     >
-      <body
-        className="antialiased bg-background text-foreground"
-        style={{
-          fontFamily:
-            '"JetBrains Mono","SFMono-Regular","Menlo","Consolas","ui-monospace","Monaco","Courier New",monospace',
-        }}
-      >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className="antialiased bg-white dark:bg-black transition-colors">
         <StackTheme>
           <StackProvider app={stackServerApp}>{children}</StackProvider>
         </StackTheme>

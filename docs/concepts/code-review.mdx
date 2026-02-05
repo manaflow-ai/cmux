@@ -1,0 +1,46 @@
+---
+title: Code Review
+description: 'AI-powered diff review with heatmaps'
+---
+
+## The heatmap
+
+cmux analyzes every diff and highlights risky changes:
+
+- **Red** — High risk, review carefully
+- **Yellow** — Medium risk, worth checking
+- **Green** — Low risk, probably fine
+
+The heatmap helps you focus on the parts that matter most.
+
+## What it looks for
+
+The AI evaluates:
+
+- Logic changes that could introduce bugs
+- Security-sensitive code (auth, crypto, input handling)
+- Breaking changes to APIs or interfaces
+- Complex control flow that's hard to verify
+
+## Using the diff viewer
+
+1. Open any completed run
+2. Click the **Git Diff** tab
+3. Toggle the heatmap on/off
+4. Hover over highlighted lines to see why they're flagged
+
+## Side-by-side comparison
+
+When multiple agents complete, you can compare their solutions:
+
+- Switch between runs in the diff viewer
+- See how each agent approached the problem
+- Pick the cleanest solution
+
+## Making the final call
+
+The heatmap is a guide, not a replacement for human review. Always check:
+
+- Does the code do what you asked?
+- Are there edge cases the agent missed?
+- Does it match your codebase style?

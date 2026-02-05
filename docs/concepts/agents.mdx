@@ -1,0 +1,75 @@
+---
+title: Agents
+description: 'Which AI coding agents you can run'
+---
+
+## Overview
+
+cmux supports all major AI coding agents. When you pick an agent, cmux runs that exact model in its own workspace.
+
+## Supported agents
+
+### Claude Code (Anthropic)
+- claude/opus-4.5
+- claude/sonnet-4.5
+- claude/haiku-4.5
+
+### OpenAI Codex CLI
+- codex/gpt-5.2-codex-xhigh
+- codex/gpt-5.2-codex-high
+- codex/gpt-5.2-codex-medium
+- codex/gpt-5.2-codex-low
+- codex/gpt-5.2-codex
+- codex/o3
+- codex/o4-mini
+- codex/gpt-4.1
+
+### Amp (Sourcegraph)
+- amp
+- amp/gpt-5
+
+### Opencode
+- opencode/grok-code
+- opencode/sonnet-4
+- opencode/opus-4
+- opencode/kimi-k2
+- opencode/qwen3-coder
+- opencode/gpt-5
+- opencode/gpt-5-mini
+
+### Gemini CLI
+- gemini/3-pro-preview
+- gemini/2.5-flash
+- gemini/2.5-pro
+
+### Qwen Code CLI
+- qwen/qwen3-coder:free
+- qwen/qwen3-coder-plus
+
+### Cursor
+- cursor/opus-4.1
+- cursor/gpt-5
+- cursor/sonnet-4
+- cursor/sonnet-4-thinking
+
+## API Keys
+
+Each agent needs credentials. Go to **Settings → API Key Authentication** to add your keys.
+
+| Agent | Key needed |
+|-------|-----------|
+| Claude Code | `ANTHROPIC_API_KEY` |
+| Codex CLI | `OPENAI_API_KEY` or `CODEX_AUTH_JSON` |
+| Gemini CLI | `GEMINI_API_KEY` |
+| Amp | `AMP_API_KEY` |
+| Cursor | `CURSOR_API_KEY` |
+| Opencode | Depends on model (Anthropic, OpenAI, xAI, or OpenRouter key) |
+| Qwen | `OPENROUTER_API_KEY` or `MODEL_STUDIO_API_KEY` |
+
+See [API Keys](/integrations/api-keys) for detailed setup.
+
+## Selecting agents
+
+- Pick multiple agents for a single task
+- Add multiple instances of the same agent (up to 6 each)
+- If an agent is unavailable, the picker shows what's missing

@@ -1,0 +1,11 @@
+/* Custom styles for cmux docs */
+
+/* Override logo text rendering if needed */
+.logo-text {
+  font-family: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Ensure proper dark mode styling */
+:root[data-theme="dark"] {
+  --background: #0A0A0A;
+}

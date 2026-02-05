@@ -1,27 +1,59 @@
 @import "tailwindcss";
 
-/* Unified design tokens (HSL) — force dark mode */
+/* Unified design tokens (HSL) — light mode */
 :root {
-  --background: 0 0% 3.9%;
+  --background: 0 0% 98%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 10%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 10%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 10%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 63%;
+
+  /* Landing page specific */
+  --landing-bg: #fafafa;
+  --landing-text: #1a1a1a;
+}
+
+/* Dark mode */
+.dark {
+  --background: 0 0% 4%;
   --foreground: 0 0% 98%;
-  --card: 0 0% 3.9%;
+  --card: 0 0% 6%;
   --card-foreground: 0 0% 98%;
-  --popover: 0 0% 3.9%;
+  --popover: 0 0% 6%;
   --popover-foreground: 0 0% 98%;
   --primary: 0 0% 98%;
-  --primary-foreground: 0 0% 9%;
-  --secondary: 0 0% 14.9%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 15%;
   --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 14.9%;
-  --muted-foreground: 0 0% 63.9%;
-  --accent: 0 0% 14.9%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 0 0% 15%;
   --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 30.6%;
+  --destructive: 0 62% 30%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 14.9%;
-  --input: 0 0% 14.9%;
-  --ring: 0 0% 83.1%;
+  --border: 0 0% 15%;
+  --input: 0 0% 15%;
+  --ring: 0 0% 83%;
+
+  /* Landing page specific */
+  --landing-bg: #0a0a0a;
+  --landing-text: #fafafa;
 }
+
 
 @theme inline {
   --color-background: hsl(var(--background));
@@ -47,22 +79,58 @@
   --font-mono: var(--font-jetbrains-mono);
 }
 
-/* No light-mode media query — always dark */
-
 @layer base {
   * {
     @apply border-border;
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
   }
 }
 
 body {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: Arial, Helvetica, sans-serif;
+  background: transparent;
+  color: var(--landing-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-weight: 400;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  background: var(--landing-bg);
+}
+
+/* Custom scrollbar - light mode */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f0efe9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c5c4bf;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a5a4a0;
+}
+
+/* Custom scrollbar - dark mode */
+.dark ::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #404040;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #525252;
 }
 
 .system-mono {
@@ -195,18 +263,6 @@ body {
   --diff-code-delete-text-color: rgb(82 82 82);
 }
 
-.dark .diff-syntax {
-  --diff-gutter-insert-background-color: rgba(34, 197, 94, 0.22);
-  --diff-gutter-insert-text-color: rgb(134 239 172);
-  --diff-code-insert-background-color: rgba(0, 0, 0, 0.073);
-  --diff-code-insert-text-color: rgb(187 247 208);
-  --diff-gutter-delete-background-color: rgb(252 208 204);
-  --diff-gutter-delete-text-color: rgb(163 163 163);
-  --diff-code-delete-background-color: transparent;
-  --diff-code-delete-text-color: rgb(212 212 212);
-}
-
-
 .cmux-heatmap-char {
   display: inline;
   padding: 0;
@@ -226,13 +282,6 @@ body {
   outline-offset: -1px;
 }
 
-.dark .cmux-heatmap-focus td.diff-gutter,
-.dark .cmux-heatmap-focus td.diff-code {
-  background-color: rgba(2, 132, 199, 0.25);
-  outline: 2px solid rgba(125, 211, 252, 0.55);
-  outline-offset: -1px;
-}
-
 .cmux-heatmap-focus {
   scroll-margin-top: 96px;
   scroll-margin-bottom: 96px;
@@ -245,7 +294,7 @@ body {
 
 .repo-scroll-area {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.6) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.3) transparent;
 }
 
 .repo-scroll-area::-webkit-scrollbar {
@@ -253,13 +302,13 @@ body {
 }
 
 .repo-scroll-area::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(0, 0, 0, 0.3);
   border-radius: 9999px;
-  border: 3px solid rgba(10, 10, 10, 0.45);
+  border: 3px solid rgba(250, 250, 250, 0.45);
 }
 
 .repo-scroll-area::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .repo-scroll-area::-webkit-scrollbar-track {

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="64 64 389 539" fill="none" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <linearGradient id="cmuxGradient" x1="64" y1="64" x2="453" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00D4FF"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <filter id="cmuxGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#cmuxGlow)">
+    <path d="M64 64L453 333.5L64 603V483.222L273.462 333.5L64 183.778V64Z" fill="url(#cmuxGradient)"/>
+  </g>
+</svg>

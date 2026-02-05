@@ -1,0 +1,49 @@
+---
+title: API Keys
+description: 'Set up your agent credentials'
+---
+
+## Adding keys
+
+Go to **Settings > API Key Authentication** and add keys for the agents you want to use. Keys are stored per team and injected into agent processes automatically.
+
+## Recommended setup
+
+For the best experience with each agent:
+
+| Agent | Recommended key |
+|-------|-----------------|
+| Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) |
+| Codex CLI | `CODEX_AUTH_JSON` (full contents of `~/.codex/auth.json`) |
+
+## All supported keys
+
+| Key | Used by |
+|-----|---------|
+| `ANTHROPIC_API_KEY` | Claude, Opencode (Anthropic models) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code |
+| `OPENAI_API_KEY` | Codex, Opencode (OpenAI models) |
+| `CODEX_AUTH_JSON` | Codex CLI |
+| `GEMINI_API_KEY` | Gemini CLI |
+| `OPENROUTER_API_KEY` | Opencode (OpenRouter models), Qwen free tier |
+| `MODEL_STUDIO_API_KEY` | Qwen plus tier |
+| `AMP_API_KEY` | Amp |
+| `CURSOR_API_KEY` | Cursor |
+| `XAI_API_KEY` | Opencode (Grok models) |
+
+## Using local credentials
+
+If you've already set up an agent locally, cmux can often use those credentials instead of requiring a key:
+
+| Agent | Local files |
+|-------|-------------|
+| Claude | `~/.claude.json`, `~/.claude/.credentials.json`, or macOS Keychain |
+| Codex | `~/.codex/auth.json` and `~/.codex/config.toml` |
+| Gemini | `~/.gemini/settings.json` plus OAuth files |
+| Amp | `~/.local/share/amp/secrets.json` |
+| Cursor | `~/.config/cursor/auth.json` or macOS Keychain |
+| Opencode | `~/.local/share/opencode/auth.json` (provider keys still required) |
+
+## Check your setup
+
+Use **Settings > Provider Status** to see what's missing before you start a run. cmux tells you exactly which keys or files are needed for each agent.
