@@ -438,8 +438,7 @@ class TerminalController {
             let focusedId = tab.focusedPanelId
             let lines = panels.enumerated().map { index, panel in
                 let selected = panel.id == focusedId ? "*" : " "
-                let typeStr = panel.panelType == .terminal ? "terminal" : "browser"
-                return "\(selected) \(index): \(panel.id.uuidString) [\(typeStr)]"
+                return "\(selected) \(index): \(panel.id.uuidString)"
             }
             result = lines.isEmpty ? "No panels" : lines.joined(separator: "\n")
         }
@@ -1242,12 +1241,8 @@ class TerminalController {
             if args.contains("--pane=") {
                 let parts = args.split(separator: "=")
                 if parts.count == 2, let paneUUID = UUID(uuidString: String(parts[1])) {
-                    targetPaneId = PaneID()
-                    // Note: PaneID doesn't expose its UUID, so we need to find it
-                    for paneId in tab.bonsplitController.allPaneIds {
-                        // We can't compare directly since PaneID.id is internal
-                        // For now, just use focused pane
-                    }
+                    // Find the pane by UUID
+                    targetPaneId = tab.bonsplitController.allPaneIds.first { $0.id == paneUUID }
                 }
             }
 
@@ -1283,13 +1278,16 @@ class TerminalController {
                 return
             }
 
-            // Find matching pane by index or try to match
-            if let index = Int(paneArg), index >= 0 {
-                let paneIds = tab.bonsplitController.allPaneIds
-                if index < paneIds.count {
-                    tab.bonsplitController.focusPane(paneIds[index])
-                    result = "OK"
-                }
+            let paneIds = tab.bonsplitController.allPaneIds
+
+            // Try UUID first, then fall back to index
+            if let uuid = UUID(uuidString: paneArg),
+               let paneId = paneIds.first(where: { $0.id == uuid }) {
+                tab.bonsplitController.focusPane(paneId)
+                result = "OK"
+            } else if let index = Int(paneArg), index >= 0, index < paneIds.count {
+                tab.bonsplitController.focusPane(paneIds[index])
+                result = "OK"
             }
         }
         return result
