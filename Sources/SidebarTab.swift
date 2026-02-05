@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Bonsplit
+import Combine
 
 /// SidebarTab replaces the old Tab class.
 /// Each sidebar tab contains one BonsplitController that manages split panes and nested tabs.
@@ -17,6 +18,9 @@ final class SidebarTab: Identifiable, ObservableObject {
 
     /// Mapping from bonsplit TabID to our Panel instances
     @Published private(set) var panels: [UUID: any Panel] = [:]
+
+    /// Subscriptions for panel updates (e.g., browser title changes)
+    private var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
@@ -346,6 +350,19 @@ final class SidebarTab: Identifiable, ObservableObject {
         }
 
         tabIdToPanelId[newTabId] = browserPanel.id
+
+        // Subscribe to browser title changes to update the bonsplit tab
+        let subscription = browserPanel.$pageTitle
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak browserPanel] _ in
+                guard let self = self,
+                      let browserPanel = browserPanel,
+                      let tabId = self.tabIdFromPanelId(browserPanel.id) else { return }
+                self.bonsplitController.updateTab(tabId, title: browserPanel.displayTitle)
+            }
+        panelSubscriptions[browserPanel.id] = subscription
+
         return browserPanel
     }
 
@@ -497,6 +514,7 @@ extension SidebarTab: BonsplitDelegate {
         tabIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
+        panelSubscriptions.removeValue(forKey: panelId)
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
