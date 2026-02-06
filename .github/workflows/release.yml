@@ -64,10 +64,10 @@ jobs:
           echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
 
       - name: Build app (Release)
+        run: |
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY}" build
         env:
           SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
-        run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 
       - name: Import signing cert
         env:
