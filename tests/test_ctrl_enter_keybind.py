@@ -65,7 +65,8 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
     time.sleep(0.3)
 
     # Make sure the app is focused for keystrokes
-    run_osascript('tell application "cmuxterm" to activate')
+    bundle_id = cmux.default_bundle_id()
+    run_osascript(f'tell application id "{bundle_id}" to activate')
     time.sleep(0.2)
 
     # Clear any running command
@@ -99,7 +100,7 @@ def run_tests() -> int:
     print("=" * 60)
     print()
 
-    socket_path = cmux.DEFAULT_SOCKET_PATH
+    socket_path = cmux.default_socket_path()
     if not os.path.exists(socket_path):
         print(f"Error: Socket not found at {socket_path}")
         print("Please make sure cmuxterm is running.")

@@ -504,6 +504,13 @@ struct TabItemView: View {
         selectedTabIds.contains(tab.id)
     }
 
+    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
+    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
+    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
+    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
+    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -553,14 +560,74 @@ struct TabItemView: View {
                     .multilineTextAlignment(.leading)
             }
 
-            if let directories = directorySummary {
-                Text(directories)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            if sidebarShowStatusPills, !tab.statusEntries.isEmpty {
+                SidebarStatusPillsRow(
+                    entries: tab.statusEntries.values.sorted(by: { (lhs, rhs) in
+                        if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                        return lhs.key < rhs.key
+                    }),
+                    isActive: isActive
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Latest log entry
+            if sidebarShowLog, let latestLog = tab.logEntries.last {
+                HStack(spacing: 4) {
+                    Image(systemName: logLevelIcon(latestLog.level))
+                        .font(.system(size: 8))
+                        .foregroundColor(logLevelColor(latestLog.level, isActive: isActive))
+                    Text(latestLog.message)
+                        .font(.system(size: 10))
+                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Progress bar
+            if sidebarShowProgress, let progress = tab.progress {
+                VStack(alignment: .leading, spacing: 2) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(isActive ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2))
+                            Capsule()
+                                .fill(isActive ? Color.white.opacity(0.8) : Color.accentColor)
+                                .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
+                        }
+                    }
+                    .frame(height: 3)
+
+                    if let label = progress.label {
+                        Text(label)
+                            .font(.system(size: 9))
+                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Branch + directory row
+            if let dirRow = branchDirectoryRow {
+                HStack(spacing: 3) {
+                    if sidebarShowGitBranch && tab.gitBranch != nil && sidebarShowGitBranchIcon {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 9))
+                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                    }
+                    Text(dirRow)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
+        .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -760,7 +827,31 @@ struct TabItemView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private var directorySummary: String? {
+    private var branchDirectoryRow: String? {
+        var parts: [String] = []
+
+        // Git branch (if enabled and available)
+        if sidebarShowGitBranch, let git = tab.gitBranch {
+            let dirty = git.isDirty ? "*" : ""
+            parts.append("\(git.branch)\(dirty)")
+        }
+
+        // Directory summary
+        if let dirs = directorySummaryText {
+            parts.append(dirs)
+        }
+
+        // Ports (if enabled and available)
+        if sidebarShowPorts, !tab.listeningPorts.isEmpty {
+            let portsStr = tab.listeningPorts.map { ":\($0)" }.joined(separator: ",")
+            parts.append(portsStr)
+        }
+
+        let result = parts.joined(separator: " · ")
+        return result.isEmpty ? nil : result
+    }
+
+    private var directorySummaryText: String? {
         guard let root = tab.splitTree.root else { return nil }
         let surfaces = root.leaves()
         guard !surfaces.isEmpty else { return nil }
@@ -776,6 +867,35 @@ struct TabItemView: View {
             }
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
+    }
+
+    private func logLevelIcon(_ level: SidebarLogLevel) -> String {
+        switch level {
+        case .info: return "circle.fill"
+        case .progress: return "arrowtriangle.right.fill"
+        case .success: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .error: return "xmark.circle.fill"
+        }
+    }
+
+    private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
+        if isActive {
+            switch level {
+            case .info: return .white.opacity(0.5)
+            case .progress: return .white.opacity(0.8)
+            case .success: return .white.opacity(0.9)
+            case .warning: return .white.opacity(0.9)
+            case .error: return .white.opacity(0.9)
+            }
+        }
+        switch level {
+        case .info: return .secondary
+        case .progress: return .blue
+        case .success: return .green
+        case .warning: return .orange
+        case .error: return .red
+        }
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
@@ -809,6 +929,94 @@ struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+}
+
+private struct SidebarStatusPillsRow: View {
+    let entries: [SidebarStatusEntry]
+    let isActive: Bool
+
+    private let maxVisiblePills = 3
+
+    var body: some View {
+        let visible = Array(entries.prefix(maxVisiblePills))
+        let overflow = max(0, entries.count - visible.count)
+
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(visible) { entry in
+                    SidebarStatusPill(entry: entry, isActive: isActive)
+                }
+                if overflow > 0 {
+                    SidebarStatusOverflowPill(count: overflow, isActive: isActive)
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarStatusPill: View {
+    let entry: SidebarStatusEntry
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let icon = entry.icon, !icon.isEmpty {
+                Image(systemName: icon)
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(iconColor)
+            }
+            Text("\(entry.key)=\(entry.value)")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(textColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 150, alignment: .leading)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(backgroundColor)
+        )
+        .help("\(entry.key)=\(entry.value)")
+    }
+
+    private var backgroundColor: Color {
+        isActive ? .white.opacity(0.15) : .secondary.opacity(0.14)
+    }
+
+    private var textColor: Color {
+        isActive ? .white.opacity(0.9) : .secondary
+    }
+
+    private var iconColor: Color {
+        guard !isActive else { return .white.opacity(0.85) }
+        if let hex = entry.color, let nsColor = NSColor(hex: hex) {
+            return Color(nsColor: nsColor)
+        }
+        return .secondary
+    }
+}
+
+private struct SidebarStatusOverflowPill: View {
+    let count: Int
+    let isActive: Bool
+
+    var body: some View {
+        Text("+\(count)")
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .foregroundColor(isActive ? .white.opacity(0.85) : .secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(isActive ? .white.opacity(0.15) : .secondary.opacity(0.14))
+            )
+            .help("\(count) more status entries")
     }
 }
 
