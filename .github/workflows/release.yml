@@ -63,11 +63,32 @@ jobs:
           mkdir -p "$CACHE_DIR"
           echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
 
+      - name: Derive Sparkle public key from private key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
+          echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
+
       - name: Build app (Release)
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY}" build
-        env:
-          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+
+      - name: Inject Sparkle keys into Info.plist
+        run: |
+          APP_PLIST="build/Build/Products/Release/cmuxterm.app/Contents/Info.plist"
+          echo "Adding SUPublicEDKey to Info.plist..."
+          /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
+          echo "Adding SUFeedURL to Info.plist..."
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml" "$APP_PLIST"
+          echo "Verifying:"
+          /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
 
       - name: Import signing cert
         env:
