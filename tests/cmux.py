@@ -57,8 +57,14 @@ def _sanitize_bundle_suffix(raw: str) -> str:
     # Must match scripts/reload.sh sanitize_bundle() so tagged tests can
     # reliably target the correct app via AppleScript.
     cleaned = re.sub(r"[^a-z0-9]+", ".", (raw or "").strip().lower())
-    cleaned = re.sub(r"\\.+", ".", cleaned).strip(".")
+    cleaned = re.sub(r"\.+", ".", cleaned).strip(".")
     return cleaned or "agent"
+
+
+def _quote_option_value(value: str) -> str:
+    # Must match TerminalController.parseOptions() quoting rules.
+    escaped = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return f"\"{escaped}\""
 
 
 def _default_bundle_id() -> str:
@@ -506,7 +512,7 @@ class cmux:
         """Set sidebar progress bar (0.0-1.0)."""
         cmd = f"set_progress {value}"
         if label:
-            cmd += f" --label={label}"
+            cmd += f" --label={_quote_option_value(label)}"
         if tab:
             cmd += f" --tab={tab}"
         response = self._send_command(cmd)

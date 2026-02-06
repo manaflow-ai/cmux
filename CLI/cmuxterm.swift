@@ -382,7 +382,7 @@ struct CMUXCLI {
             let label = optionValue(commandArgs, name: "--label")
             let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
             var cmd = "set_progress \(value)"
-            if let label { cmd += " --label=\(label)" }
+            if let label { cmd += " --label=\(quoteOptionValue(label))" }
             if let tabArg { cmd += " --tab=\(tabArg)" }
             let response = try client.send(command: cmd)
             print(response)
@@ -601,6 +601,15 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
+    }
+
+    private func quoteOptionValue(_ value: String) -> String {
+        // TerminalController.parseOptions supports quoted strings with basic
+        // backslash escapes (\" and \\) inside quotes.
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     private func isUUID(_ value: String) -> Bool {
