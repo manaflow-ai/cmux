@@ -1378,14 +1378,23 @@ class TerminalController {
 
             // Support both --panel and --surface as synonyms.
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID? = if let panelArg, !panelArg.isEmpty {
-                UUID(uuidString: panelArg)
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
             } else {
-                tab.focusedSurfaceId
-            }
-            guard let surfaceId else {
-                result = "ERROR: Missing panel id (no focused surface)"
-                return
+                guard let focused = tab.focusedSurfaceId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
             }
 
             tab.surfaceListeningPorts[surfaceId] = ports
@@ -1416,14 +1425,23 @@ class TerminalController {
 
             // Support both --panel and --surface as synonyms.
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID? = if let panelArg, !panelArg.isEmpty {
-                UUID(uuidString: panelArg)
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
             } else {
-                tab.focusedSurfaceId
-            }
-            guard let surfaceId else {
-                result = "ERROR: Missing panel id (no focused surface)"
-                return
+                guard let focused = tab.focusedSurfaceId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
             }
 
             tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)

@@ -112,6 +112,11 @@ def _default_socket_path() -> str:
             f"/tmp/cmuxterm-{slug}.sock",
         ]
         for path in tagged_candidates:
+            if os.path.exists(path) and _can_connect(path):
+                return path
+        # If nothing is connectable yet (e.g. the app is still starting),
+        # fall back to the first existing candidate.
+        for path in tagged_candidates:
             if os.path.exists(path):
                 return path
         # Prefer the debug naming convention when we have to guess.
