@@ -30,7 +30,7 @@ struct TerminalPanelView: View {
             }
 
             // Unread notification indicator
-            if notificationStore.hasUnreadNotification(forTabId: panel.sidebarTabId, surfaceId: panel.id) {
+            if notificationStore.hasUnreadNotification(forTabId: panel.workspaceId, surfaceId: panel.id) {
                 Rectangle()
                     .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
                     .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 3)

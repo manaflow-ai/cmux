@@ -42,24 +42,24 @@ export CMUX_SOCKET_MODE=off            # Disabled
 
 ## CLI Context
 
-### CMUX_TAB_ID
+### CMUX_WORKSPACE_ID
 
-Default tab ID for CLI commands.
+Default workspace ID for CLI commands.
 
 ```bash
-export CMUX_TAB_ID=abc123
-cmuxterm send "hello"  # Sends to tab abc123
+export CMUX_WORKSPACE_ID=abc123
+cmuxterm send "hello"  # Sends to workspace abc123
 ```
 
 cmuxterm automatically sets this in each terminal session.
 
-### CMUX_PANEL_ID
+### CMUX_SURFACE_ID
 
-Default panel ID for CLI commands.
+Default surface ID for CLI commands.
 
 ```bash
-export CMUX_PANEL_ID=xyz789
-cmuxterm send-panel "hello"  # Sends to panel xyz789
+export CMUX_SURFACE_ID=xyz789
+cmuxterm send-panel "hello"  # Sends to surface xyz789
 ```
 
 cmuxterm automatically sets this for each split pane.
@@ -139,8 +139,8 @@ is_cmuxterm() {
 
 if is_cmuxterm; then
     echo "Running in cmuxterm"
-    echo "Tab ID: ${CMUX_TAB_ID:-unknown}"
-    echo "Panel ID: ${CMUX_PANEL_ID:-unknown}"
+    echo "Workspace ID: ${CMUX_WORKSPACE_ID:-unknown}"
+    echo "Surface ID: ${CMUX_SURFACE_ID:-unknown}"
 else
     echo "Not in cmuxterm"
 fi

@@ -12,8 +12,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The underlying terminal surface
     let surface: TerminalSurface
 
-    /// The sidebar tab ID this panel belongs to
-    let sidebarTabId: UUID
+    /// The workspace ID this panel belongs to
+    let workspaceId: UUID
 
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
@@ -47,9 +47,9 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.hostedView
     }
 
-    init(sidebarTabId: UUID, surface: TerminalSurface) {
+    init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
-        self.sidebarTabId = sidebarTabId
+        self.workspaceId = workspaceId
         self.surface = surface
 
         // Subscribe to surface's search state changes
@@ -64,18 +64,18 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// Create a new terminal panel with a fresh surface
     convenience init(
-        sidebarTabId: UUID,
+        workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil
     ) {
         let surface = TerminalSurface(
-            tabId: sidebarTabId,
+            tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory
         )
-        self.init(sidebarTabId: sidebarTabId, surface: surface)
+        self.init(workspaceId: workspaceId, surface: surface)
     }
 
     func updateTitle(_ newTitle: String) {
@@ -94,7 +94,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func focus() {
         surface.setFocus(true)
-        hostedView.ensureFocus(for: sidebarTabId, surfaceId: id)
+        hostedView.ensureFocus(for: workspaceId, surfaceId: id)
     }
 
     func unfocus() {

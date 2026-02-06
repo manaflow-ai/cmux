@@ -17,10 +17,10 @@ Usage:
     client.send_key("ctrl-c")
     client.send_key("ctrl-d")
 
-    # Tab management
-    client.new_tab()
-    client.list_tabs()
-    client.select_tab(0)
+    # Workspace management
+    client.new_workspace()
+    client.list_workspaces()
+    client.select_workspace(0)
     client.new_split("right")
     client.list_surfaces()
     client.focus_surface(0)
@@ -148,16 +148,16 @@ class cmux:
         response = self._send_command("ping")
         return response == "PONG"
 
-    def list_tabs(self) -> List[Tuple[int, str, str, bool]]:
+    def list_workspaces(self) -> List[Tuple[int, str, str, bool]]:
         """
-        List all tabs.
+        List all workspaces.
         Returns list of (index, id, title, is_selected) tuples.
         """
-        response = self._send_command("list_tabs")
-        if response == "No tabs":
+        response = self._send_command("list_workspaces")
+        if response == "No workspaces":
             return []
 
-        tabs = []
+        workspaces = []
         for line in response.split("\n"):
             if not line.strip():
                 continue
@@ -165,14 +165,14 @@ class cmux:
             parts = line.lstrip("* ").split(" ", 2)
             if len(parts) >= 3:
                 index = int(parts[0].rstrip(":"))
-                tab_id = parts[1]
+                workspace_id = parts[1]
                 title = parts[2] if len(parts) > 2 else ""
-                tabs.append((index, tab_id, title, selected))
-        return tabs
+                workspaces.append((index, workspace_id, title, selected))
+        return workspaces
 
-    def new_tab(self) -> str:
-        """Create a new tab. Returns the new tab's ID."""
-        response = self._send_command("new_tab")
+    def new_workspace(self) -> str:
+        """Create a new workspace. Returns the new workspace's ID."""
+        response = self._send_command("new_workspace")
         if response.startswith("OK "):
             return response[3:]
         raise cmuxError(response)
@@ -183,26 +183,26 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def close_tab(self, tab_id: str) -> None:
-        """Close a tab by ID"""
-        response = self._send_command(f"close_tab {tab_id}")
+    def close_workspace(self, workspace_id: str) -> None:
+        """Close a workspace by ID"""
+        response = self._send_command(f"close_workspace {workspace_id}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def select_tab(self, tab: Union[str, int]) -> None:
-        """Select a tab by ID or index"""
-        response = self._send_command(f"select_tab {tab}")
+    def select_workspace(self, workspace: Union[str, int]) -> None:
+        """Select a workspace by ID or index"""
+        response = self._send_command(f"select_workspace {workspace}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def list_surfaces(self, tab: Union[str, int, None] = None) -> List[Tuple[int, str, bool]]:
+    def list_surfaces(self, workspace: Union[str, int, None] = None) -> List[Tuple[int, str, bool]]:
         """
-        List surfaces for a tab. Returns list of (index, id, is_focused) tuples.
-        If tab is None, uses the current tab.
+        List surfaces for a workspace. Returns list of (index, id, is_focused) tuples.
+        If workspace is None, uses the current workspace.
         """
-        arg = "" if tab is None else str(tab)
+        arg = "" if workspace is None else str(workspace)
         response = self._send_command(f"list_surfaces {arg}".rstrip())
-        if response in ("No surfaces", "ERROR: Tab not found"):
+        if response in ("No surfaces", "ERROR: Workspace not found"):
             return []
 
         surfaces = []
@@ -218,14 +218,14 @@ class cmux:
         return surfaces
 
     def focus_surface(self, surface: Union[str, int]) -> None:
-        """Focus a surface by ID or index in the current tab."""
+        """Focus a surface by ID or index in the current workspace."""
         response = self._send_command(f"focus_surface {surface}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def current_tab(self) -> str:
-        """Get the current tab's ID"""
-        response = self._send_command("current_tab")
+    def current_workspace(self) -> str:
+        """Get the current workspace's ID"""
+        response = self._send_command("current_workspace")
         if response.startswith("ERROR"):
             raise cmuxError(response)
         return response
@@ -247,7 +247,7 @@ class cmux:
             raise cmuxError(response)
 
     def send_surface(self, surface: Union[str, int], text: str) -> None:
-        """Send text to a specific surface by ID or index in the current tab."""
+        """Send text to a specific surface by ID or index in the current workspace."""
         escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
         response = self._send_command(f"send_surface {surface} {escaped}")
         if not response.startswith("OK"):
@@ -267,7 +267,7 @@ class cmux:
             raise cmuxError(response)
 
     def send_key_surface(self, surface: Union[str, int], key: str) -> None:
-        """Send a special key to a specific surface by ID or index in the current tab."""
+        """Send a special key to a specific surface by ID or index in the current workspace."""
         response = self._send_command(f"send_key_surface {surface} {key}")
         if not response.startswith("OK"):
             raise cmuxError(response)
@@ -311,7 +311,7 @@ class cmux:
     def list_notifications(self) -> list[dict]:
         """
         List notifications.
-        Returns list of dicts with keys: id, tab_id, surface_id, is_read, title, subtitle, body.
+        Returns list of dicts with keys: id, workspace_id, surface_id, is_read, title, subtitle, body.
         """
         response = self._send_command("list_notifications")
         if response == "No notifications":
@@ -325,10 +325,10 @@ class cmux:
             parts = payload.split("|", 6)
             if len(parts) < 7:
                 continue
-            notif_id, tab_id, surface_id, read_text, title, subtitle, body = parts
+            notif_id, workspace_id, surface_id, read_text, title, subtitle, body = parts
             items.append({
                 "id": notif_id,
-                "tab_id": tab_id,
+                "workspace_id": workspace_id,
                 "surface_id": None if surface_id == "none" else surface_id,
                 "is_read": read_text == "read",
                 "title": title,
@@ -359,12 +359,12 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def focus_notification(self, tab: Union[str, int], surface: Union[str, int, None] = None) -> None:
-        """Focus tab/surface using the notification flow."""
+    def focus_notification(self, workspace: Union[str, int], surface: Union[str, int, None] = None) -> None:
+        """Focus workspace/surface using the notification flow."""
         if surface is None:
-            command = f"focus_notification {tab}"
+            command = f"focus_notification {workspace}"
         else:
-            command = f"focus_notification {tab} {surface}"
+            command = f"focus_notification {workspace} {surface}"
         response = self._send_command(command)
         if not response.startswith("OK"):
             raise cmuxError(response)
@@ -382,15 +382,15 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    # Bonsplit pane commands
+    # Pane commands
 
     def list_panes(self) -> List[Tuple[int, str, int, bool]]:
         """
-        List all panes in the current sidebar tab.
-        Returns list of (index, pane_id, tab_count, is_focused) tuples.
+        List all panes in the current workspace.
+        Returns list of (index, pane_id, surface_count, is_focused) tuples.
         """
         response = self._send_command("list_panes")
-        if response in ("No panes", "ERROR: No tab selected"):
+        if response in ("No panes", "ERROR: No workspace selected"):
             return []
 
         panes = []
@@ -398,37 +398,37 @@ class cmux:
             if not line.strip():
                 continue
             selected = line.startswith("*")
-            # Format: "* 0: <pane_id> [N tabs]" or "  0: <pane_id> [N tabs]"
+            # Format: "* 0: <pane_id> [N surfaces]" or "  0: <pane_id> [N surfaces]"
             parts = line.lstrip("* ").split()
             if len(parts) >= 4:
                 index = int(parts[0].rstrip(":"))
                 pane_id = parts[1]
-                # Extract tab count from "[N tabs]"
-                tab_count = int(parts[2].lstrip("["))
-                panes.append((index, pane_id, tab_count, selected))
+                # Extract surface count from "[N surfaces]"
+                surface_count = int(parts[2].lstrip("["))
+                panes.append((index, pane_id, surface_count, selected))
         return panes
 
     def focus_pane(self, pane: Union[str, int]) -> None:
-        """Focus a pane by ID or index in the current sidebar tab."""
+        """Focus a pane by ID or index in the current workspace."""
         response = self._send_command(f"focus_pane {pane}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def list_bonsplit_tabs(self, pane: Union[str, int, None] = None) -> List[Tuple[int, str, str, bool]]:
+    def list_pane_surfaces(self, pane: Union[str, int, None] = None) -> List[Tuple[int, str, str, bool]]:
         """
-        List bonsplit tabs in a pane.
-        Returns list of (index, tab_id, title, is_selected) tuples.
+        List surfaces in a pane.
+        Returns list of (index, surface_id, title, is_selected) tuples.
         If pane is None, uses the focused pane.
         """
         if pane is not None:
-            response = self._send_command(f"list_bonsplit_tabs --pane={pane}")
+            response = self._send_command(f"list_pane_surfaces --pane={pane}")
         else:
-            response = self._send_command("list_bonsplit_tabs")
+            response = self._send_command("list_pane_surfaces")
 
-        if "ERROR" in response or response == "No tabs":
+        if "ERROR" in response or response == "No surfaces":
             return []
 
-        tabs = []
+        surfaces = []
         for line in response.split("\n"):
             if not line.strip():
                 continue
@@ -436,22 +436,44 @@ class cmux:
             parts = line.lstrip("* ").split(" ", 2)
             if len(parts) >= 2:
                 index = int(parts[0].rstrip(":"))
-                tab_id = parts[1]
+                surface_id = parts[1]
                 title = parts[2] if len(parts) > 2 else ""
-                tabs.append((index, tab_id, title, selected))
-        return tabs
+                surfaces.append((index, surface_id, title, selected))
+        return surfaces
 
-    def focus_bonsplit_tab(self, tab_id: str) -> None:
-        """Focus a bonsplit tab by ID."""
-        response = self._send_command(f"focus_bonsplit_tab {tab_id}")
+    def focus_surface_by_panel(self, surface_id: str) -> None:
+        """Focus a surface by its panel ID."""
+        response = self._send_command(f"focus_surface_by_panel {surface_id}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def new_bonsplit_tab(self, pane: Union[str, int, None] = None,
-                         panel_type: str = "terminal", url: str = None) -> str:
+    def focus_webview(self, panel_id: str) -> None:
+        """Move keyboard focus into a browser panel's WKWebView."""
+        response = self._send_command(f"focus_webview {panel_id}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def is_webview_focused(self, panel_id: str) -> bool:
+        """Return True if the browser panel's WKWebView (or a descendant) is first responder."""
+        response = self._send_command(f"is_webview_focused {panel_id}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip().lower() == "true"
+
+    def wait_for_webview_focus(self, panel_id: str, timeout_s: float = 2.0) -> None:
+        """Poll until the browser panel's WKWebView has focus, or raise."""
+        start = time.time()
+        while time.time() - start < timeout_s:
+            if self.is_webview_focused(panel_id):
+                return
+            time.sleep(0.05)
+        raise cmuxError(f"Timed out waiting for webview focus: {panel_id}")
+
+    def new_surface(self, pane: Union[str, int, None] = None,
+                    panel_type: str = "terminal", url: str = None) -> str:
         """
-        Create a new bonsplit tab in a pane.
-        Returns the new tab ID.
+        Create a new surface in a pane.
+        Returns the new surface ID.
         """
         args = []
         if panel_type != "terminal":
@@ -461,7 +483,7 @@ class cmux:
         if url:
             args.append(f"--url={url}")
 
-        cmd = "new_bonsplit_tab"
+        cmd = "new_surface"
         if args:
             cmd += " " + " ".join(args)
 
@@ -474,7 +496,7 @@ class cmux:
                  url: str = None) -> str:
         """
         Create a new pane (split).
-        Returns the new pane ID.
+        Returns the new surface/panel ID created in the new pane.
         """
         args = [f"--direction={direction}"]
         if panel_type != "terminal":
@@ -499,6 +521,57 @@ class cmux:
             response = self._send_command(f"close_surface {surface}")
         if not response.startswith("OK"):
             raise cmuxError(response)
+
+    def surface_health(self, workspace: Union[str, int, None] = None) -> List[dict]:
+        """
+        Check view health of all surfaces in a workspace.
+        Returns list of dicts with keys: index, id, type, in_window.
+        """
+        arg = "" if workspace is None else str(workspace)
+        response = self._send_command(f"surface_health {arg}".rstrip())
+        if response.startswith("ERROR") or response == "No panels":
+            return []
+
+        surfaces = []
+        for line in response.split("\n"):
+            if not line.strip():
+                continue
+            # Format: "0: <uuid> type=terminal in_window=true"
+            parts = line.strip().split()
+            if len(parts) < 4:
+                continue
+            index = int(parts[0].rstrip(":"))
+            surface_id = parts[1]
+            panel_type = parts[2].split("=", 1)[1] if "=" in parts[2] else "unknown"
+            in_window = parts[3].split("=", 1)[1] == "true" if "=" in parts[3] else False
+            surfaces.append({
+                "index": index,
+                "id": surface_id,
+                "type": panel_type,
+                "in_window": in_window,
+            })
+        return surfaces
+
+    # Backwards-compatible aliases
+    def list_tabs(self) -> List[Tuple[int, str, str, bool]]:
+        """Alias for list_workspaces()"""
+        return self.list_workspaces()
+
+    def new_tab(self) -> str:
+        """Alias for new_workspace()"""
+        return self.new_workspace()
+
+    def close_tab(self, workspace_id: str) -> None:
+        """Alias for close_workspace()"""
+        return self.close_workspace(workspace_id)
+
+    def select_tab(self, workspace: Union[str, int]) -> None:
+        """Alias for select_workspace()"""
+        return self.select_workspace(workspace)
+
+    def current_tab(self) -> str:
+        """Alias for current_workspace()"""
+        return self.current_workspace()
 
 
 def main():

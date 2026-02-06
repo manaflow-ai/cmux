@@ -2,8 +2,15 @@
 """
 Visual Screenshot Tests for cmuxterm
 
-Takes screenshots before and after each state change during split/browser operations
-and generates an HTML report for visual verification.
+Comprehensive edge-case testing with before/after screenshots for:
+  A. Basic splits (baseline)
+  B. Close operations (the bug surface)
+  C. Multi-pane close
+  D. Asymmetric / deep nesting
+  E. Browser + terminal mix
+  F. Multiple surfaces in a pane (nested tabs)
+  G. Rapid stress tests
+  H. Workspace interactions
 
 Usage:
     python3 tests/test_visual_screenshots.py
@@ -13,78 +20,80 @@ Usage:
 import os
 import sys
 import time
-import subprocess
-import tempfile
 import base64
+import socket
+import select
+import tempfile
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, List
 
-# Add parent directory for imports
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmuxterm-debug.sock")
-OUTPUT_DIR = Path(__file__).parent / "visual_output"
 HTML_REPORT = Path(__file__).parent / "visual_report.html"
+
+# Timing constants
+SPLIT_WAIT = 0.8       # after creating a split
+CLOSE_WAIT = 0.8       # after closing a surface/pane
+SHORT_WAIT = 0.3       # focus switch / minor action
+SCREENSHOT_WAIT = 0.3  # before taking a screenshot
 
 
 @dataclass
 class Screenshot:
-    """A single screenshot with metadata."""
     path: Path
     label: str
     timestamp: str
 
     def to_base64(self) -> str:
-        """Convert image to base64 for embedding in HTML."""
         with open(self.path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
 
 
 @dataclass
 class StateChange:
-    """A before/after state change with screenshots."""
     name: str
     description: str
+    group: str = ""
     before: Optional[Screenshot] = None
     after: Optional[Screenshot] = None
     command: str = ""
     result: str = ""
     passed: bool = True
     error: str = ""
-    before_state: str = ""  # Text representation of state before
-    after_state: str = ""   # Text representation of state after
+    before_state: str = ""
+    after_state: str = ""
 
 
-def get_app_window_id() -> Optional[str]:
-    """Get the window ID of the cmuxterm app."""
-    result = subprocess.run(
-        ["osascript", "-e",
-         'tell application "System Events" to get id of first window of process "cmuxterm DEV"'],
-        capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        return result.stdout.strip()
-    return None
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_screenshot_idx = 0
 
 
-def take_screenshot(label: str, index: int) -> Optional[Screenshot]:
-    """Take a screenshot using the in-app screenshot API."""
+def get_client() -> cmux:
+    c = cmux(SOCKET_PATH)
+    c.connect()
+    return c
+
+
+def take_screenshot(label: str) -> Optional[Screenshot]:
+    global _screenshot_idx
+    idx = _screenshot_idx
+    _screenshot_idx += 1
     try:
-        import socket
-        import select
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect(SOCKET_PATH)
         sock.setblocking(False)
 
-        # Send screenshot command with label
         safe_label = label.replace(" ", "_").replace("/", "-")
-        cmd = f"screenshot {index:03d}_{safe_label}\n"
+        cmd = f"screenshot {idx:03d}_{safe_label}\n"
         sock.sendall(cmd.encode())
 
-        # Read response with proper timeout handling
         data = b""
         start = time.time()
         while time.time() - start < 5.0:
@@ -99,75 +108,684 @@ def take_screenshot(label: str, index: int) -> Optional[Screenshot]:
                         break
                 except BlockingIOError:
                     continue
-            elif data:  # Got some data, no more coming
+            elif data:
                 break
         sock.close()
 
         response = data.decode().strip()
-        if not response:
-            print(f"  ⚠️  Screenshot: no response")
+        if not response or not response.startswith("OK"):
             return None
 
-        if not response.startswith("OK"):
-            print(f"  ⚠️  Screenshot failed: {response}")
-            return None
-
-        # Parse response: "OK <id> <path>"
         parts = response.split(" ", 2)
         if len(parts) < 3:
-            print(f"  ⚠️  Invalid screenshot response: {response}")
             return None
 
-        screenshot_id = parts[1]
         screenshot_path = Path(parts[2])
-
         if not screenshot_path.exists():
-            print(f"  ⚠️  Screenshot file not found: {screenshot_path}")
             return None
 
         return Screenshot(
             path=screenshot_path,
             label=label,
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         )
-
-    except Exception as e:
-        print(f"  ⚠️  Screenshot error: {e}")
+    except Exception:
         return None
 
 
-def capture_state_direct() -> str:
-    """Capture current state of surfaces and panes using direct socket connection."""
+def capture_state(client: cmux) -> str:
     try:
-        import socket
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(SOCKET_PATH)
-        sock.settimeout(2.0)
-
-        def send_cmd(cmd: str) -> str:
-            sock.sendall((cmd + "\n").encode())
-            data = b""
-            while True:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
-                if b"\n" in data:
-                    break
-            return data.decode().strip()
-
-        surfaces = send_cmd("list_surfaces")
-        tabs = send_cmd("list_tabs")
-        panes = send_cmd("list_panes")
-        sock.close()
-
-        return f"Surfaces:\n{surfaces}\n\nTabs:\n{tabs}\n\nPanes:\n{panes}"
+        surfaces = client._send_command("list_surfaces")
+        workspaces = client._send_command("list_workspaces")
+        panes = client._send_command("list_panes")
+        return f"Surfaces:\n{surfaces}\n\nWorkspaces:\n{workspaces}\n\nPanes:\n{panes}"
     except Exception as e:
-        return f"Error capturing state: {e}"
+        return f"Error: {e}"
+
+
+def capture(client: cmux, label: str):
+    """Take screenshot + state snapshot. Returns (Screenshot|None, state_str)."""
+    time.sleep(SCREENSHOT_WAIT)
+    ss = take_screenshot(label)
+    state = capture_state(client)
+    return ss, state
+
+
+def reset_workspace(client: cmux) -> cmux:
+    """Create a fresh workspace and return a reconnected client."""
+    try:
+        client._send_command("new_workspace")
+    except Exception:
+        pass
+    time.sleep(SHORT_WAIT)
+    client.close()
+    time.sleep(0.2)
+    return get_client()
+
+
+def surface_count(client: cmux) -> int:
+    return len(client.list_surfaces())
+
+
+def wait_surface_count(client: cmux, expected: int, timeout: float = 3.0) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        if surface_count(client) == expected:
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def cleanup_workspaces(client: cmux):
+    """Close all but the current workspace."""
+    try:
+        workspaces = client.list_workspaces()
+        current = None
+        for _, wid, _, sel in workspaces:
+            if sel:
+                current = wid
+                break
+        for _, wid, _, sel in workspaces:
+            if wid != current:
+                try:
+                    client._send_command(f"close_workspace {wid}")
+                    time.sleep(0.1)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _wait_marker(marker: Path, timeout: float = 3.0) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        if marker.exists():
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _verify_surface_responsive(client: cmux, surface_idx: int, marker: Path,
+                                retries: int = 3) -> bool:
+    """Try sending a command to one surface, return True if it responds."""
+    for attempt in range(retries):
+        marker.unlink(missing_ok=True)
+        try:
+            client.send_key_surface(surface_idx, "ctrl-c")
+        except Exception:
+            pass
+        time.sleep(0.3)
+        try:
+            client.send_surface(surface_idx, f"touch {marker}\n")
+        except Exception:
+            return False  # browser or broken — caller decides
+        if _wait_marker(marker, timeout=3.0):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def verify_views_in_window(client: cmux, label: str = "", timeout: float = 5.0) -> Optional[str]:
+    """Verify all surface views are attached to a window.
+
+    Polls surface_health until all surfaces report in_window=true,
+    or until timeout. Returns None on success, or an error string.
+    Works for both terminal and browser panels.
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            health = client.surface_health()
+        except Exception as e:
+            return f"surface_health failed: {e}"
+
+        if not health:
+            return f"no surfaces found [{label}]"
+
+        orphaned = [h for h in health if not h["in_window"]]
+        if not orphaned:
+            return None  # all in window
+
+        time.sleep(0.2)
+
+    # Timed out — report which surfaces are orphaned
+    types_and_ids = [(h["type"], h["id"][:8]) for h in orphaned]
+    return f"surface(s) not in window after {timeout}s: {types_and_ids} [{label}]"
+
+
+def verify_all_responsive(client: cmux, label: str = "") -> Optional[str]:
+    """Verify every terminal surface is responsive by writing a marker file.
+
+    Returns None on success, or an error string describing which surface
+    is blank / unresponsive.  Calls refresh_surfaces first as a backstop
+    to force Metal re-render before checking.
+    """
+    # First check that all views are in the window (auto-detect orphaned views)
+    window_err = verify_views_in_window(client, label)
+    if window_err:
+        return f"VIEW_DETACHED: {window_err}"
+
+    # Ask the app to force-refresh all terminal surfaces
+    try:
+        client._send_command("refresh_surfaces")
+    except Exception:
+        pass
+    time.sleep(0.3)
+
+    surfaces = client.list_surfaces()
+    if not surfaces:
+        return "no surfaces found"
+
+    blanks = []
+    for idx, (i, sid, _) in enumerate(surfaces):
+        marker = Path(tempfile.gettempdir()) / f"cmux_vis_{os.getpid()}_{idx}"
+        try:
+            if not _verify_surface_responsive(client, i, marker, retries=3):
+                blanks.append(idx)
+        finally:
+            marker.unlink(missing_ok=True)
+
+    if blanks:
+        return f"surface(s) {blanks} unresponsive (blank?) [{label}]"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+def test_a1_initial_state(client: cmux) -> StateChange:
+    """A1: Capture initial single-terminal state."""
+    change = StateChange(
+        name="Initial State", group="A",
+        description="Single terminal pane — baseline",
+    )
+    change.after, change.after_state = capture(client, "a1_initial")
+    return change
+
+
+def test_a2_split_right(client: cmux) -> StateChange:
+    """A2: Horizontal split right."""
+    change = StateChange(
+        name="Horizontal Split Right", group="A",
+        description="Split terminal horizontally (right)",
+        command="new_split right",
+    )
+    change.before, change.before_state = capture(client, "a2_before")
+    try:
+        client.new_split("right")
+        change.result = "OK"
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    time.sleep(SPLIT_WAIT)
+    change.after, change.after_state = capture(client, "a2_after")
+    if change.passed:
+        change.passed = surface_count(client) == 2
+        if not change.passed:
+            change.error = f"Expected 2 surfaces, got {surface_count(client)}"
+    return change
+
+
+def test_a3_split_down(client: cmux) -> StateChange:
+    """A3: Vertical split down."""
+    change = StateChange(
+        name="Vertical Split Down", group="A",
+        description="Split focused pane vertically (down)",
+        command="new_split down",
+    )
+    change.before, change.before_state = capture(client, "a3_before")
+    try:
+        client.new_split("down")
+        change.result = "OK"
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    time.sleep(SPLIT_WAIT)
+    change.after, change.after_state = capture(client, "a3_after")
+    if change.passed:
+        change.passed = surface_count(client) == 2
+        if not change.passed:
+            change.error = f"Expected 2 surfaces, got {surface_count(client)}"
+    return change
+
+
+def _close_and_verify(client: cmux, change: StateChange, close_idx: int,
+                      expected: int, before_label: str, after_label: str) -> StateChange:
+    """Shared logic: close a surface, verify count, verify responsiveness, capture after."""
+    change.before, change.before_state = capture(client, before_label)
+    try:
+        client.close_surface(close_idx)
+        time.sleep(CLOSE_WAIT)
+        if not wait_surface_count(client, expected):
+            change.error = f"Expected {expected} surface(s), got {surface_count(client)}"
+            change.passed = False
+        else:
+            # Functional blank-detection: verify every remaining terminal responds
+            blank_err = verify_all_responsive(client, after_label)
+            if blank_err:
+                change.error = f"BLANK: {blank_err}"
+                change.passed = False
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, after_label)
+    return change
+
+
+def test_b4_close_right(client: cmux) -> StateChange:
+    """B4: Close RIGHT pane in horizontal split."""
+    change = StateChange(
+        name="Close Right Pane (H-split)", group="B",
+        description="Horizontal split → close right pane → left should survive",
+        command="new_split right; close_surface 1",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 1, 1, "b4_before", "b4_after")
+
+
+def test_b5_close_left(client: cmux) -> StateChange:
+    """B5: Close LEFT (first) pane in horizontal split."""
+    change = StateChange(
+        name="Close Left Pane (H-split)", group="B",
+        description="Horizontal split → close left pane → right should survive",
+        command="new_split right; close_surface 0",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 0, 1, "b5_before", "b5_after")
+
+
+def test_b6_close_bottom(client: cmux) -> StateChange:
+    """B6: Close BOTTOM pane in vertical split."""
+    change = StateChange(
+        name="Close Bottom Pane (V-split)", group="B",
+        description="Vertical split → close bottom pane → top should survive",
+        command="new_split down; close_surface 1",
+    )
+    client.new_split("down")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 1, 1, "b6_before", "b6_after")
+
+
+def test_b7_close_top(client: cmux) -> StateChange:
+    """B7: Close TOP (first) pane in vertical split."""
+    change = StateChange(
+        name="Close Top Pane (V-split)", group="B",
+        description="Vertical split → close top pane → bottom should survive",
+        command="new_split down; close_surface 0",
+    )
+    client.new_split("down")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 0, 1, "b7_before", "b7_after")
+
+
+def test_c8_3way_close_middle(client: cmux) -> StateChange:
+    """C8: 3-way horizontal — close middle pane."""
+    change = StateChange(
+        name="3-Way H-Split: Close Middle", group="C",
+        description="3 horizontal panes → close middle → outer 2 should survive",
+        command="split right x2; close_surface 1",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(1)
+    time.sleep(SHORT_WAIT)
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 1, 2, "c8_before", "c8_after")
+
+
+def test_c9_grid_close_topleft(client: cmux) -> StateChange:
+    """C9: 2x2 grid — close top-left."""
+    change = StateChange(
+        name="2x2 Grid: Close Top-Left", group="C",
+        description="4-pane grid → close top-left → 3 remain",
+        command="split right, split each down; close_surface 0",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(0)
+    time.sleep(SHORT_WAIT)
+    client.new_split("down")
+    time.sleep(SPLIT_WAIT)
+    surfaces = client.list_surfaces()
+    if len(surfaces) >= 3:
+        client.focus_surface(2)
+        time.sleep(SHORT_WAIT)
+        client.new_split("down")
+        time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 0, 3, "c9_before", "c9_after")
+
+
+def test_c10_grid_close_bottomright(client: cmux) -> StateChange:
+    """C10: 2x2 grid — close bottom-right."""
+    change = StateChange(
+        name="2x2 Grid: Close Bottom-Right", group="C",
+        description="4-pane grid → close bottom-right → 3 remain",
+        command="build 2x2; close last surface",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(0)
+    time.sleep(SHORT_WAIT)
+    client.new_split("down")
+    time.sleep(SPLIT_WAIT)
+    surfaces = client.list_surfaces()
+    if len(surfaces) >= 3:
+        client.focus_surface(2)
+        time.sleep(SHORT_WAIT)
+        client.new_split("down")
+        time.sleep(SPLIT_WAIT)
+    n = surface_count(client)
+    return _close_and_verify(client, change, n - 1, n - 1, "c10_before", "c10_after")
+
+
+def test_d11_nested_close_bottomright(client: cmux) -> StateChange:
+    """D11: Split right, split right pane down → close bottom-right."""
+    change = StateChange(
+        name="Nested: Close Bottom-Right of L-shape", group="D",
+        description="Split right → split right down → close bottom-right",
+        command="split right; focus 1; split down; close 2",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(1)
+    time.sleep(SHORT_WAIT)
+    client.new_split("down")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 2, 2, "d11_before", "d11_after")
+
+
+def test_d12_nested_close_top(client: cmux) -> StateChange:
+    """D12: Split down, split bottom right → close top pane."""
+    change = StateChange(
+        name="Nested: Close Top of T-shape", group="D",
+        description="Split down → split bottom right → close top (surface 0)",
+        command="split down; focus 1; split right; close 0",
+    )
+    client.new_split("down")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(1)
+    time.sleep(SHORT_WAIT)
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 0, 2, "d12_before", "d12_after")
+
+
+def test_d13_4pane_close_second(client: cmux) -> StateChange:
+    """D13: 4 horizontal panes — close 2nd from left."""
+    change = StateChange(
+        name="4 H-Panes: Close 2nd From Left", group="D",
+        description="3 horizontal splits (4 panes) → close index 1",
+        command="split right x3; close_surface 1",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(1)
+    time.sleep(SHORT_WAIT)
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    client.focus_surface(2)
+    time.sleep(SHORT_WAIT)
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    return _close_and_verify(client, change, 1, 3, "d13_before", "d13_after")
+
+
+def test_e14_browser_close_terminal(client: cmux) -> StateChange:
+    """E14: Split right, open browser right, close terminal (left)."""
+    change = StateChange(
+        name="Browser Mix: Close Terminal (Left)", group="E",
+        description="Split right → browser in right → close left terminal",
+        command="new_pane --direction=right --type=browser; close_surface 0",
+    )
+    try:
+        client._send_command("new_pane --direction=right --type=browser --url=https://example.com")
+        time.sleep(1.5)
+    except Exception as e:
+        change.error = f"Failed to create browser pane: {e}"
+        change.passed = False
+        return change
+    # new_pane with browser creates a split (auto-terminal + browser), so we may get 3 surfaces
+    before_count = surface_count(client)
+    if before_count < 2:
+        change.error = f"Browser pane not created, got {before_count} surfaces"
+        change.passed = False
+        return change
+    change.before, change.before_state = capture(client, "e14_before")
+    try:
+        # Find and close the first terminal (index 0)
+        client.close_surface(0)
+        time.sleep(CLOSE_WAIT)
+        change.passed = wait_surface_count(client, before_count - 1)
+        if not change.passed:
+            change.error = f"Expected {before_count - 1} surfaces, got {surface_count(client)}"
+        else:
+            # Verify remaining views (browser + terminal) are in window
+            window_err = verify_views_in_window(client, "e14_after")
+            if window_err:
+                change.error = f"VIEW_DETACHED: {window_err}"
+                change.passed = False
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, "e14_after")
+    return change
+
+
+def test_e15_browser_close_browser(client: cmux) -> StateChange:
+    """E15: Split right, open browser right, close browser (right)."""
+    change = StateChange(
+        name="Browser Mix: Close Browser (Right)", group="E",
+        description="Split right → browser in right → close right browser",
+        command="new_pane --direction=right --type=browser; close_surface (last)",
+    )
+    try:
+        client._send_command("new_pane --direction=right --type=browser --url=https://example.com")
+        time.sleep(1.5)
+    except Exception as e:
+        change.error = f"Failed to create browser pane: {e}"
+        change.passed = False
+        return change
+    before_count = surface_count(client)
+    if before_count < 2:
+        change.error = f"Browser pane not created, got {before_count} surfaces"
+        change.passed = False
+        return change
+    change.before, change.before_state = capture(client, "e15_before")
+    try:
+        client.close_surface(before_count - 1)
+        # Browser close leaves behind an auto-created terminal that may need
+        # extra time for its shell to initialize, so wait longer.
+        time.sleep(2.0)
+        expected = before_count - 1
+        if not wait_surface_count(client, expected, timeout=5.0):
+            change.error = f"Expected {expected} surface(s), got {surface_count(client)}"
+            change.passed = False
+        else:
+            # Verify remaining views are in window
+            window_err = verify_views_in_window(client, "e15_after")
+            if window_err:
+                change.error = f"VIEW_DETACHED: {window_err}"
+                change.passed = False
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, "e15_after")
+    return change
+
+
+def test_f16_nested_tabs_close_first(client: cmux) -> StateChange:
+    """F16: 2 surfaces in same pane, close the first."""
+    change = StateChange(
+        name="Nested Tabs: Close First Surface", group="F",
+        description="Create 2 surfaces in same pane via new_surface → close first",
+        command="new_surface; close first",
+    )
+    try:
+        client._send_command("new_surface")
+        time.sleep(SHORT_WAIT)
+    except Exception as e:
+        change.error = f"Failed to create surface: {e}"
+        change.passed = False
+        return change
+    return _close_and_verify(client, change, 0, 1, "f16_before", "f16_after")
+
+
+def test_g17_rapid_down_close_top(client: cmux) -> StateChange:
+    """G17: 5x rapid split down → close top pane."""
+    change = StateChange(
+        name="Rapid: 5x Split Down → Close Top", group="G",
+        description="5 cycles of split-down then close-top",
+        command="5x (new_split down; close_surface 0)",
+    )
+    change.before, change.before_state = capture(client, "g17_before")
+    try:
+        for i in range(5):
+            client.new_split("down")
+            time.sleep(SPLIT_WAIT)
+            # Close the first (top) surface — wait for it to complete
+            client.close_surface(0)
+            if not wait_surface_count(client, 1, timeout=5.0):
+                change.error = f"Cycle {i+1}: expected 1 surface, got {surface_count(client)}"
+                change.passed = False
+                break
+            time.sleep(CLOSE_WAIT)
+        if change.passed:
+            blank_err = verify_all_responsive(client, "g17")
+            if blank_err:
+                change.error = f"BLANK: {blank_err}"
+                change.passed = False
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, "g17_after")
+    return change
+
+
+def test_g18_rapid_right_close_left(client: cmux) -> StateChange:
+    """G18: 5x rapid split right → close left pane."""
+    change = StateChange(
+        name="Rapid: 5x Split Right → Close Left", group="G",
+        description="5 cycles of split-right then close-left",
+        command="5x (new_split right; close_surface 0)",
+    )
+    change.before, change.before_state = capture(client, "g18_before")
+    try:
+        for i in range(5):
+            client.new_split("right")
+            time.sleep(0.8)
+            client.close_surface(0)
+            time.sleep(1.0)
+            if not wait_surface_count(client, 1, timeout=5.0):
+                change.error = f"Cycle {i+1}: expected 1 surface, got {surface_count(client)}"
+                change.passed = False
+                break
+        if change.passed:
+            blank_err = verify_all_responsive(client, "g18")
+            if blank_err:
+                change.error = f"BLANK: {blank_err}"
+                change.passed = False
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, "g18_after")
+    return change
+
+
+def test_g19_alternating_close_reverse(client: cmux) -> StateChange:
+    """G19: Alternating splits then close all in reverse."""
+    change = StateChange(
+        name="Alternating Splits: Close in Reverse", group="G",
+        description="right, down, right, down → close all in reverse order",
+        command="split right/down/right/down; close 4,3,2,1",
+    )
+    directions = ["right", "down", "right", "down"]
+    for d in directions:
+        client.new_split(d)
+        time.sleep(SPLIT_WAIT)
+    change.before, change.before_state = capture(client, "g19_before")
+    try:
+        for i in range(4, 0, -1):
+            n = surface_count(client)
+            if n <= 1:
+                break
+            expected = n - 1
+            client.close_surface(n - 1)
+            if not wait_surface_count(client, expected, timeout=5.0):
+                change.error = f"Close {i}: expected {expected} surfaces, got {surface_count(client)}"
+                change.passed = False
+                break
+            time.sleep(CLOSE_WAIT)
+        if change.passed:
+            if not wait_surface_count(client, 1, timeout=5.0):
+                change.error = f"Expected 1 surface, got {surface_count(client)}"
+                change.passed = False
+            else:
+                blank_err = verify_all_responsive(client, "g19")
+                if blank_err:
+                    change.error = f"BLANK: {blank_err}"
+                    change.passed = False
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, "g19_after")
+    return change
+
+
+def test_h20_workspace_switch_back(client: cmux) -> StateChange:
+    """H20: Create workspace with splits, switch away, switch back."""
+    change = StateChange(
+        name="Workspace Switch-Back", group="H",
+        description="Create splits, switch to new workspace, switch back — splits intact",
+        command="split right; new_workspace; select_workspace 0",
+    )
+    client.new_split("right")
+    time.sleep(SPLIT_WAIT)
+    original_count = surface_count(client)
+    change.before, change.before_state = capture(client, "h20_before")
+
+    try:
+        # Remember original workspace
+        workspaces = client.list_workspaces()
+        original_ws = None
+        for _, wid, _, sel in workspaces:
+            if sel:
+                original_ws = wid
+                break
+
+        # Create and switch to new workspace
+        client.new_workspace()
+        time.sleep(SHORT_WAIT)
+
+        # Switch back to original
+        if original_ws:
+            client._send_command(f"select_workspace {original_ws}")
+        else:
+            client.select_workspace(0)
+        time.sleep(SHORT_WAIT)
+
+        after_count = surface_count(client)
+        change.passed = after_count == original_count
+        if not change.passed:
+            change.error = f"Expected {original_count} surfaces after switch-back, got {after_count}"
+        change.result = f"Before: {original_count}, After: {after_count}"
+    except Exception as e:
+        change.error = str(e)
+        change.passed = False
+    change.after, change.after_state = capture(client, "h20_after")
+    return change
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
 
 
 def generate_html_report(changes: list[StateChange]) -> None:
-    """Generate an HTML report with all screenshots."""
     html = '''<!DOCTYPE html>
 <html>
 <head>
@@ -181,151 +799,52 @@ def generate_html_report(changes: list[StateChange]) -> None:
             max-width: 1800px;
             margin: 0 auto;
         }
-        h1 {
-            color: #4cc9f0;
-            border-bottom: 2px solid #4361ee;
-            padding-bottom: 10px;
-        }
-        h2 {
-            color: #7209b7;
-            margin-top: 40px;
-        }
+        h1 { color: #4cc9f0; border-bottom: 2px solid #4361ee; padding-bottom: 10px; }
+        h2 { color: #7209b7; margin-top: 40px; }
+        h3.group { color: #4361ee; margin-top: 50px; border-bottom: 1px solid #333; padding-bottom: 6px; }
         .state-change {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 20px 0;
+            background: #16213e; border-radius: 12px; padding: 20px; margin: 20px 0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
-        .state-change.passed {
-            border-left: 4px solid #4cc9f0;
-        }
-        .state-change.failed {
-            border-left: 4px solid #f72585;
-        }
-        .screenshots {
-            display: flex;
-            gap: 20px;
-            margin-top: 15px;
-            flex-wrap: wrap;
-        }
+        .state-change.passed { border-left: 4px solid #4cc9f0; }
+        .state-change.failed { border-left: 4px solid #f72585; }
+        .screenshots { display: flex; gap: 20px; margin-top: 15px; flex-wrap: wrap; }
         .screenshot-container {
-            flex: 1;
-            min-width: 400px;
-            background: #0f0f23;
-            border-radius: 8px;
-            padding: 10px;
+            flex: 1; min-width: 400px; background: #0f0f23; border-radius: 8px; padding: 10px;
         }
-        .screenshot-container h4 {
-            color: #4361ee;
-            margin: 0 0 10px 0;
-        }
-        .screenshot-container img {
-            max-width: 100%;
-            border-radius: 4px;
-            border: 1px solid #333;
-        }
-        .meta {
-            font-size: 0.9em;
-            color: #888;
-            margin-top: 5px;
-        }
+        .screenshot-container h4 { color: #4361ee; margin: 0 0 10px 0; }
+        .screenshot-container img { max-width: 100%; border-radius: 4px; border: 1px solid #333; }
+        .meta { font-size: 0.9em; color: #888; margin-top: 5px; }
         .command {
-            background: #0f0f23;
-            padding: 10px;
-            border-radius: 4px;
-            font-family: monospace;
-            margin: 10px 0;
-            color: #4cc9f0;
+            background: #0f0f23; padding: 10px; border-radius: 4px;
+            font-family: monospace; margin: 10px 0; color: #4cc9f0;
         }
-        .result {
-            color: #4cc9f0;
-        }
+        .result { color: #4cc9f0; }
         .error {
-            color: #f72585;
-            background: rgba(247, 37, 133, 0.1);
-            padding: 10px;
-            border-radius: 4px;
+            color: #f72585; background: rgba(247,37,133,0.1);
+            padding: 10px; border-radius: 4px;
         }
-        .summary {
-            background: #0f0f23;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-        }
+        .summary { background: #0f0f23; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
         .summary .passed { color: #4cc9f0; }
         .summary .failed { color: #f72585; }
-        .timestamp {
-            font-size: 0.8em;
-            color: #666;
-        }
-        .annotation {
-            margin-top: 15px;
-            padding: 10px;
-            background: #0f0f23;
-            border-radius: 8px;
-        }
-        .annotation label {
-            display: block;
-            color: #f72585;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
+        .timestamp { font-size: 0.8em; color: #666; }
+        .annotation { margin-top: 15px; padding: 10px; background: #0f0f23; border-radius: 8px; }
+        .annotation label { display: block; color: #f72585; font-weight: bold; margin-bottom: 5px; }
         .annotation textarea {
-            width: 100%;
-            min-height: 60px;
-            background: #1a1a2e;
-            border: 1px solid #333;
-            border-radius: 4px;
-            color: #eee;
-            padding: 8px;
-            font-family: inherit;
-            resize: vertical;
+            width: 100%; min-height: 60px; background: #1a1a2e; border: 1px solid #333;
+            border-radius: 4px; color: #eee; padding: 8px; font-family: inherit; resize: vertical;
         }
-        .annotation textarea:focus {
-            outline: none;
-            border-color: #4361ee;
-        }
+        .annotation textarea:focus { outline: none; border-color: #4361ee; }
         .copy-section {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #16213e;
-            padding: 15px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            z-index: 1000;
+            position: fixed; bottom: 20px; right: 20px; background: #16213e;
+            padding: 15px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); z-index: 1000;
         }
         .copy-btn {
-            background: #4361ee;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
+            background: #4361ee; color: white; border: none; padding: 12px 24px;
+            border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;
         }
-        .copy-btn:hover {
-            background: #3651d4;
-        }
-        .copy-btn.copied {
-            background: #4cc9f0;
-        }
-        .issue-marker {
-            display: inline-block;
-            margin-left: 10px;
-            padding: 2px 8px;
-            background: #f72585;
-            color: white;
-            border-radius: 4px;
-            font-size: 0.8em;
-            cursor: pointer;
-        }
-        .issue-marker.no-issue {
-            background: #333;
-            color: #888;
-        }
+        .copy-btn:hover { background: #3651d4; }
+        .copy-btn.copied { background: #4cc9f0; }
     </style>
 </head>
 <body>
@@ -340,24 +859,38 @@ def generate_html_report(changes: list[StateChange]) -> None:
     </div>
 '''
 
+    group_names = {
+        "A": "Group A — Basic Splits (Baseline)",
+        "B": "Group B — Close Operations",
+        "C": "Group C — Multi-Pane Close",
+        "D": "Group D — Asymmetric / Deep Nesting",
+        "E": "Group E — Browser + Terminal Mix",
+        "F": "Group F — Nested Tabs",
+        "G": "Group G — Rapid Stress Tests",
+        "H": "Group H — Workspace Interactions",
+    }
+
+    current_group = ""
     for i, change in enumerate(changes, 1):
+        if change.group != current_group:
+            current_group = change.group
+            gname = group_names.get(current_group, f"Group {current_group}")
+            html += f'\n    <h3 class="group">{gname}</h3>'
+
         status_class = "passed" if change.passed else "failed"
         html += f'''
     <div class="state-change {status_class}">
         <h2>{i}. {change.name}</h2>
-        <p>{change.description}</p>
-        '''
+        <p>{change.description}</p>'''
 
         if change.command:
-            html += f'<div class="command">{change.command}</div>'
-
+            html += f'\n        <div class="command">{change.command}</div>'
         if change.result:
-            html += f'<div class="result">Result: {change.result}</div>'
-
+            html += f'\n        <div class="result">Result: {change.result}</div>'
         if change.error:
-            html += f'<div class="error">Error: {change.error}</div>'
+            html += f'\n        <div class="error">Error: {change.error}</div>'
 
-        html += '<div class="screenshots">'
+        html += '\n        <div class="screenshots">'
 
         if change.before:
             html += f'''
@@ -365,15 +898,13 @@ def generate_html_report(changes: list[StateChange]) -> None:
                 <h4>Before</h4>
                 <img src="data:image/png;base64,{change.before.to_base64()}" alt="{change.before.label}">
                 <div class="meta">{change.before.timestamp}</div>
-            </div>
-            '''
+            </div>'''
         elif change.before_state:
             html += f'''
             <div class="screenshot-container">
                 <h4>Before (State)</h4>
-                <pre style="color: #888; font-size: 0.85em; white-space: pre-wrap;">{change.before_state}</pre>
-            </div>
-            '''
+                <pre style="color:#888;font-size:0.85em;white-space:pre-wrap;">{change.before_state}</pre>
+            </div>'''
 
         if change.after:
             html += f'''
@@ -381,48 +912,37 @@ def generate_html_report(changes: list[StateChange]) -> None:
                 <h4>After</h4>
                 <img src="data:image/png;base64,{change.after.to_base64()}" alt="{change.after.label}">
                 <div class="meta">{change.after.timestamp}</div>
-            </div>
-            '''
+            </div>'''
         elif change.after_state:
             html += f'''
             <div class="screenshot-container">
                 <h4>After (State)</h4>
-                <pre style="color: #888; font-size: 0.85em; white-space: pre-wrap;">{change.after_state}</pre>
-            </div>
-            '''
+                <pre style="color:#888;font-size:0.85em;white-space:pre-wrap;">{change.after_state}</pre>
+            </div>'''
 
-        # Add annotation section
         test_id = f"test_{i}"
         html += f'''
         </div>
         <div class="annotation">
-            <label>🐛 Issue? Describe what's wrong:</label>
-            <textarea id="{test_id}_notes" placeholder="e.g., 'bottom right pane is blank after close'" oninput="updateIssueMarker({i})"></textarea>
+            <label>Issue? Describe what's wrong:</label>
+            <textarea id="{test_id}_notes" placeholder="e.g., 'pane is blank after close'"></textarea>
         </div>
     </div>'''
 
-    # Add copy section and JavaScript
     html += '''
     <div class="copy-section">
-        <button class="copy-btn" onclick="copyFeedback()">📋 Copy Feedback</button>
-        <div id="copy-status" style="margin-top: 8px; font-size: 0.85em; color: #888;"></div>
+        <button class="copy-btn" onclick="copyFeedback()">Copy Feedback</button>
+        <div id="copy-status" style="margin-top:8px;font-size:0.85em;color:#888;"></div>
     </div>
-
     <script>
-    function updateIssueMarker(testNum) {
-        // Could add visual markers if needed
-    }
-
     function copyFeedback() {
         const tests = document.querySelectorAll('.state-change');
         let feedback = [];
-
         tests.forEach((test, idx) => {
             const testNum = idx + 1;
             const title = test.querySelector('h2').textContent;
             const textarea = document.getElementById(`test_${testNum}_notes`);
             const notes = textarea ? textarea.value.trim() : '';
-
             if (notes) {
                 const command = test.querySelector('.command');
                 const cmdText = command ? command.textContent : '';
@@ -432,358 +952,103 @@ def generate_html_report(changes: list[StateChange]) -> None:
                 feedback.push('');
             }
         });
-
         if (feedback.length === 0) {
             document.getElementById('copy-status').textContent = 'No issues noted!';
             return;
         }
-
         const text = '# Visual Test Feedback\\n\\n' + feedback.join('\\n');
         navigator.clipboard.writeText(text).then(() => {
             const btn = document.querySelector('.copy-btn');
             btn.classList.add('copied');
-            btn.textContent = '✓ Copied!';
-            document.getElementById('copy-status').textContent = `${feedback.filter(l => l.startsWith('## ')).length} issue(s) copied`;
-            setTimeout(() => {
-                btn.classList.remove('copied');
-                btn.textContent = '📋 Copy Feedback';
-            }, 2000);
+            btn.textContent = 'Copied!';
+            document.getElementById('copy-status').textContent =
+                `${feedback.filter(l => l.startsWith('## ')).length} issue(s) copied`;
+            setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'Copy Feedback'; }, 2000);
         });
     }
     </script>
 </body>
-</html>
-'''
+</html>'''
 
     HTML_REPORT.write_text(html)
-    print(f"\n📊 Report generated: {HTML_REPORT}")
+    print(f"\nReport generated: {HTML_REPORT}")
+
+
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
 
 
 def run_visual_tests():
-    """Run visual tests with state capture."""
     changes: list[StateChange] = []
-    screenshot_idx = 0
 
     print("=" * 60)
-    print("cmuxterm Visual Screenshot Tests")
+    print("cmuxterm Visual Screenshot Tests (20 scenarios)")
     print("=" * 60)
     print()
-    print("Using in-app screenshot API to capture window state.\n")
 
-    # Helper to get a fresh connection
-    def get_client() -> cmux:
-        c = cmux(SOCKET_PATH)
-        c.connect()
-        return c
-
-    # Connect to cmux
     client = get_client()
 
-    # Reset app state: create a fresh tab and switch to it
-    print("Resetting app state...")
-    try:
-        # Create a new tab to start fresh
-        result = client._send_command("new_tab")
-        if result.startswith("OK"):
-            time.sleep(0.5)
-            # The new tab should be selected automatically
+    # Each test function that needs isolation gets a fresh workspace.
+    # Tests that operate on a fresh workspace call reset_workspace themselves.
 
-        # Reconnect after creating new tab
-        client.close()
-        time.sleep(0.3)
-        client = get_client()
+    test_fns = [
+        # Group A — basic splits
+        ("A1", test_a1_initial_state),
+        ("A2", test_a2_split_right),
+        ("A3", test_a3_split_down),
+        # Group B — close operations
+        ("B4", test_b4_close_right),
+        ("B5", test_b5_close_left),
+        ("B6", test_b6_close_bottom),
+        ("B7", test_b7_close_top),
+        # Group C — multi-pane close
+        ("C8", test_c8_3way_close_middle),
+        ("C9", test_c9_grid_close_topleft),
+        ("C10", test_c10_grid_close_bottomright),
+        # Group D — asymmetric / deep nesting
+        ("D11", test_d11_nested_close_bottomright),
+        ("D12", test_d12_nested_close_top),
+        ("D13", test_d13_4pane_close_second),
+        # Group E — browser + terminal mix
+        ("E14", test_e14_browser_close_terminal),
+        ("E15", test_e15_browser_close_browser),
+        # Group F — nested tabs
+        ("F16", test_f16_nested_tabs_close_first),
+        # Group G — rapid stress
+        ("G17", test_g17_rapid_down_close_top),
+        ("G18", test_g18_rapid_right_close_left),
+        ("G19", test_g19_alternating_close_reverse),
+        # Group H — workspace interactions
+        ("H20", test_h20_workspace_switch_back),
+    ]
 
-        # Close all other surfaces in this tab except the first terminal
-        for _ in range(5):  # Try up to 5 times to clean up
-            surfaces = client.list_surfaces()
-            if len(surfaces) <= 1:
-                break
-            # Close from end to start to avoid index shifting issues
-            for i in range(len(surfaces) - 1, 0, -1):
-                try:
-                    client._send_command(f"close_surface {i}")
-                    time.sleep(0.2)
-                except:
-                    pass
-            time.sleep(0.2)
+    for label, fn in test_fns:
+        # Reset to fresh workspace before each test
+        client = reset_workspace(client)
 
-        # Ensure we have a terminal focused
-        surfaces = client.list_surfaces()
-        for i, s in enumerate(surfaces):
-            if "[terminal]" in s[1]:
-                client.focus_surface(i)
-                break
-    except Exception as e:
-        print(f"  Warning: Reset failed: {e}")
-
-    # Wait for app to be ready
-    time.sleep(0.8)
-
-    # Helper to capture screenshot and state
-    def capture(label: str) -> tuple[Optional[Screenshot], str]:
-        nonlocal screenshot_idx
-        screenshot = take_screenshot(label, screenshot_idx)
-        screenshot_idx += 1
-        state = capture_state_direct()
-        return screenshot, state
-
-    # Test 1: Initial state
-    print("1. Capturing initial state...")
-    change = StateChange(
-        name="Initial State",
-        description="App window with single terminal pane"
-    )
-    change.after, change.after_state = capture("initial_state")
-    changes.append(change)
-    time.sleep(0.5)
-
-    # Test 2: Create horizontal split (right)
-    print("2. Creating horizontal split (right)...")
-    change = StateChange(
-        name="Horizontal Split (Right)",
-        description="Split the terminal pane horizontally",
-        command="new_split right"
-    )
-    change.before, change.before_state = capture("before_split_right")
-    time.sleep(0.5)
-
-    try:
-        # Reconnect to ensure fresh connection
-        client.close()
-        time.sleep(0.2)
-        client = get_client()
-        client.new_split("right")
-        change.result = "OK"
-        change.passed = True
-    except Exception as e:
-        change.error = str(e)
-        change.passed = False
-    time.sleep(0.8)
-
-    change.after, change.after_state = capture("after_split_right")
-    changes.append(change)
-    time.sleep(0.5)
-
-    # Test 3: Create vertical split (down)
-    print("3. Creating vertical split (down)...")
-    change = StateChange(
-        name="Vertical Split (Down)",
-        description="Split the focused pane vertically",
-        command="new_split down"
-    )
-    change.before, change.before_state = capture("before_split_down")
-    time.sleep(0.5)
-
-    try:
-        # Reconnect to ensure fresh connection
-        client.close()
-        time.sleep(0.2)
-        client = get_client()
-        client.new_split("down")
-        change.result = "OK"
-        change.passed = True
-    except Exception as e:
-        change.error = str(e)
-        change.passed = False
-    time.sleep(0.8)
-
-    change.after, change.after_state = capture("after_split_down")
-    changes.append(change)
-    time.sleep(0.5)
-
-    # Reconnect after split operations
-    client.close()
-    time.sleep(0.2)
-    client = get_client()
-
-    # Test 4: Open browser panel
-    print("4. Opening browser panel...")
-    change = StateChange(
-        name="Open Browser Panel",
-        description="Open a browser panel in the current pane",
-        command="open_browser https://example.com"
-    )
-    change.before, change.before_state = capture("before_browser")
-    time.sleep(0.3)
-
-    try:
-        result = client._send_command("open_browser https://example.com")
-        change.result = result
-        change.passed = result.startswith("OK")
-    except Exception as e:
-        change.error = str(e)
-        change.passed = False
-    time.sleep(1.0)  # Browser needs time to load
-
-    change.after, change.after_state = capture("after_browser")
-    changes.append(change)
-    time.sleep(0.5)
-
-    # Test 5: Focus switching
-    print("5. Focus switching between panes...")
-    surfaces = client.list_surfaces()
-    if len(surfaces) >= 2:
-        change = StateChange(
-            name="Focus Switch to Pane 0",
-            description="Switch focus to the first pane",
-            command="focus_surface 0"
-        )
-        change.before, change.before_state = capture("before_focus_0")
-        time.sleep(0.3)
-
-        client.focus_surface(0)
-        change.result = "Focused pane 0"
-        time.sleep(0.3)
-
-        change.after, change.after_state = capture("after_focus_0")
-        changes.append(change)
-    time.sleep(0.5)
-
-    # Test 6: Close a split
-    print("6. Closing a split...")
-    surfaces = client.list_surfaces()
-    if len(surfaces) >= 2:
-        change = StateChange(
-            name="Close Split",
-            description="Close the last surface to collapse the split",
-            command=f"close_surface {len(surfaces) - 1}"
-        )
-        change.before, change.before_state = capture("before_close_split")
-        time.sleep(0.3)
-
+        print(f"{label}. {fn.__doc__.strip().split(':')[0] if fn.__doc__ else label}...")
         try:
-            result = client.close_surface(len(surfaces) - 1)
-            change.result = result
-            change.passed = True
+            change = fn(client)
         except Exception as e:
-            change.error = str(e)
-            change.passed = False
-        time.sleep(0.5)
-
-        change.after, change.after_state = capture("after_close_split")
+            change = StateChange(
+                name=f"{label} (CRASHED)", group=label[0],
+                description=str(e), passed=False, error=str(e),
+            )
         changes.append(change)
-    time.sleep(0.5)
+        status = "PASS" if change.passed else "FAIL"
+        print(f"  [{status}] {change.name}")
+        if change.error:
+            print(f"    Error: {change.error}")
 
-    # Test 7: Rapid split/close cycle
-    print("7. Rapid split/close cycle...")
-
-    # Ensure we have a terminal focused for the rapid cycles
-    # Create a new tab to get a clean terminal state
-    client.close()
-    time.sleep(0.3)
-    client = get_client()
-    try:
-        client._send_command("new_tab")
-        time.sleep(0.5)
-        client.close()
-        time.sleep(0.2)
-        client = get_client()
-    except:
-        pass
-
-    for i in range(3):
-        # Reconnect before each cycle to ensure clean state
-        client.close()
-        time.sleep(0.3)
-        client = get_client()
-
-        # Ensure terminal is focused
-        surfaces = client.list_surfaces()
-        for j, s in enumerate(surfaces):
-            if "[terminal]" in s[1]:
-                client.focus_surface(j)
-                break
-        time.sleep(0.2)
-
-        change = StateChange(
-            name=f"Rapid Split/Close Cycle {i+1}",
-            description=f"Quick split and close operation #{i+1}",
-            command="new_split down; close_surface 1"
-        )
-        change.before, change.before_state = capture(f"before_rapid_{i}")
-        time.sleep(0.5)
-
-        # Split
-        try:
-            client.new_split("down")
-            time.sleep(0.5)
-
-            # Capture mid state
-            mid_state = capture_state_direct()
-
-            # Close
-            client.close_surface(1)
-            change.passed = True
-        except Exception as e:
-            change.error = str(e)
-            change.passed = False
-        time.sleep(0.5)
-
-        change.after, change.after_state = capture(f"after_rapid_{i}")
-        changes.append(change)
-    time.sleep(0.5)
-
-    # Test 8: New sidebar tab
-    print("8. Creating new sidebar tab...")
-    change = StateChange(
-        name="New Sidebar Tab",
-        description="Create a new sidebar tab",
-        command="new_tab"
-    )
-    change.before, change.before_state = capture("before_new_tab")
-    time.sleep(0.3)
-
-    result = client.new_tab()
-    change.result = result if result else "No ID returned"
-    change.passed = bool(result)
-    time.sleep(0.5)
-
-    change.after, change.after_state = capture("after_new_tab")
-    changes.append(change)
-    time.sleep(0.5)
-
-    # Test 9: Open browser in new tab
-    print("9. Opening browser in new tab...")
-    change = StateChange(
-        name="Browser in New Tab",
-        description="Open a browser panel in the new sidebar tab",
-        command="open_browser https://github.com"
-    )
-    change.before, change.before_state = capture("before_browser_tab")
-    time.sleep(0.3)
-
-    try:
-        result = client._send_command("open_browser https://github.com")
-        change.result = result
-        change.passed = result.startswith("OK")
-    except Exception as e:
-        change.error = str(e)
-        change.passed = False
-    time.sleep(1.5)  # Browser needs time to load
-
-    change.after, change.after_state = capture("after_browser_tab")
-    changes.append(change)
-
-    # Generate the HTML report
+    # Generate report
     generate_html_report(changes)
 
-    # Cleanup: close extra tabs to prevent accumulation across test runs
+    # Cleanup extra workspaces
     try:
+        cleanup_workspaces(client)
         client.close()
-        time.sleep(0.2)
-        client = get_client()
-        tabs = client.list_tabs()
-        # Keep only the last tab (selected one), close others
-        if len(tabs) > 1:
-            for i in range(len(tabs) - 1):
-                try:
-                    tab_id = tabs[i][1]
-                    client._send_command(f"close_tab {tab_id}")
-                    time.sleep(0.1)
-                except:
-                    pass
-        client.close()
-    except:
+    except Exception:
         pass
 
     # Summary
@@ -796,17 +1061,16 @@ def run_visual_tests():
     print(f"  Passed: {passed}")
     print(f"  Failed: {failed}")
     print(f"  Total:  {len(changes)}")
-    # Print failed test names
-    failed_tests = [c for c in changes if not c.passed]
-    if failed_tests:
+    if failed:
         print()
         print("Failed tests:")
-        for c in failed_tests:
-            print(f"  - {c.name}: {c.error or c.result or 'no error/result'}")
+        for c in changes:
+            if not c.passed:
+                print(f"  - {c.name}: {c.error or 'unknown'}")
     print()
-    print(f"📁 Screenshots saved to: {OUTPUT_DIR}")
-    print(f"📊 Open report: {HTML_REPORT}")
+    print(f"Report: {HTML_REPORT}")
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":
-    run_visual_tests()
+    sys.exit(run_visual_tests())

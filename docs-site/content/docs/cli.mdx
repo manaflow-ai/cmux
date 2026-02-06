@@ -22,61 +22,59 @@ sudo ln -sf "/Applications/cmuxterm.app/Contents/MacOS/cmuxterm" /usr/local/bin/
 |--------|-------------|
 | `--socket PATH` | Use a custom socket path |
 | `--json` | Output in JSON format |
-| `--tab ID` | Target a specific tab |
-| `--panel ID` | Target a specific panel |
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `CMUX_SOCKET_PATH` | Default socket path |
-| `CMUX_TAB_ID` | Default tab ID |
-| `CMUX_PANEL_ID` | Default panel ID |
+| `CMUX_WORKSPACE_ID` | Default workspace ID |
+| `CMUX_SURFACE_ID` | Default surface ID |
 
 ## Commands
 
-### Tab Management
+### Workspace Management
 
-#### list-tabs
+#### list-workspaces
 
-List all open tabs.
+List all open workspaces.
 
 ```bash
-cmuxterm list-tabs
-cmuxterm list-tabs --json
+cmuxterm list-workspaces
+cmuxterm list-workspaces --json
 ```
 
-#### new-tab
+#### new-workspace
 
-Create a new tab.
+Create a new workspace.
 
 ```bash
-cmuxterm new-tab
+cmuxterm new-workspace
 ```
 
-#### select-tab
+#### select-workspace
 
-Switch to a specific tab.
+Switch to a specific workspace.
 
 ```bash
-cmuxterm select-tab --tab <tab-id>
+cmuxterm select-workspace --workspace <workspace-id>
 ```
 
-#### current-tab
+#### current-workspace
 
-Get the current tab info.
+Get the current workspace info.
 
 ```bash
-cmuxterm current-tab
-cmuxterm current-tab --json
+cmuxterm current-workspace
+cmuxterm current-workspace --json
 ```
 
-#### close-tab
+#### close-workspace
 
-Close a tab.
+Close a workspace.
 
 ```bash
-cmuxterm close-tab --tab <tab-id>
+cmuxterm close-workspace --workspace <workspace-id>
 ```
 
 ### Split Management
@@ -94,7 +92,7 @@ cmuxterm new-split up
 
 #### list-panels
 
-List panels in the current tab.
+List panels in the current workspace.
 
 ```bash
 cmuxterm list-panels
@@ -198,25 +196,25 @@ else
 fi
 ```
 
-### Create Tab and Run Command
+### Create Workspace and Run Command
 
 ```bash
 #!/bin/bash
-# Create a new tab
-result=$(cmuxterm new-tab --json)
-tab_id=$(echo "$result" | jq -r '.id')
+# Create a new workspace
+result=$(cmuxterm new-workspace --json)
+workspace_id=$(echo "$result" | jq -r '.id')
 
-# Select the new tab
-cmuxterm select-tab --tab "$tab_id"
+# Select the new workspace
+cmuxterm select-workspace --workspace "$workspace_id"
 
 # Send a command
 cmuxterm send "npm run dev\n"
 ```
 
-### Monitor Multiple Tabs
+### Monitor Multiple Workspaces
 
 ```bash
 #!/bin/bash
-# List all tabs and their directories
-cmuxterm list-tabs --json | jq -r '.tabs[] | "\(.title): \(.directory)"'
+# List all workspaces and their directories
+cmuxterm list-workspaces --json | jq -r '.[] | "\(.title): \(.id)"'
 ```

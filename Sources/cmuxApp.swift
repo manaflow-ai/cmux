@@ -197,11 +197,6 @@ struct cmuxApp: App {
                 Button("New Tab") {
                     tabManager.addTab()
                 }
-                .keyboardShortcut("t", modifiers: .command)
-
-                Button("New Tab") {
-                    tabManager.addTab()
-                }
                 .keyboardShortcut("n", modifiers: .command)
 
                 Button("New Tab") {
@@ -268,13 +263,13 @@ struct cmuxApp: App {
 
                 Divider()
 
-                Button("Next Tab") {
-                    tabManager.selectNextTab()
+                Button("Next Surface") {
+                    tabManager.selectNextSurface()
                 }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
 
-                Button("Previous Tab") {
-                    tabManager.selectPreviousTab()
+                Button("Previous Surface") {
+                    tabManager.selectPreviousSurface()
                 }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
 
@@ -288,15 +283,15 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
-                Button("Next Tab") {
+                Button("Next Workspace") {
                     tabManager.selectNextTab()
                 }
-                .keyboardShortcut(.tab, modifiers: .control)
+                .keyboardShortcut("]", modifiers: [.command, .control])
 
-                Button("Previous Tab") {
+                Button("Previous Workspace") {
                     tabManager.selectPreviousTab()
                 }
-                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .keyboardShortcut("[", modifiers: [.command, .control])
 
                 Divider()
 

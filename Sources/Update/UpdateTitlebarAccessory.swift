@@ -301,7 +301,7 @@ private struct TitlebarControlsView: View {
                 iconLabel(systemName: "plus", config: config)
             }
             .accessibilityLabel("New Tab")
-            .help("Open a new tab (Cmd+T or Cmd+N)")
+            .help("Open a new tab (Cmd+N)")
         }
 
         let paddedContent = content.padding(config.groupPadding)

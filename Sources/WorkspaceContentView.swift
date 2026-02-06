@@ -2,33 +2,34 @@ import SwiftUI
 import Foundation
 import Bonsplit
 
-/// View that renders a SidebarTab's content using BonsplitView
-struct SidebarTabContentView: View {
-    @ObservedObject var sidebarTab: SidebarTab
+/// View that renders a Workspace's content using BonsplitView
+struct WorkspaceContentView: View {
+    @ObservedObject var workspace: Workspace
     let isTabActive: Bool
     @State private var config = GhosttyConfig.load()
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     var body: some View {
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = sidebarTab.bonsplitController.allPaneIds.count > 1 ||
-            sidebarTab.panels.count > 1
+        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
+            workspace.panels.count > 1
 
-        BonsplitView(controller: sidebarTab.bonsplitController) { tab, paneId in
+        BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
-            if let panel = sidebarTab.panel(for: tab.id) {
-                let isFocused = isTabActive && sidebarTab.focusedPanelId == panel.id
+            let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
+            if let panel = workspace.panel(for: tab.id) {
+                let isFocused = isTabActive && workspace.focusedPanelId == panel.id
                 PanelContentView(
                     panel: panel,
                     isFocused: isFocused,
                     isSplit: isSplit,
                     appearance: appearance,
                     notificationStore: notificationStore,
-                    onFocus: { sidebarTab.focusPanel(panel.id) },
-                    onTriggerFlash: { sidebarTab.triggerDebugFlash(panelId: panel.id) }
+                    onFocus: { workspace.focusPanel(panel.id) },
+                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {
-                    sidebarTab.bonsplitController.focusPane(paneId)
+                    workspace.bonsplitController.focusPane(paneId)
                 }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
@@ -38,7 +39,7 @@ struct SidebarTabContentView: View {
             // Empty pane content
             EmptyPanelView()
                 .onTapGesture {
-                    sidebarTab.bonsplitController.focusPane(paneId)
+                    workspace.bonsplitController.focusPane(paneId)
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -46,6 +47,26 @@ struct SidebarTabContentView: View {
             config = GhosttyConfig.load()
         }
     }
+}
+
+extension WorkspaceContentView {
+    #if DEBUG
+    static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
+        let found = workspace.panel(for: tab.id) != nil
+        if !found {
+            let ts = ISO8601DateFormatter().string(from: Date())
+            let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
+            let logPath = "/tmp/cmux-panel-debug.log"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(line.data(using: .utf8)!)
+                handle.closeFile()
+            } else {
+                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
+            }
+        }
+    }
+    #endif
 }
 
 /// View shown for empty panes

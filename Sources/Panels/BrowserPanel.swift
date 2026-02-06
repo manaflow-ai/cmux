@@ -13,8 +13,8 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let panelType: PanelType = .browser
 
-    /// The sidebar tab ID this panel belongs to
-    let sidebarTabId: UUID
+    /// The workspace ID this panel belongs to
+    let workspaceId: UUID
 
     /// The underlying web view
     let webView: WKWebView
@@ -59,9 +59,9 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(sidebarTabId: UUID, initialURL: URL? = nil) {
+    init(workspaceId: UUID, initialURL: URL? = nil) {
         self.id = UUID()
-        self.sidebarTabId = sidebarTabId
+        self.workspaceId = workspaceId
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -149,15 +149,28 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Panel Protocol
 
     func focus() {
-        webView.window?.makeFirstResponder(webView)
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
+        if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
+            return
+        }
+        window.makeFirstResponder(webView)
     }
 
     func unfocus() {
-        // WebView handles unfocus automatically
+        guard let window = webView.window else { return }
+        if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
+            window.makeFirstResponder(nil)
+        }
     }
 
     func close() {
+        // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
+        // bonsplit/SwiftUI reshuffles views during close.
+        unfocus()
         webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        navigationDelegate = nil
         webViewObservers.removeAll()
     }
 

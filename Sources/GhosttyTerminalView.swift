@@ -761,6 +761,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
+    /// Whether the terminal surface view is currently attached to a window.
+    var isViewInWindow: Bool { attachedView?.window != nil }
     let id: UUID
     let tabId: UUID
     private let surfaceContext: ghostty_surface_context_e
@@ -897,8 +899,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        env["CMUX_PANEL_ID"] = id.uuidString
-        env["CMUX_TAB_ID"] = tabId.uuidString
+        env["CMUX_SURFACE_ID"] = id.uuidString
+        env["CMUX_WORKSPACE_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
@@ -979,6 +981,39 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let view = attachedView, let metalLayer = view.layer as? CAMetalLayer {
             metalLayer.contentsScale = layerScale
             metalLayer.drawableSize = CGSize(width: width * layerScale, height: height * layerScale)
+        }
+    }
+
+    /// Force a full size recalculation and Metal layer refresh.
+    /// Used after split close operations where the view resizes but the
+    /// cached metrics may prevent updateSurfaceSize from running.
+    /// Calls ghostty_surface_draw with sync=true to force a frame even when
+    /// ghostty_surface_set_size is a no-op (same dimensions).
+    func forceRefresh() {
+        let viewState: String
+        if let view = attachedView {
+            let inWindow = view.window != nil
+            let bounds = view.bounds
+            let metalOK = (view.layer as? CAMetalLayer) != nil
+            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK)"
+        } else {
+            viewState = "NO_ATTACHED_VIEW"
+        }
+        #if DEBUG
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(ts)] forceRefresh: \(id) \(viewState)\n"
+        let logPath = "/tmp/cmux-refresh-debug.log"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
+        }
+        #endif
+        attachedView?.forceRefreshSurface()
+        if let surface = surface {
+            ghostty_surface_draw(surface)
         }
     }
 
@@ -1248,6 +1283,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             updateSurfaceSize()
             applySurfaceBackground()
             applyWindowBackgroundIfActive()
+
+            // After re-addition to window (e.g., split close tree restructuring),
+            // force a sync draw once layout has settled. ghostty_surface_refresh alone
+            // won't redraw if dimensions haven't changed.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.window != nil,
+                      let surface = self.terminalSurface?.surface else { return }
+                ghostty_surface_draw(surface)
+            }
         }
     }
 
@@ -1313,6 +1357,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale
         )
+    }
+
+    /// Force a full size recalculation and Metal layer refresh.
+    /// Resets cached metrics so updateSurfaceSize() re-runs unconditionally.
+    func forceRefreshSurface() {
+        hasSurfaceMetrics = false
+        updateSurfaceSize()
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
@@ -2340,10 +2391,9 @@ final class GhosttySurfaceScrollView: NSView {
                 return
             }
 
-            if let responder = window.firstResponder as? NSView, responder !== self.surfaceView {
-                _ = responder.resignFirstResponder()
-            }
-
+            // Do not call `resignFirstResponder()` directly on the current first responder.
+            // Some responders (notably WebKit) assume resign is driven by NSWindow's responder change
+            // machinery and can raise an exception if called out-of-band.
             window.makeFirstResponder(self.surfaceView)
 
             if window.firstResponder !== self.surfaceView {
@@ -2536,6 +2586,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GhosttySurfaceScrollView {
         let view = terminalSurface.hostedView
+        // If the view is still attached to an old parent, detach it so the new
+        // parent can properly adopt it. This handles split close restructuring
+        // where a hosting view was cleared but SwiftUI hasn't fully dismantled it.
+        if view.superview != nil {
+            #if DEBUG
+            NSLog("[GhosttyTerminalView] makeNSView: view has superview (window=\(view.superview?.window != nil ? "yes" : "nil")), removing from superview")
+            #endif
+            view.removeFromSuperview()
+        }
         view.attachSurface(terminalSurface)
         view.setActive(isActive)
         view.setFocusHandler { onFocus?(terminalSurface.id) }

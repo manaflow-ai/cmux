@@ -60,8 +60,8 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
     marker.unlink(missing_ok=True)
 
     # Create a fresh tab to avoid interfering with existing sessions
-    new_tab_id = client.new_tab()
-    client.select_tab(new_tab_id)
+    new_workspace_id = client.new_workspace()
+    client.select_workspace(new_workspace_id)
     time.sleep(0.3)
 
     # Make sure the app is focused for keystrokes
@@ -87,7 +87,7 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
     if ok:
         marker.unlink(missing_ok=True)
     try:
-        client.close_tab(new_tab_id)
+        client.close_workspace(new_workspace_id)
     except Exception:
         pass
     return ok, ("Ctrl+Enter keybind executed command" if ok else "Marker not created by Ctrl+Enter")

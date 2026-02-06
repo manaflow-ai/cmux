@@ -3,6 +3,7 @@ import Bonsplit
 import CoreServices
 import UserNotifications
 import Sentry
+import WebKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
@@ -13,12 +14,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     private var workspaceObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
+    private var ghosttyConfigObserver: NSObjectProtocol?
+    private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
+    private var ghosttyGotoSplitRightShortcut: StoredShortcut?
+    private var ghosttyGotoSplitUpShortcut: StoredShortcut?
+    private var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
+    private var didSetupGotoSplitUITest = false
 #endif
 
     var updateViewModel: UpdateViewModel {
@@ -53,6 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.startUpdater()
         titlebarAccessoryController.start()
         windowDecorationsController.start()
+        refreshGhosttyGotoSplitShortcuts()
+        installGhosttyConfigObserver()
         installShortcutMonitor()
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -91,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.sidebarState = sidebarState
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
+        setupGotoSplitUITestIfNeeded()
 #endif
     }
 
@@ -263,6 +273,166 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         return object
     }
+
+    private func setupGotoSplitUITestIfNeeded() {
+        guard !didSetupGotoSplitUITest else { return }
+        didSetupGotoSplitUITest = true
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
+        guard tabManager != nil else { return }
+
+        let useGhosttyConfig = env["CMUX_UI_TEST_GOTO_SPLIT_USE_GHOSTTY_CONFIG"] == "1"
+
+        if useGhosttyConfig {
+            // Keep the test hermetic: ensure the app does not accidentally pass using a persisted
+            // KeyboardShortcutSettings override instead of the Ghostty config-trigger path.
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusLeftKey)
+        } else {
+            // For this UI test we want a letter-based shortcut (Cmd+Ctrl+H) to drive pane navigation,
+            // since arrow keys can't be recorded by the shortcut recorder.
+            let shortcut = StoredShortcut(key: "h", command: true, shift: false, option: false, control: true)
+            if let data = try? JSONEncoder().encode(shortcut) {
+                UserDefaults.standard.set(data, forKey: KeyboardShortcutSettings.focusLeftKey)
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, let tabManager = self.tabManager else { return }
+
+            let tab = tabManager.addTab()
+            guard let initialPanelId = tab.focusedPanelId else {
+                self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
+                return
+            }
+
+            let url = URL(string: "https://example.com")
+            guard let browserPanelId = tabManager.newBrowserSplit(
+                tabId: tab.id,
+                fromPanelId: initialPanelId,
+                orientation: .horizontal,
+                url: url
+            ) else {
+                self.writeGotoSplitTestData(["setupError": "Failed to create browser split"])
+                return
+            }
+
+            self.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
+        }
+    }
+
+    private func focusWebViewForGotoSplitUITest(tab: Workspace, browserPanelId: UUID, attempt: Int = 0) {
+        let maxAttempts = 120
+        guard attempt < maxAttempts else {
+            writeGotoSplitTestData([
+                "webViewFocused": "false",
+                "setupError": "Timed out waiting for WKWebView focus"
+            ])
+            return
+        }
+
+        guard let browserPanel = tab.browserPanel(for: browserPanelId) else {
+            writeGotoSplitTestData([
+                "webViewFocused": "false",
+                "setupError": "Browser panel missing"
+            ])
+            return
+        }
+
+        // Select the browser surface and try to focus the WKWebView.
+        tab.focusPanel(browserPanelId)
+
+        if isWebViewFocused(browserPanel),
+           let (browserPaneId, terminalPaneId) = paneIdsForGotoSplitUITest(
+            tab: tab,
+            browserPanelId: browserPanelId
+           ) {
+            writeGotoSplitTestData([
+                "browserPanelId": browserPanelId.uuidString,
+                "browserPaneId": browserPaneId.description,
+                "terminalPaneId": terminalPaneId.description,
+                "focusedPaneId": tab.bonsplitController.focusedPaneId?.description ?? "",
+                "ghosttyGotoSplitLeftShortcut": ghosttyGotoSplitLeftShortcut?.displayString ?? "",
+                "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
+                "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
+                "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
+                "webViewFocused": "true"
+            ])
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId, attempt: attempt + 1)
+        }
+    }
+
+    private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
+        guard let window = panel.webView.window else { return false }
+        guard let fr = window.firstResponder as? NSView else { return false }
+        return fr.isDescendant(of: panel.webView)
+    }
+
+    private func paneIdsForGotoSplitUITest(tab: Workspace, browserPanelId: UUID) -> (browser: PaneID, terminal: PaneID)? {
+        let paneIds = tab.bonsplitController.allPaneIds
+        guard paneIds.count >= 2 else { return nil }
+
+        var browserPane: PaneID?
+        var terminalPane: PaneID?
+        for paneId in paneIds {
+            guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+                  let panelId = tab.panelIdFromSurfaceId(selected.id) else { continue }
+            if panelId == browserPanelId {
+                browserPane = paneId
+            } else if terminalPane == nil {
+                terminalPane = paneId
+            }
+        }
+
+        guard let browserPane, let terminalPane else { return nil }
+        return (browserPane, terminalPane)
+    }
+
+    private func recordGotoSplitMoveIfNeeded(direction: NavigationDirection) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
+        guard let tabManager,
+              let focusedPaneId = tabManager.selectedWorkspace?.bonsplitController.focusedPaneId else { return }
+
+        let directionValue: String
+        switch direction {
+        case .left:
+            directionValue = "left"
+        case .right:
+            directionValue = "right"
+        case .up:
+            directionValue = "up"
+        case .down:
+            directionValue = "down"
+        }
+
+        writeGotoSplitTestData([
+            "lastMoveDirection": directionValue,
+            "focusedPaneId": focusedPaneId.description
+        ])
+    }
+
+    private func writeGotoSplitTestData(_ updates: [String: String]) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_GOTO_SPLIT_PATH"], !path.isEmpty else { return }
+        var payload = loadGotoSplitTestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadGotoSplitTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
 #endif
 
     func attachUpdateAccessory(to window: NSWindow) {
@@ -295,6 +465,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func installGhosttyConfigObserver() {
+        guard ghosttyConfigObserver == nil else { return }
+        ghosttyConfigObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyConfigDidReload,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshGhosttyGotoSplitShortcuts()
+        }
+    }
+
+    private func refreshGhosttyGotoSplitShortcuts() {
+        guard let config = GhosttyApp.shared.config else {
+            ghosttyGotoSplitLeftShortcut = nil
+            ghosttyGotoSplitRightShortcut = nil
+            ghosttyGotoSplitUpShortcut = nil
+            ghosttyGotoSplitDownShortcut = nil
+            return
+        }
+
+        ghosttyGotoSplitLeftShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:left", UInt("goto_split:left".utf8.count))
+        )
+        ghosttyGotoSplitRightShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:right", UInt("goto_split:right".utf8.count))
+        )
+        ghosttyGotoSplitUpShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:up", UInt("goto_split:up".utf8.count))
+        )
+        ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        )
+    }
+
+    private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
+        let key: String
+        switch trigger.tag {
+        case GHOSTTY_TRIGGER_PHYSICAL:
+            switch trigger.key.physical {
+            case GHOSTTY_KEY_ARROW_LEFT:
+                key = "←"
+            case GHOSTTY_KEY_ARROW_RIGHT:
+                key = "→"
+            case GHOSTTY_KEY_ARROW_UP:
+                key = "↑"
+            case GHOSTTY_KEY_ARROW_DOWN:
+                key = "↓"
+            default:
+                return nil
+            }
+        case GHOSTTY_TRIGGER_UNICODE:
+            guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
+            key = String(Character(scalar)).lowercased()
+        case GHOSTTY_TRIGGER_CATCH_ALL:
+            return nil
+        default:
+            return nil
+        }
+
+        let mods = trigger.mods.rawValue
+        let command = (mods & GHOSTTY_MODS_SUPER.rawValue) != 0
+        let shift = (mods & GHOSTTY_MODS_SHIFT.rawValue) != 0
+        let option = (mods & GHOSTTY_MODS_ALT.rawValue) != 0
+        let control = (mods & GHOSTTY_MODS_CTRL.rawValue) != 0
+
+        // Ignore bogus empty triggers.
+        if key.isEmpty || (!command && !shift && !option && !control) {
+            return nil
+        }
+
+        return StoredShortcut(key: key, command: command, shift: shift, option: option, control: control)
+    }
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -313,7 +556,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Sidebar tab navigation: Cmd+] / Cmd+[
+        // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.nextSurfaceShortcut()) {
+            tabManager?.selectNextSurface()
+            return true
+        }
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.prevSurfaceShortcut()) {
+            tabManager?.selectPreviousSurface()
+            return true
+        }
+
+        // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         let nextSidebarShortcut = KeyboardShortcutSettings.nextSidebarTabShortcut()
         if matchShortcut(event: event, shortcut: nextSidebarShortcut) {
             tabManager?.selectNextTab()
@@ -334,21 +587,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        // Pane focus navigation: Cmd+Option+Arrow
-        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusLeftShortcut(), keyCode: 123) {
+        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
+        if flags == [.control] {
+            if let num = Int(chars), num >= 1 && num <= 9 {
+                if num == 9 {
+                    tabManager?.selectLastSurface()
+                } else {
+                    tabManager?.selectSurface(at: num - 1)
+                }
+                return true
+            }
+        }
+
+        // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
+        if matchDirectionalShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.focusLeftShortcut(),
+            arrowGlyph: "←",
+            arrowKeyCode: 123
+        ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
             tabManager?.movePaneFocus(direction: .left)
+#if DEBUG
+            recordGotoSplitMoveIfNeeded(direction: .left)
+#endif
             return true
         }
-        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusRightShortcut(), keyCode: 124) {
+        if matchDirectionalShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.focusRightShortcut(),
+            arrowGlyph: "→",
+            arrowKeyCode: 124
+        ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
             tabManager?.movePaneFocus(direction: .right)
+#if DEBUG
+            recordGotoSplitMoveIfNeeded(direction: .right)
+#endif
             return true
         }
-        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusUpShortcut(), keyCode: 126) {
+        if matchDirectionalShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.focusUpShortcut(),
+            arrowGlyph: "↑",
+            arrowKeyCode: 126
+        ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
             tabManager?.movePaneFocus(direction: .up)
+#if DEBUG
+            recordGotoSplitMoveIfNeeded(direction: .up)
+#endif
             return true
         }
-        if matchArrowShortcut(event: event, shortcut: KeyboardShortcutSettings.focusDownShortcut(), keyCode: 125) {
+        if matchDirectionalShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.focusDownShortcut(),
+            arrowGlyph: "↓",
+            arrowKeyCode: 125
+        ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
             tabManager?.movePaneFocus(direction: .down)
+#if DEBUG
+            recordGotoSplitMoveIfNeeded(direction: .down)
+#endif
             return true
         }
 
@@ -365,20 +662,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Bonsplit tab navigation: Ctrl+Tab / Ctrl+Shift+Tab
-        if matchTabShortcut(event: event, shortcut: KeyboardShortcutSettings.nextBonsplitTabShortcut()) {
-            tabManager?.selectNextBonsplitTab()
+        // Surface navigation (legacy Ctrl+Tab support)
+        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
+            tabManager?.selectNextSurface()
             return true
         }
-        if matchTabShortcut(event: event, shortcut: KeyboardShortcutSettings.prevBonsplitTabShortcut()) {
-            tabManager?.selectPreviousBonsplitTab()
+        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
+            tabManager?.selectPreviousSurface()
             return true
         }
 
-        // New bonsplit tab: Cmd+Shift+T
-        let newBonsplitTabShortcut = KeyboardShortcutSettings.newBonsplitTabShortcut()
-        if matchShortcut(event: event, shortcut: newBonsplitTabShortcut) {
-            tabManager?.newBonsplitTab()
+        // New surface: Cmd+T
+        let newSurfaceShortcut = KeyboardShortcutSettings.newSurfaceShortcut()
+        if matchShortcut(event: event, shortcut: newSurfaceShortcut) {
+            tabManager?.newSurface()
             return true
         }
 
@@ -389,19 +686,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Focus browser address bar: Cmd+L
+        if flags == [.command] && chars == "l" {
+            if let focusedPanel = tabManager?.focusedBrowserPanel {
+                NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
+                return true
+            }
+        }
+
         return false
     }
 
     /// Match a shortcut against an event, handling normal keys
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return chars == shortcut.key && flags == shortcut.modifierFlags
+        guard flags == shortcut.modifierFlags else { return false }
+
+        // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
+        // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
+        let shortcutKey = shortcut.key.lowercased()
+        if shortcutKey == "[" || shortcutKey == "]" {
+            switch event.keyCode {
+            case 33: // kVK_ANSI_LeftBracket
+                return shortcutKey == "["
+            case 30: // kVK_ANSI_RightBracket
+                return shortcutKey == "]"
+            default:
+                return false
+            }
+        }
+
+        guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        return chars == shortcutKey
     }
 
     /// Match arrow key shortcuts using keyCode
+    /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
     private func matchArrowShortcut(event: NSEvent, shortcut: StoredShortcut, keyCode: UInt16) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
         return event.keyCode == keyCode && flags == shortcut.modifierFlags
     }
 
@@ -409,6 +732,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return event.keyCode == 48 && flags == shortcut.modifierFlags
+    }
+
+    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
+    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
+    private func matchDirectionalShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        if shortcut.key == arrowGlyph {
+            return matchArrowShortcut(event: event, shortcut: shortcut, keyCode: arrowKeyCode)
+        }
+        return matchShortcut(event: event, shortcut: shortcut)
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

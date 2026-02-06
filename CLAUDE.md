@@ -1,5 +1,9 @@
 # cmuxterm agent notes
 
+See `PROJECTS.md` for cross-project tracking (features, bugs, backlog). Update it when completing or adding work items.
+
+"cmuxterm" is always fully lowercase. Never capitalize as "Cmuxterm", "CmuxTerm", "CMUXTERM", etc.
+
 ## Initial setup
 
 Run the setup script to initialize submodules and build GhosttyKit:

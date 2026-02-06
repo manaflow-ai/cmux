@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 import Bonsplit
+import WebKit
 
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
@@ -156,11 +157,11 @@ class TerminalController {
         case "ping":
             return "PONG"
 
-        case "list_tabs":
-            return listTabs()
+        case "list_workspaces":
+            return listWorkspaces()
 
-        case "new_tab":
-            return newTab()
+        case "new_workspace":
+            return newWorkspace()
 
         case "new_split":
             return newSplit(args)
@@ -171,14 +172,14 @@ class TerminalController {
         case "focus_surface":
             return focusSurface(args)
 
-        case "close_tab":
-            return closeTab(args)
+        case "close_workspace":
+            return closeWorkspace(args)
 
-        case "select_tab":
-            return selectTab(args)
+        case "select_workspace":
+            return selectWorkspace(args)
 
-        case "current_tab":
-            return currentTab()
+        case "current_workspace":
+            return currentWorkspace()
 
         case "send":
             return sendInput(args)
@@ -249,29 +250,38 @@ class TerminalController {
         case "get_url":
             return getUrl(args)
 
+        case "focus_webview":
+            return focusWebView(args)
+
+        case "is_webview_focused":
+            return isWebViewFocused(args)
+
         case "list_panes":
             return listPanes()
 
-        case "list_bonsplit_tabs":
-            return listBonsplitTabs(args)
+        case "list_pane_surfaces":
+            return listPaneSurfaces(args)
 
         case "focus_pane":
             return focusPane(args)
 
-        case "focus_bonsplit_tab":
-            return focusBonsplitTab(args)
+        case "focus_surface_by_panel":
+            return focusSurfaceByPanel(args)
 
         case "new_pane":
             return newPane(args)
 
-        case "new_bonsplit_tab":
-            return newBonsplitTab(args)
+        case "new_surface":
+            return newSurface(args)
 
         case "close_surface":
             return closeSurface(args)
 
         case "refresh_surfaces":
             return refreshSurfaces()
+
+        case "surface_health":
+            return surfaceHealth(args)
 
         default:
             return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
@@ -280,55 +290,64 @@ class TerminalController {
 
     private func helpText() -> String {
         var text = """
+        Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
+
         Available commands:
-          ping                    - Check if server is running
-          list_tabs               - List all sidebar tabs with IDs
-          new_tab                 - Create a new sidebar tab
-          new_split <direction> [panel] - Split panel (left/right/up/down)
-          list_surfaces [tab]     - List panels for tab (current tab if omitted)
-          focus_surface <id|idx>  - Focus panel by ID or index (current tab)
-          close_tab <id>          - Close sidebar tab by ID
-          select_tab <id|index>   - Select sidebar tab by ID or index (0-based)
-          current_tab             - Get current sidebar tab ID
-          send <text>             - Send text to current terminal panel
-          send_key <key>          - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
-          send_surface <id|idx> <text> - Send text to a terminal panel
-          send_key_surface <id|idx> <key> - Send special key to a terminal panel
-          notify <title>|<subtitle>|<body>   - Create a notification for the focused panel
-          notify_surface <id|idx> <title>|<subtitle>|<body> - Create a notification for a panel
-          notify_target <tabId> <panelId> <title>|<subtitle>|<body> - Notify a specific panel
-          list_notifications      - List all notifications
-          clear_notifications     - Clear all notifications
-          set_app_focus <active|inactive|clear> - Override app focus state
-          simulate_app_active     - Trigger app active handler
+          ping                        - Check if server is running
+          list_workspaces             - List all workspaces with IDs
+          new_workspace               - Create a new workspace
+          select_workspace <id|index> - Select workspace by ID or index (0-based)
+          current_workspace           - Get current workspace ID
+          close_workspace <id>        - Close workspace by ID
 
-        Browser panel commands:
-          open_browser [url]      - Create browser panel with optional URL
-          navigate <panel_id> <url> - Navigate browser panel to URL
-          browser_back <panel_id> - Go back in browser history
-          browser_forward <panel_id> - Go forward in browser history
-          browser_reload <panel_id> - Reload browser page
-          get_url <panel_id>      - Get current URL of browser panel
-
-        Bonsplit pane commands:
+        Split & surface commands:
+          new_split <direction> [panel]   - Split panel (left/right/up/down)
           new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
-          new_bonsplit_tab [--type=terminal|browser] [--pane=<pane_id>] [--url=...]
-          list_panes              - List all panes with IDs
-          list_bonsplit_tabs [--pane=<pane_id>] - List tabs in pane
-          focus_pane <pane_id>    - Focus a pane
-          focus_bonsplit_tab <tab_id> - Focus a bonsplit tab
-          close_surface [id|idx]  - Close surface (collapse split)
-          refresh_surfaces        - Force refresh all terminals in current tab
+          new_surface [--type=terminal|browser] [--pane=<pane_id>] [--url=...]
+          list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
+          list_panes                      - List all panes with IDs
+          list_pane_surfaces [--pane=<pane_id>] - List surfaces in pane
+          focus_surface <id|idx>          - Focus surface by ID or index
+          focus_pane <pane_id>            - Focus a pane
+          focus_surface_by_panel <panel_id> - Focus surface by panel ID
+          close_surface [id|idx]          - Close surface (collapse split)
+          refresh_surfaces                - Force refresh all terminals
+          surface_health [workspace]      - Check view health of all surfaces
 
-          help                    - Show this help
+        Input commands:
+          send <text>                     - Send text to current terminal
+          send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
+          send_surface <id|idx> <text>    - Send text to a specific terminal
+          send_key_surface <id|idx> <key> - Send special key to a specific terminal
+
+        Notification commands:
+          notify <title>|<subtitle>|<body>   - Notify focused panel
+          notify_surface <id|idx> <payload>  - Notify a specific surface
+          notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
+          list_notifications              - List all notifications
+          clear_notifications             - Clear all notifications
+          set_app_focus <active|inactive|clear> - Override app focus state
+          simulate_app_active             - Trigger app active handler
+
+        Browser commands:
+          open_browser [url]              - Create browser panel with optional URL
+          navigate <panel_id> <url>       - Navigate browser to URL
+          browser_back <panel_id>         - Go back in browser history
+          browser_forward <panel_id>      - Go forward in browser history
+          browser_reload <panel_id>       - Reload browser page
+          get_url <panel_id>              - Get current URL of browser panel
+          focus_webview <panel_id>        - Move keyboard focus into the WKWebView (for tests)
+          is_webview_focused <panel_id>   - Return true/false if WKWebView is first responder
+
+          help                            - Show this help
         """
 #if DEBUG
         text += """
 
-          focus_notification <tab|idx> [surface|idx] - Focus via notification flow
-          flash_count <id|idx>    - Read flash count for a panel
-          reset_flash_counts      - Reset flash counters
-          screenshot [label]      - Capture window screenshot, returns ID and path
+          focus_notification <workspace|idx> [surface|idx] - Focus via notification flow
+          flash_count <id|idx>            - Read flash count for a panel
+          reset_flash_counts              - Reset flash counters
+          screenshot [label]              - Capture window screenshot
         """
 #endif
         return text
@@ -354,7 +373,7 @@ class TerminalController {
         }
     }
 
-    private func listTabs() -> String {
+    private func listWorkspaces() -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result: String = ""
@@ -368,7 +387,7 @@ class TerminalController {
         return result.isEmpty ? "No tabs" : result
     }
 
-    private func newTab() -> String {
+    private func newWorkspace() -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var newTabId: UUID?
@@ -532,10 +551,10 @@ class TerminalController {
     private func notifyTarget(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <tabId> <panelId> <title>|<subtitle>|<body>" }
+        guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
 
         let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        guard parts.count >= 2 else { return "ERROR: Usage: notify_target <tabId> <panelId> <title>|<subtitle>|<body>" }
+        guard parts.count >= 2 else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
 
         let tabArg = parts[0]
         let panelArg = parts[1]
@@ -782,7 +801,7 @@ class TerminalController {
         return nil
     }
 
-    private func resolveSurfaceId(from arg: String, tab: SidebarTab) -> UUID? {
+    private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg), tab.panels[uuid] != nil {
             return uuid
         }
@@ -808,7 +827,7 @@ class TerminalController {
         return (title.isEmpty ? "Notification" : title, subtitle, body)
     }
 
-    private func closeTab(_ tabId: String) -> String {
+    private func closeWorkspace(_ tabId: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
 
@@ -822,7 +841,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Tab not found"
     }
 
-    private func selectTab(_ arg: String) -> String {
+    private func selectWorkspace(_ arg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var success = false
@@ -843,7 +862,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Tab not found"
     }
 
-    private func currentTab() -> String {
+    private func currentWorkspace() -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result: String = ""
@@ -1199,6 +1218,70 @@ class TerminalController {
         return result
     }
 
+    private func focusWebView(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !panelArg.isEmpty else { return "ERROR: Usage: focus_webview <panel_id>" }
+
+        var result = "ERROR: Panel not found or not a browser"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+                  let panelId = UUID(uuidString: panelArg),
+                  let browserPanel = tab.browserPanel(for: panelId) else {
+                return
+            }
+
+            let webView = browserPanel.webView
+            guard let window = webView.window else {
+                result = "ERROR: WebView is not in a window"
+                return
+            }
+            guard !webView.isHiddenOrHasHiddenAncestor else {
+                result = "ERROR: WebView is hidden"
+                return
+            }
+
+            window.makeFirstResponder(webView)
+            if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
+                result = "OK"
+            } else {
+                result = "ERROR: Focus did not move into web view"
+            }
+        }
+        return result
+    }
+
+    private func isWebViewFocused(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !panelArg.isEmpty else { return "ERROR: Usage: is_webview_focused <panel_id>" }
+
+        var result = "ERROR: Panel not found or not a browser"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+                  let panelId = UUID(uuidString: panelArg),
+                  let browserPanel = tab.browserPanel(for: panelId) else {
+                return
+            }
+
+            let webView = browserPanel.webView
+            guard let window = webView.window else {
+                result = "false"
+                return
+            }
+            guard let fr = window.firstResponder as? NSView else {
+                result = "false"
+                return
+            }
+            result = fr.isDescendant(of: webView) ? "true" : "false"
+        }
+        return result
+    }
+
     // MARK: - Bonsplit Pane Commands
 
     private func listPanes() -> String {
@@ -1225,7 +1308,7 @@ class TerminalController {
         return result
     }
 
-    private func listBonsplitTabs(_ args: String) -> String {
+    private func listPaneSurfaces(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result = ""
@@ -1256,7 +1339,7 @@ class TerminalController {
 
             let lines = tabs.enumerated().map { index, bonsplitTab in
                 let selected = bonsplitTab.id == selectedTab?.id ? "*" : " "
-                let panelId = tab.panelIdFromTabId(bonsplitTab.id)
+                let panelId = tab.panelIdFromSurfaceId(bonsplitTab.id)
                 let panelIdStr = panelId?.uuidString ?? "unknown"
                 return "\(selected) \(index): \(bonsplitTab.title) [panel:\(panelIdStr)]"
             }
@@ -1293,7 +1376,7 @@ class TerminalController {
         return result
     }
 
-    private func focusBonsplitTab(_ args: String) -> String {
+    private func focusSurfaceByPanel(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let tabArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1308,7 +1391,7 @@ class TerminalController {
 
             // Try to find by panel ID (which maps to our internal panel)
             if let panelUUID = UUID(uuidString: tabArg),
-               let bonsplitTabId = tab.tabIdFromPanelId(panelUUID) {
+               let bonsplitTabId = tab.surfaceIdFromPanelId(panelUUID) {
                 tab.bonsplitController.selectTab(bonsplitTabId)
                 result = "OK"
             }
@@ -1371,17 +1454,43 @@ class TerminalController {
                 return
             }
 
-            // Refresh all terminal panels in current tab
+            // Force-refresh all terminal panels in current tab
+            // (resets cached metrics so the Metal layer drawable resizes correctly)
             for panel in tab.panels.values {
-                if let terminalPanel = panel as? TerminalPanel,
-                   let surface = terminalPanel.surface.surface {
-                    ghostty_surface_refresh(surface)
-                    ghostty_surface_draw(surface)
+                if let terminalPanel = panel as? TerminalPanel {
+                    terminalPanel.surface.forceRefresh()
                     refreshedCount += 1
                 }
             }
         }
         return "OK Refreshed \(refreshedCount) surfaces"
+    }
+
+    private func surfaceHealth(_ tabArg: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        var result = ""
+        DispatchQueue.main.sync {
+            guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            let panels = Array(tab.panels.values)
+            let lines = panels.enumerated().map { index, panel -> String in
+                let panelId = panel.id.uuidString
+                let type = panel.panelType.rawValue
+                if let tp = panel as? TerminalPanel {
+                    let inWindow = tp.surface.isViewInWindow
+                    return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"
+                } else if let bp = panel as? BrowserPanel {
+                    let inWindow = bp.webView.window != nil
+                    return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"
+                } else {
+                    return "\(index): \(panelId) type=\(type) in_window=unknown"
+                }
+            }
+            result = lines.isEmpty ? "No panels" : lines.joined(separator: "\n")
+        }
+        return result
     }
 
     private func closeSurface(_ args: String) -> String {
@@ -1421,7 +1530,7 @@ class TerminalController {
         return result
     }
 
-    private func newBonsplitTab(_ args: String) -> String {
+    private func newSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
@@ -1467,9 +1576,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserTab(inPane: targetPaneId, url: url)?.id
+                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url)?.id
             } else {
-                newPanelId = tab.newTerminalTab(inPane: targetPaneId)?.id
+                newPanelId = tab.newTerminalSurface(inPane: targetPaneId)?.id
             }
 
             if let id = newPanelId {

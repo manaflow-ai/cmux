@@ -266,19 +266,19 @@ def test_mark_read_on_tab_switch(client: cmux) -> TestResult:
     try:
         client.clear_notifications()
         client.set_app_focus(False)
-        tab1 = client.current_tab()
+        tab1 = client.current_workspace()
         client.notify("tabswitch")
         time.sleep(0.1)
 
-        tab2 = client.new_tab()
+        tab2 = client.new_workspace()
         time.sleep(0.1)
 
         client.set_app_focus(True)
-        client.select_tab(tab1)
+        client.select_workspace(tab1)
         time.sleep(0.1)
 
         items = client.list_notifications()
-        target = next((n for n in items if n["tab_id"] == tab1), None)
+        target = next((n for n in items if n["workspace_id"] == tab1), None)
         if target is None:
             result.failure("Expected notification for original tab")
         elif not target["is_read"]:
@@ -296,7 +296,7 @@ def test_flash_on_tab_switch(client: cmux) -> TestResult:
         client.clear_notifications()
         client.reset_flash_counts()
 
-        tab1 = client.current_tab()
+        tab1 = client.current_workspace()
         surfaces = client.list_surfaces()
         focused = next((s for s in surfaces if s[2]), None)
         if focused is None:
@@ -307,11 +307,11 @@ def test_flash_on_tab_switch(client: cmux) -> TestResult:
         client.notify("tabswitchflash")
         time.sleep(0.1)
 
-        client.new_tab()
+        client.new_workspace()
         time.sleep(0.1)
 
         client.set_app_focus(True)
-        client.select_tab(tab1)
+        client.select_workspace(tab1)
         time.sleep(0.2)
 
         count = client.flash_count(focused[1])
@@ -342,8 +342,8 @@ def test_focus_on_notification_click(client: cmux) -> TestResult:
         time.sleep(0.1)
 
         client.set_app_focus(True)
-        tab_id = client.current_tab()
-        client.focus_notification(tab_id, other[0])
+        workspace_id = client.current_workspace()
+        client.focus_notification(workspace_id, other[0])
         time.sleep(0.2)
 
         surfaces = client.list_surfaces()
@@ -378,11 +378,11 @@ def test_restore_focus_on_tab_switch(client: cmux) -> TestResult:
         client.focus_surface(other[0])
         time.sleep(0.1)
 
-        tab1 = client.current_tab()
-        client.new_tab()
+        tab1 = client.current_workspace()
+        client.new_workspace()
         time.sleep(0.1)
 
-        client.select_tab(tab1)
+        client.select_workspace(tab1)
         time.sleep(0.2)
 
         surfaces = client.list_surfaces()
@@ -403,7 +403,7 @@ def test_clear_on_tab_close(client: cmux) -> TestResult:
     try:
         client.clear_notifications()
         client.set_app_focus(False)
-        tab1 = client.current_tab()
+        tab1 = client.current_workspace()
         client.notify("closetab")
         time.sleep(0.1)
 
@@ -412,9 +412,9 @@ def test_clear_on_tab_close(client: cmux) -> TestResult:
             result.failure(f"Expected 1 notification, got {len(items)}")
             return result
 
-        client.new_tab()
+        client.new_workspace()
         time.sleep(0.1)
-        client.close_tab(tab1)
+        client.close_workspace(tab1)
         time.sleep(0.2)
 
         items = client.list_notifications()

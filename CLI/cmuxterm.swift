@@ -7,7 +7,7 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
-struct TabInfo {
+struct WorkspaceInfo {
     let index: Int
     let id: String
     let title: String
@@ -22,8 +22,8 @@ struct PanelInfo {
 
 struct NotificationInfo {
     let id: String
-    let tabId: String
-    let panelId: String?
+    let workspaceId: String
+    let surfaceId: String?
     let isRead: Bool
     let title: String
     let subtitle: String
@@ -172,11 +172,11 @@ struct CMUXCLI {
             let response = try client.send(command: "ping")
             print(response)
 
-        case "list-tabs":
-            let response = try client.send(command: "list_tabs")
+        case "list-workspaces":
+            let response = try client.send(command: "list_workspaces")
             if jsonOutput {
-                let tabs = parseTabs(response)
-                let payload = tabs.map { [
+                let workspaces = parseWorkspaces(response)
+                let payload = workspaces.map { [
                     "index": $0.index,
                     "id": $0.id,
                     "title": $0.title,
@@ -187,8 +187,8 @@ struct CMUXCLI {
                 print(response)
             }
 
-        case "new-tab":
-            let response = try client.send(command: "new_tab")
+        case "new-workspace":
+            let response = try client.send(command: "new_workspace")
             print(response)
 
         case "new-split":
@@ -201,8 +201,8 @@ struct CMUXCLI {
             print(response)
 
         case "list-panels":
-            let (tabArg, _) = parseOption(commandArgs, name: "--tab")
-            let response = try client.send(command: "list_surfaces \(tabArg ?? "")".trimmingCharacters(in: .whitespaces))
+            let (workspaceArg, _) = parseOption(commandArgs, name: "--workspace")
+            let response = try client.send(command: "list_surfaces \(workspaceArg ?? "")".trimmingCharacters(in: .whitespaces))
             if jsonOutput {
                 let panels = parsePanels(response)
                 let payload = panels.map { [
@@ -222,25 +222,25 @@ struct CMUXCLI {
             let response = try client.send(command: "focus_surface \(panel)")
             print(response)
 
-        case "close-tab":
-            guard let tab = optionValue(commandArgs, name: "--tab") else {
-                throw CLIError(message: "close-tab requires --tab")
+        case "close-workspace":
+            guard let workspace = optionValue(commandArgs, name: "--workspace") else {
+                throw CLIError(message: "close-workspace requires --workspace")
             }
-            let tabId = try resolveTabId(tab, client: client)
-            let response = try client.send(command: "close_tab \(tabId)")
+            let workspaceId = try resolveWorkspaceId(workspace, client: client)
+            let response = try client.send(command: "close_workspace \(workspaceId)")
             print(response)
 
-        case "select-tab":
-            guard let tab = optionValue(commandArgs, name: "--tab") else {
-                throw CLIError(message: "select-tab requires --tab")
+        case "select-workspace":
+            guard let workspace = optionValue(commandArgs, name: "--workspace") else {
+                throw CLIError(message: "select-workspace requires --workspace")
             }
-            let response = try client.send(command: "select_tab \(tab)")
+            let response = try client.send(command: "select_workspace \(workspace)")
             print(response)
 
-        case "current-tab":
-            let response = try client.send(command: "current_tab")
+        case "current-workspace":
+            let response = try client.send(command: "current_workspace")
             if jsonOutput {
-                print(jsonString(["tab_id": response]))
+                print(jsonString(["workspace_id": response]))
             } else {
                 print(response)
             }
@@ -281,14 +281,14 @@ struct CMUXCLI {
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
 
-            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
-            let panelArg = optionValue(commandArgs, name: "--panel") ?? ProcessInfo.processInfo.environment["CMUX_PANEL_ID"]
+            let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
 
-            let targetTab = try resolveTabId(tabArg, client: client)
-            let targetPanel = try resolvePanelId(panelArg, tabId: targetTab, client: client)
+            let targetWorkspace = try resolveWorkspaceId(workspaceArg, client: client)
+            let targetSurface = try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
 
             let payload = "\(title)|\(subtitle)|\(body)"
-            let response = try client.send(command: "notify_target \(targetTab) \(targetPanel) \(payload)")
+            let response = try client.send(command: "notify_target \(targetWorkspace) \(targetSurface) \(payload)")
             print(response)
 
         case "list-notifications":
@@ -298,13 +298,13 @@ struct CMUXCLI {
                 let payload = notifications.map { item in
                     var dict: [String: Any] = [
                         "id": item.id,
-                        "tab_id": item.tabId,
+                        "workspace_id": item.workspaceId,
                         "is_read": item.isRead,
                         "title": item.title,
                         "subtitle": item.subtitle,
                         "body": item.body
                     ]
-                    dict["panel_id"] = item.panelId ?? NSNull()
+                    dict["surface_id"] = item.surfaceId ?? NSNull()
                     return dict
                 }
                 print(jsonString(payload))
@@ -377,8 +377,8 @@ struct CMUXCLI {
         }
     }
 
-    private func parseTabs(_ response: String) -> [TabInfo] {
-        guard response != "No tabs" else { return [] }
+    private func parseWorkspaces(_ response: String) -> [WorkspaceInfo] {
+        guard response != "No workspaces" else { return [] }
         return response
             .split(separator: "\n")
             .compactMap { line in
@@ -391,7 +391,7 @@ struct CMUXCLI {
                 guard let index = Int(indexText) else { return nil }
                 let id = String(parts[1])
                 let title = parts.count > 2 ? String(parts[2]) : ""
-                return TabInfo(index: index, id: id, title: title, selected: selected)
+                return WorkspaceInfo(index: index, id: id, title: title, selected: selected)
             }
     }
 
@@ -423,17 +423,17 @@ struct CMUXCLI {
                 let payload = parts[1].split(separator: "|", maxSplits: 6, omittingEmptySubsequences: false)
                 guard payload.count >= 7 else { return nil }
                 let notifId = String(payload[0])
-                let tabId = String(payload[1])
-                let panelRaw = String(payload[2])
-                let panelId = panelRaw == "none" ? nil : panelRaw
+                let workspaceId = String(payload[1])
+                let surfaceRaw = String(payload[2])
+                let surfaceId = surfaceRaw == "none" ? nil : surfaceRaw
                 let readText = String(payload[3])
                 let title = String(payload[4])
                 let subtitle = String(payload[5])
                 let body = String(payload[6])
                 return NotificationInfo(
                     id: notifId,
-                    tabId: tabId,
-                    panelId: panelId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
                     isRead: readText == "read",
                     title: title,
                     subtitle: subtitle,
@@ -442,33 +442,33 @@ struct CMUXCLI {
             }
     }
 
-    private func resolveTabId(_ raw: String?, client: SocketClient) throws -> String {
+    private func resolveWorkspaceId(_ raw: String?, client: SocketClient) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
 
         if let raw, let index = Int(raw) {
-            let response = try client.send(command: "list_tabs")
-            let tabs = parseTabs(response)
-            if let match = tabs.first(where: { $0.index == index }) {
+            let response = try client.send(command: "list_workspaces")
+            let workspaces = parseWorkspaces(response)
+            if let match = workspaces.first(where: { $0.index == index }) {
                 return match.id
             }
-            throw CLIError(message: "Tab index not found")
+            throw CLIError(message: "Workspace index not found")
         }
 
-        let response = try client.send(command: "current_tab")
+        let response = try client.send(command: "current_workspace")
         if response.hasPrefix("ERROR") {
             throw CLIError(message: response)
         }
         return response
     }
 
-    private func resolvePanelId(_ raw: String?, tabId: String, client: SocketClient) throws -> String {
+    private func resolveSurfaceId(_ raw: String?, workspaceId: String, client: SocketClient) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
 
-        let response = try client.send(command: "list_surfaces \(tabId)")
+        let response = try client.send(command: "list_surfaces \(workspaceId)")
         if response.hasPrefix("ERROR") {
             throw CLIError(message: response)
         }
@@ -478,14 +478,14 @@ struct CMUXCLI {
             if let match = panels.first(where: { $0.index == index }) {
                 return match.id
             }
-            throw CLIError(message: "Panel index not found")
+            throw CLIError(message: "Surface index not found")
         }
 
         if let focused = panels.first(where: { $0.focused }) {
             return focused.id
         }
 
-        throw CLIError(message: "Unable to resolve panel ID")
+        throw CLIError(message: "Unable to resolve surface ID")
     }
 
     private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
@@ -552,19 +552,19 @@ struct CMUXCLI {
 
         Commands:
           ping
-          list-tabs
-          new-tab
+          list-workspaces
+          new-workspace
           new-split <left|right|up|down> [--panel <id|index>]
-          list-panels [--tab <id|index>]
+          list-panels [--workspace <id|index>]
           focus-panel --panel <id|index>
-          close-tab --tab <id|index>
-          select-tab --tab <id|index>
-          current-tab
+          close-workspace --workspace <id|index>
+          select-workspace --workspace <id|index>
+          current-workspace
           send <text>
           send-key <key>
           send-panel --panel <id|index> <text>
           send-key-panel --panel <id|index> <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+          notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|index>] [--surface <id|index>]
           list-notifications
           clear-notifications
           set-app-focus <active|inactive|clear>
@@ -578,7 +578,7 @@ struct CMUXCLI {
           help
 
         Environment:
-          CMUX_TAB_ID, CMUX_PANEL_ID, CMUX_SOCKET_PATH
+          CMUX_WORKSPACE_ID, CMUX_SURFACE_ID, CMUX_SOCKET_PATH
         """
     }
 }

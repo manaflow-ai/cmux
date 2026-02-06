@@ -4,12 +4,12 @@ import Foundation
 import Bonsplit
 
 // MARK: - Tab Type Alias for Backwards Compatibility
-// The old Tab class is replaced by SidebarTab
-typealias Tab = SidebarTab
+// The old Tab class is replaced by Workspace
+typealias Tab = Workspace
 
 @MainActor
 class TabManager: ObservableObject {
-    @Published var tabs: [SidebarTab] = []
+    @Published var tabs: [Workspace] = []
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -41,7 +41,7 @@ class TabManager: ObservableObject {
     private let maxHistorySize = 50
 
     init() {
-        addTab()
+        addWorkspace()
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -53,23 +53,36 @@ class TabManager: ObservableObject {
             guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
             self.updatePanelTitle(tabId: tabId, panelId: surfaceId, title: title)
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
+            self.markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+        })
     }
 
-    var selectedTab: SidebarTab? {
+    var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
         return tabs.first(where: { $0.id == selectedTabId })
     }
 
+    // Keep selectedTab as convenience alias
+    var selectedTab: Workspace? { selectedWorkspace }
+
     // MARK: - Surface/Panel Compatibility Layer
 
-    /// Returns the focused terminal surface for the selected tab
+    /// Returns the focused terminal surface for the selected workspace
     var selectedSurface: TerminalSurface? {
-        selectedTab?.focusedTerminalPanel?.surface
+        selectedWorkspace?.focusedTerminalPanel?.surface
     }
 
     /// Returns the focused panel's terminal panel (if it is a terminal)
     var selectedTerminalPanel: TerminalPanel? {
-        selectedTab?.focusedTerminalPanel
+        selectedWorkspace?.focusedTerminalPanel
     }
 
     var isFindVisible: Bool {
@@ -85,7 +98,7 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: startSearch tab=%@ panel=%@", panel.sidebarTabId.uuidString, panel.id.uuidString)
+        NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("start_search")
     }
@@ -95,7 +108,7 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: searchSelection tab=%@ panel=%@", panel.sidebarTabId.uuidString, panel.id.uuidString)
+        NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("search_selection")
     }
@@ -113,23 +126,27 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func addTab() -> SidebarTab {
+    func addWorkspace() -> Workspace {
         let workingDirectory = preferredWorkingDirectoryForNewTab()
-        let newTab = SidebarTab(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
+        let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
-            tabs.insert(newTab, at: insertIndex)
+            tabs.insert(newWorkspace, at: insertIndex)
         } else {
-            tabs.append(newTab)
+            tabs.append(newWorkspace)
         }
-        selectedTabId = newTab.id
+        selectedTabId = newWorkspace.id
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
             object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: newTab.id]
+            userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
         )
-        return newTab
+        return newWorkspace
     }
+
+    // Keep addTab as convenience alias
+    @discardableResult
+    func addTab() -> Workspace { addWorkspace() }
 
     private func newTabInsertIndex() -> Int {
         guard let selectedTabId,
@@ -196,13 +213,13 @@ class TabManager: ObservableObject {
         setPinned(tab, pinned: !tab.isPinned)
     }
 
-    func setPinned(_ tab: SidebarTab, pinned: Bool) {
+    func setPinned(_ tab: Workspace, pinned: Bool) {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
     }
 
-    private func reorderTabForPinnedState(_ tab: SidebarTab) {
+    private func reorderTabForPinnedState(_ tab: Workspace) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs.remove(at: index)
         let pinnedCount = tabs.filter { $0.isPinned }.count
@@ -229,15 +246,15 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeTab(_ tab: SidebarTab) {
+    func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
 
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
 
-        if let index = tabs.firstIndex(where: { $0.id == tab.id }) {
+        if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
 
-            if selectedTabId == tab.id {
+            if selectedTabId == workspace.id {
                 if index > 0 {
                     selectedTabId = tabs[index - 1].id
                 } else {
@@ -247,10 +264,14 @@ class TabManager: ObservableObject {
         }
     }
 
-    func closeCurrentTab() {
+    // Keep closeTab as convenience alias
+    func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
+    func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
+
+    func closeCurrentWorkspace() {
         guard let selectedId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedId }) else { return }
-        closeTab(tab)
+              let workspace = tabs.first(where: { $0.id == selectedId }) else { return }
+        closeWorkspace(workspace)
     }
 
     func closeCurrentPanelWithConfirmation() {
@@ -260,15 +281,18 @@ class TabManager: ObservableObject {
         closePanelWithConfirmation(tab: tab, panelId: focusedPanelId)
     }
 
-    func closeCurrentTabWithConfirmation() {
+    func closeCurrentWorkspaceWithConfirmation() {
         guard let selectedId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedId }) else { return }
-        closeTabIfRunningProcess(tab)
+              let workspace = tabs.first(where: { $0.id == selectedId }) else { return }
+        closeWorkspaceIfRunningProcess(workspace)
     }
 
-    func selectTab(_ tab: SidebarTab) {
-        selectedTabId = tab.id
+    func selectWorkspace(_ workspace: Workspace) {
+        selectedTabId = workspace.id
     }
+
+    // Keep selectTab as convenience alias
+    func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
     private func confirmClose(title: String, message: String) -> Bool {
         let alert = NSAlert()
@@ -280,22 +304,22 @@ class TabManager: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func closeTabIfRunningProcess(_ tab: SidebarTab) {
+    private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
-        if tabNeedsConfirmClose(tab),
+        if workspaceNeedsConfirmClose(workspace),
            !confirmClose(
                title: "Close tab?",
                message: "This will close the current tab and all of its panels."
            ) {
             return
         }
-        closeTab(tab)
+        closeWorkspace(workspace)
     }
 
-    private func closePanelWithConfirmation(tab: SidebarTab, panelId: UUID) {
+    private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
         let hasMultiplePanels = tab.panels.count > 1 || tab.bonsplitController.allPaneIds.count > 1
         guard hasMultiplePanels else {
-            closeTabIfRunningProcess(tab)
+            closeWorkspaceIfRunningProcess(tab)
             return
         }
 
@@ -315,8 +339,8 @@ class TabManager: ObservableObject {
         closePanelWithConfirmation(tab: tab, panelId: surfaceId)
     }
 
-    private func tabNeedsConfirmClose(_ tab: SidebarTab) -> Bool {
-        tab.needsConfirmClose()
+    private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
+        workspace.needsConfirmClose()
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
@@ -328,6 +352,13 @@ class TabManager: ObservableObject {
     /// Returns the focused panel ID for a tab (replaces focusedSurfaceId)
     func focusedPanelId(for tabId: UUID) -> UUID? {
         tabs.first(where: { $0.id == tabId })?.focusedPanelId
+    }
+
+    /// Returns the focused panel if it's a BrowserPanel, nil otherwise
+    var focusedBrowserPanel: BrowserPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? BrowserPanel
     }
 
     /// Backwards compatibility: returns the focused surface ID
@@ -383,6 +414,13 @@ class TabManager: ObservableObject {
         guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppActive() else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
+        markPanelReadOnFocusIfActive(tabId: tabId, panelId: panelId)
+    }
+
+    private func markPanelReadOnFocusIfActive(tabId: UUID, panelId: UUID) {
+        guard selectedTabId == tabId else { return }
+        guard !suppressFocusFlash else { return }
+        guard AppFocusState.isAppActive() else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: panelId) else { return }
         if let tab = tabs.first(where: { $0.id == tabId }) {
@@ -421,13 +459,13 @@ class TabManager: ObservableObject {
         updateWindowTitle(for: tab)
     }
 
-    private func updateWindowTitle(for tab: SidebarTab?) {
+    private func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
         targetWindow?.title = title
     }
 
-    private func windowTitle(for tab: SidebarTab?) -> String {
+    private func windowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmuxterm" }
         let trimmedTitle = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
@@ -519,21 +557,31 @@ class TabManager: ObservableObject {
         selectedTabId = lastTab.id
     }
 
-    // MARK: - Bonsplit Tab Navigation
+    // MARK: - Surface Navigation
 
-    /// Select the next tab in the currently focused pane of the selected sidebar tab
-    func selectNextBonsplitTab() {
-        selectedTab?.selectNextBonsplitTab()
+    /// Select the next surface in the currently focused pane of the selected workspace
+    func selectNextSurface() {
+        selectedWorkspace?.selectNextSurface()
     }
 
-    /// Select the previous tab in the currently focused pane of the selected sidebar tab
-    func selectPreviousBonsplitTab() {
-        selectedTab?.selectPreviousBonsplitTab()
+    /// Select the previous surface in the currently focused pane of the selected workspace
+    func selectPreviousSurface() {
+        selectedWorkspace?.selectPreviousSurface()
     }
 
-    /// Create a new terminal tab in the focused pane of the selected sidebar tab
-    func newBonsplitTab() {
-        selectedTab?.newTerminalTabInFocusedPane()
+    /// Select a surface by index in the currently focused pane of the selected workspace
+    func selectSurface(at index: Int) {
+        selectedWorkspace?.selectSurface(at: index)
+    }
+
+    /// Select the last surface in the currently focused pane of the selected workspace
+    func selectLastSurface() {
+        selectedWorkspace?.selectLastSurface()
+    }
+
+    /// Create a new terminal surface in the focused pane of the selected workspace
+    func newSurface() {
+        selectedWorkspace?.newTerminalSurfaceInFocusedPane()
     }
 
     // MARK: - Split Creation
@@ -682,7 +730,7 @@ class TabManager: ObservableObject {
 
         // If tab is now empty and there are other tabs, close it
         if tab.panels.isEmpty && tabs.count > 1 {
-            closeTab(tab)
+            closeWorkspace(tab)
         }
 
         return true
@@ -696,10 +744,10 @@ class TabManager: ObservableObject {
         return tab.newBrowserSplit(from: fromPanelId, orientation: orientation, url: url)?.id
     }
 
-    /// Create a new browser tab in a pane
-    func newBrowserTab(tabId: UUID, inPane paneId: PaneID, url: URL? = nil) -> UUID? {
+    /// Create a new browser surface in a pane
+    func newBrowserSurface(tabId: UUID, inPane paneId: PaneID, url: URL? = nil) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserTab(inPane: paneId, url: url)?.id
+        return tab.newBrowserSurface(inPane: paneId, url: url)?.id
     }
 
     /// Get a browser panel by ID
@@ -708,12 +756,12 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
-    /// Open a browser in the currently focused pane (as a new tab)
+    /// Open a browser in the currently focused pane (as a new surface)
     func openBrowser(url: URL? = nil) {
         guard let tabId = selectedTabId,
               let tab = tabs.first(where: { $0.id == tabId }),
               let focusedPaneId = tab.bonsplitController.focusedPaneId else { return }
-        _ = tab.newBrowserTab(inPane: focusedPaneId, url: url)
+        _ = tab.newBrowserSurface(inPane: focusedPaneId, url: url)
     }
 
     /// Get a terminal panel by ID
@@ -748,4 +796,5 @@ extension Notification.Name {
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
+    static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
 }

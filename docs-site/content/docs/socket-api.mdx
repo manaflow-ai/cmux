@@ -7,6 +7,17 @@ description: Unix socket API for programmatic control of cmuxterm
 
 cmuxterm exposes a Unix socket for programmatic control, enabling automation and integration with tools like Claude Code.
 
+## Hierarchy
+
+cmuxterm uses a four-level hierarchy:
+
+| Level | Description |
+|-------|-------------|
+| **Workspace** | A sidebar tab containing split panes |
+| **Pane** | A split region within a workspace |
+| **Surface** | A nested tab within a pane |
+| **Panel** | The actual content (terminal or browser) |
+
 ## Socket Location
 
 | Build | Socket Path |
@@ -32,101 +43,146 @@ cmuxterm has three access modes, configurable in Settings:
 
 ## Protocol
 
-Commands are sent as newline-terminated JSON:
+Commands are sent as newline-terminated text:
 
-```json
-{"command": "command-name", "arg1": "value1"}
+```
+command_name [args]\n
 ```
 
-Responses are newline-terminated JSON:
+Responses are newline-terminated text:
 
-```json
-{"success": true, "data": {...}}
-{"success": false, "error": "Error message"}
+```
+OK [data]
+ERROR: [message]
 ```
 
 ## Commands Reference
 
-### Tab Management
+### Workspace Management
 
-#### list-tabs
+#### list_workspaces
 
-List all open tabs.
+List all open workspaces.
 
-```json
-{"command": "list-tabs"}
+```
+list_workspaces
 ```
 
-Response:
+#### new_workspace
 
-```json
-{
-  "success": true,
-  "tabs": [
-    {"id": "uuid", "title": "Tab 1", "directory": "/Users/..."}
-  ]
-}
+Create a new workspace.
+
+```
+new_workspace
 ```
 
-#### new-tab
+Response: `OK <workspace-id>`
 
-Create a new tab.
+#### select_workspace
 
-```json
-{"command": "new-tab"}
+Switch to a specific workspace.
+
+```
+select_workspace <workspace-id|index>
 ```
 
-#### select-tab
+#### current_workspace
 
-Switch to a specific tab.
+Get the currently active workspace.
 
-```json
-{"command": "select-tab", "id": "tab-uuid"}
+```
+current_workspace
 ```
 
-#### current-tab
+Response: `<workspace-id>`
 
-Get the currently active tab.
+#### close_workspace
 
-```json
-{"command": "current-tab"}
+Close a specific workspace.
+
 ```
-
-#### close-tab
-
-Close a specific tab.
-
-```json
-{"command": "close-tab", "id": "tab-uuid"}
+close_workspace <workspace-id>
 ```
 
 ### Split Management
 
-#### new-split
+#### new_split
 
 Create a new split pane.
 
-```json
-{"command": "new-split", "direction": "right"}
+```
+new_split <left|right|up|down>
 ```
 
-Direction options: `left`, `right`, `up`, `down`
+#### list_surfaces
 
-#### list-panels
+List all surfaces in the current workspace.
 
-List all panes in the current tab.
-
-```json
-{"command": "list-panels"}
+```
+list_surfaces [workspace-id]
 ```
 
-#### focus-panel
+#### focus_surface
+
+Focus a specific surface.
+
+```
+focus_surface <surface-id|index>
+```
+
+#### close_surface
+
+Close a surface (collapse split).
+
+```
+close_surface [surface-id|index]
+```
+
+### Pane Management
+
+#### list_panes
+
+List all panes in the current workspace.
+
+```
+list_panes
+```
+
+#### focus_pane
 
 Focus a specific pane.
 
-```json
-{"command": "focus-panel", "id": "panel-uuid"}
 ```
+focus_pane <pane-id|index>
+```
+
+#### list_pane_surfaces
+
+List surfaces (nested tabs) in a pane.
+
+```
+list_pane_surfaces [--pane=<pane-id|index>]
+```
+
+#### new_surface
+
+Create a new surface in a pane.
+
+```
+new_surface [--pane=<pane-id|index>] [--type=<terminal|browser>] [--url=<url>]
+```
+
+Response: `OK <surface-id>`
+
+#### new_pane
+
+Create a new pane (split).
+
+```
+new_pane --direction=<left|right|up|down> [--type=<terminal|browser>] [--url=<url>]
+```
+
+Response: `OK <pane-id>`
 
 ### Input Control
 
@@ -134,65 +190,69 @@ Focus a specific pane.
 
 Send text input to a terminal.
 
-```json
-{"command": "send", "text": "echo hello\n"}
+```
+send <text>
 ```
 
-#### send-key
+#### send_key
 
 Send a key press.
 
-```json
-{"command": "send-key", "key": "enter"}
+```
+send_key <key>
 ```
 
-Key options: `enter`, `tab`, `escape`, `backspace`, `delete`, `up`, `down`, `left`, `right`
+Key options: `ctrl-c`, `ctrl-d`, `ctrl-z`, `enter`, `tab`, `escape`, `backspace`
 
-#### send-panel
+#### send_surface
 
-Send text to a specific panel.
+Send text to a specific surface.
 
-```json
-{"command": "send-panel", "id": "panel-uuid", "text": "ls -la\n"}
+```
+send_surface <surface-id|index> <text>
 ```
 
-#### send-key-panel
+#### send_key_surface
 
-Send a key press to a specific panel.
+Send a key press to a specific surface.
 
-```json
-{"command": "send-key-panel", "id": "panel-uuid", "key": "enter"}
+```
+send_key_surface <surface-id|index> <key>
 ```
 
 ### Notifications
 
 #### notify
 
-Send a notification.
+Send a notification to the focused surface.
 
-```json
-{
-  "command": "notify",
-  "title": "Build Complete",
-  "subtitle": "Project X",
-  "body": "Build finished successfully"
-}
+```
+notify <title>
+notify <title>|<subtitle>|<body>
 ```
 
-#### list-notifications
+#### notify_surface
+
+Send a notification to a specific surface.
+
+```
+notify_surface <surface-id|index> <title>|<subtitle>|<body>
+```
+
+#### list_notifications
 
 List all notifications.
 
-```json
-{"command": "list-notifications"}
+```
+list_notifications
 ```
 
-#### clear-notifications
+#### clear_notifications
 
 Clear all notifications.
 
-```json
-{"command": "clear-notifications"}
+```
+clear_notifications
 ```
 
 ### App Control
@@ -201,48 +261,36 @@ Clear all notifications.
 
 Check if the socket is responsive.
 
-```json
-{"command": "ping"}
+```
+ping
 ```
 
-Response:
+Response: `PONG`
 
-```json
-{"success": true, "pong": true}
-```
-
-#### set-app-focus
+#### set_app_focus
 
 Simulate app focus/unfocus (for testing).
 
-```json
-{"command": "set-app-focus", "focused": true}
+```
+set_app_focus <active|inactive|clear>
 ```
 
 ## Example: Python Client
 
 ```python
-import socket
-import json
+from cmux import cmux
 
-def send_command(cmd):
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect('/tmp/cmuxterm.sock')
-    sock.send(json.dumps(cmd).encode() + b'\n')
-    response = sock.recv(4096).decode()
-    sock.close()
-    return json.loads(response)
+with cmux() as client:
+    # List workspaces
+    workspaces = client.list_workspaces()
+    print(workspaces)
 
-# List tabs
-tabs = send_command({"command": "list-tabs"})
-print(tabs)
+    # Create workspace and split
+    client.new_workspace()
+    client.new_split("right")
 
-# Send notification
-send_command({
-    "command": "notify",
-    "title": "Hello",
-    "body": "From Python!"
-})
+    # Send notification
+    client.notify("Hello", body="From Python!")
 ```
 
 ## Example: Shell Script
@@ -255,9 +303,9 @@ cmux_cmd() {
     echo "$1" | nc -U /tmp/cmuxterm.sock
 }
 
-# List tabs
-cmux_cmd '{"command": "list-tabs"}'
+# List workspaces
+cmux_cmd 'list_workspaces'
 
 # Send notification
-cmux_cmd '{"command": "notify", "title": "Done", "body": "Task complete"}'
+cmux_cmd 'notify Done|Build|Task complete'
 ```

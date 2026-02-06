@@ -16,10 +16,10 @@ enum KeyboardShortcutSettings {
     static let nextSidebarTabKey = "shortcut.nextSidebarTab"
     static let prevSidebarTabKey = "shortcut.prevSidebarTab"
 
-    /// Default shortcut: Cmd+] (next sidebar tab)
-    static let nextSidebarTabDefault = StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
-    /// Default shortcut: Cmd+[ (previous sidebar tab)
-    static let prevSidebarTabDefault = StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
+    /// Default shortcut: Cmd+Ctrl+] (next sidebar tab / workspace)
+    static let nextSidebarTabDefault = StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+    /// Default shortcut: Cmd+Ctrl+[ (previous sidebar tab / workspace)
+    static let prevSidebarTabDefault = StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
 
     // MARK: - Pane Navigation Keys
     static let focusLeftKey = "shortcut.focusLeft"
@@ -42,17 +42,17 @@ enum KeyboardShortcutSettings {
     /// Default shortcut: Cmd+Shift+D (split down)
     static let splitDownDefault = StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
 
-    // MARK: - Bonsplit Tab Navigation Keys
-    static let nextBonsplitTabKey = "shortcut.nextBonsplitTab"
-    static let prevBonsplitTabKey = "shortcut.prevBonsplitTab"
-    static let newBonsplitTabKey = "shortcut.newBonsplitTab"
+    // MARK: - Surface Navigation Keys
+    static let nextSurfaceKey = "shortcut.nextSurface"
+    static let prevSurfaceKey = "shortcut.prevSurface"
+    static let newSurfaceKey = "shortcut.newSurface"
 
-    /// Default shortcut: Ctrl+Tab (next bonsplit tab)
-    static let nextBonsplitTabDefault = StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)
-    /// Default shortcut: Ctrl+Shift+Tab (previous bonsplit tab)
-    static let prevBonsplitTabDefault = StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)
-    /// Default shortcut: Cmd+Shift+T (new bonsplit tab in focused pane)
-    static let newBonsplitTabDefault = StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
+    /// Default shortcut: Cmd+Shift+] (next surface / tab within pane)
+    static let nextSurfaceDefault = StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+    /// Default shortcut: Cmd+Shift+[ (previous surface / tab within pane)
+    static let prevSurfaceDefault = StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+    /// Default shortcut: Cmd+T (new surface in focused pane)
+    static let newSurfaceDefault = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
 
     // MARK: - Browser Keys
     static let openBrowserKey = "shortcut.openBrowser"
@@ -158,28 +158,28 @@ enum KeyboardShortcutSettings {
         return shortcut
     }
 
-    // MARK: - Bonsplit Tab Navigation Accessors
+    // MARK: - Surface Navigation Accessors
 
-    static func nextBonsplitTabShortcut() -> StoredShortcut {
-        guard let data = UserDefaults.standard.data(forKey: nextBonsplitTabKey),
+    static func nextSurfaceShortcut() -> StoredShortcut {
+        guard let data = UserDefaults.standard.data(forKey: nextSurfaceKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return nextBonsplitTabDefault
+            return nextSurfaceDefault
         }
         return shortcut
     }
 
-    static func prevBonsplitTabShortcut() -> StoredShortcut {
-        guard let data = UserDefaults.standard.data(forKey: prevBonsplitTabKey),
+    static func prevSurfaceShortcut() -> StoredShortcut {
+        guard let data = UserDefaults.standard.data(forKey: prevSurfaceKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return prevBonsplitTabDefault
+            return prevSurfaceDefault
         }
         return shortcut
     }
 
-    static func newBonsplitTabShortcut() -> StoredShortcut {
-        guard let data = UserDefaults.standard.data(forKey: newBonsplitTabKey),
+    static func newSurfaceShortcut() -> StoredShortcut {
+        guard let data = UserDefaults.standard.data(forKey: newSurfaceKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return newBonsplitTabDefault
+            return newSurfaceDefault
         }
         return shortcut
     }
@@ -205,9 +205,9 @@ enum KeyboardShortcutSettings {
         UserDefaults.standard.removeObject(forKey: focusDownKey)
         UserDefaults.standard.removeObject(forKey: splitRightKey)
         UserDefaults.standard.removeObject(forKey: splitDownKey)
-        UserDefaults.standard.removeObject(forKey: nextBonsplitTabKey)
-        UserDefaults.standard.removeObject(forKey: prevBonsplitTabKey)
-        UserDefaults.standard.removeObject(forKey: newBonsplitTabKey)
+        UserDefaults.standard.removeObject(forKey: nextSurfaceKey)
+        UserDefaults.standard.removeObject(forKey: prevSurfaceKey)
+        UserDefaults.standard.removeObject(forKey: newSurfaceKey)
         UserDefaults.standard.removeObject(forKey: openBrowserKey)
     }
 }
