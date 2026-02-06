@@ -12,7 +12,7 @@ enum WindowGlassEffect {
     }
 
     static func apply(to window: NSWindow, tintColor: NSColor? = nil) {
-        guard let originalContentView = window.contentView else { return }
+        guard let contentView = window.contentView else { return }
 
         // Check if we already applied glass (avoid re-wrapping)
         if let existingGlass = objc_getAssociatedObject(window, &glassViewKey) as? NSView {
@@ -21,64 +21,64 @@ enum WindowGlassEffect {
             return
         }
 
-        let bounds = originalContentView.bounds
+        let bounds = contentView.bounds
 
-        // Create the glass/blur view
-        let glassView: NSVisualEffectView
-
-        // Try NSGlassEffectView first (macOS 26 Tahoe+)
+        // macOS 26+: Use NSGlassEffectView as the new contentView (full replacement is safe)
         if let glassClass = NSClassFromString("NSGlassEffectView") as? NSVisualEffectView.Type {
-            glassView = glassClass.init(frame: bounds)
+            let glassView = glassClass.init(frame: bounds)
             glassView.wantsLayer = true
             glassView.layer?.cornerRadius = 0
+            glassView.autoresizingMask = [.width, .height]
 
-            // Apply tint color via private API
             if let color = tintColor {
                 let selector = NSSelectorFromString("setTintColor:")
                 if glassView.responds(to: selector) {
                     glassView.perform(selector, with: color)
                 }
             }
-        } else {
-            // Fallback to NSVisualEffectView
-            glassView = NSVisualEffectView(frame: bounds)
-            glassView.blendingMode = .behindWindow
-            glassView.material = .hudWindow
-            glassView.state = .active
-            glassView.wantsLayer = true
+
+            // Replace contentView — safe on macOS 26+ where traffic lights composite above
+            window.contentView = glassView
+
+            contentView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.wantsLayer = true
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            glassView.addSubview(contentView)
+
+            NSLayoutConstraint.activate([
+                contentView.topAnchor.constraint(equalTo: glassView.topAnchor),
+                contentView.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+                contentView.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+                contentView.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
+            ])
+
+            objc_setAssociatedObject(window, &glassViewKey, glassView, .OBJC_ASSOCIATION_RETAIN)
+            return
         }
 
-        glassView.autoresizingMask = [.width, .height]
+        // Older macOS: insert blur as a background subview instead of replacing contentView.
+        // Replacing contentView on macOS 13-15 breaks traffic light rendering when the
+        // window uses fullSizeContentView + titlebarAppearsTransparent.
+        let blurView = NSVisualEffectView(frame: bounds)
+        blurView.blendingMode = .behindWindow
+        blurView.material = .hudWindow
+        blurView.state = .active
+        blurView.wantsLayer = true
+        blurView.autoresizingMask = [.width, .height]
 
-        // Make glass view the new contentView, add original content on top
-        window.contentView = glassView
+        contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
 
-        // Re-add the original SwiftUI hosting view on top of the glass, filling entire area
-        originalContentView.translatesAutoresizingMaskIntoConstraints = false
-        originalContentView.wantsLayer = true
-        originalContentView.layer?.backgroundColor = NSColor.clear.cgColor
-        glassView.addSubview(originalContentView)
-
-        // Pin to all edges
-        NSLayoutConstraint.activate([
-            originalContentView.topAnchor.constraint(equalTo: glassView.topAnchor),
-            originalContentView.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
-            originalContentView.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
-            originalContentView.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
-        ])
-
-        // Add tint overlay between glass and content (for fallback)
-        if tintColor != nil, NSClassFromString("NSGlassEffectView") == nil {
+        // Tint overlay on top of blur, still behind content
+        if let color = tintColor {
             let tintOverlay = NSView(frame: bounds)
             tintOverlay.autoresizingMask = [.width, .height]
             tintOverlay.wantsLayer = true
-            tintOverlay.layer?.backgroundColor = tintColor!.cgColor
-            glassView.addSubview(tintOverlay, positioned: .below, relativeTo: originalContentView)
+            tintOverlay.layer?.backgroundColor = color.cgColor
+            contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
             objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
         }
 
-        // Store reference
-        objc_setAssociatedObject(window, &glassViewKey, glassView, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(window, &glassViewKey, blurView, .OBJC_ASSOCIATION_RETAIN)
     }
 
     /// Update the tint color on an existing glass effect
@@ -231,6 +231,8 @@ struct ContentView: View {
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.05
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
 
+    @State private var titlebarLeadingInset: CGFloat = 12
+
     private var customTitlebar: some View {
         HStack(spacing: 8) {
             // Draggable folder icon + focused command name
@@ -248,12 +250,13 @@ struct ContentView: View {
         .frame(height: 28)
         .frame(maxWidth: .infinity)
         .padding(.top, 2)
-        .padding(.leading, 12)
+        .padding(.leading, sidebarState.isVisible ? 12 : titlebarLeadingInset)
         .padding(.trailing, 8)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             NSApp.keyWindow?.zoom(nil)
         }
+        .background(TitlebarLeadingInsetReader(inset: $titlebarLeadingInset))
     }
 
     private func updateTitlebarText() {
@@ -1088,6 +1091,34 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
     }
 }
 
+
+/// Reads the leading inset required to clear traffic lights + left titlebar accessories.
+private struct TitlebarLeadingInsetReader: NSViewRepresentable {
+    @Binding var inset: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.setFrameSize(.zero)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+            // Start past the traffic lights
+            var leading: CGFloat = 78
+            // Add width of all left-aligned titlebar accessories
+            for accessory in window.titlebarAccessoryViewControllers
+                where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
+                leading += accessory.view.frame.width
+            }
+            leading += 16
+            if leading != inset {
+                inset = leading
+            }
+        }
+    }
+}
 
 private struct SidebarBackdrop: View {
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.54
