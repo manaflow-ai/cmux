@@ -2,6 +2,22 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.17.3] - 2025-02-05
+
+### Fixed
+- Auto-update not working (Sparkle EdDSA signing was silently failing due to SUPublicEDKey missing from Info.plist)
+
+## [1.17.1] - 2025-02-05
+
+### Fixed
+- Auto-update not working (Sparkle public key was missing from release builds)
+
+## [1.17.0] - 2025-02-05
+
+### Fixed
+- Traffic lights (close/minimize/zoom) not showing on macOS 13-15
+- Titlebar content overlapping traffic lights and toolbar buttons when sidebar is hidden
+
 ## [1.16.0] - 2025-02-04
 
 ### Added
