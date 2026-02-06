@@ -100,17 +100,23 @@ struct BrowserPanelView: View {
         }
         .onAppear {
             updateAddressBarText()
-            // Auto-focus address bar when browser is first created (blank URL)
-            if panel.currentURL == nil {
-                addressBarFocused = true
-            }
+            // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
+            autoFocusOmnibarIfBlank()
         }
         .onChange(of: panel.currentURL) { _ in
+            let addressWasEmpty = addressBarText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             updateAddressBarText()
+            // If we auto-focused a blank omnibar but then a URL loads programmatically, move focus
+            // into WebKit unless the user had already started typing.
+            if addressBarFocused, addressWasEmpty, !isWebViewBlank() {
+                addressBarFocused = false
+            }
         }
         .onChange(of: isFocused) { focused in
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
-            if !focused {
+            if focused {
+                autoFocusOmnibarIfBlank()
+            } else {
                 addressBarFocused = false
             }
         }
@@ -126,6 +132,21 @@ struct BrowserPanelView: View {
 
     private func updateAddressBarText() {
         addressBarText = panel.currentURL?.absoluteString ?? ""
+    }
+
+    /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
+    private func isWebViewBlank() -> Bool {
+        guard let url = panel.webView.url else { return true }
+        return url.absoluteString == "about:blank"
+    }
+
+    private func autoFocusOmnibarIfBlank() {
+        guard isFocused else { return }
+        guard !addressBarFocused else { return }
+        // If a real navigation is underway (e.g. open_browser https://...), don't steal focus.
+        guard !panel.webView.isLoading else { return }
+        guard isWebViewBlank() else { return }
+        addressBarFocused = true
     }
 
     private func openDevTools() {

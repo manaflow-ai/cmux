@@ -150,6 +150,15 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func focus() {
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
+
+        // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
+        if !webView.isLoading {
+            let urlString = webView.url?.absoluteString ?? currentURL?.absoluteString
+            if urlString == nil || urlString == "about:blank" {
+                return
+            }
+        }
+
         if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
             return
         }
