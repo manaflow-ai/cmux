@@ -47,8 +47,11 @@ archives_dir="$work_dir/archives"
 mkdir -p "$archives_dir"
 cp "$DMG_PATH" "$archives_dir/$(basename "$DMG_PATH")"
 
-printf "%s" "$SPARKLE_PRIVATE_KEY" | "$generate_appcast" \
-  --ed-key-file - \
+key_file="$work_dir/sparkle_ed_key"
+printf "%s" "$SPARKLE_PRIVATE_KEY" > "$key_file"
+
+"$generate_appcast" \
+  --ed-key-file "$key_file" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --full-release-notes-url "$RELEASE_NOTES_URL" \
   "$archives_dir"
