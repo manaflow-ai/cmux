@@ -179,7 +179,8 @@ struct ContentView: View {
                                     isResizerHovering = true
                                 }
                             }
-                            let nextWidth = max(186, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
+                            // Allow a wider sidebar so long paths and metadata aren't constantly truncated.
+                            let nextWidth = max(186, min(640, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
                             withTransaction(Transaction(animation: nil)) {
                                 sidebarWidth = nextWidth
                             }
