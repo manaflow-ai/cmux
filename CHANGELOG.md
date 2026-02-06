@@ -2,6 +2,11 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.17.1] - 2025-02-05
+
+### Fixed
+- Auto-update not working (Sparkle public key was missing from release builds)
+
 ## [1.17.0] - 2025-02-05
 
 ### Fixed
