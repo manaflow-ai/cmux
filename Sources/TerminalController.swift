@@ -453,13 +453,13 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            let panels = Array(tab.panels.values)
+            let panels = orderedPanels(in: tab)
             let focusedId = tab.focusedPanelId
             let lines = panels.enumerated().map { index, panel in
                 let selected = panel.id == focusedId ? "*" : " "
                 return "\(selected) \(index): \(panel.id.uuidString)"
             }
-            result = lines.isEmpty ? "No panels" : lines.joined(separator: "\n")
+            result = lines.isEmpty ? "No surfaces" : lines.joined(separator: "\n")
         }
         return result
     }
@@ -478,14 +478,16 @@ class TerminalController {
 
             if let uuid = UUID(uuidString: trimmed),
                tab.panels[uuid] != nil {
+                guard tab.surfaceIdFromPanelId(uuid) != nil else { return }
                 tabManager.focusSurface(tabId: tab.id, surfaceId: uuid)
                 success = true
                 return
             }
 
             if let index = Int(trimmed), index >= 0 {
-                let panels = Array(tab.panels.values)
+                let panels = orderedPanels(in: tab)
                 guard index < panels.count else { return }
+                guard tab.surfaceIdFromPanelId(panels[index].id) != nil else { return }
                 tabManager.focusSurface(tabId: tab.id, surfaceId: panels[index].id)
                 success = true
             }
@@ -779,26 +781,69 @@ class TerminalController {
         return nil
     }
 
-    private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
+    private func orderedPanels(in tab: Workspace) -> [any Panel] {
+        // Use bonsplit's tab ordering as the source of truth. This avoids relying on
+        // Dictionary iteration order, and prevents indexing into panels that aren't
+        // actually present in bonsplit anymore.
+        let orderedTabIds = tab.bonsplitController.allTabIds
+        var result: [any Panel] = []
+        var seen = Set<UUID>()
+
+        for tabId in orderedTabIds {
+            guard let panelId = tab.panelIdFromSurfaceId(tabId),
+                  let panel = tab.panels[panelId] else { continue }
+            result.append(panel)
+            seen.insert(panelId)
+        }
+
+        // Defensive: include any orphaned panels in a stable order at the end.
+        let orphans = tab.panels.values
+            .filter { !seen.contains($0.id) }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+        result.append(contentsOf: orphans)
+
+        return result
+    }
+
+    private func resolveTerminalPanel(from arg: String, tabManager: TabManager) -> TerminalPanel? {
         guard let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return nil
         }
 
-        if let uuid = UUID(uuidString: arg),
-           let terminalPanel = tab.terminalPanel(for: uuid) {
-            return terminalPanel.surface.surface
+        if let uuid = UUID(uuidString: arg) {
+            return tab.terminalPanel(for: uuid)
         }
 
         if let index = Int(arg), index >= 0 {
-            let panels = Array(tab.panels.values)
+            let panels = orderedPanels(in: tab)
             guard index < panels.count else { return nil }
-            if let terminalPanel = panels[index] as? TerminalPanel {
-                return terminalPanel.surface.surface
-            }
+            return panels[index] as? TerminalPanel
         }
 
         return nil
+    }
+
+    private func resolveTerminalSurface(from arg: String, tabManager: TabManager, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
+        guard let terminalPanel = resolveTerminalPanel(from: arg, tabManager: tabManager) else { return nil }
+        if let surface = terminalPanel.surface.surface { return surface }
+
+        // This can be transient during bonsplit tree restructuring when the SwiftUI
+        // view is temporarily detached and then reattached (surface creation is
+        // gated on view/window/bounds). Pump the runloop briefly to allow pending
+        // attach retries to execute.
+        let deadline = Date().addingTimeInterval(timeout)
+        while terminalPanel.surface.surface == nil && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        return terminalPanel.surface.surface
+    }
+
+    private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
+        // Backwards compatibility: resolve a terminal surface by panel UUID or a stable index.
+        // Use a short wait to reduce flakiness during bonsplit/layout restructures.
+        return resolveTerminalSurface(from: arg, tabManager: tabManager, waitUpTo: 0.6)
     }
 
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
@@ -807,7 +852,7 @@ class TerminalController {
         }
 
         if let index = Int(arg), index >= 0 {
-            let panels = Array(tab.panels.values)
+            let panels = orderedPanels(in: tab)
             guard index < panels.count else { return nil }
             return panels[index].id
         }
@@ -1080,11 +1125,20 @@ class TerminalController {
         let keyName = parts[1]
 
         var success = false
+        var error: String?
         DispatchQueue.main.sync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard resolveTerminalPanel(from: target, tabManager: tabManager) != nil else {
+                error = "ERROR: Surface not found"
+                return
+            }
+            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 0.6) else {
+                error = "ERROR: Surface not ready"
+                return
+            }
             success = sendNamedKey(surface, keyName: keyName)
         }
 
+        if let error { return error }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
 
@@ -1474,7 +1528,7 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            let panels = Array(tab.panels.values)
+            let panels = orderedPanels(in: tab)
             let lines = panels.enumerated().map { index, panel -> String in
                 let panelId = panel.id.uuidString
                 let type = panel.panelType.rawValue
@@ -1488,7 +1542,7 @@ class TerminalController {
                     return "\(index): \(panelId) type=\(type) in_window=unknown"
                 }
             }
-            result = lines.isEmpty ? "No panels" : lines.joined(separator: "\n")
+            result = lines.isEmpty ? "No surfaces" : lines.joined(separator: "\n")
         }
         return result
     }
