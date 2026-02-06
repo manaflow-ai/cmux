@@ -26,6 +26,8 @@ class Tab: Identifiable, ObservableObject {
     }
     @Published var surfaceDirectories: [UUID: String] = [:]
     @Published var surfaceTitles: [UUID: String] = [:]
+    @Published var surfaceBranches: [UUID: String] = [:]
+    @Published var listeningPorts: [UInt16] = []
     var splitViewSize: CGSize = .zero
 
     private var processTitle: String
@@ -112,6 +114,24 @@ class Tab: Identifiable, ObservableObject {
             surfaceDirectories[surfaceId] = trimmed
         }
         currentDirectory = trimmed
+    }
+
+    func updateSurfaceBranch(surfaceId: UUID, branch: String?) {
+        if let branch {
+            if surfaceBranches[surfaceId] != branch {
+                surfaceBranches[surfaceId] = branch
+            }
+        } else {
+            if surfaceBranches[surfaceId] != nil {
+                surfaceBranches.removeValue(forKey: surfaceId)
+            }
+        }
+    }
+
+    func updateListeningPorts(_ ports: [UInt16]) {
+        if listeningPorts != ports {
+            listeningPorts = ports
+        }
     }
 
     func triggerNotificationFocusFlash(
@@ -500,6 +520,7 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let normalized = normalizeDirectory(directory)
         tab.updateSurfaceDirectory(surfaceId: surfaceId, directory: normalized)
+        TabMetadataTracker.shared.detectBranch(tabId: tabId, surfaceId: surfaceId, directory: normalized)
     }
 
     private func normalizeDirectory(_ directory: String) -> String {

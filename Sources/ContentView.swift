@@ -557,6 +557,19 @@ struct TabItemView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+
+            if let metadata = metadataSummary {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(isActive ? .white.opacity(0.65) : .secondary)
+                    Text(metadata)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(isActive ? .white.opacity(0.65) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -773,6 +786,33 @@ struct TabItemView: View {
             }
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
+    }
+
+    private var metadataSummary: String? {
+        guard let root = tab.splitTree.root else { return nil }
+        let surfaces = root.leaves()
+
+        // Collect unique branch names from leaf surfaces
+        var branches: [String] = []
+        var seenBranches: Set<String> = []
+        for surface in surfaces {
+            if let branch = tab.surfaceBranches[surface.id],
+               seenBranches.insert(branch).inserted {
+                branches.append(branch)
+            }
+        }
+
+        var parts: [String] = []
+        if !branches.isEmpty {
+            parts.append(branches.joined(separator: ", "))
+        }
+        if !tab.listeningPorts.isEmpty {
+            let portStr = tab.listeningPorts.map { ":\($0)" }.joined(separator: ", ")
+            parts.append(portStr)
+        }
+
+        let result = parts.joined(separator: " \u{00B7} ")
+        return result.isEmpty ? nil : result
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
