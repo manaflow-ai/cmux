@@ -52,6 +52,14 @@ cd cmuxd && zig build -Doptimize=ReleaseFast
 ./scripts/reload2.sh
 ```
 
+For parallel/isolated builds (e.g., testing a feature alongside the main app), use `--tag` with a short descriptive name:
+
+```bash
+./scripts/reload.sh --tag fix-blur-effect
+```
+
+This creates an isolated app with its own name, bundle ID, socket, and derived data path so it runs side-by-side with the main app. Important: use a non-`/tmp` derived data path if you need xcframework resolution (the script handles this automatically).
+
 ## Pitfalls
 
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
