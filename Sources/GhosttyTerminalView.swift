@@ -150,6 +150,36 @@ class GhosttyApp {
         initializeGhostty()
     }
 
+    #if DEBUG
+    private static let initLogPath = "/tmp/cmux-ghostty-init.log"
+
+    private static func initLog(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        if let handle = FileHandle(forWritingAtPath: initLogPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: initLogPath, contents: line.data(using: .utf8))
+        }
+    }
+
+    private static func dumpConfigDiagnostics(_ config: ghostty_config_t, label: String) {
+        let count = Int(ghostty_config_diagnostics_count(config))
+        guard count > 0 else {
+            initLog("ghostty diagnostics (\(label)): none")
+            return
+        }
+        initLog("ghostty diagnostics (\(label)): count=\(count)")
+        for i in 0..<count {
+            let diag = ghostty_config_get_diagnostic(config, UInt32(i))
+            let msg = diag.message.flatMap { String(cString: $0) } ?? "(null)"
+            initLog("  [\(i)] \(msg)")
+        }
+    }
+    #endif
+
     private func initializeGhostty() {
         // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
         if getenv("NO_COLOR") != nil {
@@ -157,23 +187,24 @@ class GhosttyApp {
         }
 
         // Initialize Ghostty library first
-        let result = ghostty_init(0, nil)
+        let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if result != GHOSTTY_SUCCESS {
             print("Failed to initialize ghostty: \(result)")
             return
         }
 
         // Load config
-        config = ghostty_config_new()
-        guard let config = config else {
+        guard let primaryConfig = ghostty_config_new() else {
             print("Failed to create ghostty config")
             return
         }
 
-        // Load default config
-        ghostty_config_load_default_files(config)
-        ghostty_config_finalize(config)
-        updateDefaultBackground(from: config)
+        // Load default config (includes user config). If this fails hard (e.g. due to
+        // invalid user config), ghostty_app_new may return nil; we fall back below.
+        ghostty_config_load_default_files(primaryConfig)
+        loadLegacyGhosttyConfigIfNeeded(primaryConfig)
+        ghostty_config_finalize(primaryConfig)
+        updateDefaultBackground(from: primaryConfig)
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -256,11 +287,43 @@ class GhosttyApp {
         }
 
         // Create app
-        app = ghostty_app_new(&runtimeConfig, config)
-        if app == nil {
-            print("Failed to create ghostty app")
-            return
+        if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
+            self.app = created
+            self.config = primaryConfig
+        } else {
+            #if DEBUG
+            Self.initLog("ghostty_app_new(primary) failed; attempting fallback config")
+            Self.dumpConfigDiagnostics(primaryConfig, label: "primary")
+            #endif
+
+            // If the user config is invalid, prefer a minimal fallback configuration so
+            // cmuxterm still launches with working terminals.
+            ghostty_config_free(primaryConfig)
+
+            guard let fallbackConfig = ghostty_config_new() else {
+                print("Failed to create ghostty fallback config")
+                return
+            }
+
+            ghostty_config_finalize(fallbackConfig)
+            updateDefaultBackground(from: fallbackConfig)
+
+            guard let created = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
+                #if DEBUG
+                Self.initLog("ghostty_app_new(fallback) failed")
+                Self.dumpConfigDiagnostics(fallbackConfig, label: "fallback")
+                #endif
+                print("Failed to create ghostty app")
+                ghostty_config_free(fallbackConfig)
+                return
+            }
+
+            self.app = created
+            self.config = fallbackConfig
         }
+
+        // Notify observers that a usable config is available (initial load).
+        NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
         if let app {
@@ -284,6 +347,36 @@ class GhosttyApp {
             guard let app = self?.app else { return }
             ghostty_app_set_focus(app, false)
         })
+        #endif
+    }
+
+    private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
+        #if os(macOS)
+        // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
+        // settings in the legacy `config` file. If the new file exists but is empty,
+        // load the legacy file as a compatibility fallback.
+        let fm = FileManager.default
+        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        let configNew = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let configLegacy = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+
+        func fileSize(_ url: URL) -> Int? {
+            guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                  let size = attrs[.size] as? NSNumber else { return nil }
+            return size.intValue
+        }
+
+        guard let newSize = fileSize(configNew), newSize == 0 else { return }
+        guard let legacySize = fileSize(configLegacy), legacySize > 0 else { return }
+
+        configLegacy.path.withCString { path in
+            ghostty_config_load_file(config, path)
+        }
+
+        #if DEBUG
+        Self.initLog("loaded legacy ghostty config because config.ghostty was empty: \(configLegacy.path)")
+        #endif
         #endif
     }
 
@@ -818,6 +911,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
         hostedView.attachSurface(self)
     }
 
+    #if DEBUG
+    private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
+
+    private static func surfaceLog(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        if let handle = FileHandle(forWritingAtPath: surfaceLogPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: surfaceLogPath, contents: line.data(using: .utf8))
+        }
+    }
+    #endif
+
     private func scaleFactors(for view: GhosttyNSView) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
         let layerScale = view.window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         return (layerScale, layerScale, layerScale)
@@ -861,8 +970,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func createSurface(for view: GhosttyNSView) {
+        #if DEBUG
+        let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) } ?? "(unset)"
+        let terminfo = getenv("TERMINFO").flatMap { String(cString: $0) } ?? "(unset)"
+        let xdg = getenv("XDG_DATA_DIRS").flatMap { String(cString: $0) } ?? "(unset)"
+        let manpath = getenv("MANPATH").flatMap { String(cString: $0) } ?? "(unset)"
+        Self.surfaceLog("createSurface start surface=\(id.uuidString) tab=\(tabId.uuidString) bounds=\(view.bounds) inWindow=\(view.window != nil) resources=\(resourcesDir) terminfo=\(terminfo) xdg=\(xdg) manpath=\(manpath)")
+        #endif
+
         guard let app = GhosttyApp.shared.app else {
             print("Ghostty app not initialized")
+            #if DEBUG
+            Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
+            #endif
             return
         }
 
@@ -872,7 +992,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         var surfaceConfig = configTemplate ?? ghostty_surface_config_new()
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
-        surfaceConfig.platform.macos.nsview = Unmanaged.passUnretained(view).toOpaque()
+        surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
+            nsview: Unmanaged.passUnretained(view).toOpaque()
+        ))
         surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
@@ -947,6 +1069,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         if surface == nil {
             print("Failed to create ghostty surface")
+            #if DEBUG
+            Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
+            if let cfg = GhosttyApp.shared.config {
+                let count = Int(ghostty_config_diagnostics_count(cfg))
+                Self.surfaceLog("createSurface diagnostics count=\(count)")
+                for i in 0..<count {
+                    let diag = ghostty_config_get_diagnostic(cfg, UInt32(i))
+                    let msg = diag.message.flatMap { String(cString: $0) } ?? "(null)"
+                    Self.surfaceLog("  [\(i)] \(msg)")
+                }
+            } else {
+                Self.surfaceLog("createSurface diagnostics: config=nil")
+            }
+            #endif
             return
         }
 
@@ -1096,6 +1232,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastScrollEventTime: CFTimeInterval = 0
 
     override func makeBackingLayer() -> CALayer {
+        // Ghostty renders into a CAMetalLayer. Without this the terminal can appear blank.
         let metalLayer = CAMetalLayer()
         metalLayer.device = MTLCreateSystemDefaultDevice()
         metalLayer.pixelFormat = .bgra8Unorm

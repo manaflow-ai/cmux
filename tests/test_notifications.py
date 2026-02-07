@@ -43,6 +43,20 @@ def wait_for_notifications(client: cmux, expected: int, timeout: float = 2.0) ->
         time.sleep(0.05)
     return client.list_notifications()
 
+def wait_for_flash_count(client: cmux, surface: str, minimum: int = 1, timeout: float = 2.0) -> int:
+    """Poll flash_count until it reaches `minimum` or timeout. Returns final count."""
+    start = time.time()
+    last = 0
+    while time.time() - start < timeout:
+        try:
+            last = client.flash_count(surface)
+        except Exception:
+            last = 0
+        if last >= minimum:
+            return last
+        time.sleep(0.05)
+    return last
+
 
 def ensure_two_surfaces(client: cmux) -> list[tuple[int, str, bool]]:
     surfaces = client.list_surfaces()
@@ -224,10 +238,12 @@ def test_mark_read_on_focus_change(client: cmux) -> TestResult:
             result.failure("Expected notification for target surface")
         elif not target["is_read"]:
             result.failure("Expected notification to be marked read on focus")
-        elif client.flash_count(other[1]) < 1:
-            result.failure("Expected flash on panel focus dismissal")
         else:
-            result.success("Notification marked read on focus")
+            count = wait_for_flash_count(client, other[1], minimum=1, timeout=2.0)
+            if count < 1:
+                result.failure("Expected flash on panel focus dismissal")
+            else:
+                result.success("Notification marked read on focus")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
@@ -314,7 +330,7 @@ def test_flash_on_tab_switch(client: cmux) -> TestResult:
         client.select_workspace(tab1)
         time.sleep(0.2)
 
-        count = client.flash_count(focused[1])
+        count = wait_for_flash_count(client, focused[1], minimum=1, timeout=2.0)
         if count < 1:
             result.failure(f"Expected flash count >= 1, got {count}")
         else:
@@ -352,7 +368,7 @@ def test_focus_on_notification_click(client: cmux) -> TestResult:
             result.failure("Expected notification surface to be focused")
             return result
 
-        count = client.flash_count(other[1])
+        count = wait_for_flash_count(client, other[1], minimum=1, timeout=2.0)
         if count < 1:
             result.failure(f"Expected flash count >= 1, got {count}")
         else:

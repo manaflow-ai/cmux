@@ -42,7 +42,9 @@ class cmuxError(Exception):
 
 
 def _default_socket_path() -> str:
-    override = os.environ.get("CMUX_SOCKET_PATH")
+    # Backwards/forward compatibility: some scripts export CMUX_SOCKET,
+    # while the client historically used CMUX_SOCKET_PATH.
+    override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
     if override:
         return override
     candidates = ["/tmp/cmuxterm-debug.sock", "/tmp/cmuxterm.sock"]
@@ -128,7 +130,7 @@ class cmux:
                     if saw_newline:
                         break
                     if time.time() - start >= 5.0:
-                        raise cmuxError("Command timed out")
+                        raise cmuxError(f"Command timed out: {command}")
                     continue
                 if not chunk:
                     break
@@ -139,7 +141,7 @@ class cmux:
                 data = data[:-1]
             return data
         except socket.timeout:
-            raise cmuxError("Command timed out")
+            raise cmuxError(f"Command timed out: {command}")
         except socket.error as e:
             raise cmuxError(f"Socket error: {e}")
 
@@ -491,6 +493,18 @@ class cmux:
                 return
             time.sleep(0.05)
         raise cmuxError(f"Timed out waiting for webview focus: {panel_id}")
+
+    def set_shortcut(self, name: str, combo: str) -> None:
+        """Set a keyboard shortcut via the debug socket (test-only)."""
+        response = self._send_command(f"set_shortcut {name} {combo}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def simulate_shortcut(self, combo: str) -> None:
+        """Simulate a keyDown shortcut via the debug socket (test-only)."""
+        response = self._send_command(f"simulate_shortcut {combo}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
 
     def new_surface(self, pane: Union[str, int, None] = None,
                     panel_type: str = "terminal", url: str = None) -> str:

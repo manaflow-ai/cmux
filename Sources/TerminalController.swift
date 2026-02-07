@@ -215,6 +215,12 @@ class TerminalController {
             return simulateAppDidBecomeActive()
 
 #if DEBUG
+        case "set_shortcut":
+            return setShortcut(args)
+
+        case "simulate_shortcut":
+            return simulateShortcut(args)
+
         case "focus_notification":
             return focusFromNotification(args)
 
@@ -352,10 +358,255 @@ class TerminalController {
           flash_count <id|idx>            - Read flash count for a panel
           reset_flash_counts              - Reset flash counters
           screenshot [label]              - Capture window screenshot
+          set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
+          simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
         """
 #endif
         return text
     }
+
+#if DEBUG
+    private func setShortcut(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return "ERROR: Usage: set_shortcut <name> <combo|clear>"
+        }
+
+        let name = parts[0].lowercased()
+        let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let defaultsKey: String?
+        switch name {
+        case "focus_left", "focusleft":
+            defaultsKey = KeyboardShortcutSettings.focusLeftKey
+        case "focus_right", "focusright":
+            defaultsKey = KeyboardShortcutSettings.focusRightKey
+        case "focus_up", "focusup":
+            defaultsKey = KeyboardShortcutSettings.focusUpKey
+        case "focus_down", "focusdown":
+            defaultsKey = KeyboardShortcutSettings.focusDownKey
+        default:
+            defaultsKey = nil
+        }
+
+        guard let defaultsKey else {
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down"
+        }
+
+        if combo.lowercased() == "clear" || combo.lowercased() == "default" || combo.lowercased() == "reset" {
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            return "OK"
+        }
+
+        guard let parsed = parseShortcutCombo(combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        let shortcut = StoredShortcut(
+            key: parsed.storedKey,
+            command: parsed.modifierFlags.contains(.command),
+            shift: parsed.modifierFlags.contains(.shift),
+            option: parsed.modifierFlags.contains(.option),
+            control: parsed.modifierFlags.contains(.control)
+        )
+        guard let data = try? JSONEncoder().encode(shortcut) else {
+            return "ERROR: Failed to encode shortcut"
+        }
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+        return "OK"
+    }
+
+    private func simulateShortcut(_ args: String) -> String {
+        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combo.isEmpty else {
+            return "ERROR: Usage: simulate_shortcut <combo>"
+        }
+        guard let parsed = parseShortcutCombo(combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        var result = "ERROR: Failed to create event"
+        DispatchQueue.main.sync {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: parsed.modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+                context: nil,
+                characters: parsed.characters,
+                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: parsed.keyCode
+            ) else {
+                result = "ERROR: NSEvent.keyEvent returned nil"
+                return
+            }
+            NSApp.sendEvent(event)
+            result = "OK"
+        }
+        return result
+    }
+
+    private struct ParsedShortcutCombo {
+        let storedKey: String
+        let keyCode: UInt16
+        let modifierFlags: NSEvent.ModifierFlags
+        let characters: String
+        let charactersIgnoringModifiers: String
+    }
+
+    private func parseShortcutCombo(_ combo: String) -> ParsedShortcutCombo? {
+        let raw = combo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        let parts = raw
+            .split(separator: "+")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+
+        var flags: NSEvent.ModifierFlags = []
+        var keyToken: String?
+
+        for part in parts {
+            let lower = part.lowercased()
+            switch lower {
+            case "cmd", "command", "super":
+                flags.insert(.command)
+            case "ctrl", "control":
+                flags.insert(.control)
+            case "opt", "option", "alt":
+                flags.insert(.option)
+            case "shift":
+                flags.insert(.shift)
+            default:
+                // Treat as the key component.
+                if keyToken == nil {
+                    keyToken = part
+                } else {
+                    // Multiple non-modifier tokens is ambiguous.
+                    return nil
+                }
+            }
+        }
+
+        guard var keyToken else { return nil }
+        keyToken = keyToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyToken.isEmpty else { return nil }
+
+        // Normalize a few named keys.
+        let storedKey: String
+        let keyCode: UInt16
+        let charactersIgnoringModifiers: String
+
+        switch keyToken.lowercased() {
+        case "left":
+            storedKey = "←"
+            keyCode = 123
+            charactersIgnoringModifiers = storedKey
+        case "right":
+            storedKey = "→"
+            keyCode = 124
+            charactersIgnoringModifiers = storedKey
+        case "down":
+            storedKey = "↓"
+            keyCode = 125
+            charactersIgnoringModifiers = storedKey
+        case "up":
+            storedKey = "↑"
+            keyCode = 126
+            charactersIgnoringModifiers = storedKey
+        default:
+            let key = keyToken.lowercased()
+            guard let code = keyCodeForShortcutKey(key) else { return nil }
+            storedKey = key
+            keyCode = code
+
+            // Replicate a common system behavior: Ctrl+letter yields a control character in
+            // charactersIgnoringModifiers (e.g. Ctrl+H => backspace). This is important for
+            // testing keyCode fallback matching.
+            if flags.contains(.control),
+               key.count == 1,
+               let scalar = key.unicodeScalars.first,
+               scalar.isASCII,
+               scalar.value >= 97, scalar.value <= 122 { // a-z
+                let upper = scalar.value - 32
+                let controlValue = upper - 64 // 'A' => 1
+                charactersIgnoringModifiers = String(UnicodeScalar(controlValue)!)
+            } else {
+                charactersIgnoringModifiers = storedKey
+            }
+        }
+
+        // For our shortcut matcher, characters aren't important beyond exercising edge cases.
+        let chars = charactersIgnoringModifiers
+
+        return ParsedShortcutCombo(
+            storedKey: storedKey,
+            keyCode: keyCode,
+            modifierFlags: flags,
+            characters: chars,
+            charactersIgnoringModifiers: charactersIgnoringModifiers
+        )
+    }
+
+    private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
+        // Matches macOS ANSI key codes for common printable keys and a few named specials.
+        switch key {
+        case "a": return 0   // kVK_ANSI_A
+        case "s": return 1   // kVK_ANSI_S
+        case "d": return 2   // kVK_ANSI_D
+        case "f": return 3   // kVK_ANSI_F
+        case "h": return 4   // kVK_ANSI_H
+        case "g": return 5   // kVK_ANSI_G
+        case "z": return 6   // kVK_ANSI_Z
+        case "x": return 7   // kVK_ANSI_X
+        case "c": return 8   // kVK_ANSI_C
+        case "v": return 9   // kVK_ANSI_V
+        case "b": return 11  // kVK_ANSI_B
+        case "q": return 12  // kVK_ANSI_Q
+        case "w": return 13  // kVK_ANSI_W
+        case "e": return 14  // kVK_ANSI_E
+        case "r": return 15  // kVK_ANSI_R
+        case "y": return 16  // kVK_ANSI_Y
+        case "t": return 17  // kVK_ANSI_T
+        case "1": return 18  // kVK_ANSI_1
+        case "2": return 19  // kVK_ANSI_2
+        case "3": return 20  // kVK_ANSI_3
+        case "4": return 21  // kVK_ANSI_4
+        case "6": return 22  // kVK_ANSI_6
+        case "5": return 23  // kVK_ANSI_5
+        case "=": return 24  // kVK_ANSI_Equal
+        case "9": return 25  // kVK_ANSI_9
+        case "7": return 26  // kVK_ANSI_7
+        case "-": return 27  // kVK_ANSI_Minus
+        case "8": return 28  // kVK_ANSI_8
+        case "0": return 29  // kVK_ANSI_0
+        case "]": return 30  // kVK_ANSI_RightBracket
+        case "o": return 31  // kVK_ANSI_O
+        case "u": return 32  // kVK_ANSI_U
+        case "[": return 33  // kVK_ANSI_LeftBracket
+        case "i": return 34  // kVK_ANSI_I
+        case "p": return 35  // kVK_ANSI_P
+        case "l": return 37  // kVK_ANSI_L
+        case "j": return 38  // kVK_ANSI_J
+        case "'": return 39  // kVK_ANSI_Quote
+        case "k": return 40  // kVK_ANSI_K
+        case ";": return 41  // kVK_ANSI_Semicolon
+        case "\\": return 42 // kVK_ANSI_Backslash
+        case ",": return 43  // kVK_ANSI_Comma
+        case "/": return 44  // kVK_ANSI_Slash
+        case "n": return 45  // kVK_ANSI_N
+        case "m": return 46  // kVK_ANSI_M
+        case ".": return 47  // kVK_ANSI_Period
+        case "`": return 50  // kVK_ANSI_Grave
+        default:
+            return nil
+        }
+    }
+#endif
 
     private func isCommandAllowed(_ command: String) -> Bool {
         switch accessMode {

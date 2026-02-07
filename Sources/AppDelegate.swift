@@ -549,6 +549,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 key = "↑"
             case GHOSTTY_KEY_ARROW_DOWN:
                 key = "↓"
+            case GHOSTTY_KEY_A: key = "a"
+            case GHOSTTY_KEY_B: key = "b"
+            case GHOSTTY_KEY_C: key = "c"
+            case GHOSTTY_KEY_D: key = "d"
+            case GHOSTTY_KEY_E: key = "e"
+            case GHOSTTY_KEY_F: key = "f"
+            case GHOSTTY_KEY_G: key = "g"
+            case GHOSTTY_KEY_H: key = "h"
+            case GHOSTTY_KEY_I: key = "i"
+            case GHOSTTY_KEY_J: key = "j"
+            case GHOSTTY_KEY_K: key = "k"
+            case GHOSTTY_KEY_L: key = "l"
+            case GHOSTTY_KEY_M: key = "m"
+            case GHOSTTY_KEY_N: key = "n"
+            case GHOSTTY_KEY_O: key = "o"
+            case GHOSTTY_KEY_P: key = "p"
+            case GHOSTTY_KEY_Q: key = "q"
+            case GHOSTTY_KEY_R: key = "r"
+            case GHOSTTY_KEY_S: key = "s"
+            case GHOSTTY_KEY_T: key = "t"
+            case GHOSTTY_KEY_U: key = "u"
+            case GHOSTTY_KEY_V: key = "v"
+            case GHOSTTY_KEY_W: key = "w"
+            case GHOSTTY_KEY_X: key = "x"
+            case GHOSTTY_KEY_Y: key = "y"
+            case GHOSTTY_KEY_Z: key = "z"
+            case GHOSTTY_KEY_DIGIT_0: key = "0"
+            case GHOSTTY_KEY_DIGIT_1: key = "1"
+            case GHOSTTY_KEY_DIGIT_2: key = "2"
+            case GHOSTTY_KEY_DIGIT_3: key = "3"
+            case GHOSTTY_KEY_DIGIT_4: key = "4"
+            case GHOSTTY_KEY_DIGIT_5: key = "5"
+            case GHOSTTY_KEY_DIGIT_6: key = "6"
+            case GHOSTTY_KEY_DIGIT_7: key = "7"
+            case GHOSTTY_KEY_DIGIT_8: key = "8"
+            case GHOSTTY_KEY_DIGIT_9: key = "9"
+            case GHOSTTY_KEY_BRACKET_LEFT: key = "["
+            case GHOSTTY_KEY_BRACKET_RIGHT: key = "]"
+            case GHOSTTY_KEY_MINUS: key = "-"
+            case GHOSTTY_KEY_EQUAL: key = "="
+            case GHOSTTY_KEY_COMMA: key = ","
+            case GHOSTTY_KEY_PERIOD: key = "."
+            case GHOSTTY_KEY_SLASH: key = "/"
+            case GHOSTTY_KEY_SEMICOLON: key = ";"
+            case GHOSTTY_KEY_QUOTE: key = "'"
+            case GHOSTTY_KEY_BACKQUOTE: key = "`"
+            case GHOSTTY_KEY_BACKSLASH: key = "\\"
             default:
                 return nil
             }
@@ -736,7 +783,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Match a shortcut against an event, handling normal keys
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        // Some keys can include extra flags (e.g. .function) depending on the responder chain.
+        // Strip those for consistent matching across first responders (terminal, WebKit, etc).
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
         guard flags == shortcut.modifierFlags else { return false }
 
         // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
@@ -753,8 +803,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
-        return chars == shortcutKey
+        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
+        // so fall back to keyCode matching for common printable keys.
+        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
+            return true
+        }
+        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
+            return event.keyCode == expectedKeyCode
+        }
+        return false
+    }
+
+    private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
+        // Matches macOS ANSI key codes. This is intentionally limited to keys we
+        // support in StoredShortcut/ghostty trigger translation.
+        switch key {
+        case "a": return 0   // kVK_ANSI_A
+        case "s": return 1   // kVK_ANSI_S
+        case "d": return 2   // kVK_ANSI_D
+        case "f": return 3   // kVK_ANSI_F
+        case "h": return 4   // kVK_ANSI_H
+        case "g": return 5   // kVK_ANSI_G
+        case "z": return 6   // kVK_ANSI_Z
+        case "x": return 7   // kVK_ANSI_X
+        case "c": return 8   // kVK_ANSI_C
+        case "v": return 9   // kVK_ANSI_V
+        case "b": return 11  // kVK_ANSI_B
+        case "q": return 12  // kVK_ANSI_Q
+        case "w": return 13  // kVK_ANSI_W
+        case "e": return 14  // kVK_ANSI_E
+        case "r": return 15  // kVK_ANSI_R
+        case "y": return 16  // kVK_ANSI_Y
+        case "t": return 17  // kVK_ANSI_T
+        case "1": return 18  // kVK_ANSI_1
+        case "2": return 19  // kVK_ANSI_2
+        case "3": return 20  // kVK_ANSI_3
+        case "4": return 21  // kVK_ANSI_4
+        case "6": return 22  // kVK_ANSI_6
+        case "5": return 23  // kVK_ANSI_5
+        case "=": return 24  // kVK_ANSI_Equal
+        case "9": return 25  // kVK_ANSI_9
+        case "7": return 26  // kVK_ANSI_7
+        case "-": return 27  // kVK_ANSI_Minus
+        case "8": return 28  // kVK_ANSI_8
+        case "0": return 29  // kVK_ANSI_0
+        case "o": return 31  // kVK_ANSI_O
+        case "u": return 32  // kVK_ANSI_U
+        case "i": return 34  // kVK_ANSI_I
+        case "p": return 35  // kVK_ANSI_P
+        case "l": return 37  // kVK_ANSI_L
+        case "j": return 38  // kVK_ANSI_J
+        case "'": return 39  // kVK_ANSI_Quote
+        case "k": return 40  // kVK_ANSI_K
+        case ";": return 41  // kVK_ANSI_Semicolon
+        case "\\": return 42 // kVK_ANSI_Backslash
+        case ",": return 43  // kVK_ANSI_Comma
+        case "/": return 44  // kVK_ANSI_Slash
+        case "n": return 45  // kVK_ANSI_N
+        case "m": return 46  // kVK_ANSI_M
+        case ".": return 47  // kVK_ANSI_Period
+        case "`": return 50  // kVK_ANSI_Grave
+        default:
+            return nil
+        }
     }
 
     /// Match arrow key shortcuts using keyCode

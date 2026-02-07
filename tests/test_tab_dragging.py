@@ -46,6 +46,53 @@ class TestResult:
         self.message = msg
 
 
+def ensure_focused_terminal(client: cmux) -> None:
+    """
+    Make sure the currently selected workspace has a focused terminal surface.
+
+    Developer sessions (and some prior tests) may leave the browser focused,
+    causing send/send_key to fail with "No focused terminal".
+    """
+    # Start from a clean workspace so indices are predictable.
+    try:
+        ws_id = client.new_workspace()
+        client.select_workspace(ws_id)
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+    try:
+        health = client.surface_health()
+        term = next((h for h in health if h.get("type") == "terminal"), None)
+        if term is None:
+            # Fallback: create a terminal surface.
+            client.new_surface(panel_type="terminal")
+            time.sleep(0.3)
+            health = client.surface_health()
+            term = next((h for h in health if h.get("type") == "terminal"), None)
+        if term is not None:
+            client.focus_surface(term["index"])
+            time.sleep(0.2)
+            wait_for_terminal_in_window(client, term["index"], timeout=5.0)
+    except Exception:
+        pass
+
+
+def wait_for_terminal_in_window(client: cmux, surface_idx: int, timeout: float = 5.0) -> bool:
+    """Wait until a terminal surface index reports in_window=true via surface_health()."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            health = client.surface_health()
+        except Exception:
+            health = []
+        for h in health:
+            if h.get("index") == surface_idx and h.get("type") == "terminal" and h.get("in_window"):
+                return True
+        time.sleep(0.2)
+    return False
+
+
 def wait_for_marker(marker: Path, timeout: float = 5.0) -> bool:
     """Wait for a marker file to appear."""
     start = time.time()
@@ -70,18 +117,27 @@ def verify_terminal_responsive(client: cmux, marker: Path, surface_idx: int = No
         clear_marker(marker)
 
         # Send Ctrl+C first to clear any pending state
-        if surface_idx is not None:
-            client.send_key_surface(surface_idx, "ctrl-c")
-        else:
-            client.send_key("ctrl-c")
+        try:
+            if surface_idx is not None:
+                client.send_key_surface(surface_idx, "ctrl-c")
+            else:
+                client.send_key("ctrl-c")
+        except Exception:
+            # Surface may be transiently unavailable during layout/tree updates.
+            time.sleep(0.5)
+            continue
         time.sleep(0.3)
 
         # Send command to create marker
         cmd = f"touch {marker}\n"
-        if surface_idx is not None:
-            client.send_surface(surface_idx, cmd)
-        else:
-            client.send(cmd)
+        try:
+            if surface_idx is not None:
+                client.send_surface(surface_idx, cmd)
+            else:
+                client.send(cmd)
+        except Exception:
+            time.sleep(0.5)
+            continue
 
         if wait_for_marker(marker, timeout=3.0):
             return True
@@ -111,7 +167,20 @@ def test_initial_terminal_responsive(client: cmux) -> TestResult:
     marker = Path(tempfile.gettempdir()) / f"cmux_init_{os.getpid()}"
 
     try:
-        if verify_terminal_responsive(client, marker):
+        # Prefer targeting a specific terminal surface by index so this test
+        # doesn't depend on "focused terminal" state.
+        term_idx = None
+        try:
+            health = client.surface_health()
+            term = next((h for h in health if h.get("type") == "terminal"), None)
+            if term is not None:
+                term_idx = term.get("index")
+                client.focus_surface(term_idx)
+                wait_for_terminal_in_window(client, term_idx, timeout=5.0)
+        except Exception:
+            term_idx = None
+
+        if verify_terminal_responsive(client, marker, surface_idx=term_idx):
             result.success("Initial terminal is responsive")
             clear_marker(marker)
         else:
@@ -132,7 +201,10 @@ def test_split_right_responsive(client: cmux) -> TestResult:
     try:
         # Create split
         client.new_split("right")
-        time.sleep(2.0)  # Wait for split animation and terminal init (increased for VM)
+        time.sleep(0.8)
+        # Wait for both terminal views to attach so send_surface works reliably.
+        wait_for_terminal_in_window(client, 0, timeout=5.0)
+        wait_for_terminal_in_window(client, 1, timeout=5.0)
 
         # Get list of surfaces
         surfaces = client.list_surfaces()
@@ -183,7 +255,9 @@ def test_split_down_responsive(client: cmux) -> TestResult:
 
         # Create vertical split
         client.new_split("down")
-        time.sleep(2.0)  # Wait for split animation and terminal init (increased for VM)
+        time.sleep(0.8)
+        wait_for_terminal_in_window(client, 0, timeout=5.0)
+        wait_for_terminal_in_window(client, 1, timeout=5.0)
 
         # Get list of surfaces
         surfaces = client.list_surfaces()
@@ -1010,6 +1084,8 @@ def run_tests():
             if not results[-1].passed:
                 return 1
 
+            ensure_focused_terminal(client)
+
             # Test initial terminal
             print("Testing initial terminal responsiveness...")
             results.append(test_initial_terminal_responsive(client))
@@ -1020,6 +1096,7 @@ def run_tests():
 
             # Test horizontal split
             print("Testing horizontal split (right)...")
+            ensure_focused_terminal(client)
             results.append(test_split_right_responsive(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1028,6 +1105,7 @@ def run_tests():
 
             # Test vertical split
             print("Testing vertical split (down)...")
+            ensure_focused_terminal(client)
             results.append(test_split_down_responsive(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1036,6 +1114,7 @@ def run_tests():
 
             # Test multiple splits
             print("Testing multiple splits (2x2 grid)...")
+            ensure_focused_terminal(client)
             results.append(test_multiple_splits_responsive(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1044,6 +1123,7 @@ def run_tests():
 
             # Test focus switching
             print("Testing rapid focus switching...")
+            ensure_focused_terminal(client)
             results.append(test_focus_switching(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1052,6 +1132,7 @@ def run_tests():
 
             # Test pane commands
             print("Testing pane commands...")
+            ensure_focused_terminal(client)
             results.append(test_pane_commands(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1060,6 +1141,7 @@ def run_tests():
 
             # Test new surfaces
             print("Testing new surfaces...")
+            ensure_focused_terminal(client)
             results.append(test_new_surfaces(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1068,6 +1150,7 @@ def run_tests():
 
             # Test split ratio 50/50
             print("Testing split ratio 50/50...")
+            ensure_focused_terminal(client)
             results.append(test_split_ratio_50_50(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1076,6 +1159,7 @@ def run_tests():
 
             # Test closing horizontal split
             print("Testing close horizontal split...")
+            ensure_focused_terminal(client)
             results.append(test_close_horizontal_split(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1084,6 +1168,7 @@ def run_tests():
 
             # Test closing vertical split
             print("Testing close vertical split...")
+            ensure_focused_terminal(client)
             results.append(test_close_vertical_split(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1092,6 +1177,7 @@ def run_tests():
 
             # Test closing first pane of vertical split (the bug case)
             print("Testing close first pane vertical split (bug case)...")
+            ensure_focused_terminal(client)
             results.append(test_close_first_pane_vertical_split(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1100,6 +1186,7 @@ def run_tests():
 
             # Test closing nested splits
             print("Testing close nested splits...")
+            ensure_focused_terminal(client)
             results.append(test_close_nested_splits(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1108,6 +1195,7 @@ def run_tests():
 
             # Test rapid split/close vertical
             print("Testing rapid split/close vertical...")
+            ensure_focused_terminal(client)
             results.append(test_rapid_split_close_vertical(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
@@ -1116,6 +1204,7 @@ def run_tests():
 
             # Test rapid split/close first pane
             print("Testing rapid split/close first pane...")
+            ensure_focused_terminal(client)
             results.append(test_rapid_split_close_first_pane(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")

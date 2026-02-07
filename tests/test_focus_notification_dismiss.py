@@ -39,25 +39,38 @@ def ensure_two_surfaces(client: cmux) -> None:
         client.new_split("right")
         time.sleep(0.2)
 
+def first_two_terminal_indices(client: cmux) -> tuple[int, int]:
+    health = client.surface_health()
+    terms = [h["index"] for h in health if h.get("type") == "terminal"]
+    if len(terms) < 2:
+        raise RuntimeError(f"Expected >=2 terminal surfaces, got {health}")
+    return terms[0], terms[1]
+
 
 def main() -> int:
     try:
         with cmux() as client:
-            client.set_app_focus(None)
+            # Socket-driven tests may run while the app isn't frontmost/key.
+            # Override app focus to make notification->focus behavior deterministic.
+            client.set_app_focus(True)
+            ws_id = client.new_workspace()
+            client.select_workspace(ws_id)
+            time.sleep(0.5)
             ensure_two_surfaces(client)
-            client.focus_surface(0)
+            term_a, term_b = first_two_terminal_indices(client)
+            client.focus_surface(term_a)
 
-            surface_id = surface_id_for_index(client, 1)
+            surface_id = surface_id_for_index(client, term_b)
             client.clear_notifications()
             client.reset_flash_counts()
-            initial_flash = client.flash_count(1)
+            initial_flash = client.flash_count(term_b)
 
-            client.notify_surface(1, "Focus Test", "panel", "body")
+            client.notify_surface(term_b, "Focus Test", "panel", "body")
             if not wait_for_notification(client, surface_id, is_read=False, timeout=2.0):
                 print("FAIL: Notification did not appear as unread")
                 return 1
 
-            client.focus_surface(1)
+            client.focus_surface(term_b)
             client.send("x")
             time.sleep(0.2)
 
@@ -65,10 +78,20 @@ def main() -> int:
                 print("FAIL: Notification did not become read after focus")
                 return 1
 
-            final_flash = client.flash_count(1)
+            final_flash = client.flash_count(term_b)
             if final_flash <= initial_flash:
                 print(f"FAIL: Flash count did not increment (before={initial_flash}, after={final_flash})")
                 return 1
+
+            try:
+                client.close_workspace(ws_id)
+            except Exception:
+                pass
+            finally:
+                try:
+                    client.set_app_focus(None)
+                except Exception:
+                    pass
 
             print("PASS: Focus clears notification and flashes panel")
             return 0

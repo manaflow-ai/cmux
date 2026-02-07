@@ -5,22 +5,17 @@ is focused and actively displaying a web page.
 
 Requires:
   - cmuxterm running
-  - Accessibility permissions for System Events (osascript)
+  - Debug socket commands enabled (`simulate_shortcut`)
 """
 
 import os
 import sys
 import time
-import subprocess
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cmux import cmux, cmuxError
-
-
-def run_osascript(script: str) -> None:
-    subprocess.run(["osascript", "-e", script], check=True)
 
 
 def focused_pane_id(client: cmux) -> Optional[str]:
@@ -31,36 +26,20 @@ def focused_pane_id(client: cmux) -> Optional[str]:
     return None
 
 
-def click_center_of_app() -> None:
-    """Fallback: click the frontmost window to try to give the webview first responder."""
-    run_osascript('''
-        tell application "System Events"
-            tell process "cmuxterm DEV"
-                set frontWin to front window
-                set {x, y, w, h} to {0, 0, 0, 0}
-                set winPos to position of frontWin
-                set winSize to size of frontWin
-                set x to item 1 of winPos
-                set y to item 2 of winPos
-                set w to item 1 of winSize
-                set h to item 2 of winSize
-                -- Click right-center (browser pane is on the right half)
-                click at {x + w * 3 / 4, y + h / 2}
-            end tell
-        end tell
-    ''')
-
-
 def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
     """
     1. Create workspace with horizontal split: terminal (left) | browser with URL (right)
     2. Focus the browser pane and ensure WKWebView has first responder
-    3. Send Cmd+Option+Left via osascript
+    3. Send Cmd+Option+Left via debug socket simulate_shortcut
     4. Verify focus moved to the terminal pane (left)
     """
     ws_id = client.new_workspace()
     client.select_workspace(ws_id)
     time.sleep(0.5)
+
+    # Ensure we use the default Cmd+Option+Arrow shortcuts for this regression test.
+    client.set_shortcut("focus_left", "clear")
+    client.set_shortcut("focus_right", "clear")
 
     # Create a browser pane to the right, loading a real page
     browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
@@ -85,24 +64,13 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
     client.focus_pane(browser_pane_id)
     time.sleep(0.3)
 
-    # Activate app and force WKWebView first responder (socket-driven, no flakey clicking)
-    run_osascript('tell application "cmuxterm DEV" to activate')
-    time.sleep(0.3)
-    try:
-        client.focus_webview(browser_id)
-    except Exception:
-        # Fallback to click if socket focus fails for any reason.
-        click_center_of_app()
-    time.sleep(0.2)
+    # Force WKWebView first responder (socket-driven; avoids flakey clicking).
+    client.focus_webview(browser_id)
+    client.wait_for_webview_focus(browser_id, timeout_s=3.0)
 
     # Verify WebKit (not just the pane) has first responder.
-    start = time.time()
-    while time.time() - start < 2.0:
-        if client.is_webview_focused(browser_id):
-            break
-        time.sleep(0.05)
-    else:
-        return False, "Browser pane is focused, but WKWebView is not first responder after click"
+    if not client.is_webview_focused(browser_id):
+        return False, "Browser pane is focused, but WKWebView is not first responder"
 
     # Verify browser pane is still focused after click
     pre_focus = focused_pane_id(client)
@@ -113,10 +81,8 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
             pass
         return False, f"Click changed focus away from browser pane (now {pre_focus})"
 
-    # Send Cmd+Option+Left arrow (keyCode 123)
-    run_osascript(
-        'tell application "System Events" to key code 123 using {command down, option down}'
-    )
+    # Send Cmd+Option+Left arrow
+    client.simulate_shortcut("cmd+opt+left")
     time.sleep(0.5)
 
     new_focused = focused_pane_id(client)
@@ -144,6 +110,9 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
     client.select_workspace(ws_id)
     time.sleep(0.5)
 
+    client.set_shortcut("focus_left", "clear")
+    client.set_shortcut("focus_right", "clear")
+
     browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
     time.sleep(2.0)
 
@@ -165,13 +134,8 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
     client.focus_pane(terminal_pane_id)
     time.sleep(0.3)
 
-    run_osascript('tell application "cmuxterm DEV" to activate')
-    time.sleep(0.3)
-
-    # Cmd+Option+Right to move to browser (keyCode 124)
-    run_osascript(
-        'tell application "System Events" to key code 124 using {command down, option down}'
-    )
+    # Cmd+Option+Right to move to browser
+    client.simulate_shortcut("cmd+opt+right")
     time.sleep(0.5)
 
     mid_focused = focused_pane_id(client)
@@ -186,24 +150,13 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
         )
 
     # Now browser is focused. Force WKWebView first responder.
-    try:
-        client.focus_webview(browser_id)
-    except Exception:
-        click_center_of_app()
-    time.sleep(0.2)
+    client.focus_webview(browser_id)
+    client.wait_for_webview_focus(browser_id, timeout_s=3.0)
+    if not client.is_webview_focused(browser_id):
+        return False, "WKWebView did not become first responder in browser pane"
 
-    start = time.time()
-    while time.time() - start < 2.0:
-        if client.is_webview_focused(browser_id):
-            break
-        time.sleep(0.05)
-    else:
-        return False, "WKWebView did not become first responder after click in browser pane"
-
-    # Cmd+Option+Left to go back to terminal (keyCode 123)
-    run_osascript(
-        'tell application "System Events" to key code 123 using {command down, option down}'
-    )
+    # Cmd+Option+Left to go back to terminal
+    client.simulate_shortcut("cmd+opt+left")
     time.sleep(0.5)
 
     final_focused = focused_pane_id(client)
