@@ -325,6 +325,122 @@ struct CMUXCLI {
             let response = try client.send(command: "simulate_app_active")
             print(response)
 
+        case "set-status":
+            guard commandArgs.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> <value>")
+            }
+            let key = commandArgs[0]
+            let value = commandArgs[1]
+            let icon = optionValue(commandArgs, name: "--icon")
+            let color = optionValue(commandArgs, name: "--color")
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "set_status \(key) \(value)"
+            if let icon { cmd += " --icon=\(icon)" }
+            if let color { cmd += " --color=\(color)" }
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "clear-status":
+            let key = commandArgs.first
+            guard let key else {
+                throw CLIError(message: "clear-status requires <key>")
+            }
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "clear_status \(key)"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "log":
+            // Remove options by position (flag + following value), not by string value,
+            // so message tokens that happen to equal an option value aren't dropped.
+            let (level, argsWithoutLevel) = parseOption(commandArgs, name: "--level")
+            let (source, argsWithoutSource) = parseOption(argsWithoutLevel, name: "--source")
+            let (explicitTab, remaining) = parseOption(argsWithoutSource, name: "--tab")
+            let tabArg = explicitTab ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            let message = remaining.joined(separator: " ")
+            guard !message.isEmpty else { throw CLIError(message: "log requires a message") }
+            var cmd = "log \(message)"
+            if let level { cmd += " --level=\(level)" }
+            if let source { cmd += " --source=\(source)" }
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "clear-log":
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "clear_log"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "set-progress":
+            guard let value = commandArgs.first else {
+                throw CLIError(message: "set-progress requires a value (0.0-1.0)")
+            }
+            let label = optionValue(commandArgs, name: "--label")
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "set_progress \(value)"
+            if let label { cmd += " --label=\(quoteOptionValue(label))" }
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "clear-progress":
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "clear_progress"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "report-git-branch":
+            guard let branch = commandArgs.first else {
+                throw CLIError(message: "report-git-branch requires a branch name")
+            }
+            let status = optionValue(commandArgs, name: "--status")
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "report_git_branch \(branch)"
+            if let status { cmd += " --status=\(status)" }
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "report-ports":
+            // Remove options by position (flag + following value), not by string value,
+            // so a port token that equals the tab arg isn't accidentally dropped.
+            let (explicitTab, remaining) = parseOption(commandArgs, name: "--tab")
+            let tabArg = explicitTab ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            let ports = remaining
+            guard !ports.isEmpty else {
+                throw CLIError(message: "report-ports requires at least one port number")
+            }
+            var cmd = "report_ports \(ports.joined(separator: " "))"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "clear-ports":
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "clear_ports"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "sidebar-state":
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "sidebar_state"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "reset-sidebar":
+            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+            var cmd = "reset_sidebar"
+            if let tabArg { cmd += " --tab=\(tabArg)" }
+            let response = try client.send(command: cmd)
+            print(response)
+
         case "help":
             print(usage())
 
@@ -487,6 +603,15 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\t", with: "\\t")
     }
 
+    private func quoteOptionValue(_ value: String) -> String {
+        // TerminalController.parseOptions supports quoted strings with basic
+        // backslash escapes (\" and \\) inside quotes.
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
     private func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
     }
@@ -526,6 +651,17 @@ struct CMUXCLI {
           clear-notifications
           set-app-focus <active|inactive|clear>
           simulate-app-active
+          set-status <key> <value> [--icon <name>] [--color <hex>] [--tab <id|index>]
+          clear-status <key> [--tab <id|index>]
+          log <message> [--level <level>] [--source <name>] [--tab <id|index>]
+          clear-log [--tab <id|index>]
+          set-progress <value> [--label <text>] [--tab <id|index>]
+          clear-progress [--tab <id|index>]
+          report-git-branch <branch> [--status <clean|dirty>] [--tab <id>]
+          report-ports <port1> [port2...] [--tab <id>]
+          clear-ports [--tab <id>]
+          sidebar-state [--tab <id>]
+          reset-sidebar [--tab <id>]
           help
 
         Environment:

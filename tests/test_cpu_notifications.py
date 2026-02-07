@@ -41,6 +41,32 @@ MONITOR_DURATION = 3.0
 
 def get_cmuxterm_pid() -> Optional[int]:
     """Get the PID of the running cmuxterm process."""
+    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    if not socket_path:
+        # Ask cmux.py to resolve default socket path (supports CMUX_TAG and last-socket file).
+        try:
+            socket_path = cmux().socket_path
+        except Exception:
+            socket_path = None
+
+    if socket_path and os.path.exists(socket_path):
+        result = subprocess.run(
+            ["lsof", "-t", socket_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    pid = int(line)
+                except ValueError:
+                    continue
+                if pid != os.getpid():
+                    return pid
+
     result = subprocess.run(
         ["pgrep", "-f", r"cmuxterm\.app/Contents/MacOS/cmuxterm$"],
         capture_output=True,
@@ -141,6 +167,14 @@ def test_cpu_after_popover_close(client: cmux, pid: int) -> tuple[bool, str]:
         time.sleep(0.1)
     time.sleep(0.5)
 
+    # Ensure the correct cmuxterm instance is frontmost (tag-safe).
+    bundle_id = cmux.default_bundle_id()
+    subprocess.run(
+        ["osascript", "-e", f'tell application id "{bundle_id}" to activate'],
+        capture_output=True,
+    )
+    time.sleep(0.2)
+
     # Simulate opening and closing the popover via keyboard shortcut
     # We can't directly control the popover, but we can toggle it
     subprocess.run([
@@ -212,6 +246,8 @@ def main():
     print("cmuxterm Notification CPU Tests")
     print("=" * 60)
 
+    socket_path = cmux().socket_path
+
     pid = get_cmuxterm_pid()
     if pid is None:
         print("\n❌ SKIP: cmuxterm is not running")
@@ -220,20 +256,13 @@ def main():
     print(f"\nFound cmuxterm process: PID {pid}")
 
     # Try to connect to the socket
-    socket_paths = ["/tmp/cmuxterm.sock", "/tmp/cmuxterm-debug.sock"]
-    client = None
-    for socket_path in socket_paths:
-        if os.path.exists(socket_path):
-            try:
-                client = cmux(socket_path)
-                client.connect()
-                print(f"Connected to {socket_path}")
-                break
-            except cmuxError:
-                continue
-
-    if client is None:
-        print(f"\n❌ SKIP: Could not connect to cmuxterm socket")
+    client = cmux(socket_path)
+    try:
+        client.connect()
+        print(f"Connected to {socket_path}")
+    except cmuxError:
+        print("\n❌ SKIP: Could not connect to cmuxterm socket")
+        print("Tip: set CMUX_TAG=<tag> or CMUX_SOCKET_PATH=<path> to target a tagged instance.")
         return 0
 
     results = []

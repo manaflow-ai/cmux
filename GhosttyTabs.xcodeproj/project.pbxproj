@@ -45,6 +45,7 @@
 		B9000002A1B2C3D4E5F60719 /* cmuxterm.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmuxterm.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmuxterm in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmuxterm */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
+		C1D2E3F4A5B6C7D8E9F00001 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B6C7D8E9F00002 /* shell-integration */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
@@ -133,6 +134,7 @@
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
+		C1D2E3F4A5B6C7D8E9F00002 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "shell-integration"; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmuxterm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxterm.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmuxterm */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmuxterm; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 			files = (
 				A5001100 /* Assets.xcassets in Resources */,
 				84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */,
+				C1D2E3F4A5B6C7D8E9F00001 /* shell-integration in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -271,6 +274,7 @@
 			isa = PBXGroup;
 			children = (
 				B2E7294509CC42FE9191870E /* xterm-ghostty */,
+				C1D2E3F4A5B6C7D8E9F00002 /* shell-integration */,
 			);
 			path = Resources;
 			sourceTree = "<group>";

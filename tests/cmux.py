@@ -33,6 +33,8 @@ import select
 import os
 import time
 import errno
+import glob
+import re
 from typing import Optional, List, Tuple, Union
 
 
@@ -41,24 +43,136 @@ class cmuxError(Exception):
     pass
 
 
-def _default_socket_path() -> str:
-    override = os.environ.get("CMUX_SOCKET_PATH")
+_LAST_SOCKET_PATH_FILE = "/tmp/cmuxterm-last-socket-path"
+_DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
+
+
+def _sanitize_tag_slug(raw: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or "agent"
+
+
+def _sanitize_bundle_suffix(raw: str) -> str:
+    # Must match scripts/reload.sh sanitize_bundle() so tagged tests can
+    # reliably target the correct app via AppleScript.
+    cleaned = re.sub(r"[^a-z0-9]+", ".", (raw or "").strip().lower())
+    cleaned = re.sub(r"\.+", ".", cleaned).strip(".")
+    return cleaned or "agent"
+
+
+def _quote_option_value(value: str) -> str:
+    # Must match TerminalController.parseOptions() quoting rules.
+    escaped = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return f"\"{escaped}\""
+
+
+def _default_bundle_id() -> str:
+    override = os.environ.get("CMUX_BUNDLE_ID") or os.environ.get("CMUXTERM_BUNDLE_ID")
     if override:
         return override
+
+    tag = os.environ.get("CMUX_TAG") or os.environ.get("CMUXTERM_TAG")
+    if tag:
+        suffix = _sanitize_bundle_suffix(tag)
+        return f"{_DEFAULT_DEBUG_BUNDLE_ID}.{suffix}"
+
+    return _DEFAULT_DEBUG_BUNDLE_ID
+
+
+def _read_last_socket_path() -> Optional[str]:
+    try:
+        with open(_LAST_SOCKET_PATH_FILE, "r", encoding="utf-8") as f:
+            path = f.read().strip()
+        if path:
+            return path
+    except OSError:
+        pass
+    return None
+
+
+def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
+    # Best-effort check to avoid getting stuck on stale socket files.
+    for _ in range(max(1, retries)):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.settimeout(timeout)
+            s.connect(path)
+            return True
+        except OSError:
+            time.sleep(0.05)
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    return False
+
+
+def _default_socket_path() -> str:
+    tag = os.environ.get("CMUX_TAG") or os.environ.get("CMUXTERM_TAG")
+    if tag:
+        slug = _sanitize_tag_slug(tag)
+        tagged_candidates = [
+            f"/tmp/cmuxterm-debug-{slug}.sock",
+            f"/tmp/cmuxterm-{slug}.sock",
+        ]
+        for path in tagged_candidates:
+            if os.path.exists(path) and _can_connect(path):
+                return path
+        # If nothing is connectable yet (e.g. the app is still starting),
+        # fall back to the first existing candidate.
+        for path in tagged_candidates:
+            if os.path.exists(path):
+                return path
+        # Prefer the debug naming convention when we have to guess.
+        return tagged_candidates[0]
+
+    override = os.environ.get("CMUX_SOCKET_PATH")
+    if override:
+        if os.path.exists(override) and _can_connect(override):
+            return override
+        # Fall back to other heuristics if the override points at a stale socket file.
+        if not os.path.exists(override):
+            return override
+
+    last_socket = _read_last_socket_path()
+    if last_socket:
+        if os.path.exists(last_socket) and _can_connect(last_socket):
+            return last_socket
+
+    # Prefer the non-tagged sockets when present.
     candidates = ["/tmp/cmuxterm-debug.sock", "/tmp/cmuxterm.sock"]
     for path in candidates:
-        if os.path.exists(path):
+        if os.path.exists(path) and _can_connect(path):
             return path
+
+    # Otherwise, fall back to the newest tagged debug socket if there is one.
+    tagged = glob.glob("/tmp/cmuxterm-debug-*.sock")
+    tagged = [p for p in tagged if os.path.exists(p)]
+    if tagged:
+        tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for p in tagged:
+            if _can_connect(p, timeout=0.1, retries=2):
+                return p
+
     return candidates[0]
 
 
 class cmux:
     """Client for controlling cmux via Unix socket"""
 
-    DEFAULT_SOCKET_PATH = _default_socket_path()
+    @staticmethod
+    def default_socket_path() -> str:
+        return _default_socket_path()
+
+    @staticmethod
+    def default_bundle_id() -> str:
+        return _default_bundle_id()
 
     def __init__(self, socket_path: str = None):
-        self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
+        # Resolve at init time so imports don't "lock in" a stale path.
+        self.socket_path = socket_path or _default_socket_path()
         self._socket: Optional[socket.socket] = None
         self._recv_buffer: str = ""
 
@@ -359,6 +473,107 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def set_status(self, key: str, value: str, icon: str = None, color: str = None, tab: str = None) -> None:
+        """Set a sidebar status entry."""
+        cmd = f"set_status {key} {value}"
+        if icon:
+            cmd += f" --icon={icon}"
+        if color:
+            cmd += f" --color={color}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_status(self, key: str, tab: str = None) -> None:
+        """Remove a sidebar status entry."""
+        cmd = f"clear_status {key}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def log(self, message: str, level: str = None, source: str = None, tab: str = None) -> None:
+        """Append a sidebar log entry."""
+        cmd = f"log {message}"
+        if level:
+            cmd += f" --level={level}"
+        if source:
+            cmd += f" --source={source}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def set_progress(self, value: float, label: str = None, tab: str = None) -> None:
+        """Set sidebar progress bar (0.0-1.0)."""
+        cmd = f"set_progress {value}"
+        if label:
+            cmd += f" --label={_quote_option_value(label)}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_progress(self, tab: str = None) -> None:
+        """Clear sidebar progress bar."""
+        cmd = "clear_progress"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def report_git_branch(self, branch: str, status: str = None, tab: str = None) -> None:
+        """Report git branch for sidebar display."""
+        cmd = f"report_git_branch {branch}"
+        if status:
+            cmd += f" --status={status}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def report_ports(self, *ports: int, tab: str = None) -> None:
+        """Report listening ports for sidebar display."""
+        port_str = " ".join(str(p) for p in ports)
+        cmd = f"report_ports {port_str}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_ports(self, tab: str = None) -> None:
+        """Clear listening ports for sidebar display."""
+        cmd = "clear_ports"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def sidebar_state(self, tab: str = None) -> str:
+        """Dump all sidebar metadata for a tab."""
+        cmd = "sidebar_state"
+        if tab:
+            cmd += f" --tab={tab}"
+        return self._send_command(cmd)
+
+    def reset_sidebar(self, tab: str = None) -> None:
+        """Clear all sidebar metadata for a tab."""
+        cmd = "reset_sidebar"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def focus_notification(self, tab: Union[str, int], surface: Union[str, int, None] = None) -> None:
         """Focus tab/surface using the notification flow."""
         if surface is None:
@@ -391,8 +606,8 @@ def main():
     parser = argparse.ArgumentParser(description="cmux CLI")
     parser.add_argument("command", nargs="?", help="Command to send")
     parser.add_argument("args", nargs="*", help="Command arguments")
-    parser.add_argument("-s", "--socket", default=cmux.DEFAULT_SOCKET_PATH,
-                        help="Socket path")
+    parser.add_argument("-s", "--socket", default=None,
+                        help="Socket path (default: auto-detect)")
 
     args = parser.parse_args()
 

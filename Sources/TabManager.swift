@@ -2,6 +2,27 @@ import AppKit
 import SwiftUI
 import Foundation
 
+struct SidebarStatusEntry: Identifiable {
+    let id = UUID()
+    let key: String
+    var value: String
+    var icon: String?
+    var color: String?
+    var timestamp: Date
+}
+
+enum SidebarLogLevel: String {
+    case info, progress, success, warning, error
+}
+
+struct SidebarLogEntry: Identifiable {
+    let id = UUID()
+    let message: String
+    let level: SidebarLogLevel
+    let source: String?
+    let timestamp: Date
+}
+
 class Tab: Identifiable, ObservableObject {
     let id: UUID
     @Published var title: String
@@ -27,6 +48,17 @@ class Tab: Identifiable, ObservableObject {
     @Published var surfaceDirectories: [UUID: String] = [:]
     @Published var surfaceTitles: [UUID: String] = [:]
     var splitViewSize: CGSize = .zero
+
+    // Sidebar metadata
+    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
+    @Published var logEntries: [SidebarLogEntry] = []
+    @Published var progress: (value: Double, label: String?)? = nil
+    @Published var gitBranch: (branch: String, isDirty: Bool)? = nil
+    // Per-surface ports reported by shell integration. `listeningPorts` is the union for display.
+    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published var listeningPorts: [Int] = []
+
+    static let maxLogEntries = 50
 
     private var processTitle: String
 
@@ -112,6 +144,34 @@ class Tab: Identifiable, ObservableObject {
             surfaceDirectories[surfaceId] = trimmed
         }
         currentDirectory = trimmed
+    }
+
+    func recomputeListeningPorts() {
+        let merged = surfaceListeningPorts.values.reduce(into: Set<Int>()) { acc, ports in
+            for port in ports {
+                acc.insert(port)
+            }
+        }
+        let sorted = merged.sorted()
+        if listeningPorts != sorted {
+            listeningPorts = sorted
+        }
+    }
+
+    func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>? = nil) {
+        let validIds = validSurfaceIds ?? Set((splitTree.root?.leaves() ?? []).map { $0.id })
+
+        if surfaceDirectories.keys.contains(where: { !validIds.contains($0) }) {
+            surfaceDirectories = surfaceDirectories.filter { validIds.contains($0.key) }
+        }
+        if surfaceTitles.keys.contains(where: { !validIds.contains($0) }) {
+            surfaceTitles = surfaceTitles.filter { validIds.contains($0.key) }
+        }
+        if surfaceListeningPorts.keys.contains(where: { !validIds.contains($0) }) {
+            surfaceListeningPorts = surfaceListeningPorts.filter { validIds.contains($0.key) }
+        }
+
+        recomputeListeningPorts()
     }
 
     func triggerNotificationFocusFlash(
@@ -274,6 +334,10 @@ class Tab: Identifiable, ObservableObject {
             : nil
 
         splitTree = splitTree.removing(targetNode)
+        // A closed split can race with shell-integration hooks that report ports/cwd.
+        // Prune any per-surface metadata to the remaining leaves so the sidebar
+        // doesn't display stale ports/directories.
+        pruneSurfaceMetadata()
 
         if splitTree.isEmpty {
             focusedSurfaceId = nil

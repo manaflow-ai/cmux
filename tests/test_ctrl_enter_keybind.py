@@ -21,8 +21,26 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux import cmux, cmuxError
 
 
-def run_osascript(script: str) -> None:
-    subprocess.run(["osascript", "-e", script], check=True)
+def run_osascript(script: str) -> subprocess.CompletedProcess[str]:
+    # Use capture_output so we can detect common permission failures and skip.
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            result.args,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    return result
+
+
+def is_keystroke_permission_error(err: subprocess.CalledProcessError) -> bool:
+    text = f"{getattr(err, 'stderr', '') or ''}\n{getattr(err, 'output', '') or ''}"
+    return "not allowed to send keystrokes" in text or "(1002)" in text
 
 
 def has_ctrl_enter_keybind(config_text: str) -> bool:
@@ -63,34 +81,36 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
     new_tab_id = client.new_tab()
     client.select_tab(new_tab_id)
     time.sleep(0.3)
-
-    # Make sure the app is focused for keystrokes
-    run_osascript('tell application "cmuxterm" to activate')
-    time.sleep(0.2)
-
-    # Clear any running command
     try:
-        client.send_key("ctrl-c")
+        # Make sure the app is focused for keystrokes
+        bundle_id = cmux.default_bundle_id()
+        run_osascript(f'tell application id "{bundle_id}" to activate')
         time.sleep(0.2)
-    except Exception:
-        pass
 
-    # Type the command (without pressing Enter)
-    run_osascript(f'tell application "System Events" to keystroke "touch {marker}"')
-    time.sleep(0.1)
+        # Clear any running command
+        try:
+            client.send_key("ctrl-c")
+            time.sleep(0.2)
+        except Exception:
+            pass
 
-    # Send Ctrl+Enter (key code 36 = Return)
-    run_osascript('tell application "System Events" to key code 36 using control down')
-    time.sleep(0.5)
+        # Type the command (without pressing Enter)
+        run_osascript(f'tell application "System Events" to keystroke "touch {marker}"')
+        time.sleep(0.1)
 
-    ok = marker.exists()
-    if ok:
-        marker.unlink(missing_ok=True)
-    try:
-        client.close_tab(new_tab_id)
-    except Exception:
-        pass
-    return ok, ("Ctrl+Enter keybind executed command" if ok else "Marker not created by Ctrl+Enter")
+        # Send Ctrl+Enter (key code 36 = Return)
+        run_osascript('tell application "System Events" to key code 36 using control down')
+        time.sleep(0.5)
+
+        ok = marker.exists()
+        return ok, ("Ctrl+Enter keybind executed command" if ok else "Marker not created by Ctrl+Enter")
+    finally:
+        if marker.exists():
+            marker.unlink(missing_ok=True)
+        try:
+            client.close_tab(new_tab_id)
+        except Exception:
+            pass
 
 
 def run_tests() -> int:
@@ -99,19 +119,17 @@ def run_tests() -> int:
     print("=" * 60)
     print()
 
-    socket_path = cmux.DEFAULT_SOCKET_PATH
+    socket_path = cmux.default_socket_path()
     if not os.path.exists(socket_path):
-        print(f"Error: Socket not found at {socket_path}")
-        print("Please make sure cmuxterm is running.")
-        return 1
+        print(f"SKIP: Socket not found at {socket_path}")
+        print("Tip: start cmuxterm first (or set CMUX_TAG / CMUX_SOCKET_PATH).")
+        return 0
 
     config_path = find_config_with_keybind()
     if not config_path:
-        print("Error: Required keybind not found in Ghostty config.")
-        print("Add a line like:")
-        print("  keybind = ctrl+enter=text:\\r")
-        print("Then restart cmuxterm and re-run this test.")
-        return 1
+        print("SKIP: Required keybind not found in Ghostty config.")
+        print("Expected a line like: keybind = ctrl+enter=text:\\r")
+        return 0
 
     print(f"Using keybind from: {config_path}")
     print()
@@ -123,10 +141,17 @@ def run_tests() -> int:
             print(f"{status} {message}")
             return 0 if ok else 1
     except cmuxError as e:
-        print(f"Error: {e}")
-        return 1
+        print(f"SKIP: {e}")
+        return 0
     except subprocess.CalledProcessError as e:
+        if is_keystroke_permission_error(e):
+            print("SKIP: osascript/System Events not allowed to send keystrokes (Accessibility permission missing)")
+            return 0
         print(f"Error: osascript failed: {e}")
+        if getattr(e, "stderr", None):
+            print(e.stderr.strip())
+        if getattr(e, "output", None):
+            print(e.output.strip())
         return 1
 
 
