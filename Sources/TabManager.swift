@@ -146,6 +146,34 @@ class Tab: Identifiable, ObservableObject {
         currentDirectory = trimmed
     }
 
+    func recomputeListeningPorts() {
+        let merged = surfaceListeningPorts.values.reduce(into: Set<Int>()) { acc, ports in
+            for port in ports {
+                acc.insert(port)
+            }
+        }
+        let sorted = merged.sorted()
+        if listeningPorts != sorted {
+            listeningPorts = sorted
+        }
+    }
+
+    func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>? = nil) {
+        let validIds = validSurfaceIds ?? Set((splitTree.root?.leaves() ?? []).map { $0.id })
+
+        if surfaceDirectories.keys.contains(where: { !validIds.contains($0) }) {
+            surfaceDirectories = surfaceDirectories.filter { validIds.contains($0.key) }
+        }
+        if surfaceTitles.keys.contains(where: { !validIds.contains($0) }) {
+            surfaceTitles = surfaceTitles.filter { validIds.contains($0.key) }
+        }
+        if surfaceListeningPorts.keys.contains(where: { !validIds.contains($0) }) {
+            surfaceListeningPorts = surfaceListeningPorts.filter { validIds.contains($0.key) }
+        }
+
+        recomputeListeningPorts()
+    }
+
     func triggerNotificationFocusFlash(
         surfaceId: UUID,
         requiresSplit: Bool = false,
@@ -306,6 +334,10 @@ class Tab: Identifiable, ObservableObject {
             : nil
 
         splitTree = splitTree.removing(targetNode)
+        // A closed split can race with shell-integration hooks that report ports/cwd.
+        // Prune any per-surface metadata to the remaining leaves so the sidebar
+        // doesn't display stale ports/directories.
+        pruneSurfaceMetadata()
 
         if splitTree.isEmpty {
             focusedSurfaceId = nil

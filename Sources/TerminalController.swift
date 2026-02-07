@@ -1397,13 +1397,15 @@ class TerminalController {
                 surfaceId = focused
             }
 
-            tab.surfaceListeningPorts[surfaceId] = ports
-            let merged = tab.surfaceListeningPorts.values.reduce(into: Set<Int>()) { acc, ports in
-                for port in ports {
-                    acc.insert(port)
-                }
+            let validSurfaceIds = Set((tab.splitTree.root?.leaves() ?? []).map { $0.id })
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
             }
-            tab.listeningPorts = merged.sorted()
+
+            tab.surfaceListeningPorts[surfaceId] = ports
+            tab.recomputeListeningPorts()
         }
         return result
     }
@@ -1444,6 +1446,13 @@ class TerminalController {
                 surfaceId = focused
             }
 
+            let validSurfaceIds = Set((tab.splitTree.root?.leaves() ?? []).map { $0.id })
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
             tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
         }
         return result
@@ -1463,6 +1472,9 @@ class TerminalController {
                 return
             }
 
+            let validSurfaceIds = Set((tab.splitTree.root?.leaves() ?? []).map { $0.id })
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
             // If a panel is specified, clear only that surface's ports. Otherwise clear all.
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
             if let panelArg {
@@ -1474,17 +1486,16 @@ class TerminalController {
                     result = "ERROR: Invalid panel id '\(panelArg)'"
                     return
                 }
+                guard validSurfaceIds.contains(surfaceId) else {
+                    result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                    return
+                }
                 tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
             } else {
                 tab.surfaceListeningPorts.removeAll()
             }
 
-            let merged = tab.surfaceListeningPorts.values.reduce(into: Set<Int>()) { acc, ports in
-                for port in ports {
-                    acc.insert(port)
-                }
-            }
-            tab.listeningPorts = merged.sorted()
+            tab.recomputeListeningPorts()
         }
         return result
     }

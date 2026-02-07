@@ -8,7 +8,18 @@ _cmux_send() {
         printf '%s\n' "$payload" | socat - "UNIX-CONNECT:$CMUX_SOCKET_PATH"
     elif command -v nc >/dev/null 2>&1; then
         # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
-        printf '%s\n' "$payload" | nc -U "$CMUX_SOCKET_PATH"
+        #
+        # Important: macOS/BSD nc will often wait for the peer to close the socket
+        # after it has finished writing. cmuxterm keeps the connection open, so
+        # a plain `nc -U` can hang indefinitely and leak background processes.
+        #
+        # Prefer flags that guarantee we exit after sending, and fall back to a
+        # short timeout so we never block sidebar updates.
+        if printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+            :
+        else
+            printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+        fi
     fi
 }
 
