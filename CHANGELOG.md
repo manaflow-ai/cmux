@@ -2,6 +2,15 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.18.0] - 2026-02-06
+
+### Added
+- Sidebar metadata: see current directory, git branch, and listening ports for each terminal pane
+- Shell integration for bash and zsh to automatically report metadata to the sidebar
+
+### Fixed
+- Stale metadata no longer lingers after closing terminal panes
+
 ## [1.17.3] - 2025-02-05
 
 ### Fixed
