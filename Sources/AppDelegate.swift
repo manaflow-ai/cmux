@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
     private var didSetupGotoSplitUITest = false
+    private var gotoSplitUITestObservers: [NSObjectProtocol] = []
 #endif
 
     var updateViewModel: UpdateViewModel {
@@ -296,6 +297,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        installGotoSplitUITestFocusObserversIfNeeded()
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self, let tabManager = self.tabManager else { return }
 
@@ -389,6 +392,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let browserPane, let terminalPane else { return nil }
         return (browserPane, terminalPane)
+    }
+
+    private func installGotoSplitUITestFocusObserversIfNeeded() {
+        guard gotoSplitUITestObservers.isEmpty else { return }
+
+        gotoSplitUITestObservers.append(NotificationCenter.default.addObserver(
+            forName: .browserFocusAddressBar,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let panelId = notification.object as? UUID else { return }
+            self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarFocus")
+        })
+
+        gotoSplitUITestObservers.append(NotificationCenter.default.addObserver(
+            forName: .browserDidExitAddressBar,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let panelId = notification.object as? UUID else { return }
+            self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarExit")
+        })
+    }
+
+    private func recordGotoSplitUITestWebViewFocus(panelId: UUID, key: String) {
+        // Give the responder chain time to settle.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self, let tabManager, let tab = tabManager.selectedWorkspace,
+                  let panel = tab.browserPanel(for: panelId) else { return }
+            let focused = self.isWebViewFocused(panel)
+            self.writeGotoSplitTestData([key: focused ? "true" : "false"])
+        }
     }
 
     private func recordGotoSplitMoveIfNeeded(direction: NavigationDirection) {

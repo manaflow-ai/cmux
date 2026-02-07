@@ -59,6 +59,18 @@ struct BrowserPanelView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .focused($addressBarFocused)
+                        .onExitCommand {
+                            // Escape should leave the omnibar and return focus to the web view.
+                            guard addressBarFocused else { return }
+                            addressBarFocused = false
+                            DispatchQueue.main.async {
+                                guard isFocused else { return }
+                                guard let window = panel.webView.window,
+                                      !panel.webView.isHiddenOrHasHiddenAncestor else { return }
+                                window.makeFirstResponder(panel.webView)
+                                NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                            }
+                        }
                         .onSubmit {
                             panel.navigateSmart(addressBarText)
                             addressBarFocused = false

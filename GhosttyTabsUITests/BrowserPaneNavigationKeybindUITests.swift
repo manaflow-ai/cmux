@@ -3,18 +3,22 @@ import Foundation
 
 final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private var dataPath = ""
+    private var socketPath = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-goto-split-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
+        socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     func testCmdCtrlHMovesLeftWhenWebViewFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launch()
         app.activate()
 
@@ -89,6 +93,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_USE_GHOSTTY_CONFIG"] = "1"
         app.launch()
         app.activate()
@@ -119,6 +124,45 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 data["lastMoveDirection"] == "left" && data["focusedPaneId"] == expectedTerminalPaneId
             },
             "Expected Cmd+Ctrl+H to move focus to left pane (terminal) via Ghostty config trigger"
+        )
+    }
+
+    func testEscapeLeavesOmnibarAndFocusesWebView() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+
+        // Cmd+L focuses the omnibar (so WebKit is no longer first responder).
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false"
+            },
+            "Expected Cmd+L to focus omnibar (WebKit not first responder)"
+        )
+
+        // Escape should leave the omnibar and focus WebKit again.
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarExit"] == "true"
+            },
+            "Expected Escape to return focus to WebKit"
         )
     }
 

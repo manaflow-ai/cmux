@@ -797,4 +797,5 @@ extension Notification.Name {
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
+    static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
 }

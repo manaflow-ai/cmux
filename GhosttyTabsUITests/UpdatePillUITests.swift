@@ -22,7 +22,9 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(pill, label: "Update Available: 9.9.9", timeout: 5.0))
         assertVisibleSize(pill)
         attachScreenshot(name: "update-available")
-        attachScreenshot(name: "update-available-pill", screenshot: pill.screenshot())
+        // Element screenshots are flaky on the UTM VM (image creation fails intermittently).
+        // Keep a stable attachment with element state instead.
+        attachElementDebug(name: "update-available-pill", element: pill)
     }
 
     func testUpdatePillShowsForNoUpdateThenDismisses() {
@@ -42,7 +44,7 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(pill, label: "No Updates Available", timeout: 5.0))
         assertVisibleSize(pill)
         attachScreenshot(name: "no-updates")
-        attachScreenshot(name: "no-updates-pill", screenshot: pill.screenshot())
+        attachElementDebug(name: "no-updates-pill", element: pill)
 
         let gone = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
@@ -105,6 +107,19 @@ final class UpdatePillUITests: XCTestCase {
 
     private func attachScreenshot(name: String, screenshot: XCUIScreenshot = XCUIScreen.main.screenshot()) {
         let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func attachElementDebug(name: String, element: XCUIElement) {
+        let payload = """
+        label: \(element.label)
+        exists: \(element.exists)
+        hittable: \(element.isHittable)
+        frame: \(element.frame)
+        """
+        let attachment = XCTAttachment(string: payload)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
