@@ -202,8 +202,13 @@ class cmux:
         """
         arg = "" if workspace is None else str(workspace)
         response = self._send_command(f"list_surfaces {arg}".rstrip())
-        if response in ("No surfaces", "ERROR: Workspace not found"):
+        if response == "No surfaces":
             return []
+        if response.startswith("ERROR:"):
+            # Server historically returned "ERROR: Tab not found" here; treat as empty for compatibility.
+            if response in ("ERROR: Workspace not found", "ERROR: Tab not found"):
+                return []
+            raise cmuxError(response)
 
         surfaces = []
         for line in response.split("\n"):
@@ -425,20 +430,38 @@ class cmux:
         else:
             response = self._send_command("list_pane_surfaces")
 
-        if "ERROR" in response or response == "No surfaces":
+        if response in ("No surfaces", "No tabs in pane"):
             return []
+        if response.startswith("ERROR:"):
+            raise cmuxError(response)
 
         surfaces = []
         for line in response.split("\n"):
             if not line.strip():
                 continue
             selected = line.startswith("*")
-            parts = line.lstrip("* ").split(" ", 2)
-            if len(parts) >= 2:
-                index = int(parts[0].rstrip(":"))
-                surface_id = parts[1]
-                title = parts[2] if len(parts) > 2 else ""
-                surfaces.append((index, surface_id, title, selected))
+            line2 = line.lstrip("* ").strip()
+            # Server format: "<idx>: <title> [panel:<uuid>]"
+            try:
+                idx_part, rest = line2.split(":", 1)
+                index = int(idx_part.strip())
+                rest = rest.strip()
+            except ValueError:
+                continue
+
+            panel_id = ""
+            title = rest
+            marker = " [panel:"
+            if marker in rest and rest.endswith("]"):
+                title, suffix = rest.split(marker, 1)
+                title = title.strip()
+                panel_id = suffix[:-1]  # drop trailing ']'
+            else:
+                # Fallback if server format changes.
+                title = rest
+                panel_id = ""
+
+            surfaces.append((index, panel_id, title, selected))
         return surfaces
 
     def focus_surface_by_panel(self, surface_id: str) -> None:

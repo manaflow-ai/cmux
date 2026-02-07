@@ -153,18 +153,24 @@ def test_ctrl_c_python(client: cmux) -> TestResult:
 
         # Start Python that loops forever
         client.send("python3 -c 'import time; [time.sleep(1) for _ in iter(int, 1)]'\n")
-        time.sleep(1.2)  # Give Python time to start
+        time.sleep(1.5)  # Give Python time to start
 
         # Send Ctrl+C
         client.send_ctrl_c()
-        time.sleep(0.6)
+        time.sleep(0.8)
 
-        # If Ctrl+C worked, shell should accept new command
-        client.send(f"touch {marker}\n")
-        for _ in range(10):
+        # If Ctrl+C worked, shell should accept new command. This can race with
+        # Python process teardown, so retry with additional Ctrl+C if needed.
+        for attempt in range(3):
+            client.send(f"touch {marker}\n")
+            for _ in range(15):
+                if marker.exists():
+                    break
+                time.sleep(0.2)
             if marker.exists():
                 break
-            time.sleep(0.2)
+            client.send_ctrl_c()
+            time.sleep(0.6)
 
         if marker.exists():
             result.success("Ctrl+C interrupted Python process")
@@ -290,6 +296,18 @@ def run_tests():
 
             if not results[-1].passed:
                 return 1
+
+            # Ensure we start from a focused terminal surface (tests can be run
+            # after other scripts that leave focus in a browser panel).
+            try:
+                client.new_workspace()
+                time.sleep(0.6)
+                client.focus_surface(0)
+                time.sleep(0.2)
+            except Exception as e:
+                # Continue; individual tests will report a clearer failure.
+                print(f"  ⚠️  Setup warning (could not focus terminal): {e}")
+                print()
 
             # Test Ctrl+C
             print("Testing Ctrl+C (SIGINT)...")

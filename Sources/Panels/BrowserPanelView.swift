@@ -178,6 +178,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     final class Coordinator {
         weak var webView: WKWebView?
         var constraints: [NSLayoutConstraint] = []
+        var attachRetryWorkItem: DispatchWorkItem?
+        var attachRetryCount: Int = 0
+        var attachGeneration: Int = 0
     }
 
     func makeCoordinator() -> Coordinator {
@@ -190,31 +193,93 @@ struct WebViewRepresentable: NSViewRepresentable {
         return container
     }
 
+    private static func attachWebView(_ webView: WKWebView, to host: NSView, coordinator: Coordinator) {
+        // Detach from any previous host (bonsplit/SwiftUI may rearrange views).
+        webView.removeFromSuperview()
+        host.subviews.forEach { $0.removeFromSuperview() }
+        host.addSubview(webView)
+
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.deactivate(coordinator.constraints)
+        coordinator.constraints = [
+            webView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: host.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(coordinator.constraints)
+
+        // Make reparenting resilient: WebKit can occasionally stay visually blank until forced to lay out.
+        webView.needsLayout = true
+        webView.layoutSubtreeIfNeeded()
+        webView.needsDisplay = true
+        webView.displayIfNeeded()
+    }
+
+    private static func scheduleAttachRetry(_ webView: WKWebView, to host: NSView, coordinator: Coordinator, generation: Int) {
+        // Don't schedule multiple overlapping retries.
+        guard coordinator.attachRetryWorkItem == nil else { return }
+
+        let work = DispatchWorkItem { [weak host, weak webView] in
+            coordinator.attachRetryWorkItem = nil
+            guard let host, let webView else { return }
+            guard coordinator.attachGeneration == generation else { return }
+
+            // If already attached, we're done.
+            if webView.superview === host {
+                coordinator.attachRetryCount = 0
+                return
+            }
+
+            // Wait until the host is actually in a window. SwiftUI can create a new container before it
+            // is in a window during bonsplit tree updates; moving the webview too early can be flaky.
+            guard host.window != nil else {
+                coordinator.attachRetryCount += 1
+                if coordinator.attachRetryCount < 60 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        scheduleAttachRetry(webView, to: host, coordinator: coordinator, generation: generation)
+                    }
+                }
+                return
+            }
+
+            coordinator.attachRetryCount = 0
+            attachWebView(webView, to: host, coordinator: coordinator)
+        }
+
+        coordinator.attachRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
         context.coordinator.webView = webView
 
         if webView.superview !== nsView {
-            // Don't steal the WKWebView into an off-window host. During bonsplit tree updates SwiftUI can
-            // create a new container before it is in a window; moving the webview too early can be flaky.
-            if webView.superview != nil && nsView.window == nil {
-                // Wait until this host is actually in a window.
-            } else {
-                // Detach from any previous host (bonsplit/SwiftUI may rearrange views).
-                webView.removeFromSuperview()
-                nsView.subviews.forEach { $0.removeFromSuperview() }
-                nsView.addSubview(webView)
+            // Cancel any pending retry; we'll reschedule if needed.
+            context.coordinator.attachRetryWorkItem?.cancel()
+            context.coordinator.attachRetryWorkItem = nil
+            context.coordinator.attachGeneration += 1
 
-                webView.translatesAutoresizingMaskIntoConstraints = false
-                NSLayoutConstraint.deactivate(context.coordinator.constraints)
-                context.coordinator.constraints = [
-                    webView.leadingAnchor.constraint(equalTo: nsView.leadingAnchor),
-                    webView.trailingAnchor.constraint(equalTo: nsView.trailingAnchor),
-                    webView.topAnchor.constraint(equalTo: nsView.topAnchor),
-                    webView.bottomAnchor.constraint(equalTo: nsView.bottomAnchor),
-                ]
-                NSLayoutConstraint.activate(context.coordinator.constraints)
+            if nsView.window == nil {
+                // Keep the current attachment (if any) until this host is actually in a window,
+                // then retry attaching. This avoids "stolen into off-window host" flakiness
+                // while still guaranteeing eventual re-attachment.
+                Self.scheduleAttachRetry(
+                    webView,
+                    to: nsView,
+                    coordinator: context.coordinator,
+                    generation: context.coordinator.attachGeneration
+                )
+            } else {
+                Self.attachWebView(webView, to: nsView, coordinator: context.coordinator)
             }
+        } else {
+            // Already attached; no need for any pending retry.
+            context.coordinator.attachRetryWorkItem?.cancel()
+            context.coordinator.attachRetryWorkItem = nil
+            context.coordinator.attachRetryCount = 0
+            context.coordinator.attachGeneration += 1
         }
 
         // Focus handling. Avoid fighting the address bar when it is focused.
@@ -232,6 +297,11 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.attachRetryWorkItem?.cancel()
+        coordinator.attachRetryWorkItem = nil
+        coordinator.attachRetryCount = 0
+        coordinator.attachGeneration += 1
+
         NSLayoutConstraint.deactivate(coordinator.constraints)
         coordinator.constraints.removeAll()
 

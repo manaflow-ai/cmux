@@ -315,6 +315,9 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
 
         // Create the split
+        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation) else {
             return nil
         }
@@ -688,6 +691,10 @@ extension Workspace: BonsplitDelegate {
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
         guard !isProgrammaticSplit else { return }
+
+        // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
+        // Don't auto-create another terminal on top of the moved content.
+        guard controller.tabs(inPane: newPane).isEmpty else { return }
 
         // Get the focused terminal in the original pane to inherit config from
         guard let sourceTabId = controller.selectedTab(inPane: originalPane)?.id,

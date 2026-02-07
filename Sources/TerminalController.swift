@@ -163,8 +163,8 @@ class TerminalController {
         case "new_workspace":
             return newWorkspace()
 
-        case "new_split":
-            return newSplit(args)
+	        case "new_split":
+	            return newSplit(args)
 
         case "list_surfaces":
             return listSurfaces(args)
@@ -265,11 +265,14 @@ class TerminalController {
         case "focus_pane":
             return focusPane(args)
 
-        case "focus_surface_by_panel":
-            return focusSurfaceByPanel(args)
-
-        case "new_pane":
-            return newPane(args)
+	        case "focus_surface_by_panel":
+	            return focusSurfaceByPanel(args)
+	
+	        case "drag_surface_to_split":
+	            return dragSurfaceToSplit(args)
+	
+	        case "new_pane":
+	            return newPane(args)
 
         case "new_surface":
             return newSurface(args)
@@ -302,6 +305,7 @@ class TerminalController {
 
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
+          drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
           new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
           new_surface [--type=terminal|browser] [--pane=<pane_id>] [--url=...]
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
@@ -384,7 +388,7 @@ class TerminalController {
             }
             result = tabs.joined(separator: "\n")
         }
-        return result.isEmpty ? "No tabs" : result
+        return result.isEmpty ? "No workspaces" : result
     }
 
     private func newWorkspace() -> String {
@@ -842,8 +846,8 @@ class TerminalController {
 
     private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
         // Backwards compatibility: resolve a terminal surface by panel UUID or a stable index.
-        // Use a short wait to reduce flakiness during bonsplit/layout restructures.
-        return resolveTerminalSurface(from: arg, tabManager: tabManager, waitUpTo: 0.6)
+        // Use a slightly longer wait to reduce flakiness during bonsplit/layout restructures.
+        return resolveTerminalSurface(from: arg, tabManager: tabManager, waitUpTo: 2.0)
     }
 
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
@@ -1040,11 +1044,21 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var success = false
+        var error: String?
         DispatchQueue.main.sync {
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalPanel,
-                  let surface = terminalPanel.surface.surface else {
+                  let terminalPanel = tab.focusedTerminalPanel else {
+                error = "ERROR: No focused terminal"
+                return
+            }
+
+            guard let surface = resolveTerminalSurface(
+                from: terminalPanel.id.uuidString,
+                tabManager: tabManager,
+                waitUpTo: 2.0
+            ) else {
+                error = "ERROR: Surface not ready"
                 return
             }
 
@@ -1065,6 +1079,7 @@ class TerminalController {
             }
             success = true
         }
+        if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
@@ -1103,16 +1118,27 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var success = false
+        var error: String?
         DispatchQueue.main.sync {
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalPanel,
-                  let surface = terminalPanel.surface.surface else {
+                  let terminalPanel = tab.focusedTerminalPanel else {
+                error = "ERROR: No focused terminal"
+                return
+            }
+
+            guard let surface = resolveTerminalSurface(
+                from: terminalPanel.id.uuidString,
+                tabManager: tabManager,
+                waitUpTo: 2.0
+            ) else {
+                error = "ERROR: Surface not ready"
                 return
             }
 
             success = sendNamedKey(surface, keyName: keyName)
         }
+        if let error { return error }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
 
@@ -1131,7 +1157,7 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 0.6) else {
+            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 2.0) else {
                 error = "ERROR: Surface not ready"
                 return
             }
@@ -1430,8 +1456,8 @@ class TerminalController {
         return result
     }
 
-    private func focusSurfaceByPanel(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+	    private func focusSurfaceByPanel(_ args: String) -> String {
+	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let tabArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tabArg.isEmpty else { return "ERROR: Usage: focus_bonsplit_tab <tab_id|panel_id>" }
@@ -1450,11 +1476,55 @@ class TerminalController {
                 result = "OK"
             }
         }
-        return result
-    }
-
-    private func newPane(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+	        return result
+	    }
+	
+	    private func dragSurfaceToSplit(_ args: String) -> String {
+	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+	
+	        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+	        let parts = trimmed.split(separator: " ").map(String.init)
+	        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
+	
+	        let surfaceArg = parts[0]
+	        let directionArg = parts[1]
+	        guard let direction = parseSplitDirection(directionArg) else {
+	            return "ERROR: Invalid direction. Use left, right, up, or down."
+	        }
+	
+	        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+	        let insertFirst = (direction == .left || direction == .up)
+	
+	        var result = "ERROR: Failed to move surface"
+	        DispatchQueue.main.sync {
+	            guard let tabId = tabManager.selectedTabId,
+	                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+	                result = "ERROR: No tab selected"
+	                return
+	            }
+	
+	            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
+	                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
+	                result = "ERROR: Surface not found"
+	                return
+	            }
+	
+	            guard let newPaneId = tab.bonsplitController.splitPane(
+	                orientation: orientation,
+	                movingTab: bonsplitTabId,
+	                insertFirst: insertFirst
+	            ) else {
+	                result = "ERROR: Failed to split pane"
+	                return
+	            }
+	
+	            result = "OK \(newPaneId.id.uuidString)"
+	        }
+	        return result
+	    }
+	
+	    private func newPane(_ args: String) -> String {
+	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
         var panelType: PanelType = .terminal

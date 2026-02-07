@@ -11,6 +11,7 @@ Comprehensive edge-case testing with before/after screenshots for:
   F. Multiple surfaces in a pane (nested tabs)
   G. Rapid stress tests
   H. Workspace interactions
+  I. Browser drag-to-split right
 
 Usage:
     python3 tests/test_visual_screenshots.py
@@ -142,9 +143,30 @@ def capture_state(client: cmux) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+def stamp_terminals(client: cmux, label: str) -> None:
+    """Emit a visible marker line in each terminal surface for screenshots."""
+    safe = label.replace("\n", " ").replace("\r", " ").strip()
+    if not safe:
+        return
+    try:
+        health = client.surface_health()
+    except Exception:
+        return
+    terminal_surfaces = [h for h in health if h.get("type") == "terminal"]
+    for h in terminal_surfaces:
+        idx = h.get("index")
+        if idx is None:
+            continue
+        try:
+            # Keep it simple to avoid shell quoting issues.
+            client.send_surface(idx, f"echo CMUX_VIS {safe} surf={idx}\n")
+        except Exception:
+            pass
+
 
 def capture(client: cmux, label: str):
     """Take screenshot + state snapshot. Returns (Screenshot|None, state_str)."""
+    stamp_terminals(client, label)
     time.sleep(SCREENSHOT_WAIT)
     ss = take_screenshot(label)
     state = capture_state(client)
@@ -166,11 +188,42 @@ def reset_workspace(client: cmux) -> cmux:
 def surface_count(client: cmux) -> int:
     return len(client.list_surfaces())
 
+def pane_count(client: cmux) -> int:
+    """Return number of panes in current workspace (via list_panes)."""
+    try:
+        resp = client._send_command("list_panes")
+    except Exception:
+        return 0
+    if not resp or resp.startswith("ERROR") or resp == "No panes":
+        return 0
+    return sum(1 for line in resp.split("\n") if line.strip())
+
 
 def wait_surface_count(client: cmux, expected: int, timeout: float = 3.0) -> bool:
     start = time.time()
     while time.time() - start < timeout:
         if surface_count(client) == expected:
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def _parse_ok_id(response: str) -> Optional[str]:
+    response = (response or "").strip()
+    if response.startswith("OK "):
+        return response[3:].strip().split(" ", 1)[0]
+    return None
+
+
+def wait_url_contains(client: cmux, panel_id: str, needle: str, timeout: float = 8.0) -> bool:
+    """Poll get_url until it contains `needle`."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            url = client._send_command(f"get_url {panel_id}").strip()
+        except Exception:
+            url = ""
+        if url and not url.startswith("ERROR") and needle in url:
             return True
         time.sleep(0.2)
     return False
@@ -218,7 +271,9 @@ def _verify_surface_responsive(client: cmux, surface_idx: int, marker: Path,
         try:
             client.send_surface(surface_idx, f"touch {marker}\n")
         except Exception:
-            return False  # browser or broken — caller decides
+            # Surface may be transiently unavailable during tree/layout restructuring.
+            time.sleep(0.5)
+            continue
         if _wait_marker(marker, timeout=3.0):
             return True
         time.sleep(0.5)
@@ -272,21 +327,27 @@ def verify_all_responsive(client: cmux, label: str = "") -> Optional[str]:
         pass
     time.sleep(0.3)
 
-    surfaces = client.list_surfaces()
-    if not surfaces:
+    health = client.surface_health()
+    if not health:
         return "no surfaces found"
 
+    # Only verify terminal surfaces; browser panels cannot accept send_surface commands.
+    terminal_surfaces = [h for h in health if h.get("type") == "terminal"]
+    if not terminal_surfaces:
+        return None
+
     blanks = []
-    for idx, (i, sid, _) in enumerate(surfaces):
+    for idx, h in enumerate(terminal_surfaces):
+        surface_idx = h["index"]
         marker = Path(tempfile.gettempdir()) / f"cmux_vis_{os.getpid()}_{idx}"
         try:
-            if not _verify_surface_responsive(client, i, marker, retries=3):
-                blanks.append(idx)
+            if not _verify_surface_responsive(client, surface_idx, marker, retries=3):
+                blanks.append(surface_idx)
         finally:
             marker.unlink(missing_ok=True)
 
     if blanks:
-        return f"surface(s) {blanks} unresponsive (blank?) [{label}]"
+        return f"terminal surface(s) {blanks} unresponsive (blank?) [{label}]"
     return None
 
 
@@ -780,6 +841,314 @@ def test_h20_workspace_switch_back(client: cmux) -> StateChange:
     return change
 
 
+def _create_browser_surface(client: cmux, url: Optional[str] = None) -> str:
+    args = "--type=browser"
+    if url:
+        args += f" --url={url}"
+    resp = client._send_command(f"new_surface {args}")
+    panel_id = _parse_ok_id(resp)
+    if not panel_id:
+        raise RuntimeError(f"new_surface failed: {resp}")
+    return panel_id
+
+
+def test_i21_browser_drag_split_right_wait_load(client: cmux) -> StateChange:
+    """I21: Browser tab → navigate → drag-to-split right (wait for load)."""
+    change = StateChange(
+        name="Browser: Navigate Then Drag-To-Split Right (Wait Load)", group="I",
+        description="Create browser tab first, navigate to example.com, then move the tab into a right split.",
+        command="new_surface --type=browser; navigate <browser> https://example.com; drag_surface_to_split <browser> right",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.6)
+        change.before, change.before_state = capture(client, "i21_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        # Verify we created a split (2 panes), and all views are attached.
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            blank_err = verify_all_responsive(client, "i21_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i21_after_drag")
+    return change
+
+
+def test_i22_browser_drag_split_right_immediate(client: cmux) -> StateChange:
+    """I22: Browser tab → navigate → drag-to-split right (no wait)."""
+    change = StateChange(
+        name="Browser: Drag-To-Split Right Immediately", group="I",
+        description="Create browser tab first, start navigation, then drag-to-split right immediately (stress reparenting).",
+        command="new_surface --type=browser; navigate <browser> https://example.com; drag_surface_to_split <browser> right",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        time.sleep(0.1)
+        change.before, change.before_state = capture(client, "i22_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            blank_err = verify_all_responsive(client, "i22_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i22_after_drag")
+    return change
+
+
+def test_i23_browser_drag_split_right_webview_focused(client: cmux) -> StateChange:
+    """I23: Browser tab (webview focused) → drag-to-split right."""
+    change = StateChange(
+        name="Browser: WebView Focused Then Drag-To-Split Right", group="I",
+        description="Ensure WKWebView is first responder before dragging to split right.",
+        command="new_surface --type=browser; navigate; focus_webview; drag_surface_to_split right",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.4)
+
+        resp = client._send_command(f"focus_webview {browser_id}")
+        if not resp.startswith("OK"):
+            raise RuntimeError(f"focus_webview failed: {resp}")
+        focused = client._send_command(f"is_webview_focused {browser_id}").strip()
+        if focused != "true":
+            raise RuntimeError(f"expected webview focused, got {focused}")
+
+        change.before, change.before_state = capture(client, "i23_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            blank_err = verify_all_responsive(client, "i23_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i23_after_drag")
+    return change
+
+
+def test_i24_browser_drag_split_right_focus_bounce(client: cmux) -> StateChange:
+    """I24: Browser tab → navigate → focus bounce → drag-to-split right."""
+    change = StateChange(
+        name="Browser: Focus Bounce Then Drag-To-Split Right", group="I",
+        description="Switch focus terminal↔browser before dragging to split right.",
+        command="new_surface --type=browser; navigate; focus_surface 0; focus_surface <browser>; drag_surface_to_split right",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.4)
+
+        # Focus bounce
+        client._send_command("focus_surface 0")
+        time.sleep(SHORT_WAIT)
+        client._send_command(f"focus_surface {browser_id}")
+        time.sleep(SHORT_WAIT)
+
+        change.before, change.before_state = capture(client, "i24_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            blank_err = verify_all_responsive(client, "i24_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i24_after_drag")
+    return change
+
+
+def test_i25_browser_drag_split_right_then_switch_panes(client: cmux) -> StateChange:
+    """I25: Browser drag-to-split right → switch panes → verify webview stays attached."""
+    change = StateChange(
+        name="Browser: Drag-To-Split Right Then Switch Panes", group="I",
+        description="After drag-to-split right, focus each pane and ensure views remain in-window.",
+        command="new_surface --type=browser; navigate; drag_surface_to_split right; focus_pane 0/1",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.4)
+        change.before, change.before_state = capture(client, "i25_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            # Switch panes by index (stable order from list_panes).
+            client._send_command("focus_pane 0")
+            time.sleep(SHORT_WAIT)
+            client._send_command("focus_pane 1")
+            time.sleep(SHORT_WAIT)
+
+            blank_err = verify_all_responsive(client, "i25_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i25_after_drag")
+    return change
+
+
+def test_i26_browser_drag_split_right_initial_url(client: cmux) -> StateChange:
+    """I26: Browser tab (initial URL) → drag-to-split right."""
+    change = StateChange(
+        name="Browser: Initial URL Then Drag-To-Split Right", group="I",
+        description="Create browser tab with initial URL, then drag-to-split right (no explicit navigate).",
+        command="new_surface --type=browser --url=https://example.com; drag_surface_to_split <browser> right",
+    )
+    try:
+        browser_id = _create_browser_surface(client, url="https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.4)
+        change.before, change.before_state = capture(client, "i26_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            blank_err = verify_all_responsive(client, "i26_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i26_after_drag")
+    return change
+
+
+def test_i27_browser_drag_split_right_after_reload(client: cmux) -> StateChange:
+    """I27: Browser tab → navigate → reload → drag-to-split right."""
+    change = StateChange(
+        name="Browser: Reload Then Drag-To-Split Right", group="I",
+        description="Navigate to example.com, call browser_reload, then drag-to-split right.",
+        command="new_surface --type=browser; navigate; browser_reload; drag_surface_to_split right",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.4)
+
+        client._send_command(f"browser_reload {browser_id}")
+        time.sleep(0.3)
+
+        change.before, change.before_state = capture(client, "i27_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) != 2:
+            change.passed = False
+            change.error = f"Expected 2 panes after drag split, got {pane_count(client)}"
+        else:
+            blank_err = verify_all_responsive(client, "i27_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i27_after_drag")
+    return change
+
+
+def test_i28_browser_drag_split_right_double_drag(client: cmux) -> StateChange:
+    """I28: Browser tab → navigate → drag-to-split right twice (idempotence-ish)."""
+    change = StateChange(
+        name="Browser: Double Drag-To-Split Right", group="I",
+        description="Drag-to-split right, then attempt a second drag-to-split right (stress tree updates).",
+        command="new_surface --type=browser; navigate; drag_surface_to_split right; drag_surface_to_split right",
+    )
+    try:
+        browser_id = _create_browser_surface(client)
+        client._send_command(f"navigate {browser_id} https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout=10.0)
+        time.sleep(0.4)
+        change.before, change.before_state = capture(client, "i28_before_drag")
+
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+        client._send_command(f"drag_surface_to_split {browser_id} right")
+        time.sleep(SPLIT_WAIT)
+
+        if pane_count(client) < 2:
+            change.passed = False
+            change.error = f"Expected at least 2 panes after double drag, got {pane_count(client)}"
+        else:
+            # Ensure we didn't leave behind any empty panes ("Empty Panel" without tabs).
+            panes = client.list_panes()
+            empty_panes = [pid for _, pid, tab_count, _ in panes if tab_count == 0]
+            if empty_panes:
+                change.passed = False
+                change.error = f"Empty pane(s) after double drag: {empty_panes}"
+                raise RuntimeError(change.error)
+            blank_err = verify_all_responsive(client, "i28_after_drag")
+            if blank_err:
+                change.passed = False
+                change.error = f"BLANK: {blank_err}"
+    except Exception as e:
+        change.passed = False
+        change.error = str(e)
+
+    change.after, change.after_state = capture(client, "i28_after_drag")
+    return change
+
+
 # ---------------------------------------------------------------------------
 # HTML report
 # ---------------------------------------------------------------------------
@@ -868,6 +1237,7 @@ def generate_html_report(changes: list[StateChange]) -> None:
         "F": "Group F — Nested Tabs",
         "G": "Group G — Rapid Stress Tests",
         "H": "Group H — Workspace Interactions",
+        "I": "Group I — Browser Drag-To-Split Right",
     }
 
     current_group = ""
@@ -982,16 +1352,6 @@ def generate_html_report(changes: list[StateChange]) -> None:
 def run_visual_tests():
     changes: list[StateChange] = []
 
-    print("=" * 60)
-    print("cmuxterm Visual Screenshot Tests (20 scenarios)")
-    print("=" * 60)
-    print()
-
-    client = get_client()
-
-    # Each test function that needs isolation gets a fresh workspace.
-    # Tests that operate on a fresh workspace call reset_workspace themselves.
-
     test_fns = [
         # Group A — basic splits
         ("A1", test_a1_initial_state),
@@ -1021,7 +1381,26 @@ def run_visual_tests():
         ("G19", test_g19_alternating_close_reverse),
         # Group H — workspace interactions
         ("H20", test_h20_workspace_switch_back),
+        # Group I — browser drag-to-split right
+        ("I21", test_i21_browser_drag_split_right_wait_load),
+        ("I22", test_i22_browser_drag_split_right_immediate),
+        ("I23", test_i23_browser_drag_split_right_webview_focused),
+        ("I24", test_i24_browser_drag_split_right_focus_bounce),
+        ("I25", test_i25_browser_drag_split_right_then_switch_panes),
+        ("I26", test_i26_browser_drag_split_right_initial_url),
+        ("I27", test_i27_browser_drag_split_right_after_reload),
+        ("I28", test_i28_browser_drag_split_right_double_drag),
     ]
+
+    print("=" * 60)
+    print(f"cmuxterm Visual Screenshot Tests ({len(test_fns)} scenarios)")
+    print("=" * 60)
+    print()
+
+    client = get_client()
+
+    # Each test function that needs isolation gets a fresh workspace.
+    # Tests that operate on a fresh workspace call reset_workspace themselves.
 
     for label, fn in test_fns:
         # Reset to fresh workspace before each test

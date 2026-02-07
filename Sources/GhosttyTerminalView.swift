@@ -2584,28 +2584,127 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
-    func makeNSView(context: Context) -> GhosttySurfaceScrollView {
-        let view = terminalSurface.hostedView
-        // If the view is still attached to an old parent, detach it so the new
-        // parent can properly adopt it. This handles split close restructuring
-        // where a hosting view was cleared but SwiftUI hasn't fully dismantled it.
-        if view.superview != nil {
-            #if DEBUG
-            NSLog("[GhosttyTerminalView] makeNSView: view has superview (window=\(view.superview?.window != nil ? "yes" : "nil")), removing from superview")
-            #endif
-            view.removeFromSuperview()
-        }
-        view.attachSurface(terminalSurface)
-        view.setActive(isActive)
-        view.setFocusHandler { onFocus?(terminalSurface.id) }
-        view.setTriggerFlashHandler(onTriggerFlash)
-        return view
+    final class Coordinator {
+        var constraints: [NSLayoutConstraint] = []
+        var attachRetryWorkItem: DispatchWorkItem?
+        var attachRetryCount: Int = 0
+        var attachGeneration: Int = 0
     }
 
-    func updateNSView(_ nsView: GhosttySurfaceScrollView, context: Context) {
-        nsView.attachSurface(terminalSurface)
-        nsView.setActive(isActive)
-        nsView.setFocusHandler { onFocus?(terminalSurface.id) }
-        nsView.setTriggerFlashHandler(onTriggerFlash)
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        container.wantsLayer = true
+        return container
+    }
+
+    private static func attachHostedView(_ hostedView: GhosttySurfaceScrollView, to host: NSView, coordinator: Coordinator) {
+        hostedView.removeFromSuperview()
+        host.subviews.forEach { $0.removeFromSuperview() }
+        host.addSubview(hostedView)
+
+        hostedView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.deactivate(coordinator.constraints)
+        coordinator.constraints = [
+            hostedView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            hostedView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            hostedView.topAnchor.constraint(equalTo: host.topAnchor),
+            hostedView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(coordinator.constraints)
+        hostedView.needsLayout = true
+        hostedView.layoutSubtreeIfNeeded()
+    }
+
+    private static func scheduleAttachRetry(_ hostedView: GhosttySurfaceScrollView, to host: NSView, coordinator: Coordinator, generation: Int) {
+        // Don't schedule multiple overlapping retries.
+        guard coordinator.attachRetryWorkItem == nil else { return }
+
+        let work = DispatchWorkItem { [weak host, weak hostedView] in
+            coordinator.attachRetryWorkItem = nil
+            guard let host, let hostedView else { return }
+            guard coordinator.attachGeneration == generation else { return }
+
+            if hostedView.superview === host {
+                coordinator.attachRetryCount = 0
+                return
+            }
+
+            // SwiftUI can create the representable container before it is in a window during
+            // bonsplit tree updates; attaching too early can be flaky. Retry until it is.
+            guard host.window != nil else {
+                coordinator.attachRetryCount += 1
+                if coordinator.attachRetryCount < 60 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        scheduleAttachRetry(hostedView, to: host, coordinator: coordinator, generation: generation)
+                    }
+                }
+                return
+            }
+
+            coordinator.attachRetryCount = 0
+            attachHostedView(hostedView, to: host, coordinator: coordinator)
+        }
+
+        coordinator.attachRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let hostedView = terminalSurface.hostedView
+
+        // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
+        hostedView.attachSurface(terminalSurface)
+        hostedView.setActive(isActive)
+        hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+        hostedView.setTriggerFlashHandler(onTriggerFlash)
+
+        if hostedView.superview !== nsView {
+            // Cancel any pending retry; we'll reschedule if needed.
+            context.coordinator.attachRetryWorkItem?.cancel()
+            context.coordinator.attachRetryWorkItem = nil
+            context.coordinator.attachGeneration += 1
+
+            if nsView.window == nil {
+                Self.scheduleAttachRetry(
+                    hostedView,
+                    to: nsView,
+                    coordinator: context.coordinator,
+                    generation: context.coordinator.attachGeneration
+                )
+            } else {
+                Self.attachHostedView(hostedView, to: nsView, coordinator: context.coordinator)
+            }
+        } else {
+            context.coordinator.attachRetryWorkItem?.cancel()
+            context.coordinator.attachRetryWorkItem = nil
+            context.coordinator.attachRetryCount = 0
+            context.coordinator.attachGeneration += 1
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.attachRetryWorkItem?.cancel()
+        coordinator.attachRetryWorkItem = nil
+        coordinator.attachRetryCount = 0
+        coordinator.attachGeneration += 1
+
+        NSLayoutConstraint.deactivate(coordinator.constraints)
+        coordinator.constraints.removeAll()
+
+        // If the terminal view (or one of its subviews) is first responder, resign it before detaching.
+        if let window = nsView.window, let fr = window.firstResponder as? NSView {
+            for subview in nsView.subviews {
+                if fr.isDescendant(of: subview) {
+                    window.makeFirstResponder(nil)
+                    break
+                }
+            }
+        }
+
+        nsView.subviews.forEach { $0.removeFromSuperview() }
     }
 }
