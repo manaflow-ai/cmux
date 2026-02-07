@@ -352,21 +352,25 @@ struct CMUXCLI {
             let response = try client.send(command: cmd)
             print(response)
 
-        case "log":
-            // Remove options by position (flag + following value), not by string value,
-            // so message tokens that happen to equal an option value aren't dropped.
-            let (level, argsWithoutLevel) = parseOption(commandArgs, name: "--level")
-            let (source, argsWithoutSource) = parseOption(argsWithoutLevel, name: "--source")
-            let (explicitTab, remaining) = parseOption(argsWithoutSource, name: "--tab")
-            let tabArg = explicitTab ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
-            let message = remaining.joined(separator: " ")
-            guard !message.isEmpty else { throw CLIError(message: "log requires a message") }
-            var cmd = "log \(message)"
-            if let level { cmd += " --level=\(level)" }
-            if let source { cmd += " --source=\(source)" }
-            if let tabArg { cmd += " --tab=\(tabArg)" }
-            let response = try client.send(command: cmd)
-            print(response)
+	        case "log":
+	            // Remove options by position (flag + following value), not by string value,
+	            // so message tokens that happen to equal an option value aren't dropped.
+	            let (level, argsWithoutLevel) = parseOption(commandArgs, name: "--level")
+	            let (source, argsWithoutSource) = parseOption(argsWithoutLevel, name: "--source")
+	            let (explicitTab, remaining) = parseOption(argsWithoutSource, name: "--tab")
+	            let tabArg = explicitTab ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+	            let message = remaining.joined(separator: " ")
+	            guard !message.isEmpty else { throw CLIError(message: "log requires a message") }
+	            // TerminalController.parseOptions treats any --* token as an option until a
+	            // `--` separator. Options must come before the message to preserve arbitrary
+	            // message contents (including tokens like `--force`).
+	            var cmd = "log"
+	            if let level { cmd += " --level=\(level)" }
+	            if let source { cmd += " --source=\(source)" }
+	            if let tabArg { cmd += " --tab=\(tabArg)" }
+	            cmd += " -- \(quoteOptionValue(message))"
+	            let response = try client.send(command: cmd)
+	            print(response)
 
         case "clear-log":
             let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]

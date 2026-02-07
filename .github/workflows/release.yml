@@ -12,6 +12,9 @@ permissions:
 jobs:
   build-sign-notarize:
     runs-on: self-hosted
+    concurrency:
+      group: self-hosted-build
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,7 +56,7 @@ jobs:
       - name: Clear SPM cache
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Configure SwiftPM cache
         run: |

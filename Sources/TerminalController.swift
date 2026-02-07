@@ -301,7 +301,7 @@ class TerminalController {
           set_status <key> <value> [--icon=X] [--color=#hex] - Set a status entry
           clear_status <key> [--tab=X] - Remove a status entry
           list_status [--tab=X]   - List all status entries
-          log <message> [--level=X] [--source=X] [--tab=X] - Append a log entry
+          log [--level=X] [--source=X] [--tab=X] -- <message> - Append a log entry
           clear_log [--tab=X]     - Clear log entries
           list_log [--limit=N] [--tab=X] - List log entries
           set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
@@ -1189,7 +1189,7 @@ class TerminalController {
         guard tabManager != nil else { return "ERROR: TabManager not available" }
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
-            return "ERROR: Missing message — usage: log <message> [--level=X] [--source=X] [--tab=X]"
+            return "ERROR: Missing message — usage: log [--level=X] [--source=X] [--tab=X] -- <message>"
         }
         let message = parsed.positional.joined(separator: " ")
         let levelStr = parsed.options["level"] ?? "info"

@@ -497,13 +497,17 @@ class cmux:
 
     def log(self, message: str, level: str = None, source: str = None, tab: str = None) -> None:
         """Append a sidebar log entry."""
-        cmd = f"log {message}"
+        # TerminalController.parseOptions treats any --* token as an option until
+        # a `--` separator. Put options first and then use `--` so messages can
+        # contain arbitrary tokens like `--force`.
+        cmd = "log"
         if level:
             cmd += f" --level={level}"
         if source:
             cmd += f" --source={source}"
         if tab:
             cmd += f" --tab={tab}"
+        cmd += f" -- {_quote_option_value(message)}"
         response = self._send_command(cmd)
         if not response.startswith("OK"):
             raise cmuxError(response)
