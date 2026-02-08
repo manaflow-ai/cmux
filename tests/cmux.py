@@ -180,11 +180,15 @@ class cmux:
             return response[3:]
         raise cmuxError(response)
 
-    def new_split(self, direction: str) -> None:
-        """Create a split in the given direction (left/right/up/down)."""
+    def new_split(self, direction: str) -> str:
+        """Create a split in the given direction (left/right/up/down). Returns new surface/panel ID."""
         response = self._send_command(f"new_split {direction}")
-        if not response.startswith("OK"):
-            raise cmuxError(response)
+        if response.startswith("OK "):
+            return response[3:]
+        if response.startswith("OK"):
+            # Backwards compatibility: some servers returned just "OK".
+            return ""
+        raise cmuxError(response)
 
     def close_workspace(self, workspace_id: str) -> None:
         """Close a workspace by ID"""
@@ -506,6 +510,27 @@ class cmux:
         response = self._send_command(f"simulate_shortcut {combo}")
         if not response.startswith("OK"):
             raise cmuxError(response)
+
+    def simulate_type(self, text: str) -> None:
+        """Insert text into the current first responder (debug builds only)."""
+        # Socket protocol is line-oriented; represent control chars as backslash escapes.
+        escaped = (
+            text
+            .replace("\\", "\\\\")
+            .replace("\r", "\\r")
+            .replace("\n", "\\n")
+            .replace("\t", "\\t")
+        )
+        response = self._send_command(f"simulate_type {escaped}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def is_terminal_focused(self, panel: Union[str, int]) -> bool:
+        """Return True if the terminal panel's Ghostty view (or descendant) is first responder (debug builds only)."""
+        response = self._send_command(f"is_terminal_focused {panel}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip().lower() == "true"
 
     def layout_debug(self) -> dict:
         """Return bonsplit layout snapshot + selected panel bounds (debug builds only)."""

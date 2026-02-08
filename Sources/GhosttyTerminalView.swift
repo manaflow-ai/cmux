@@ -2726,6 +2726,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var attachRetryWorkItem: DispatchWorkItem?
         var attachRetryCount: Int = 0
         var attachGeneration: Int = 0
+        // Track the latest desired state so attach retries can re-apply focus after re-parenting.
+        var desiredIsActive: Bool = true
     }
 
     func makeCoordinator() -> Coordinator {
@@ -2754,6 +2756,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         NSLayoutConstraint.activate(coordinator.constraints)
         hostedView.needsLayout = true
         hostedView.layoutSubtreeIfNeeded()
+
+        // Re-apply active state after re-parenting so focus requests run with a valid window.
+        // Without this, a focus attempt issued while the hosted view is off-window can time out,
+        // leaving the visible terminal unfocused (keys appear to go to the wrong surface).
+        hostedView.setActive(coordinator.desiredIsActive)
     }
 
     private static func scheduleAttachRetry(_ hostedView: GhosttySurfaceScrollView, to host: NSView, coordinator: Coordinator, generation: Int) {
@@ -2794,6 +2801,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
+        context.coordinator.desiredIsActive = isActive
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)

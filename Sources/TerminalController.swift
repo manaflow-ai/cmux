@@ -221,6 +221,12 @@ class TerminalController {
         case "simulate_shortcut":
             return simulateShortcut(args)
 
+        case "simulate_type":
+            return simulateType(args)
+
+        case "is_terminal_focused":
+            return isTerminalFocused(args)
+
         case "layout_debug":
             return layoutDebug()
 
@@ -369,6 +375,8 @@ class TerminalController {
           screenshot [label]              - Capture window screenshot
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
+          simulate_type <text>            - Insert text into the current first responder (test-only)
+          is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
@@ -457,6 +465,98 @@ class TerminalController {
             }
             NSApp.sendEvent(event)
             result = "OK"
+        }
+        return result
+    }
+
+    private func simulateType(_ args: String) -> String {
+        let raw = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            return "ERROR: Usage: simulate_type <text>"
+        }
+
+        // Socket commands are line-based; allow callers to express control chars with backslash escapes.
+        let text = unescapeSocketText(raw)
+
+        var result = "ERROR: No key window"
+        DispatchQueue.main.sync {
+            guard let window = NSApp.keyWindow else { return }
+            guard let fr = window.firstResponder else {
+                result = "ERROR: No first responder"
+                return
+            }
+
+            if let client = fr as? NSTextInputClient {
+                client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                result = "OK"
+                return
+            }
+
+            // Fall back to the responder chain insertText action.
+            (fr as? NSResponder)?.insertText(text)
+            result = "OK"
+        }
+        return result
+    }
+
+    private func unescapeSocketText(_ input: String) -> String {
+        var out = ""
+        var escaping = false
+        for ch in input {
+            if escaping {
+                switch ch {
+                case "n":
+                    out.append("\n")
+                case "r":
+                    out.append("\r")
+                case "t":
+                    out.append("\t")
+                case "\\":
+                    out.append("\\")
+                default:
+                    out.append("\\")
+                    out.append(ch)
+                }
+                escaping = false
+            } else if ch == "\\" {
+                escaping = true
+            } else {
+                out.append(ch)
+            }
+        }
+        if escaping {
+            out.append("\\")
+        }
+        return out
+    }
+
+    private func isTerminalFocused(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !panelArg.isEmpty else { return "ERROR: Usage: is_terminal_focused <panel_id|idx>" }
+
+        var result = "false"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "false"
+                return
+            }
+
+            guard let panelId = resolveSurfaceId(from: panelArg, tab: tab),
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                result = "false"
+                return
+            }
+
+            guard let window = terminalPanel.hostedView.window,
+                  let fr = window.firstResponder as? NSView else {
+                result = "false"
+                return
+            }
+
+            result = fr.isDescendant(of: terminalPanel.hostedView) ? "true" : "false"
         }
         return result
     }
