@@ -2774,7 +2774,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // bonsplit tree updates; attaching too early can be flaky. Retry until it is.
             guard host.window != nil else {
                 coordinator.attachRetryCount += 1
-                if coordinator.attachRetryCount < 60 {
+                // Be generous here: bonsplit structural updates can keep a representable
+                // container off-window longer than a few seconds under load.
+                if coordinator.attachRetryCount < 400 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         scheduleAttachRetry(hostedView, to: host, coordinator: coordinator, generation: generation)
                     }
@@ -2806,6 +2808,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
             context.coordinator.attachGeneration += 1
 
             if nsView.window == nil {
+                // SwiftUI can create/replace a representable container that is never actually
+                // inserted into the window during bonsplit structural updates. Avoid attaching
+                // the hosted view to an off-window container (it can get "stuck" there).
                 Self.scheduleAttachRetry(
                     hostedView,
                     to: nsView,

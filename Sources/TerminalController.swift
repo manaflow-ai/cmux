@@ -160,8 +160,8 @@ class TerminalController {
         case "list_workspaces":
             return listWorkspaces()
 
-        case "new_workspace":
-            return newWorkspace()
+	        case "new_workspace":
+	            return newWorkspace()
 
 	        case "new_split":
 	            return newSplit(args)
@@ -221,6 +221,15 @@ class TerminalController {
         case "simulate_shortcut":
             return simulateShortcut(args)
 
+        case "layout_debug":
+            return layoutDebug()
+
+        case "empty_panel_count":
+            return emptyPanelCount()
+
+        case "reset_empty_panel_count":
+            return resetEmptyPanelCount()
+
         case "focus_notification":
             return focusFromNotification(args)
 
@@ -268,15 +277,15 @@ class TerminalController {
         case "list_pane_surfaces":
             return listPaneSurfaces(args)
 
-        case "focus_pane":
-            return focusPane(args)
+	        case "focus_pane":
+	            return focusPane(args)
 
 	        case "focus_surface_by_panel":
 	            return focusSurfaceByPanel(args)
-	
+
 	        case "drag_surface_to_split":
 	            return dragSurfaceToSplit(args)
-	
+
 	        case "new_pane":
 	            return newPane(args)
 
@@ -313,12 +322,12 @@ class TerminalController {
           new_split <direction> [panel]   - Split panel (left/right/up/down)
           drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
           new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
-          new_surface [--type=terminal|browser] [--pane=<pane_id>] [--url=...]
+          new_surface [--type=terminal|browser] [--pane=<pane-id|index>] [--url=...]
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
           list_panes                      - List all panes with IDs
-          list_pane_surfaces [--pane=<pane_id>] - List surfaces in pane
+          list_pane_surfaces [--pane=<pane-id|index>] - List surfaces in pane
           focus_surface <id|idx>          - Focus surface by ID or index
-          focus_pane <pane_id>            - Focus a pane
+          focus_pane <pane-id|index>      - Focus a pane
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
           refresh_surfaces                - Force refresh all terminals
@@ -360,6 +369,9 @@ class TerminalController {
           screenshot [label]              - Capture window screenshot
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
+          layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
+          empty_panel_count               - Count EmptyPanelView appearances (test-only)
+          reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
         """
 #endif
         return text
@@ -935,6 +947,223 @@ class TerminalController {
     private func resetFlashCounts() -> String {
         DispatchQueue.main.sync {
             GhosttySurfaceScrollView.resetFlashCounts()
+        }
+        return "OK"
+    }
+
+    private struct LayoutDebugSelectedPanel: Codable, Sendable {
+        let paneId: String
+        let paneFrame: PixelRect?
+        let selectedTabId: String?
+        let panelId: String?
+        let panelType: String?
+        let inWindow: Bool?
+        let hidden: Bool?
+        let viewFrame: PixelRect?
+        let splitViews: [LayoutDebugSplitView]?
+    }
+
+    private struct LayoutDebugSplitView: Codable, Sendable {
+        let isVertical: Bool
+        let dividerThickness: Double
+        let bounds: PixelRect
+        let frame: PixelRect?
+        let arrangedSubviewFrames: [PixelRect]
+        let normalizedDividerPosition: Double?
+    }
+
+    private struct LayoutDebugResponse: Codable, Sendable {
+        let layout: LayoutSnapshot
+        let selectedPanels: [LayoutDebugSelectedPanel]
+        let mainWindowNumber: Int?
+        let keyWindowNumber: Int?
+    }
+
+    private func layoutDebug() -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "ERROR: No tab selected"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            let layout = tab.bonsplitController.layoutSnapshot()
+            var paneFrames: [String: PixelRect] = [:]
+            for pane in layout.panes {
+                paneFrames[pane.paneId] = pane.frame
+            }
+
+            func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
+                if view.isHidden { return true }
+                var current = view.superview
+                while let v = current {
+                    if v.isHidden { return true }
+                    current = v.superview
+                }
+                return false
+            }
+
+            func windowFrame(for view: NSView) -> CGRect? {
+                guard view.window != nil else { return nil }
+                // Prefer the view's frame as laid out by its superview. Some AppKit views
+                // (notably scroll views) can temporarily report stale bounds during reparenting.
+                if let superview = view.superview {
+                    return superview.convert(view.frame, to: nil)
+                }
+                return view.convert(view.bounds, to: nil)
+            }
+
+            func splitViewInfos(for view: NSView) -> [LayoutDebugSplitView] {
+                var infos: [LayoutDebugSplitView] = []
+                var current: NSView? = view
+                var depth = 0
+                while let v = current, depth < 12 {
+                    if let sv = v as? NSSplitView {
+                        // The split view can be mid-update during bonsplit structural changes; force a layout
+                        // pass so our debug snapshot reflects the real state.
+                        sv.layoutSubtreeIfNeeded()
+                        let isVertical = sv.isVertical
+                        let dividerThickness = Double(sv.dividerThickness)
+                        let bounds = PixelRect(from: sv.bounds)
+                        let frame = windowFrame(for: sv).map { PixelRect(from: $0) }
+                        let arranged = sv.arrangedSubviews
+                        let arrangedFrames = arranged.compactMap { windowFrame(for: $0).map { PixelRect(from: $0) } }
+
+                        // Approximate divider position from the first arranged subview's size.
+                        let totalSize: CGFloat = isVertical ? sv.bounds.width : sv.bounds.height
+                        let availableSize = max(totalSize - sv.dividerThickness, 0)
+                        var normalized: Double? = nil
+                        if availableSize > 0, let first = arranged.first {
+                            let dividerPos = isVertical ? first.frame.width : first.frame.height
+                            normalized = Double(dividerPos / availableSize)
+                        }
+
+                        infos.append(LayoutDebugSplitView(
+                            isVertical: isVertical,
+                            dividerThickness: dividerThickness,
+                            bounds: bounds,
+                            frame: frame,
+                            arrangedSubviewFrames: arrangedFrames,
+                            normalizedDividerPosition: normalized
+                        ))
+                    }
+                    current = v.superview
+                    depth += 1
+                }
+                return infos
+            }
+
+            let selectedPanels: [LayoutDebugSelectedPanel] = tab.bonsplitController.allPaneIds.map { paneId in
+                let paneIdStr = paneId.id.uuidString
+                let paneFrame = paneFrames[paneIdStr]
+                let selectedTabId = layout.panes.first(where: { $0.paneId == paneIdStr })?.selectedTabId
+
+	                guard let selectedTab = tab.bonsplitController.selectedTab(inPane: paneId) else {
+	                    return LayoutDebugSelectedPanel(
+	                        paneId: paneIdStr,
+	                        paneFrame: paneFrame,
+	                        selectedTabId: selectedTabId,
+	                        panelId: nil,
+	                        panelType: nil,
+	                        inWindow: nil,
+	                        hidden: nil,
+	                        viewFrame: nil,
+	                        splitViews: nil
+	                    )
+	                }
+
+	                guard let panelId = tab.panelIdFromSurfaceId(selectedTab.id),
+	                      let panel = tab.panels[panelId] else {
+	                    return LayoutDebugSelectedPanel(
+	                        paneId: paneIdStr,
+	                        paneFrame: paneFrame,
+	                        selectedTabId: selectedTabId,
+	                        panelId: nil,
+	                        panelType: nil,
+	                        inWindow: nil,
+	                        hidden: nil,
+	                        viewFrame: nil,
+	                        splitViews: nil
+	                    )
+	                }
+
+                if let tp = panel as? TerminalPanel {
+                    let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
+                    let splitViews = splitViewInfos(for: tp.hostedView)
+		                    return LayoutDebugSelectedPanel(
+	                        paneId: paneIdStr,
+	                        paneFrame: paneFrame,
+	                        selectedTabId: selectedTabId,
+	                        panelId: panelId.uuidString,
+	                        panelType: tp.panelType.rawValue,
+	                        inWindow: tp.surface.isViewInWindow,
+	                        hidden: isHiddenOrAncestorHidden(tp.hostedView),
+	                        viewFrame: viewRect,
+	                        splitViews: splitViews
+	                    )
+	                }
+
+                if let bp = panel as? BrowserPanel {
+                    let viewRect = windowFrame(for: bp.webView).map { PixelRect(from: $0) }
+                    let splitViews = splitViewInfos(for: bp.webView)
+		                    return LayoutDebugSelectedPanel(
+	                        paneId: paneIdStr,
+	                        paneFrame: paneFrame,
+	                        selectedTabId: selectedTabId,
+	                        panelId: panelId.uuidString,
+	                        panelType: bp.panelType.rawValue,
+	                        inWindow: bp.webView.window != nil,
+	                        hidden: isHiddenOrAncestorHidden(bp.webView),
+	                        viewFrame: viewRect,
+	                        splitViews: splitViews
+	                    )
+	                }
+
+	                return LayoutDebugSelectedPanel(
+	                    paneId: paneIdStr,
+	                    paneFrame: paneFrame,
+	                    selectedTabId: selectedTabId,
+	                    panelId: panelId.uuidString,
+	                    panelType: panel.panelType.rawValue,
+	                    inWindow: nil,
+	                    hidden: nil,
+	                    viewFrame: nil,
+	                    splitViews: nil
+	                )
+	            }
+
+            let payload = LayoutDebugResponse(
+                layout: layout,
+                selectedPanels: selectedPanels,
+                mainWindowNumber: NSApp.mainWindow?.windowNumber,
+                keyWindowNumber: NSApp.keyWindow?.windowNumber
+            )
+
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(payload),
+                  let json = String(data: data, encoding: .utf8) else {
+                result = "ERROR: Failed to encode layout_debug"
+                return
+            }
+
+            result = "OK \(json)"
+        }
+        return result
+    }
+
+    private func emptyPanelCount() -> String {
+        var result = "OK 0"
+        DispatchQueue.main.sync {
+            result = "OK \(DebugUIEventCounters.emptyPanelAppearCount)"
+        }
+        return result
+    }
+
+    private func resetEmptyPanelCount() -> String {
+        DispatchQueue.main.sync {
+            DebugUIEventCounters.resetEmptyPanelAppearCount()
         }
         return "OK"
     }
@@ -1650,13 +1879,26 @@ class TerminalController {
                 return
             }
 
-            // Parse --pane=<id> argument
+            // Parse --pane=<pane-id|index> argument (UUID preferred).
+            var paneArg: String?
+            for part in args.split(separator: " ") {
+                if part.hasPrefix("--pane=") {
+                    paneArg = String(part.dropFirst(7))
+                    break
+                }
+            }
+
+            let paneIds = tab.bonsplitController.allPaneIds
             var targetPaneId: PaneID? = tab.bonsplitController.focusedPaneId
-            if args.contains("--pane=") {
-                let parts = args.split(separator: "=")
-                if parts.count == 2, let paneUUID = UUID(uuidString: String(parts[1])) {
-                    // Find the pane by UUID
-                    targetPaneId = tab.bonsplitController.allPaneIds.first { $0.id == paneUUID }
+            if let paneArg {
+                if let uuid = UUID(uuidString: paneArg),
+                   let paneId = paneIds.first(where: { $0.id == uuid }) {
+                    targetPaneId = paneId
+                } else if let index = Int(paneArg), index >= 0, index < paneIds.count {
+                    targetPaneId = paneIds[index]
+                } else {
+                    result = "ERROR: Pane not found"
+                    return
                 }
             }
 
@@ -1774,13 +2016,14 @@ class TerminalController {
 	        return result
 	    }
 	
-	    private func newPane(_ args: String) -> String {
-	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    private func newPane(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
         var panelType: PanelType = .terminal
-        var direction: SplitOrientation = .horizontal
+        var direction: SplitDirection = .right
         var url: URL? = nil
+        var invalidDirection = false
 
         let parts = args.split(separator: " ")
         for part in parts {
@@ -1790,12 +2033,23 @@ class TerminalController {
                 panelType = typeStr == "browser" ? .browser : .terminal
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
-                direction = (dirStr == "up" || dirStr == "down") ? .vertical : .horizontal
+                if let parsed = parseSplitDirection(dirStr) {
+                    direction = parsed
+                } else {
+                    invalidDirection = true
+                }
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6))
                 url = URL(string: urlStr)
             }
         }
+
+        if invalidDirection {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        let orientation = direction.orientation
+        let insertFirst = direction.insertFirst
 
         var result = "ERROR: Failed to create pane"
         DispatchQueue.main.sync {
@@ -1807,9 +2061,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSplit(from: focusedPanelId, orientation: direction, url: url)?.id
+                newPanelId = tab.newBrowserSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst, url: url)?.id
             } else {
-                newPanelId = tab.newTerminalSplit(from: focusedPanelId, orientation: direction)?.id
+                newPanelId = tab.newTerminalSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst)?.id
             }
 
             if let id = newPanelId {
@@ -1910,7 +2164,7 @@ class TerminalController {
 
         // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
         var panelType: PanelType = .terminal
-        var paneIndex: Int? = nil
+        var paneArg: String? = nil
         var url: URL? = nil
 
         let parts = args.split(separator: " ")
@@ -1920,8 +2174,7 @@ class TerminalController {
                 let typeStr = String(partStr.dropFirst(7))
                 panelType = typeStr == "browser" ? .browser : .terminal
             } else if partStr.hasPrefix("--pane=") {
-                let paneStr = String(partStr.dropFirst(7))
-                paneIndex = Int(paneStr)
+                paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6))
                 url = URL(string: urlStr)
@@ -1937,9 +2190,15 @@ class TerminalController {
 
             // Get target pane
             let paneId: PaneID?
-            if let idx = paneIndex {
-                let paneIds = tab.bonsplitController.allPaneIds
-                paneId = idx < paneIds.count ? paneIds[idx] : nil
+            let paneIds = tab.bonsplitController.allPaneIds
+            if let paneArg {
+                if let uuid = UUID(uuidString: paneArg) {
+                    paneId = paneIds.first(where: { $0.id == uuid })
+                } else if let idx = Int(paneArg), idx >= 0, idx < paneIds.count {
+                    paneId = paneIds[idx]
+                } else {
+                    paneId = nil
+                }
             } else {
                 paneId = tab.bonsplitController.focusedPaneId
             }

@@ -33,6 +33,7 @@ import select
 import os
 import time
 import errno
+import json
 from typing import Optional, List, Tuple, Union
 
 
@@ -503,6 +504,30 @@ class cmux:
     def simulate_shortcut(self, combo: str) -> None:
         """Simulate a keyDown shortcut via the debug socket (test-only)."""
         response = self._send_command(f"simulate_shortcut {combo}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def layout_debug(self) -> dict:
+        """Return bonsplit layout snapshot + selected panel bounds (debug builds only)."""
+        response = self._send_command("layout_debug")
+        if not response.startswith("OK "):
+            raise cmuxError(response)
+        payload = response[3:].strip()
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as e:
+            raise cmuxError(f"layout_debug JSON decode failed: {e}: {payload[:200]}")
+
+    def empty_panel_count(self) -> int:
+        """Return the number of EmptyPanelView appearances (debug builds only)."""
+        response = self._send_command("empty_panel_count")
+        if response.startswith("OK "):
+            return int(response.split(" ", 1)[1])
+        raise cmuxError(response)
+
+    def reset_empty_panel_count(self) -> None:
+        """Reset the EmptyPanelView appearance counter (debug builds only)."""
+        response = self._send_command("reset_empty_panel_count")
         if not response.startswith("OK"):
             raise cmuxError(response)
 

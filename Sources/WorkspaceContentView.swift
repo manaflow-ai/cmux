@@ -87,5 +87,21 @@ struct EmptyPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+#if DEBUG
+        .onAppear {
+            DebugUIEventCounters.emptyPanelAppearCount += 1
+        }
+#endif
     }
 }
+
+#if DEBUG
+@MainActor
+enum DebugUIEventCounters {
+    static var emptyPanelAppearCount: Int = 0
+
+    static func resetEmptyPanelAppearCount() {
+        emptyPanelAppearCount = 0
+    }
+}
+#endif

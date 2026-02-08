@@ -685,8 +685,11 @@ class TabManager: ObservableObject {
     /// Returns the new panel's ID (which is also the surface ID for terminals)
     func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-        return tab.newTerminalSplit(from: surfaceId, orientation: orientation)?.id
+        return tab.newTerminalSplit(
+            from: surfaceId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst
+        )?.id
     }
 
     /// Move focus in the specified direction
@@ -784,6 +787,16 @@ enum SplitDirection {
 
     var isHorizontal: Bool {
         self == .left || self == .right
+    }
+
+    var orientation: SplitOrientation {
+        isHorizontal ? .horizontal : .vertical
+    }
+
+    /// If true, insert the new pane on the "first" side (left/top).
+    /// If false, insert on the "second" side (right/bottom).
+    var insertFirst: Bool {
+        self == .left || self == .up
     }
 }
 

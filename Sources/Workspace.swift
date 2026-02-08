@@ -201,7 +201,8 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func newTerminalSplit(
         from panelId: UUID,
-        orientation: SplitOrientation
+        orientation: SplitOrientation,
+        insertFirst: Bool = false
     ) -> TerminalPanel? {
         guard let sourcePanel = terminalPanel(for: panelId) else { return nil }
 
@@ -211,14 +212,6 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             nil
         }
-
-        // Create new terminal panel
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
-        )
-        panels[newPanel.id] = newPanel
 
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -233,26 +226,31 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        // Create the split - this creates a new empty pane
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation) else {
-            panels.removeValue(forKey: newPanel.id)
-            return nil
-        }
+        // Create the new terminal panel.
+        let newPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig
+        )
+        panels[newPanel.id] = newPanel
 
-        // Create a tab in the new pane for our panel
-        guard let newTabId = bonsplitController.createTab(
+        // Pre-generate the bonsplit tab ID so we can install the panel mapping before bonsplit
+        // mutates layout state (avoids transient "Empty Panel" flashes during split).
+        let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            isDirty: newPanel.isDirty,
-            inPane: newPaneId
-        ) else {
+            isDirty: newPanel.isDirty
+        )
+        surfaceIdToPanelId[newTab.id] = newPanel.id
+
+        // Create the split with the new tab already present in the new pane.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
             panels.removeValue(forKey: newPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
             return nil
         }
-
-        surfaceIdToPanelId[newTabId] = newPanel.id
 
         return newPanel
     }
@@ -299,6 +297,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newBrowserSplit(
         from panelId: UUID,
         orientation: SplitOrientation,
+        insertFirst: Bool = false,
         url: URL? = nil
     ) -> BrowserPanel? {
         // Find the pane containing the source panel
@@ -314,30 +313,40 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        // Create the split
-        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation) else {
-            return nil
-        }
-
         // Create browser panel
         let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
         panels[browserPanel.id] = browserPanel
 
-        // Create tab in the new pane
-        guard let newTabId = bonsplitController.createTab(
+        // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
+        let newTab = Bonsplit.Tab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            isDirty: browserPanel.isDirty,
-            inPane: newPaneId
-        ) else {
+            isDirty: browserPanel.isDirty
+        )
+        surfaceIdToPanelId[newTab.id] = browserPanel.id
+
+        // Create the split with the browser tab already present.
+        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = browserPanel.id
+        // Subscribe to browser title changes to update the bonsplit tab
+        let subscription = browserPanel.$pageTitle
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak browserPanel] _ in
+                guard let self = self,
+                      let browserPanel = browserPanel,
+                      let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+                self.bonsplitController.updateTab(tabId, title: browserPanel.displayTitle)
+            }
+        panelSubscriptions[browserPanel.id] = subscription
+
         return browserPanel
     }
 
@@ -548,10 +557,6 @@ extension Workspace: BonsplitDelegate {
         panelDirectories.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
-
-        // After a tab close, remaining terminals may need a refresh
-        // (bonsplit may collapse the pane and trigger layout changes).
-        refreshAllTerminals()
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -616,75 +621,6 @@ extension Workspace: BonsplitDelegate {
             }
         }
         return true
-    }
-
-    func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        // Panels are cleaned up via didCloseTab callbacks.
-        refreshAllTerminals()
-    }
-
-    /// Force-refresh all remaining terminal surfaces after layout changes.
-    /// After bonsplit tree restructuring, views may be temporarily not in a window.
-    /// We poll until all terminal surfaces have their views back in the window,
-    /// then force a refresh. Uses ghostty_surface_draw (sync=true) to force a
-    /// frame even when ghostty_surface_set_size is a no-op (same dimensions).
-    private func refreshAllTerminals() {
-        // Immediate refresh for surfaces already in the window
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.refreshTerminalsInWindow()
-        }
-        // Poll for surfaces not yet in the window (during tree restructuring)
-        pollForOrphanedSurfaces(attempts: 0)
-    }
-
-    /// Refresh terminal surfaces that are currently in a window.
-    private func refreshTerminalsInWindow() {
-        for panel in panels.values {
-            if let tp = panel as? TerminalPanel, tp.surface.isViewInWindow {
-                tp.surface.forceRefresh()
-            }
-        }
-    }
-
-    /// Poll until all terminal surfaces are in a window, then refresh them.
-    /// Max ~3 seconds (30 attempts * 100ms).
-    private func pollForOrphanedSurfaces(attempts: Int) {
-        let maxAttempts = 30
-        guard attempts < maxAttempts else {
-            #if DEBUG
-            NSLog("[Workspace] pollForOrphanedSurfaces: timed out after \(maxAttempts) attempts")
-            #endif
-            // Final attempt: refresh whatever we can
-            for panel in panels.values {
-                if let tp = panel as? TerminalPanel {
-                    tp.surface.forceRefresh()
-                }
-            }
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
-
-            let orphaned = self.panels.values.contains { panel in
-                if let tp = panel as? TerminalPanel {
-                    return !tp.surface.isViewInWindow
-                }
-                return false
-            }
-
-            if orphaned {
-                // Some surfaces still not in window, keep polling
-                self.pollForOrphanedSurfaces(attempts: attempts + 1)
-            } else {
-                // All surfaces in window — refresh them all
-                for panel in self.panels.values {
-                    if let tp = panel as? TerminalPanel {
-                        tp.surface.forceRefresh()
-                    }
-                }
-            }
-        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {

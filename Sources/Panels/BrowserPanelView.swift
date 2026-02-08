@@ -235,7 +235,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             // is in a window during bonsplit tree updates; moving the webview too early can be flaky.
             guard host.window != nil else {
                 coordinator.attachRetryCount += 1
-                if coordinator.attachRetryCount < 60 {
+                // Be generous here: bonsplit structural updates can keep a representable
+                // container off-window longer than a few seconds under load.
+                if coordinator.attachRetryCount < 400 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         scheduleAttachRetry(webView, to: host, coordinator: coordinator, generation: generation)
                     }
@@ -262,9 +264,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachGeneration += 1
 
             if nsView.window == nil {
-                // Keep the current attachment (if any) until this host is actually in a window,
-                // then retry attaching. This avoids "stolen into off-window host" flakiness
-                // while still guaranteeing eventual re-attachment.
+                // Avoid attaching to off-window containers; during bonsplit structural updates SwiftUI
+                // can create containers that are never inserted into the window.
                 Self.scheduleAttachRetry(
                     webView,
                     to: nsView,
