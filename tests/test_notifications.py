@@ -143,6 +143,9 @@ def test_kitty_notification_simple(client: cmux) -> TestResult:
     try:
         client.clear_notifications()
         client.set_app_focus(False)
+        # Avoid Ghostty's 1s desktop notification rate limit. This test can run
+        # immediately after app launch in CI/VM environments.
+        time.sleep(1.1)
         surface = focused_surface_index(client)
         send_osc(client, "\\x1b]99;;Kitty Simple\\x1b\\\\", surface)
         items = wait_for_notifications(client, 1)
