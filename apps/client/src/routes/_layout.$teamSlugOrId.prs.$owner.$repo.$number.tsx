@@ -22,6 +22,7 @@ function PRDetailsRoute() {
   const { teamSlugOrId, owner, repo, number } = Route.useParams();
   return (
     <PullRequestDetailView
+      key={`${owner}/${repo}#${number}`}
       teamSlugOrId={teamSlugOrId}
       owner={owner}
       repo={repo}

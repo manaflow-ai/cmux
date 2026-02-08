@@ -26,6 +26,7 @@ import type * as crown_http from "../crown_http.js";
 import type * as devboxInstances from "../devboxInstances.js";
 import type * as devbox_http from "../devbox_http.js";
 import type * as devbox_v2_http from "../devbox_v2_http.js";
+import type * as diffComments from "../diffComments.js";
 import type * as e2bInstances from "../e2bInstances.js";
 import type * as e2b_actions from "../e2b_actions.js";
 import type * as environmentSnapshots from "../environmentSnapshots.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   devboxInstances: typeof devboxInstances;
   devbox_http: typeof devbox_http;
   devbox_v2_http: typeof devbox_v2_http;
+  diffComments: typeof diffComments;
   e2bInstances: typeof e2bInstances;
   e2b_actions: typeof e2b_actions;
   environmentSnapshots: typeof environmentSnapshots;

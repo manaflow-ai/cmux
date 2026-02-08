@@ -26,6 +26,7 @@ function PROnlyRoute() {
       <div className="min-w-0 min-h-0 h-full flex flex-col">
         <div className="flex-1 min-h-0 h-full overflow-y-auto bg-white dark:bg-neutral-900">
           <PullRequestDetailView
+            key={`${owner}/${repo}#${number}`}
             teamSlugOrId={teamSlugOrId}
             owner={owner}
             repo={repo}

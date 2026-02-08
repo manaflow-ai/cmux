@@ -1231,6 +1231,35 @@ const convexSchema = defineSchema({
     stoppedAt: v.optional(v.number()),
   }).index("by_instanceId", ["instanceId"]),
 
+  // Diff comments for code review (similar to GitHub/Graphite PR comments)
+  diffComments: defineTable({
+    taskRunId: v.id("taskRuns"), // The task run this comment belongs to
+    filePath: v.string(), // Path of the file being commented on
+    lineNumber: v.number(), // Line number in the modified file (1-indexed)
+    side: v.union(v.literal("left"), v.literal("right")), // Which side of the diff (left=original, right=modified)
+    content: v.string(), // The comment text (supports markdown)
+    resolved: v.optional(v.boolean()), // Whether the comment thread is resolved
+    userId: v.string(), // User who created the comment
+    teamId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_taskRun", ["taskRunId", "createdAt"])
+    .index("by_taskRun_file", ["taskRunId", "filePath", "createdAt"])
+    .index("by_team_user", ["teamId", "userId"]),
+
+  // Replies to diff comments
+  diffCommentReplies: defineTable({
+    commentId: v.id("diffComments"),
+    content: v.string(),
+    userId: v.string(),
+    teamId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_comment", ["commentId", "createdAt"])
+    .index("by_team_user", ["teamId", "userId"]),
+
 });
 
 export default convexSchema;

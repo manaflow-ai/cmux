@@ -833,3 +833,30 @@ table.diff {
   display: inline-flex;
   cursor: help;
 }
+
+/* Monaco diff review comment styling */
+.cmux-monaco-review-zone {
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.monaco-editor .cmux-monaco-review-line {
+  background-color: rgba(59, 130, 246, 0.08);
+}
+
+.dark .monaco-editor .cmux-monaco-review-line {
+  background-color: rgba(59, 130, 246, 0.18);
+}
+
+.monaco-editor .cmux-monaco-review-line-selected {
+  background-color: rgba(59, 130, 246, 0.16);
+  outline: 1px solid rgba(59, 130, 246, 0.35);
+  outline-offset: -1px;
+}
+
+.dark .monaco-editor .cmux-monaco-review-line-selected {
+  background-color: rgba(59, 130, 246, 0.28);
+  outline: 1px solid rgba(147, 197, 253, 0.4);
+  outline-offset: -1px;
+}

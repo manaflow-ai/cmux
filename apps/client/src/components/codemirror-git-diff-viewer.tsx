@@ -23,6 +23,27 @@ type GitDiffViewerClassNames = {
   fileDiffRow?: FileDiffRowClassNames;
 };
 
+export type DiffLineCommentSide = "left" | "right";
+
+export type DiffLineCommentKind = "draft" | "github";
+
+export type DiffLineCommentAuthor = {
+  login: string;
+  avatarUrl?: string;
+};
+
+export type DiffLineComment = {
+  id: string;
+  kind: DiffLineCommentKind;
+  filePath: string;
+  lineNumber: number;
+  side: DiffLineCommentSide;
+  body: string;
+  createdAt?: number;
+  author?: DiffLineCommentAuthor;
+  url?: string;
+};
+
 export interface GitDiffViewerProps {
   diffs: ReplaceDiffEntry[];
   isLoading?: boolean;
@@ -34,6 +55,14 @@ export interface GitDiffViewerProps {
   }) => void;
   classNames?: GitDiffViewerClassNames;
   onFileToggle?: (filePath: string, isExpanded: boolean) => void;
+  // Optional line comments (e.g. for PR review flows)
+  lineComments?: DiffLineComment[];
+  onAddLineComment?: (comment: {
+    filePath: string;
+    lineNumber: number;
+    side: DiffLineCommentSide;
+    body: string;
+  }) => Promise<void> | void;
 }
 
 type FileGroup = {

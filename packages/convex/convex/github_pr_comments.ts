@@ -966,7 +966,7 @@ export const postInitialPreviewComment = internalAction({
 
       // Add diff heatmap link (available immediately)
       const heatmapUrl = `https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap`;
-      commentSections.push(`<a href="${heatmapUrl}" target="_blank">Open Diff Heatmap</a>`);
+      commentSections.push(`[Open Diff Heatmap](${heatmapUrl})`);
 
       // Show loading state for screenshots
       commentSections.push(
@@ -1138,12 +1138,18 @@ export const updatePreviewComment = internalAction({
       // Build links row (under the heading)
       const linkParts: string[] = [];
       if (workspaceUrl) {
-        linkParts.push(`<a href="${workspaceUrl}?${UTM_PARAMS}&utm_content=workspace" target="_blank">Open Workspace (1 hr expiry)</a>`);
+        linkParts.push(
+          `[Open Workspace (1 hr expiry)](${workspaceUrl}?${UTM_PARAMS}&utm_content=workspace)`,
+        );
       }
       if (devServerUrl) {
-        linkParts.push(`<a href="${devServerUrl}?${UTM_PARAMS}&utm_content=dev_browser" target="_blank">Open Dev Browser (1 hr expiry)</a>`);
+        linkParts.push(
+          `[Open Dev Browser (1 hr expiry)](${devServerUrl}?${UTM_PARAMS}&utm_content=dev_browser)`,
+        );
       }
-      linkParts.push(`<a href="https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap" target="_blank">Open Diff Heatmap</a>`);
+      linkParts.push(
+        `[Open Diff Heatmap](https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap)`,
+      );
 
       if (linkParts.length > 0) {
         commentSections.push(linkParts.join(" · "));
@@ -1350,15 +1356,21 @@ export const postPreviewComment = internalAction({
       const commentSections: string[] = ["## Preview Videos and Screenshots"];
 
       // Build links row (under the heading)
-      // Using HTML anchor tags with target="_blank" to open links in new tabs
+      // Use plain Markdown links (GitHub sanitizes HTML attributes like target anyway).
       const linkParts: string[] = [];
       if (workspaceUrl) {
-        linkParts.push(`<a href="${workspaceUrl}?${UTM_PARAMS}&utm_content=workspace" target="_blank">Open Workspace (1 hr expiry)</a>`);
+        linkParts.push(
+          `[Open Workspace (1 hr expiry)](${workspaceUrl}?${UTM_PARAMS}&utm_content=workspace)`,
+        );
       }
       if (devServerUrl) {
-        linkParts.push(`<a href="${devServerUrl}?${UTM_PARAMS}&utm_content=dev_browser" target="_blank">Open Dev Browser (1 hr expiry)</a>`);
+        linkParts.push(
+          `[Open Dev Browser (1 hr expiry)](${devServerUrl}?${UTM_PARAMS}&utm_content=dev_browser)`,
+        );
       }
-      linkParts.push(`<a href="https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap" target="_blank">Open Diff Heatmap</a>`);
+      linkParts.push(
+        `[Open Diff Heatmap](https://0github.com/${repoFullName}/pull/${prNumber}?${UTM_PARAMS}&utm_content=diff_heatmap)`,
+      );
 
       if (linkParts.length > 0) {
         commentSections.push(linkParts.join(" · "));

@@ -1,5 +1,7 @@
 import { FloatingPane } from "@/components/floating-pane";
 import { PersistentWebView } from "@/components/persistent-webview";
+import { PullRequestDetailView } from "@/components/prs/PullRequestDetailView";
+import { isElectron } from "@/lib/electron";
 import { getTaskRunPullRequestPersistKey } from "@/lib/persistent-webview-keys";
 import { api } from "@cmux/convex/api";
 import { typedZid } from "@cmux/shared/utils/typed-zid";
@@ -9,6 +11,43 @@ import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import z from "zod";
 import { convexQueryClient } from "@/contexts/convex/convex-query-client";
+
+function parseRepoFullName(
+  repoFullName: string | null | undefined,
+): { owner: string; repo: string } | null {
+  if (!repoFullName) return null;
+  const [owner = "", repo = ""] = repoFullName.split("/", 2);
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}
+
+function parseGithubPullRequestUrl(
+  url: string | null | undefined,
+): { owner: string; repo: string; number: number } | null {
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+    return null;
+  }
+
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split("/").filter(Boolean);
+    const pullIdx = parts.indexOf("pull");
+    if (pullIdx < 2 || parts.length <= pullIdx + 1) return null;
+
+    const owner = parts[pullIdx - 2] ?? "";
+    const repo = parts[pullIdx - 1] ?? "";
+    const numberRaw = parts[pullIdx + 1] ?? "";
+    const number = Number(numberRaw);
+    if (!owner || !repo || !Number.isFinite(number)) return null;
+
+    return { owner, repo, number };
+  } catch (error) {
+    console.error("Failed to parse GitHub pull request URL:", error);
+    return null;
+  }
+}
 
 const paramsSchema = z.object({
   taskId: typedZid("tasks"),
@@ -106,6 +145,30 @@ function RunPullRequestPage() {
     pullRequests.length > 1 ? "Pull Requests" : "Pull Request";
   const activeUrl = activePullRequest?.url ?? fallbackPullRequestUrl;
 
+  const activePullRequestTarget = useMemo(() => {
+    const repoFromName = parseRepoFullName(activePullRequest?.repoFullName);
+    const url = activePullRequest?.url ?? fallbackPullRequestUrl;
+    const parsedFromUrl = parseGithubPullRequestUrl(url);
+
+    const owner = repoFromName?.owner ?? parsedFromUrl?.owner;
+    const repo = repoFromName?.repo ?? parsedFromUrl?.repo;
+    const number =
+      activePullRequest?.number ??
+      parsedFromUrl?.number ??
+      (pullRequests.length <= 1 ? selectedRun?.pullRequestNumber : undefined);
+
+    if (!owner || !repo) return null;
+    if (typeof number !== "number" || !Number.isFinite(number)) return null;
+    return { owner, repo, number };
+  }, [
+    activePullRequest?.number,
+    activePullRequest?.repoFullName,
+    activePullRequest?.url,
+    fallbackPullRequestUrl,
+    pullRequests.length,
+    selectedRun?.pullRequestNumber,
+  ]);
+
   return (
     <FloatingPane>
       <div className="flex h-full min-h-0 flex-col relative isolate">
@@ -129,7 +192,7 @@ function RunPullRequestPage() {
                 rel="noopener noreferrer"
                 className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
               >
-                Open Heatmap Diff Viewer
+                Open on GitHub
                 <svg
                   className="w-3 h-3"
                   fill="none"
@@ -186,7 +249,36 @@ function RunPullRequestPage() {
                   })}
                 </div>
                 <div className="flex-1">
-                  {activePullRequest?.url ? (
+                  {!isElectron ? (
+                    activePullRequestTarget ? (
+                      <div className="w-full h-full border-0 bg-white dark:bg-neutral-900">
+                        <PullRequestDetailView
+                          key={`${activePullRequestTarget.owner}/${activePullRequestTarget.repo}#${activePullRequestTarget.number}`}
+                          teamSlugOrId={teamSlugOrId}
+                          owner={activePullRequestTarget.owner}
+                          repo={activePullRequestTarget.repo}
+                          number={String(activePullRequestTarget.number)}
+                        />
+                      </div>
+                    ) : activeUrl ? (
+                      <div className="flex h-full items-center justify-center px-6 text-sm text-neutral-500 dark:text-neutral-400">
+                        Could not load this pull request here.{" "}
+                        <a
+                          href={activeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          Open on GitHub
+                        </a>
+                        .
+                      </div>
+                    ) : (
+                      <div className="flex h-full items-center justify-center px-6 text-sm text-neutral-500 dark:text-neutral-400">
+                        No pull request is available for this repository yet.
+                      </div>
+                    )
+                  ) : activePullRequest?.url ? (
                     <PersistentWebView
                       persistKey={persistKey}
                       src={activePullRequest.url}
@@ -207,13 +299,25 @@ function RunPullRequestPage() {
                 <p className="text-sm">Pull request is being created...</p>
               </div>
             ) : fallbackPullRequestUrl ? (
-              <PersistentWebView
-                persistKey={persistKey}
-                src={fallbackPullRequestUrl}
-                className="w-full h-full border-0"
-                borderRadius={paneBorderRadius}
-                forceWebContentsViewIfElectron
-              />
+              !isElectron && activePullRequestTarget ? (
+                <div className="w-full h-full border-0 bg-white dark:bg-neutral-900">
+                  <PullRequestDetailView
+                    key={`${activePullRequestTarget.owner}/${activePullRequestTarget.repo}#${activePullRequestTarget.number}`}
+                    teamSlugOrId={teamSlugOrId}
+                    owner={activePullRequestTarget.owner}
+                    repo={activePullRequestTarget.repo}
+                    number={String(activePullRequestTarget.number)}
+                  />
+                </div>
+              ) : (
+                <PersistentWebView
+                  persistKey={persistKey}
+                  src={fallbackPullRequestUrl}
+                  className="w-full h-full border-0"
+                  borderRadius={paneBorderRadius}
+                  forceWebContentsViewIfElectron
+                />
+              )
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-neutral-500 dark:text-neutral-400">
                 <svg

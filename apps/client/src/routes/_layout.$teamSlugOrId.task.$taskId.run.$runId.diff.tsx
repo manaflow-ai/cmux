@@ -1107,6 +1107,9 @@ function RunDiffPage() {
                       onControlsChange={setDiffControls}
                       isHeatmapActive={isAiReviewActive}
                       onToggleHeatmap={handleToggleAiReview}
+                      // Only enable comments when there's at least one PR
+                      teamSlugOrId={pullRequests && pullRequests.length > 0 ? teamSlugOrId : undefined}
+                      taskRunId={pullRequests && pullRequests.length > 0 ? runId : undefined}
                     />
                   )
                 ) : (

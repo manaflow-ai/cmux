@@ -7,6 +7,7 @@ import { githubPrsFileContentsRouter } from "@/lib/routes/github.prs.file-conten
 import { githubPrsFilesRouter } from "@/lib/routes/github.prs.files.route";
 import { githubPrsOpenRouter } from "@/lib/routes/github.prs.open.route";
 import { githubPrsPatchRouter } from "@/lib/routes/github.prs.patch.route";
+import { githubPrsReviewRouter } from "@/lib/routes/github.prs.review.route";
 import { githubPrsRouter } from "@/lib/routes/github.prs.route";
 import { githubReposRouter } from "@/lib/routes/github.repos.route";
 import {
@@ -127,6 +128,7 @@ app.route("/", githubPrsBackfillRouter);
 app.route("/", githubPrsBackfillRepoRouter);
 app.route("/", githubPrsCodeRouter);
 app.route("/", githubPrsOpenRouter);
+app.route("/", githubPrsReviewRouter);
 app.route("/", githubPrsPatchRouter);
 app.route("/", githubPrsFilesRouter);
 app.route("/", githubPrsFileContentsRouter);

@@ -669,23 +669,47 @@ function SocketActions({
       number?: number;
     }>,
   ) => {
-    prs.forEach((pr) => {
-      // Open GitHub URL directly in new tab if available
-      if (pr.url) {
-        window.open(pr.url, '_blank', 'noopener,noreferrer');
-      } else if (pr.repoFullName && pr.number) {
-        // Fallback to internal viewer if URL not available
-        const [owner = "", repo = ""] = pr.repoFullName.split("/", 2);
-        navigate({
-          to: "/$teamSlugOrId/prs-only/$owner/$repo/$number",
-          params: {
-            teamSlugOrId,
-            owner,
-            repo,
-            number: String(pr.number),
-          },
-        });
+    const targets = prs
+      .map((pr) => {
+        const repoFullName = pr.repoFullName?.trim();
+        const prNumber = pr.number;
+        if (!repoFullName || typeof prNumber !== "number" || !Number.isFinite(prNumber)) {
+          return null;
+        }
+        const [owner = "", repo = ""] = repoFullName.split("/", 2);
+        if (!owner || !repo) {
+          return null;
+        }
+        return { owner, repo, number: prNumber, url: pr.url ?? null };
+      })
+      .filter((v): v is { owner: string; repo: string; number: number; url: string | null } => Boolean(v));
+
+    if (targets.length === 0) {
+      const firstUrl = prs.find((pr) => pr.url)?.url;
+      if (firstUrl) {
+        window.open(firstUrl, "_blank", "noopener,noreferrer");
       }
+      return;
+    }
+
+    // For multi-repo tasks, open each PR in a new tab so we don't navigate away repeatedly.
+    if (targets.length > 1) {
+      for (const t of targets) {
+        const path = `/${encodeURIComponent(teamSlugOrId)}/prs-only/${encodeURIComponent(t.owner)}/${encodeURIComponent(t.repo)}/${encodeURIComponent(String(t.number))}`;
+        window.open(path, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
+    const t = targets[0]!;
+    navigate({
+      to: "/$teamSlugOrId/prs-only/$owner/$repo/$number",
+      params: {
+        teamSlugOrId,
+        owner: t.owner,
+        repo: t.repo,
+        number: String(t.number),
+      },
     });
   };
 
@@ -928,7 +952,7 @@ function SocketActions({
   };
 
   const handleViewPRs = () => {
-    const existing = pullRequests.filter((pr) => pr.url);
+    const existing = pullRequests.filter((pr) => typeof pr.number === "number");
     if (existing.length > 0) {
       navigateToPrs(existing);
       return;
@@ -955,7 +979,7 @@ function SocketActions({
   const isMerging =
     mergePrMutation.isPending || mergeBranchMutation.isPending;
 
-  const hasAnyRemotePr = pullRequests.some((pr) => pr.url);
+  const hasAnyRemotePr = pullRequests.some((pr) => typeof pr.number === "number");
 
   const renderRepoDropdown = () => (
     <Dropdown.Root>
@@ -969,7 +993,7 @@ function SocketActions({
           "disabled:opacity-60 disabled:cursor-not-allowed",
         )}
         disabled={repoFullNames.every(
-          (repoName) => !pullRequestMap.get(repoName)?.url,
+          (repoName) => typeof pullRequestMap.get(repoName)?.number !== "number",
         )}
       >
         <ChevronDown className="w-3.5 h-3.5" />
@@ -980,17 +1004,16 @@ function SocketActions({
             <Dropdown.Arrow />
             {repoFullNames.map((repoName) => {
               const pr = pullRequestMap.get(repoName);
-              const hasUrl = Boolean(pr?.url);
+              const hasPr =
+                Boolean(pr?.repoFullName?.trim()) &&
+                typeof pr?.number === "number" &&
+                Number.isFinite(pr.number);
               return (
                 <Dropdown.Item
                   key={repoName}
-                  disabled={!hasUrl}
+                  disabled={!hasPr}
                   onClick={() => {
-                    // Open GitHub URL directly in new tab if available
-                    if (pr?.url) {
-                      window.open(pr.url, '_blank', 'noopener,noreferrer');
-                    } else if (pr?.repoFullName && pr?.number) {
-                      // Fallback to internal viewer if URL not available
+                    if (pr?.repoFullName && pr?.number) {
                       const [owner = "", repo = ""] =
                         pr.repoFullName.split("/", 2);
                       navigate({
@@ -1002,6 +1025,8 @@ function SocketActions({
                           number: String(pr.number),
                         },
                       });
+                    } else if (pr?.url) {
+                      window.open(pr.url, "_blank", "noopener,noreferrer");
                     }
                   }}
                 >

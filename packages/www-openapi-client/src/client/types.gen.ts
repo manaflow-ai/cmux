@@ -265,6 +265,116 @@ export type GithubMergePrSimpleRequest = {
     method: 'squash' | 'rebase' | 'merge';
 };
 
+export type GithubUser = {
+    login: string;
+    id?: number;
+    avatar_url?: string;
+};
+
+export type GithubLabel = {
+    id?: number;
+    name: string;
+    color?: string;
+    description?: string | null;
+};
+
+export type GithubPullRequestDetails = {
+    id?: number;
+    title?: string;
+    body?: string | null;
+    state?: 'open' | 'closed';
+    draft?: boolean;
+    merged?: boolean;
+    html_url?: string;
+    user?: GithubUser;
+    created_at?: string;
+    updated_at?: string;
+    requested_reviewers?: Array<GithubUser>;
+    assignees?: Array<GithubUser>;
+    labels?: Array<GithubLabel>;
+};
+
+export type GithubPullRequestReview = {
+    id: number;
+    user?: GithubUser;
+    state: string;
+    body?: string | null;
+    submitted_at?: string | null;
+    html_url?: string;
+};
+
+export type GithubPullRequestReviewComment = {
+    id: number;
+    body: string;
+    path: string;
+    line?: number | null;
+    side?: 'LEFT' | 'RIGHT';
+    start_line?: number | null;
+    start_side?: 'LEFT' | 'RIGHT';
+    commit_id?: string;
+    user?: GithubUser;
+    created_at?: string;
+    updated_at?: string;
+    html_url?: string;
+    pull_request_review_id?: number | null;
+    in_reply_to_id?: number | null;
+    diff_hunk?: string;
+};
+
+export type GithubIssueComment = {
+    id: number;
+    body: string;
+    user?: GithubUser;
+    created_at?: string;
+    updated_at?: string;
+    html_url?: string;
+};
+
+export type GithubPrReviewDataResponse = {
+    repoFullName: string;
+    number: number;
+    pullRequest: GithubPullRequestDetails;
+    reviews: Array<GithubPullRequestReview>;
+    reviewComments: Array<GithubPullRequestReviewComment>;
+    issueComments: Array<GithubIssueComment>;
+};
+
+export type GithubSubmitPullRequestReviewResponse = {
+    success: boolean;
+    reviewId?: number;
+    message?: string;
+};
+
+export type GithubSubmitPullRequestReviewRequest = {
+    teamSlugOrId: string;
+    owner: string;
+    repo: string;
+    number: number;
+    event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+    body?: string;
+    commitId?: string;
+    comments?: Array<{
+        path: string;
+        line: number;
+        side: 'LEFT' | 'RIGHT';
+        body: string;
+    }>;
+};
+
+export type GithubCreateIssueCommentResponse = {
+    success: boolean;
+    commentId?: number;
+    message?: string;
+};
+
+export type GithubCreateIssueCommentRequest = {
+    teamSlugOrId: string;
+    owner: string;
+    repo: string;
+    number: number;
+    body: string;
+};
+
 export type GithubPrsFilesResponse = {
     repoFullName: string;
     number: number;
@@ -1617,6 +1727,140 @@ export type PostApiIntegrationsGithubPrsMergeSimpleResponses = {
 };
 
 export type PostApiIntegrationsGithubPrsMergeSimpleResponse = PostApiIntegrationsGithubPrsMergeSimpleResponses[keyof PostApiIntegrationsGithubPrsMergeSimpleResponses];
+
+export type GetApiIntegrationsGithubPrsReviewDataData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Team slug or UUID
+         */
+        team: string;
+        /**
+         * GitHub owner/org
+         */
+        owner: string;
+        /**
+         * GitHub repo name
+         */
+        repo: string;
+        /**
+         * PR number
+         */
+        number: number;
+        /**
+         * Paginate up to this many pages (default 10)
+         */
+        maxPages?: number;
+    };
+    url: '/api/integrations/github/prs/review-data';
+};
+
+export type GetApiIntegrationsGithubPrsReviewDataErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Failed to fetch review data
+     */
+    500: unknown;
+};
+
+export type GetApiIntegrationsGithubPrsReviewDataResponses = {
+    /**
+     * OK
+     */
+    200: GithubPrReviewDataResponse;
+};
+
+export type GetApiIntegrationsGithubPrsReviewDataResponse = GetApiIntegrationsGithubPrsReviewDataResponses[keyof GetApiIntegrationsGithubPrsReviewDataResponses];
+
+export type PostApiIntegrationsGithubPrsReviewsData = {
+    body: GithubSubmitPullRequestReviewRequest;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/reviews';
+};
+
+export type PostApiIntegrationsGithubPrsReviewsErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Failed to submit review
+     */
+    500: unknown;
+};
+
+export type PostApiIntegrationsGithubPrsReviewsResponses = {
+    /**
+     * Review submitted
+     */
+    200: GithubSubmitPullRequestReviewResponse;
+};
+
+export type PostApiIntegrationsGithubPrsReviewsResponse = PostApiIntegrationsGithubPrsReviewsResponses[keyof PostApiIntegrationsGithubPrsReviewsResponses];
+
+export type PostApiIntegrationsGithubPrsIssueCommentsData = {
+    body: GithubCreateIssueCommentRequest;
+    path?: never;
+    query?: never;
+    url: '/api/integrations/github/prs/issue-comments';
+};
+
+export type PostApiIntegrationsGithubPrsIssueCommentsErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Forbidden
+     */
+    403: unknown;
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Failed to create comment
+     */
+    500: unknown;
+};
+
+export type PostApiIntegrationsGithubPrsIssueCommentsResponses = {
+    /**
+     * Comment created
+     */
+    200: GithubCreateIssueCommentResponse;
+};
+
+export type PostApiIntegrationsGithubPrsIssueCommentsResponse = PostApiIntegrationsGithubPrsIssueCommentsResponses[keyof PostApiIntegrationsGithubPrsIssueCommentsResponses];
 
 export type GetApiIntegrationsGithubPrsRawData = {
     body?: never;

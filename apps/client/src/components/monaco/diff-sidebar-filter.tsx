@@ -19,12 +19,14 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  MessageSquare,
   Search,
   X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
+import type { FileCommentCounts } from "../diff-comments/types";
 
 // ============================================================================
 // Types
@@ -44,6 +46,7 @@ export type DiffSidebarFilterProps = {
   onSelectFile: (path: string) => void;
   onToggleViewed: (path: string) => void;
   className?: string;
+  commentCounts?: FileCommentCounts;
 };
 
 // ============================================================================
@@ -191,6 +194,7 @@ type FileTreeNavigatorProps = {
   onSelectFile: (path: string) => void;
   onToggleViewed: (path: string) => void;
   depth?: number;
+  commentCounts?: FileCommentCounts;
 };
 
 const FileTreeNavigator = memo(function FileTreeNavigatorComponent({
@@ -202,6 +206,7 @@ const FileTreeNavigator = memo(function FileTreeNavigatorComponent({
   onSelectFile,
   onToggleViewed,
   depth = 0,
+  commentCounts,
 }: FileTreeNavigatorProps) {
   return (
     <div className="space-y-0.5">
@@ -259,6 +264,7 @@ const FileTreeNavigator = memo(function FileTreeNavigatorComponent({
                     onSelectFile={onSelectFile}
                     onToggleViewed={onToggleViewed}
                     depth={depth + 1}
+                    commentCounts={commentCounts}
                   />
                 </div>
               ) : null}
@@ -274,6 +280,11 @@ const FileTreeNavigator = memo(function FileTreeNavigatorComponent({
         const isViewed = viewedFiles.has(node.path);
         // Extra indent for files to align with folder text (account for chevron space)
         const fileIndent = depth * 14 + 32;
+
+        // Get comment counts for this file
+        const fileCommentInfo = commentCounts?.[node.path];
+        const hasComments = fileCommentInfo && fileCommentInfo.total > 0;
+        const hasUnresolvedComments = fileCommentInfo && fileCommentInfo.unresolved > 0;
 
         return (
           <div
@@ -297,6 +308,22 @@ const FileTreeNavigator = memo(function FileTreeNavigatorComponent({
               {getStatusIcon(file.status)}
               <span className="truncate">{node.name}</span>
               <span className="ml-auto flex items-center gap-1.5 text-[11px] font-medium pr-1">
+                {hasComments && (
+                  <span
+                    className={cn(
+                      "flex items-center gap-0.5 px-1 py-0.5 rounded-full",
+                      hasUnresolvedComments
+                        ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                        : "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                    )}
+                    title={`${fileCommentInfo.total} comment${fileCommentInfo.total === 1 ? "" : "s"}${hasUnresolvedComments ? ` (${fileCommentInfo.unresolved} unresolved)` : ""}`}
+                  >
+                    <MessageSquare className="w-2.5 h-2.5" />
+                    <span className="text-[10px]">
+                      {hasUnresolvedComments ? fileCommentInfo.unresolved : fileCommentInfo.total}
+                    </span>
+                  </span>
+                )}
                 {file.additions > 0 && (
                   <span className="text-green-600 dark:text-green-400">
                     +{file.additions}
@@ -343,6 +370,7 @@ export function DiffSidebarFilter({
   onSelectFile,
   onToggleViewed,
   className,
+  commentCounts,
 }: DiffSidebarFilterProps) {
   const sidebarPanelId = useId();
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT_WIDTH);
@@ -658,6 +686,7 @@ export function DiffSidebarFilter({
               onToggleDirectory={handleToggleDirectory}
               onSelectFile={onSelectFile}
               onToggleViewed={onToggleViewed}
+              commentCounts={commentCounts}
             />
           ) : filterText.trim() ? (
             <div className="px-4 py-8 text-center text-xs text-neutral-500 dark:text-neutral-400">

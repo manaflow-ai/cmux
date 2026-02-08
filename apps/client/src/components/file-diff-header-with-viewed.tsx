@@ -8,6 +8,7 @@ import {
   FileMinus,
   FilePlus,
   FileText,
+  MessageSquare,
 } from "lucide-react";
 import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
 
@@ -53,6 +54,9 @@ export interface FileDiffHeaderWithViewedProps {
   onToggle: () => void;
   onToggleViewed: () => void;
   className?: string;
+  commentCount?: number;
+  unresolvedCommentCount?: number;
+  onAddComment?: () => void;
 }
 
 export function FileDiffHeaderWithViewed({
@@ -66,6 +70,9 @@ export function FileDiffHeaderWithViewed({
   onToggle,
   onToggleViewed,
   className,
+  commentCount,
+  unresolvedCommentCount,
+  onAddComment,
 }: FileDiffHeaderWithViewedProps) {
   return (
     <div
@@ -106,6 +113,21 @@ export function FileDiffHeaderWithViewed({
             ) : null}
           </div>
           <div className="flex items-center gap-2 text-[11px]">
+            {commentCount !== undefined && commentCount > 0 && (
+              <span
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium",
+                  unresolvedCommentCount && unresolvedCommentCount > 0
+                    ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                    : "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                )}
+              >
+                <MessageSquare className="w-3 h-3" />
+                {unresolvedCommentCount && unresolvedCommentCount > 0
+                  ? unresolvedCommentCount
+                  : commentCount}
+              </span>
+            )}
             <span className="text-green-600 dark:text-green-400 font-medium select-none">
               +{additions}
             </span>
@@ -116,8 +138,24 @@ export function FileDiffHeaderWithViewed({
         </div>
       </button>
 
-      {/* Viewed checkbox */}
-      <div className="flex items-center gap-1.5 ml-2">
+      {/* Actions */}
+      <div className="flex items-center gap-1 ml-2">
+        {/* Add comment button */}
+        {onAddComment && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddComment();
+            }}
+            className="flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            title="Add comment"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        {/* Viewed checkbox */}
         <button
           type="button"
           onClick={(e) => {

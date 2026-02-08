@@ -1,8 +1,11 @@
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MessageSquare, X } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 import { useTheme } from "@/components/theme/use-theme";
+import { Markdown } from "@/components/Markdown";
 import { loaderInitPromise } from "@/lib/monaco-environment";
 import { isElectron } from "@/lib/electron";
 import { cn } from "@/lib/utils";
@@ -10,7 +13,11 @@ import type { ReplaceDiffEntry } from "@cmux/shared/diff-types";
 
 import { FileDiffHeader } from "../file-diff-header";
 import { kitties } from "../kitties";
-import type { GitDiffViewerProps } from "../codemirror-git-diff-viewer";
+import type {
+  DiffLineComment,
+  DiffLineCommentSide,
+  GitDiffViewerProps,
+} from "../codemirror-git-diff-viewer";
 export type { GitDiffViewerProps } from "../codemirror-git-diff-viewer";
 
 void loaderInitPromise;
@@ -917,6 +924,162 @@ interface MonacoFileDiffRowProps {
   editorTheme: string;
   diffOptions: editor.IDiffEditorConstructionOptions;
   classNames?: FileDiffRowClassNames;
+  fileLineComments: DiffLineComment[];
+  onAddLineComment?: GitDiffViewerProps["onAddLineComment"];
+}
+
+function LineCommentInput({
+  filePath,
+  lineNumber,
+  side,
+  onClose,
+  onSubmit,
+  className,
+}: {
+  filePath: string;
+  lineNumber: number;
+  side: DiffLineCommentSide;
+  onClose: () => void;
+  onSubmit: (body: string) => Promise<void>;
+  className?: string;
+}) {
+  const [content, setContent] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    const next = content.trim();
+    if (!next || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(next);
+      setContent("");
+      onClose();
+    } catch (error) {
+      console.error("[monaco-git-diff-viewer] Failed to add line comment:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [content, isSubmitting, onClose, onSubmit]);
+
+  return (
+    <div
+      className={cn(
+        "border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-neutral-900 shadow-lg overflow-hidden",
+        className
+      )}
+    >
+      <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between bg-blue-50/50 dark:bg-blue-900/20">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Add review comment
+          </span>
+          <span className="text-[10px] text-neutral-400 truncate">
+            {filePath} • Line {lineNumber} • {side === "left" ? "Original" : "Modified"}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded"
+          aria-label="Close comment input"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="p-3">
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Write a comment... (Cmd+Enter to add)"
+          className="w-full px-3 py-2 text-[13px] bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 dark:focus:border-blue-600"
+          rows={3}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void handleSubmit();
+            }
+            if (e.key === "Escape") {
+              onClose();
+            }
+          }}
+        />
+        <div className="flex items-center gap-2 justify-end mt-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={!content.trim() || isSubmitting}
+            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isSubmitting ? "Adding..." : "Add comment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LineCommentThread({ comment }: { comment: DiffLineComment }) {
+  const authorLabel =
+    comment.author?.login ??
+    (comment.kind === "draft" ? "Draft" : "Unknown");
+  const timestampLabel =
+    typeof comment.createdAt === "number"
+      ? formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })
+      : null;
+
+  return (
+    <div
+      className={cn(
+        "border border-neutral-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 overflow-hidden shadow-sm",
+        comment.kind === "draft" &&
+          "border-blue-200 dark:border-blue-900/40 bg-blue-50/20 dark:bg-blue-900/10"
+      )}
+    >
+      <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-2 bg-neutral-50/50 dark:bg-neutral-800/30">
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+            {authorLabel}
+          </span>
+          {timestampLabel ? (
+            <span className="text-[10px] text-neutral-400 ml-2">
+              {timestampLabel}
+            </span>
+          ) : null}
+        </div>
+        {comment.kind === "draft" ? (
+          <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 rounded-full">
+            Draft
+          </span>
+        ) : null}
+        {comment.url ? (
+          <a
+            href={comment.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[10px] text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline underline-offset-2"
+          >
+            View
+          </a>
+      ) : null}
+      </div>
+      <div className="px-3 py-2">
+        <Markdown content={comment.body} />
+      </div>
+    </div>
+  );
 }
 
 function MonacoFileDiffRow({
@@ -926,6 +1089,8 @@ function MonacoFileDiffRow({
   editorTheme,
   diffOptions,
   classNames,
+  fileLineComments,
+  onAddLineComment,
 }: MonacoFileDiffRowProps) {
   const canRenderEditor =
     !file.isBinary &&
@@ -942,6 +1107,71 @@ function MonacoFileDiffRow({
   const isExpandedRef = useRef(isExpanded);
   const rowContainerRef = useRef<HTMLDivElement | null>(null);
   const [isHeightSettled, setIsHeightSettled] = useState(false);
+
+  const commentsEnabled = Boolean(onAddLineComment);
+  const [selectedLineForComment, setSelectedLineForComment] = useState<{
+    lineNumber: number;
+    side: DiffLineCommentSide;
+  } | null>(null);
+
+  const commentsByLine = useMemo(() => {
+    const map = new Map<string, DiffLineComment[]>();
+    for (const comment of fileLineComments) {
+      const key = `${comment.side}:${comment.lineNumber}`;
+      const existing = map.get(key) ?? [];
+      existing.push(comment);
+      map.set(key, existing);
+    }
+    return map;
+  }, [fileLineComments]);
+
+  const handleEditorClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!commentsEnabled) return;
+
+      const target = e.target as HTMLElement;
+      const isLineNumber = target.closest(".line-numbers") !== null;
+      const isGutter = target.closest(".margin") !== null;
+      if (!isLineNumber && !isGutter) {
+        return;
+      }
+
+      const lineNumberText = target.textContent?.trim();
+      const lineNumber = lineNumberText ? parseInt(lineNumberText, 10) : NaN;
+      if (!Number.isFinite(lineNumber) || lineNumber < 1) {
+        return;
+      }
+
+      const rect = target.getBoundingClientRect();
+      const containerRect = rowContainerRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
+      }
+      const relativeX = rect.left - containerRect.left;
+      const midpoint = containerRect.width / 2;
+      const side: DiffLineCommentSide = relativeX < midpoint ? "left" : "right";
+      setSelectedLineForComment({ lineNumber, side });
+    },
+    [commentsEnabled],
+  );
+
+  const handleCloseCommentInput = useCallback(() => {
+    setSelectedLineForComment(null);
+  }, []);
+
+  const handleSubmitLineComment = useCallback(
+    async (commentBody: string) => {
+      if (!onAddLineComment) return;
+      if (!selectedLineForComment) return;
+      await onAddLineComment({
+        filePath: file.filePath,
+        lineNumber: selectedLineForComment.lineNumber,
+        side: selectedLineForComment.side,
+        body: commentBody,
+      });
+    },
+    [file.filePath, onAddLineComment, selectedLineForComment],
+  );
 
   useEffect(() => {
     setIsHeightSettled(false);
@@ -977,6 +1207,7 @@ function MonacoFileDiffRow({
 
   return (
     <div
+      id={file.filePath}
       ref={rowContainerRef}
       className={cn(
         "bg-white dark:bg-neutral-900 border-b border-neutral-200/80 dark:border-neutral-800/70",
@@ -1030,6 +1261,7 @@ function MonacoFileDiffRow({
           <div
             className="relative"
             style={isHeightSettled ? undefined : { minHeight: editorMinHeight }}
+            onClick={handleEditorClick}
           >
             <DiffEditor
               language={file.language}
@@ -1043,6 +1275,57 @@ function MonacoFileDiffRow({
             />
           </div>
         ) : null}
+
+        {commentsEnabled && selectedLineForComment ? (
+          <div className="px-4 py-2 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/30">
+            <LineCommentInput
+              filePath={file.filePath}
+              lineNumber={selectedLineForComment.lineNumber}
+              side={selectedLineForComment.side}
+              onClose={handleCloseCommentInput}
+              onSubmit={handleSubmitLineComment}
+            />
+          </div>
+        ) : null}
+
+        {fileLineComments.length > 0 && isExpanded ? (
+          <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50/30 dark:bg-neutral-800/20">
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare className="w-4 h-4 text-neutral-400" />
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+                  Comments ({fileLineComments.length})
+                </span>
+              </div>
+              <div className="space-y-3">
+                {Array.from(commentsByLine.entries())
+                  .sort((a, b) => {
+                    const lineA = parseInt(a[0].split(":")[1] ?? "0", 10);
+                    const lineB = parseInt(b[0].split(":")[1] ?? "0", 10);
+                    return lineA - lineB;
+                  })
+                  .map(([key, comments]) => {
+                    const [side, lineStr] = key.split(":");
+                    const lineNumber = parseInt(lineStr ?? "0", 10);
+                    return (
+                      <div key={key} className="relative">
+                        <div className="text-[10px] text-neutral-400 mb-1 flex items-center gap-1">
+                          <span className="font-mono">Line {lineNumber}</span>
+                          <span className="text-neutral-300 dark:text-neutral-600">•</span>
+                          <span>{side === "left" ? "Original" : "Modified"}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {comments.map((comment) => (
+                            <LineCommentThread key={comment.id} comment={comment} />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1054,6 +1337,8 @@ const MemoMonacoFileDiffRow = memo(MonacoFileDiffRow, (prev, next) => {
   return (
     prev.isExpanded === next.isExpanded &&
     prev.editorTheme === next.editorTheme &&
+    prev.fileLineComments === next.fileLineComments &&
+    prev.onAddLineComment === next.onAddLineComment &&
     a.filePath === b.filePath &&
     a.oldPath === b.oldPath &&
     a.status === b.status &&
@@ -1072,6 +1357,8 @@ export function MonacoGitDiffViewer({
   onControlsChange,
   classNames,
   onFileToggle,
+  lineComments,
+  onAddLineComment,
 }: GitDiffViewerProps) {
   const { theme } = useTheme();
 
@@ -1082,6 +1369,24 @@ export function MonacoGitDiffViewer({
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(
     () => new Set(diffs.map((diff) => diff.filePath)),
   );
+
+  const lineCommentsByFile = useMemo(() => {
+    const map = new Map<string, DiffLineComment[]>();
+    for (const comment of lineComments ?? []) {
+      const existing = map.get(comment.filePath) ?? [];
+      existing.push(comment);
+      map.set(comment.filePath, existing);
+    }
+    for (const [, comments] of map) {
+      comments.sort((a, b) => {
+        if (a.lineNumber !== b.lineNumber) return a.lineNumber - b.lineNumber;
+        const timeA = a.createdAt ?? 0;
+        const timeB = b.createdAt ?? 0;
+        return timeA - timeB;
+      });
+    }
+    return map;
+  }, [lineComments]);
 
   const fileGroups: MonacoFileGroup[] = useMemo(
     () =>
@@ -1218,6 +1523,8 @@ export function MonacoGitDiffViewer({
             editorTheme={editorTheme}
             diffOptions={diffOptions}
             classNames={classNames?.fileDiffRow}
+            fileLineComments={lineCommentsByFile.get(file.filePath) ?? []}
+            onAddLineComment={onAddLineComment}
           />
         ))}
         <hr className="border-neutral-200/80 dark:border-neutral-800/70" />
