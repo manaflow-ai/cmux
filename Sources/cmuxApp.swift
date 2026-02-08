@@ -733,7 +733,13 @@ private struct BackgroundDebugView: View {
 
                 GroupBox("Glass Effect") {
                     VStack(alignment: .leading, spacing: 8) {
+                        if !WindowGlassEffect.isAvailable {
+                            Text("Liquid glass requires macOS 26+")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                         Toggle("Enable Glass Effect", isOn: $bgGlassEnabled)
+                            .disabled(!WindowGlassEffect.isAvailable)
 
                         Picker("Material", selection: $bgGlassMaterial) {
                             Text("HUD Window").tag("hudWindow")
@@ -742,7 +748,7 @@ private struct BackgroundDebugView: View {
                             Text("Menu").tag("menu")
                             Text("Popover").tag("popover")
                         }
-                        .disabled(!bgGlassEnabled)
+                        .disabled(!bgGlassEnabled || !WindowGlassEffect.isAvailable)
                     }
                     .padding(.top, 2)
                 }

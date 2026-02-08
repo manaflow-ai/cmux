@@ -372,8 +372,10 @@ struct ContentView: View {
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             window.titlebarAppearsTransparent = true
             window.styleMask.insert(.fullSizeContentView)
-            // For behindWindow blur to work, window must be non-opaque with transparent content view
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled {
+            // For behindWindow blur to work, window must be non-opaque with transparent content view.
+            // The full-window glass effect requires NSGlassEffectView (macOS 26+); on older macOS
+            // the NSVisualEffectView fallback covers the entire window and obscures terminal content.
+            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled && WindowGlassEffect.isAvailable {
                 window.isOpaque = false
                 window.backgroundColor = .clear
                 // Configure contentView and all subviews for transparency
