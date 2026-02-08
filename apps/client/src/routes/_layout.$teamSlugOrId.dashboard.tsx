@@ -7,7 +7,6 @@ import {
 import { DashboardInputControls } from "@/components/dashboard/DashboardInputControls";
 import { DashboardInputFooter } from "@/components/dashboard/DashboardInputFooter";
 import { DashboardStartTaskButton } from "@/components/dashboard/DashboardStartTaskButton";
-import { TaskList } from "@/components/dashboard/TaskList";
 import { WorkspaceCreationButtons } from "@/components/dashboard/WorkspaceCreationButtons";
 import { FloatingPane } from "@/components/floating-pane";
 import { WorkspaceSetupPanel } from "@/components/WorkspaceSetupPanel";
@@ -1364,10 +1363,6 @@ function DashboardComponent() {
             ) : null} */}
           </div>
 
-          {/* Task List */}
-          <div className="w-full">
-            <TaskList teamSlugOrId={teamSlugOrId} />
-          </div>
         </div>
       </div>
     </FloatingPane>
