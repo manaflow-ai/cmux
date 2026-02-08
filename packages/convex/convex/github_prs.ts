@@ -6,6 +6,8 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { authMutation, authQuery } from "./users/utils";
+import { aggregatePullRequestState, type RunPullRequestState, type StoredPullRequestInfo } from "@cmux/shared/pull-request-state";
+import { internal } from "./_generated/api";
 
 const SYSTEM_BRANCH_USER_ID = "__system__";
 
@@ -511,10 +513,112 @@ export const upsertFromWebhookPayload = internalMutation({
           activityTimestamp: ts(pr.updated_at) ?? Date.now(),
         });
       }
+
+      // Update task merge status for all taskRuns that reference this PR
+      await ctx.scheduler.runAfter(0, internal.github_prs.updateTaskMergeStatusForPr, {
+        teamId,
+        repoFullName,
+        number,
+      });
+
       return { ok: true as const };
     } catch (_e) {
       return { ok: false as const };
     }
+  },
+});
+
+// Internal mutation to update task merge status when a PR webhook arrives
+export const updateTaskMergeStatusForPr = internalMutation({
+  args: {
+    teamId: v.string(),
+    repoFullName: v.string(),
+    number: v.number(),
+  },
+  handler: async (ctx, { teamId, repoFullName, number }) => {
+    // Find all taskRuns that have this PR in their pullRequests array
+    const allRuns = await ctx.db
+      .query("taskRuns")
+      .withIndex("by_team_user", (q) => q.eq("teamId", teamId))
+      .collect();
+
+    const affectedRuns = allRuns.filter((run) => {
+      if (!run.pullRequests || run.pullRequests.length === 0) {
+        return false;
+      }
+      return run.pullRequests.some(
+        (pr) => pr.repoFullName === repoFullName && pr.number === number
+      );
+    });
+
+    if (affectedRuns.length === 0) {
+      return { updated: 0 };
+    }
+
+    // Get the updated PR data
+    const prDoc = await ctx.db
+      .query("pullRequests")
+      .withIndex("by_team_repo_number", (q) =>
+        q.eq("teamId", teamId).eq("repoFullName", repoFullName).eq("number", number)
+      )
+      .first();
+
+    if (!prDoc) {
+      return { updated: 0 };
+    }
+
+    // Determine the PR state
+    const prState: RunPullRequestState = prDoc.merged
+      ? "merged"
+      : prDoc.draft
+        ? "draft"
+        : prDoc.state === "closed"
+          ? "closed"
+          : prDoc.state === "open"
+            ? "open"
+            : "unknown";
+
+    // Update each affected taskRun and its task
+    let updatedCount = 0;
+    for (const run of affectedRuns) {
+      // Update the PR state in the taskRun's pullRequests array
+      const updatedPullRequests: StoredPullRequestInfo[] = (run.pullRequests ?? []).map((pr): StoredPullRequestInfo => {
+        if (pr.repoFullName === repoFullName && pr.number === number) {
+          return {
+            repoFullName: pr.repoFullName,
+            state: prState,
+            isDraft: prDoc.draft ?? pr.isDraft,
+            url: prDoc.htmlUrl ?? pr.url,
+            number: pr.number,
+          };
+        }
+        return pr as StoredPullRequestInfo;
+      });
+
+      // Recalculate the aggregate state
+      const aggregate = aggregatePullRequestState(updatedPullRequests);
+
+      // Update the taskRun
+      await ctx.db.patch(run._id, {
+        pullRequests: updatedPullRequests,
+        pullRequestState: aggregate.state,
+        pullRequestIsDraft: aggregate.isDraft,
+        pullRequestUrl: aggregate.url,
+        pullRequestNumber: aggregate.number,
+      });
+
+      // Update the task's merge status
+      const task = await ctx.db.get(run.taskId);
+      if (task && task.teamId === teamId) {
+        await ctx.db.patch(run.taskId, {
+          mergeStatus: aggregate.mergeStatus,
+          updatedAt: Date.now(),
+        });
+        updatedCount++;
+      }
+    }
+
+    return { updated: updatedCount };
   },
 });
 
