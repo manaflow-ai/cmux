@@ -630,6 +630,10 @@ class TerminalController {
             storedKey = "↑"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
+        case "enter", "return":
+            storedKey = "\r"
+            keyCode = UInt16(kVK_Return)
+            charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
             guard let code = keyCodeForShortcutKey(key) else { return nil }

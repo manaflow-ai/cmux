@@ -55,7 +55,8 @@ def _assert_routed_to_surface(c: cmux, expected_surface_id: str) -> None:
             pass
 
     # Write the currently focused surface id into a well-known file.
-    c.simulate_type(f"echo $CMUX_SURFACE_ID > {FOCUS_FILE}\\n")
+    c.simulate_type(f"echo $CMUX_SURFACE_ID > {FOCUS_FILE}")
+    c.simulate_shortcut("enter")
     actual = _wait_for_file_content(FOCUS_FILE)
     if actual != expected_surface_id:
         raise cmuxError(f"Input routed to wrong surface: expected={expected_surface_id} actual={actual}")
@@ -120,4 +121,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
