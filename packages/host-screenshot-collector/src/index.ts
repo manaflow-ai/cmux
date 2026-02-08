@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
@@ -854,6 +855,111 @@ async function collectMediaFiles(
   return { screenshots, videos, hasNestedDirectories };
 }
 
+type PostProcessResult = {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+};
+
+const POST_PROCESS_LOG_LIMIT = 4000;
+
+function trimPostProcessOutput(output: string): string {
+  const trimmed = output.trim();
+  if (trimmed.length <= POST_PROCESS_LOG_LIMIT) {
+    return trimmed;
+  }
+  const overflow = trimmed.length - POST_PROCESS_LOG_LIMIT;
+  return `${trimmed.slice(0, POST_PROCESS_LOG_LIMIT)}\n... [truncated ${overflow} chars]`;
+}
+
+async function runPostProcessScript(
+  scriptPath: string,
+  outputDir: string
+): Promise<PostProcessResult> {
+  return await new Promise<PostProcessResult>((resolve, reject) => {
+    const child = spawn("python3", [scriptPath, outputDir], {
+      cwd: outputDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => reject(error));
+    child.on("close", (code) => {
+      resolve({ exitCode: code, stdout, stderr });
+    });
+  });
+}
+
+async function postProcessVideos(outputDir: string): Promise<void> {
+  const rawVideoPath = path.join(outputDir, "raw.mp4");
+  try {
+    await fs.access(rawVideoPath);
+  } catch (error) {
+    console.error("Post-process video check failed:", error);
+    await logToScreenshotCollector(
+      `[postProcessVideo] No raw.mp4 found at ${rawVideoPath}; skipping post-processing`
+    );
+    return;
+  }
+
+  const scriptPath = path.join(outputDir, "post_process_video.py");
+  try {
+    await fs.access(scriptPath);
+  } catch (error) {
+    console.error("Post-process script check failed:", error);
+    await logToScreenshotCollector(
+      `[postProcessVideo] post_process_video.py not found at ${scriptPath}; skipping post-processing`
+    );
+    return;
+  }
+
+  await logToScreenshotCollector(
+    `[postProcessVideo] Starting post-processing for ${outputDir}`
+  );
+
+  try {
+    const result = await runPostProcessScript(scriptPath, outputDir);
+    const trimmedStdout = trimPostProcessOutput(result.stdout);
+    const trimmedStderr = trimPostProcessOutput(result.stderr);
+
+    if (trimmedStdout) {
+      await logToScreenshotCollector(`[postProcessVideo] stdout:\n${trimmedStdout}`);
+    }
+    if (trimmedStderr) {
+      await logToScreenshotCollector(`[postProcessVideo] stderr:\n${trimmedStderr}`);
+    }
+
+    if (result.exitCode !== 0) {
+      await logToScreenshotCollector(
+        `[postProcessVideo] Failed with exit code ${result.exitCode ?? "unknown"}`
+      );
+      console.error(
+        "Post-process video failed:",
+        result.exitCode ?? "unknown exit code"
+      );
+    } else {
+      await logToScreenshotCollector(
+        `[postProcessVideo] Completed successfully`
+      );
+    }
+  } catch (error) {
+    console.error("Post-process video execution failed:", error);
+    await logToScreenshotCollector(
+      `[postProcessVideo] Execution failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
 export function normalizeScreenshotOutputDir(outputDir: string): string {
   if (path.isAbsolute(outputDir)) {
     return path.normalize(outputDir);
@@ -1187,23 +1293,19 @@ IMPORTANT: After clicking, WAIT for the UI to respond before ending the recordin
 - Wait for page transitions to finish
 - Add sleep commands (sleep 1 or sleep 2) after clicks to capture the result
 
-CRITICAL - AFTER CLICKING, YOU MUST COMPLETE STEPS 5 AND 6
-The video is NOT VALID until you run both steps. If you skip them, the video will be CORRUPTED.
+CRITICAL - AFTER CLICKING, YOU MUST COMPLETE STEP 5
+The video is NOT VALID until recording is stopped and post-processing runs automatically.
 - Do NOT end the session after clicking
 - Do NOT call list_pages or select_page after clicking
-- You MUST run STEP 5 first, then STEP 6
+- You MUST run STEP 5 to stop recording; post-processing runs automatically after you finish
 
 STEP 5 - STOP RECORDING (run this first):
 \`\`\`bash
 kill -INT $FFMPEG_PID 2>/dev/null; sleep 2; wait $FFMPEG_PID 2>/dev/null
 \`\`\`
 
-STEP 6 - POST-PROCESS VIDEO (run this after step 5 completes):
-\`\`\`bash
-python3 "${outputDir}/post_process_video.py" "${outputDir}"
-\`\`\`
-
-This script handles cursor overlay, video trimming, speed adjustments, and GIF preview generation automatically.
+STEP 6 - POST-PROCESS VIDEO (automatic - no action required):
+Post-processing runs automatically after you finish. Do NOT run post_process_video.py manually.
 
 CRITICAL WORKFLOW - YOU MUST FOLLOW THIS EXACTLY:
 1. Write video metadata (step 1) - describe what you're about to record
@@ -1211,11 +1313,11 @@ CRITICAL WORKFLOW - YOU MUST FOLLOW THIS EXACTLY:
 3. Start ffmpeg recording (step 3)
 4. Click elements to demonstrate the UI (step 4)
 5. STOP the recording (step 5) - wait for ffmpeg to finish
-6. Run post-processing (step 6) - THIS IS MANDATORY
+6. Post-processing runs automatically after you finish - do NOT run it yourself
 7. Only THEN can you end - the video is INVALID without post-processing
 
 DO NOT:
-- End the session without running the post-process command
+- Run post_process_video.py manually (it runs automatically after you finish)
 - Call list_pages or select_page after clicking
 - Skip any step - the video will be corrupted
 </VIDEO_RECORDING>
@@ -1482,6 +1584,9 @@ After capturing screenshots/videos, briefly state what you captured and leave th
 
       // Close trajectory stream
       await trajectoryStream.close();
+
+      // Post-process any recorded videos after the agent stops
+      await postProcessVideos(outputDir);
 
       // Restore original API key
       if (hadOriginalApiKey) {
