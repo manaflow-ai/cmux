@@ -178,7 +178,7 @@ export default async function LandingPage() {
 
               <div className="space-y-6">
                 <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                  Universal AI coding agent manager for 10x engineers
+                  Universal AI coding agent manager for 67x engineers
                 </h1>
                 <div className="space-y-4 text-base text-neutral-300 sm:text-lg">
                   <p>
