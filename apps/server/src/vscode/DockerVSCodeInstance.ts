@@ -9,6 +9,11 @@ import { getConvex } from "../utils/convexClient";
 import { cleanupGitCredentials } from "../utils/dockerGitSetup";
 import { dockerLogger } from "../utils/fileLogger";
 import { getGitHubOAuthToken } from "../utils/getGitHubToken";
+import {
+  extractPortFromError,
+  isPortConflictError,
+  killPort,
+} from "../utils/killPort";
 import { getAuthToken, runWithAuthToken } from "../utils/requestContext";
 import {
   VSCodeInstance,
@@ -646,12 +651,76 @@ export class DockerVSCodeInstance extends VSCodeInstance {
 
     dockerLogger.info(`Creating container...`);
 
-    // Create and start the container
-    this.container = await docker.createContainer(createOptions);
-    dockerLogger.info(`Container created: ${this.container.id}`);
+    // Create and start the container with port conflict retry logic
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-    await this.container.start();
-    dockerLogger.info(`Container started`);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.container = await docker.createContainer(createOptions);
+        dockerLogger.info(`Container created: ${this.container.id}`);
+
+        await this.container.start();
+        dockerLogger.info(`Container started`);
+        break; // Success, exit retry loop
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message;
+
+        // Check if this is a port conflict error
+        if (isPortConflictError(error)) {
+          const conflictingPort = extractPortFromError(errorMessage);
+          dockerLogger.warn(
+            `[Container start] Port conflict detected (attempt ${attempt}/${maxRetries}): ${errorMessage}`
+          );
+
+          if (conflictingPort) {
+            dockerLogger.info(
+              `[Container start] Attempting to kill process on port ${conflictingPort}`
+            );
+            const killed = await killPort(conflictingPort);
+            if (killed) {
+              dockerLogger.info(
+                `[Container start] Successfully killed process on port ${conflictingPort}, retrying...`
+              );
+            } else {
+              dockerLogger.warn(
+                `[Container start] No killable process found on port ${conflictingPort}`
+              );
+            }
+          } else {
+            dockerLogger.warn(
+              `[Container start] Could not extract port from error message`
+            );
+          }
+
+          // Clean up the failed container if it was created
+          if (this.container) {
+            try {
+              await this.container.remove({ force: true });
+            } catch {
+              // Ignore cleanup errors
+            }
+            this.container = null;
+          }
+
+          // Only retry if we haven't exhausted attempts
+          if (attempt < maxRetries) {
+            // Wait a bit before retrying
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            continue;
+          }
+        }
+
+        // Not a port conflict or exhausted retries, re-throw
+        throw lastError;
+      }
+    }
+
+    // If we exited the loop without a container, throw the last error
+    if (!this.container) {
+      throw lastError || new Error("Failed to start container");
+    }
 
     // Fire-and-forget: bootstrap GitHub auth and devcontainer in background
     // Do not block agent startup
