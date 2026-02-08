@@ -300,6 +300,7 @@ export function CommandBar({
     useState(false);
   const [isCreatingCloudWorkspace, setIsCreatingCloudWorkspace] =
     useState(false);
+  const [isLinkingGithubAccount, setIsLinkingGithubAccount] = useState(false);
   const [commandValue, setCommandValue] = useState<string | undefined>(
     undefined
   );
@@ -449,6 +450,84 @@ export function CommandBar({
     scheduleCommandStateReset();
   }, [commandContainerRef, scheduleCommandStateReset, setOpen, setOpenedWithShift]);
 
+  const openGithubInstallWindow = useCallback((url: string) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (isElectron) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const width = 980;
+    const height = 780;
+    const dualScreenLeft = window.screenLeft ?? window.screenX ?? 0;
+    const dualScreenTop = window.screenTop ?? window.screenY ?? 0;
+    const outerWidth = window.outerWidth || window.innerWidth || width;
+    const outerHeight = window.outerHeight || window.innerHeight || height;
+    const left = Math.max(0, dualScreenLeft + (outerWidth - width) / 2);
+    const top = Math.max(0, dualScreenTop + (outerHeight - height) / 2);
+    const features = [
+      `width=${Math.floor(width)}`,
+      `height=${Math.floor(height)}`,
+      `left=${Math.floor(left)}`,
+      `top=${Math.floor(top)}`,
+      "resizable=yes",
+      "scrollbars=yes",
+      "toolbar=no",
+      "location=no",
+      "status=no",
+      "menubar=no",
+    ].join(",");
+    const popup = window.open(url, "github-install", features);
+    if (!popup) {
+      window.open(url, "_blank");
+      return;
+    }
+    popup.focus?.();
+  }, []);
+
+  const handleNavigateToCreateEnvironment = useCallback(() => {
+    clearCommandInput();
+    closeCommand();
+    void navigate({
+      to: "/$teamSlugOrId/environments/new",
+      params: { teamSlugOrId },
+      search: { ...environmentSearchDefaults },
+    });
+  }, [clearCommandInput, closeCommand, navigate, teamSlugOrId]);
+
+  const handleLinkGithubAccount = useCallback(async () => {
+    if (!githubInstallUrl) {
+      toast.error("GitHub integration is not configured yet.");
+      return;
+    }
+
+    clearCommandInput();
+    closeCommand();
+    setIsLinkingGithubAccount(true);
+    try {
+      const { state } = await mintGithubInstallState({ teamSlugOrId });
+      const sep = githubInstallUrl.includes("?") ? "&" : "?";
+      const authUrl = `${githubInstallUrl}${sep}state=${encodeURIComponent(
+        state
+      )}`;
+      openGithubInstallWindow(authUrl);
+    } catch (error) {
+      console.error("Failed to start GitHub OAuth flow", error);
+      toast.error("Unable to open the GitHub authorization flow.");
+    } finally {
+      setIsLinkingGithubAccount(false);
+    }
+  }, [
+    clearCommandInput,
+    closeCommand,
+    githubInstallUrl,
+    mintGithubInstallState,
+    openGithubInstallWindow,
+    teamSlugOrId,
+  ]);
+
   const handleEscape = useCallback(() => {
     skipNextCloseRef.current = false;
     if (search.length > 0) {
@@ -505,6 +584,9 @@ export function CommandBar({
   const teamMemberships = useQuery(api.teams.listTeamMemberships, {});
   const reposByOrg = useQuery(api.github.getReposByOrg, { teamSlugOrId });
   const environments = useQuery(api.environments.list, { teamSlugOrId });
+  const githubInstallUrl = env.NEXT_PUBLIC_GITHUB_APP_SLUG
+    ? `https://github.com/apps/${env.NEXT_PUBLIC_GITHUB_APP_SLUG}/installations/new`
+    : null;
 
   const localWorkspaceOptions = useMemo<LocalWorkspaceOption[]>(() => {
     const repoGroups = reposByOrg ?? {};
@@ -677,6 +759,7 @@ export function CommandBar({
   const reserveLocalWorkspace = useMutation(api.localWorkspaces.reserve);
   const createTask = useMutation(api.tasks.create);
   const failTaskRun = useMutation(api.taskRuns.fail);
+  const mintGithubInstallState = useMutation(api.github_app.mintInstallState);
 
   useEffect(() => {
     openRef.current = open;
@@ -2080,6 +2163,70 @@ export function CommandBar({
     isCreatingCloudWorkspace,
   ]);
 
+  const buildEmptyWorkspaceEntries = useCallback(
+    (scope: "local" | "cloud"): CommandListEntry[] => {
+      const scopePrefix =
+        scope === "local" ? "local-workspaces" : "cloud-workspaces";
+      return [
+        {
+          value: `${scopePrefix}:create-environment`,
+          label: "Create environment",
+          keywords: ["create", "environment", "workspace", "cloud"],
+          searchText: buildSearchText("Create environment", ["environment"], [
+            scopePrefix,
+          ]),
+          className: baseCommandItemClassName,
+          execute: handleNavigateToCreateEnvironment,
+          renderContent: () => (
+            <>
+              <Server className="h-4 w-4 text-neutral-500" />
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-sm">Create environment</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Go to the environment creation flow
+                </span>
+              </div>
+            </>
+          ),
+          trackUsage: false,
+        },
+        {
+          value: `${scopePrefix}:link-github`,
+          label: "Link GitHub account",
+          keywords: ["github", "link", "account"],
+          searchText: buildSearchText(
+            "Link GitHub account",
+            ["github", "link"],
+            [scopePrefix]
+          ),
+          className: baseCommandItemClassName,
+          disabled: !githubInstallUrl || isLinkingGithubAccount,
+          execute: handleLinkGithubAccount,
+          renderContent: () => (
+            <>
+              <GitHubIcon className="h-4 w-4 text-neutral-500" />
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-sm">Link GitHub account</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                  {githubInstallUrl
+                    ? "Authorize CMUX to access your repos"
+                    : "GitHub app is not configured"}
+                </span>
+              </div>
+            </>
+          ),
+          trackUsage: false,
+        },
+      ];
+    },
+    [
+      githubInstallUrl,
+      handleLinkGithubAccount,
+      handleNavigateToCreateEnvironment,
+      isLinkingGithubAccount,
+    ]
+  );
+
   const {
     history: rootSuggestionHistory,
     record: recordRootUsage,
@@ -2117,14 +2264,30 @@ export function CommandBar({
     [rootCommandEntries, search]
   );
 
-  const filteredLocalWorkspaceEntries = useMemo(
-    () => filterCommandItems(search, localWorkspaceEntries),
-    [localWorkspaceEntries, search]
-  );
-  const filteredCloudWorkspaceEntries = useMemo(
-    () => filterCommandItems(search, cloudWorkspaceEntries),
-    [cloudWorkspaceEntries, search]
-  );
+  const filteredLocalWorkspaceEntries = useMemo(() => {
+    const filtered = filterCommandItems(search, localWorkspaceEntries);
+    if (!isLocalWorkspaceLoading && filtered.length === 0) {
+      return buildEmptyWorkspaceEntries("local");
+    }
+    return filtered;
+  }, [
+    buildEmptyWorkspaceEntries,
+    isLocalWorkspaceLoading,
+    localWorkspaceEntries,
+    search,
+  ]);
+  const filteredCloudWorkspaceEntries = useMemo(() => {
+    const filtered = filterCommandItems(search, cloudWorkspaceEntries);
+    if (!isCloudWorkspaceLoading && filtered.length === 0) {
+      return buildEmptyWorkspaceEntries("cloud");
+    }
+    return filtered;
+  }, [
+    buildEmptyWorkspaceEntries,
+    cloudWorkspaceEntries,
+    isCloudWorkspaceLoading,
+    search,
+  ]);
   const filteredTeamEntries = useMemo(
     () => filterCommandItems(search, teamCommandEntries),
     [search, teamCommandEntries]
