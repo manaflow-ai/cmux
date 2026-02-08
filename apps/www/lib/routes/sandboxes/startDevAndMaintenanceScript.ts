@@ -92,6 +92,26 @@ set -eu
 # Use || true to ignore non-zero exit codes from nvm/etc that aren't real errors
 [[ -f /etc/profile ]] && { source /etc/profile || true; }
 
+# Load environment variables from envctl daemon (auto-starts daemon if needed)
+# The daemon stores env vars set via 'envctl load' during sandbox startup
+# Retry to handle daemon startup timing
+__load_envctl_vars() {
+  local max_attempts=15
+  local attempt=0
+  while (( attempt < max_attempts )); do
+    local out
+    if out="$(envctl export zsh --pwd "${WORKSPACE_ROOT}" 2>/dev/null)"; then
+      eval "$out"
+      return 0
+    fi
+    sleep 1
+    (( attempt++ ))
+  done
+  echo "Warning: Could not load envctl environment variables after $max_attempts attempts" >&2
+  return 0
+}
+__load_envctl_vars
+
 cd ${WORKSPACE_ROOT}
 
 echo "=== Maintenance Script Started at \\$(date) ==="
@@ -108,6 +128,26 @@ set -u
 # Source system profile for environment variables (RUSTUP_HOME, etc.)
 # Use || true to ignore non-zero exit codes from nvm/etc that aren't real errors
 [[ -f /etc/profile ]] && { source /etc/profile || true; }
+
+# Load environment variables from envctl daemon (auto-starts daemon if needed)
+# The daemon stores env vars set via 'envctl load' during sandbox startup
+# Retry to handle daemon startup timing
+__load_envctl_vars() {
+  local max_attempts=15
+  local attempt=0
+  while (( attempt < max_attempts )); do
+    local out
+    if out="$(envctl export zsh --pwd "${WORKSPACE_ROOT}" 2>/dev/null)"; then
+      eval "$out"
+      return 0
+    fi
+    sleep 1
+    (( attempt++ ))
+  done
+  echo "Warning: Could not load envctl environment variables after $max_attempts attempts" >&2
+  return 0
+}
+__load_envctl_vars
 
 cd ${WORKSPACE_ROOT}
 
