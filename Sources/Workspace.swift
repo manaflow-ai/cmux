@@ -258,6 +258,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new surface (nested tab) in the specified pane with a terminal panel
     @discardableResult
     func newTerminalSurface(inPane paneId: PaneID) -> TerminalPanel? {
+        let shouldFocusNewTab = (bonsplitController.focusedPaneId == paneId)
+
         // Get an existing terminal panel to inherit config from
         let inheritedConfig: ghostty_surface_config_s? = {
             for panel in panels.values {
@@ -289,6 +291,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
+
+        // bonsplit's createTab selects the new tab internally but does not emit didSelectTab.
+        // If we don't explicitly select it, our focus/unfocus handlers won't run, which can
+        // leave the new surface visually "frozen" until a later focus change triggers it.
+        if shouldFocusNewTab {
+            bonsplitController.selectTab(newTabId)
+        }
         return newPanel
     }
 
@@ -353,6 +362,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new browser surface in the specified pane
     @discardableResult
     func newBrowserSurface(inPane paneId: PaneID, url: URL? = nil) -> BrowserPanel? {
+        let shouldFocusNewTab = (bonsplitController.focusedPaneId == paneId)
+
         let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
         panels[browserPanel.id] = browserPanel
 
@@ -367,6 +378,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = browserPanel.id
+
+        // Match terminal behavior: ensure delegate focus handlers run for the newly-selected tab.
+        if shouldFocusNewTab {
+            bonsplitController.selectTab(newTabId)
+        }
 
         // Subscribe to browser title changes to update the bonsplit tab
         let subscription = browserPanel.$pageTitle
@@ -661,5 +677,14 @@ extension Workspace: BonsplitDelegate {
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
+
+        // `createTab` selects the new tab but does not emit didSelectTab; schedule an explicit
+        // selection so our focus/unfocus logic runs after this delegate callback returns.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.bonsplitController.focusedPaneId == newPane {
+                self.bonsplitController.selectTab(newTabId)
+            }
+        }
     }
 }

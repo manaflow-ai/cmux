@@ -2517,8 +2517,17 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateFocusForWindow() {
         let shouldFocus = isActive && (window?.isKeyWindow ?? false)
+        let wasFocused = surfaceView.desiredFocus
         surfaceView.desiredFocus = shouldFocus
         surfaceView.terminalSurface?.setFocus(shouldFocus)
+
+        // When a new surface is created and immediately selected, focus can become true after
+        // the surface attaches. Some paths (notably bonsplit's createTab) don't emit a select
+        // callback, so relying on focus changes alone can leave the first frame undrawn until
+        // another event (alt-tab, pane switch) triggers a redraw.
+        if shouldFocus && !wasFocused, let surface = surfaceView.terminalSurface?.surface {
+            ghostty_surface_draw(surface)
+        }
     }
 
     private func requestFocus(delay: TimeInterval? = nil) {

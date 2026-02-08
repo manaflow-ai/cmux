@@ -34,6 +34,7 @@ import os
 import time
 import errno
 import json
+import base64
 from typing import Optional, List, Tuple, Union
 
 
@@ -542,6 +543,21 @@ class cmux:
             return json.loads(payload)
         except json.JSONDecodeError as e:
             raise cmuxError(f"layout_debug JSON decode failed: {e}: {payload[:200]}")
+
+    def read_terminal_text(self, panel: Union[str, int, None] = None) -> str:
+        """
+        Read visible terminal text for a panel (debug builds only).
+        Returns UTF-8 decoded text (replacement chars on decode errors).
+        """
+        cmd = "read_terminal_text"
+        if panel is not None:
+            cmd += f" {panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK "):
+            raise cmuxError(response)
+        b64 = response[3:].strip()
+        raw = base64.b64decode(b64) if b64 else b""
+        return raw.decode("utf-8", errors="replace")
 
     def empty_panel_count(self) -> int:
         """Return the number of EmptyPanelView appearances (debug builds only)."""

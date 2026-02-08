@@ -227,6 +227,9 @@ class TerminalController {
         case "is_terminal_focused":
             return isTerminalFocused(args)
 
+        case "read_terminal_text":
+            return readTerminalText(args)
+
         case "layout_debug":
             return layoutDebug()
 
@@ -377,6 +380,7 @@ class TerminalController {
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
+          read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
@@ -557,6 +561,69 @@ class TerminalController {
             }
 
             result = fr.isDescendant(of: terminalPanel.hostedView) ? "true" : "false"
+        }
+        return result
+    }
+
+    private func readTerminalText(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var result = "ERROR: No tab selected"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            let panelId: UUID?
+            if panelArg.isEmpty {
+                panelId = tab.focusedPanelId
+            } else {
+                panelId = resolveSurfaceId(from: panelArg, tab: tab)
+            }
+
+            guard let panelId,
+                  let terminalPanel = tab.terminalPanel(for: panelId),
+                  let surface = terminalPanel.surface.surface else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+
+            var selection = ghostty_selection_s(
+                top_left: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT,
+                    coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                    x: 0,
+                    y: 0
+                ),
+                bottom_right: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT,
+                    coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                    x: 0,
+                    y: 0
+                ),
+                rectangle: true
+            )
+            var text = ghostty_text_s()
+
+            guard ghostty_surface_read_text(surface, selection, &text) else {
+                result = "ERROR: Failed to read terminal text"
+                return
+            }
+            defer {
+                ghostty_surface_free_text(surface, &text)
+            }
+
+            let b64: String
+            if let ptr = text.text, text.text_len > 0 {
+                b64 = Data(bytes: ptr, count: Int(text.text_len)).base64EncodedString()
+            } else {
+                b64 = ""
+            }
+
+            result = "OK \(b64)"
         }
         return result
     }
