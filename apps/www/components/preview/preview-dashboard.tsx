@@ -44,6 +44,7 @@ import {
   QueryClientProvider,
   useQuery,
 } from "@tanstack/react-query";
+import { useUser } from "@stackframe/stack";
 import { Button } from "@/components/ui/button";
 import CmuxLogo from "@/components/logo/cmux-logo";
 import {
@@ -103,6 +104,14 @@ type TeamOption = {
   displayName: string;
 };
 
+type PreviewPaywallState = {
+  isBlocked: boolean;
+  hasPaid: boolean;
+  usedRuns: number;
+  freeLimit: number;
+  productId: string;
+};
+
 type PreviewDashboardProps = {
   selectedTeamSlugOrId: string;
   teamOptions: TeamOption[];
@@ -114,6 +123,7 @@ type PreviewDashboardProps = {
   waitlistProviders?: ("gitlab" | "bitbucket")[];
   /** Email to display on waitlist screen */
   waitlistEmail?: string | null;
+  paywall?: PreviewPaywallState | null;
 };
 
 const ADD_INSTALLATION_VALUE = "__add_github_account__";
@@ -3921,6 +3931,7 @@ function PreviewDashboardInner({
   popupComplete,
   waitlistProviders,
   waitlistEmail,
+  paywall,
 }: PreviewDashboardProps) {
   const [selectedTeamSlugOrIdState, setSelectedTeamSlugOrIdState] = useState(
     () => selectedTeamSlugOrId || teamOptions[0]?.slugOrId || ""
@@ -3928,6 +3939,10 @@ function PreviewDashboardInner({
   const [isInstallingApp, setIsInstallingApp] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [openingCheckout, setOpeningCheckout] = useState(false);
+
+  const stackUser = useUser({ or: "return-null" });
 
   // Repository selection state
   const [selectedInstallationId, setSelectedInstallationId] = useState<
@@ -4623,6 +4638,82 @@ function PreviewDashboardInner({
           changes
         </p>
       </div>
+
+      {paywall?.isBlocked && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] backdrop-blur-sm p-4 mb-10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">
+                Free limit reached
+              </p>
+              <p className="text-sm text-neutral-300/85">
+                You&apos;ve used {paywall.usedRuns} of {paywall.freeLimit} free
+                PR previews. Upgrade to unlock previews for new pull requests.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                disabled={!stackUser || openingCheckout}
+                onClick={() => {
+                  if (!stackUser) return;
+                  if (!paywall.productId) return;
+                  setCheckoutError(null);
+                  setOpeningCheckout(true);
+                  void (async () => {
+                    try {
+                      // Use team-level checkout via API route
+                      const response = await fetch("/api/preview/checkout", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          productId: paywall.productId,
+                          teamSlugOrId: selectedTeamSlugOrIdState,
+                        }),
+                      });
+                      if (!response.ok) {
+                        const text = await response.text();
+                        throw new Error(text || "Failed to create checkout session");
+                      }
+                      const { checkoutUrl } = await response.json();
+                      window.location.href = checkoutUrl;
+                    } catch (error) {
+                      console.error(
+                        "[PreviewDashboard] Failed to create checkout URL",
+                        error
+                      );
+                      setCheckoutError(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to start checkout"
+                      );
+                    } finally {
+                      setOpeningCheckout(false);
+                    }
+                  })();
+                }}
+                className="h-9 px-4 bg-white text-black hover:bg-neutral-200"
+              >
+                {openingCheckout ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "Upgrade"
+                )}
+              </Button>
+              <Link
+                href={`/preview/subscription?team=${encodeURIComponent(
+                  selectedTeamSlugOrIdState
+                )}`}
+                className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-white/10 bg-white/5 text-sm text-white hover:bg-white/10"
+              >
+                View plans
+              </Link>
+            </div>
+          </div>
+          {checkoutError && (
+            <p className="text-xs text-red-400 pt-2">{checkoutError}</p>
+          )}
+        </div>
+      )}
 
       {/* Quick Setup Input */}
       {/* <div id="setup-preview" className="pb-10">

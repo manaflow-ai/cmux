@@ -808,34 +808,110 @@ export const crownWorkerComplete = httpAction(async (ctx, req) => {
   // Try to create/link a preview run for this task run if it has PR info
   // This enables screenshot capture and GitHub comment posting for crown tasks
   try {
-    const previewResult = await ctx.runMutation(
-      internal.previewRuns.enqueueFromTaskRun,
-      { taskRunId }
-    );
+    // Check if this taskRun is associated with a repo that has preview enabled
+    // and verify quota before creating a preview run
+    const repoFullName = task?.projectFullName
+      ? task.projectFullName.trim().replace(/\.git$/i, "").toLowerCase()
+      : null;
 
-    if (previewResult.created && previewResult.previewRunId) {
-      console.log("[convex.crown] Preview run created/linked for task run", {
-        taskRunId,
-        previewRunId: previewResult.previewRunId,
-        isNew: previewResult.isNew,
-      });
+    if (repoFullName && updatedRun) {
+      // Look up preview config for this repo
+      const previewConfig = await ctx.runQuery(
+        internal.previewConfigs.getByTeamAndRepo,
+        { teamId: updatedRun.teamId, repoFullName }
+      );
 
-      // If a new preview run was created, dispatch it to start the preview job
-      if (previewResult.isNew) {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.preview_jobs.requestDispatch,
-          { previewRunId: previewResult.previewRunId }
+      if (previewConfig) {
+        // Check quota for the team before creating preview run
+        const quotaResult = await ctx.runAction(
+          internal.preview_quota_actions.checkPreviewQuota,
+          { teamId: previewConfig.teamId }
         );
-        console.log("[convex.crown] Preview job dispatch scheduled", {
+
+        if (!quotaResult.allowed) {
+          console.log("[convex.crown] Team exceeded preview quota, skipping preview run", {
+            taskRunId,
+            repoFullName,
+            teamId: previewConfig.teamId,
+            usedRuns: quotaResult.usedRuns,
+            limit: quotaResult.limit,
+          });
+
+          // Post paywall comment if we have PR info
+          const prNumber = updatedRun.pullRequestNumber;
+          if (prNumber && previewConfig.repoInstallationId) {
+            try {
+              await ctx.runAction(
+                internal.github_pr_comments.postPaywallComment,
+                {
+                  installationId: previewConfig.repoInstallationId,
+                  repoFullName,
+                  prNumber,
+                  usedRuns: quotaResult.usedRuns ?? 0,
+                  limit: quotaResult.limit ?? 10,
+                }
+              );
+              console.log("[convex.crown] Posted paywall comment to PR", {
+                taskRunId,
+                repoFullName,
+                prNumber,
+              });
+            } catch (commentError) {
+              console.error("[convex.crown] Failed to post paywall comment", {
+                taskRunId,
+                repoFullName,
+                prNumber,
+                error: commentError,
+              });
+            }
+          }
+
+          // Skip creating the preview run - user needs to subscribe
+          // (fall through to return response without preview run)
+        } else {
+          // Quota OK - proceed with creating preview run
+          const previewResult = await ctx.runMutation(
+            internal.previewRuns.enqueueFromTaskRun,
+            { taskRunId }
+          );
+
+          if (previewResult.created && previewResult.previewRunId) {
+            console.log("[convex.crown] Preview run created/linked for task run", {
+              taskRunId,
+              previewRunId: previewResult.previewRunId,
+              isNew: previewResult.isNew,
+            });
+
+            // If a new preview run was created, dispatch it to start the preview job
+            if (previewResult.isNew) {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.preview_jobs.requestDispatch,
+                { previewRunId: previewResult.previewRunId }
+              );
+              console.log("[convex.crown] Preview job dispatch scheduled", {
+                taskRunId,
+                previewRunId: previewResult.previewRunId,
+              });
+            }
+          } else {
+            console.log("[convex.crown] No preview run created for task run", {
+              taskRunId,
+              reason: previewResult.reason,
+            });
+          }
+        }
+      } else {
+        console.log("[convex.crown] No preview config found for repo", {
           taskRunId,
-          previewRunId: previewResult.previewRunId,
+          repoFullName,
         });
       }
     } else {
-      console.log("[convex.crown] No preview run created for task run", {
+      console.log("[convex.crown] No repo info available for preview run", {
         taskRunId,
-        reason: previewResult.reason,
+        hasTask: Boolean(task),
+        hasProjectFullName: Boolean(task?.projectFullName),
       });
     }
   } catch (error) {
