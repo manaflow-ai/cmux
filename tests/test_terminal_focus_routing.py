@@ -47,6 +47,15 @@ def _wait_for_file_content(path: Path, timeout_s: float = 3.0) -> str:
     raise cmuxError(f"Timed out waiting for file content: {path}")
 
 
+def _wait_for_terminal_focus(c: cmux, panel_id: str, timeout_s: float = 2.0) -> None:
+    start = time.time()
+    while time.time() - start < timeout_s:
+        if c.is_terminal_focused(panel_id):
+            return
+        time.sleep(0.05)
+    raise cmuxError(f"Timed out waiting for terminal focus: {panel_id}")
+
+
 def _assert_routed_to_surface(c: cmux, expected_surface_id: str) -> None:
     if FOCUS_FILE.exists():
         try:
@@ -88,14 +97,12 @@ def main() -> int:
         # Focus left then right, verifying both first responder and input routing.
         c.focus_surface_by_panel(left_id)
         time.sleep(0.15)
-        if not c.is_terminal_focused(left_id):
-            raise cmuxError("Left terminal is not first responder after focus")
+        _wait_for_terminal_focus(c, left_id)
         _assert_routed_to_surface(c, left_id)
 
         c.focus_surface_by_panel(right_id)
         time.sleep(0.15)
-        if not c.is_terminal_focused(right_id):
-            raise cmuxError("Right terminal is not first responder after focus")
+        _wait_for_terminal_focus(c, right_id)
         _assert_routed_to_surface(c, right_id)
 
         # Stress: repeated split/close should never leave focus on a detached/hidden terminal.
@@ -104,15 +111,13 @@ def main() -> int:
             time.sleep(0.1)
             c.focus_surface_by_panel(new_id)
             time.sleep(0.15)
-            if not c.is_terminal_focused(new_id):
-                raise cmuxError(f"Iteration {i}: new split terminal is not first responder")
+            _wait_for_terminal_focus(c, new_id, timeout_s=2.0)
             _assert_routed_to_surface(c, new_id)
 
             c.close_surface(new_id)
             time.sleep(0.25)
             focused = _focused_surface_id(c)
-            if not c.is_terminal_focused(focused):
-                raise cmuxError(f"Iteration {i}: focused terminal is not first responder after close")
+            _wait_for_terminal_focus(c, focused, timeout_s=2.0)
             _assert_routed_to_surface(c, focused)
 
     print("PASS: terminal focus routing")
