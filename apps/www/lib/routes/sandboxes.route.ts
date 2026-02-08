@@ -866,17 +866,37 @@ sandboxesRouter.openapi(
     responses: {
       204: { description: "Sandbox stopped" },
       401: { description: "Unauthorized" },
+      403: { description: "Forbidden - not authorized to access this instance" },
       404: { description: "Not found" },
       500: { description: "Failed to stop sandbox" },
     },
   }),
   async (c) => {
     const id = c.req.valid("param").id;
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) return c.text("Unauthorized", 401);
+    const { accessToken } = await user.getAuthJson();
+    if (!accessToken) return c.text("Unauthorized", 401);
 
     try {
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+      const convex = getConvex({ accessToken });
+
+      // Verify user owns or has team access to this instance
+      const ownershipResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(api.teams.listTeamMemberships, {});
+          return memberships.map((m) => ({ teamId: m.team.teamId }));
+        }
+      );
+
+      if (!ownershipResult.authorized) {
+        return c.text(ownershipResult.message, ownershipResult.status);
+      }
+
       const instance = await client.instances.get({ instanceId: id });
       // Kill all dev servers and user processes before pausing to avoid port conflicts on resume
       await instance.exec(VM_CLEANUP_COMMANDS);
@@ -914,15 +934,37 @@ sandboxesRouter.openapi(
         description: "Sandbox status",
       },
       401: { description: "Unauthorized" },
+      403: { description: "Forbidden - not authorized to access this instance" },
+      404: { description: "Instance not found" },
       500: { description: "Failed to get status" },
     },
   }),
   async (c) => {
     const id = c.req.valid("param").id;
-    const token = await getAccessTokenFromRequest(c.req.raw);
-    if (!token) return c.text("Unauthorized", 401);
+    const user = await getUserFromRequest(c.req.raw);
+    if (!user) return c.text("Unauthorized", 401);
+    const { accessToken } = await user.getAuthJson();
+    if (!accessToken) return c.text("Unauthorized", 401);
+
     try {
       const client = new MorphCloudClient({ apiKey: env.MORPH_API_KEY });
+      const convex = getConvex({ accessToken });
+
+      // Verify user owns or has team access to this instance
+      const ownershipResult = await verifyInstanceOwnership(
+        client,
+        id,
+        user.id,
+        async () => {
+          const memberships = await convex.query(api.teams.listTeamMemberships, {});
+          return memberships.map((m) => ({ teamId: m.team.teamId }));
+        }
+      );
+
+      if (!ownershipResult.authorized) {
+        return c.text(ownershipResult.message, ownershipResult.status);
+      }
+
       const instance = await client.instances.get({ instanceId: id });
       const vscodeService = instance.networking.httpServices.find(
         (s) => s.port === 39378,
@@ -1117,11 +1159,13 @@ sandboxesRouter.openapi(
 );
 
 // SSH connection info response schema
+// NOTE: We intentionally do NOT expose the accessToken directly in the response.
+// The token is included in the sshCommand, and exposing it separately increases
+// the risk of credential leakage through logging, caching, or interception.
 const SandboxSshResponse = z
   .object({
     morphInstanceId: z.string(),
     sshCommand: z.string().describe("Full SSH command to connect to this sandbox"),
-    accessToken: z.string().describe("SSH access token for this sandbox"),
     user: z.string(),
     status: z.enum(["running", "paused"]).describe("Current instance status"),
   })
@@ -1330,7 +1374,6 @@ sandboxesRouter.openapi(
       return c.json({
         morphInstanceId,
         sshCommand,
-        accessToken: sshKeyData.access_token,
         user: "root",
         status,
       });

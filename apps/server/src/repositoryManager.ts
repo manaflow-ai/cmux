@@ -25,6 +25,60 @@ function sanitizeForLogging(str: string): string {
   );
 }
 
+/**
+ * Validate a git branch name to prevent command injection.
+ * Git branch names must follow git's ref naming rules:
+ * - Cannot start with a dot or hyphen
+ * - Cannot contain .., @{, \, or control characters
+ * - Cannot end with .lock
+ * - Cannot contain shell metacharacters that could lead to injection
+ *
+ * @throws Error if the branch name is invalid
+ */
+export function validateBranchName(branch: string): void {
+  if (!branch || typeof branch !== "string") {
+    throw new Error("Branch name must be a non-empty string");
+  }
+
+  // Maximum length check (git allows up to 256 bytes typically)
+  if (branch.length > 255) {
+    throw new Error("Branch name exceeds maximum length of 255 characters");
+  }
+
+  // Disallow shell metacharacters and dangerous patterns that could enable injection
+  // These characters could break out of quoted strings or execute commands
+  const dangerousPatterns = [
+    /[`$(){}|;&<>!#*?\[\]\\'"]/,  // Shell metacharacters
+    /\x00-\x1f/,                   // Control characters
+    /\x7f/,                        // DEL character
+    /\.\./,                        // Double dots (path traversal)
+    /@\{/,                         // Git reflog syntax
+    /\.lock$/,                     // Cannot end with .lock
+    /^-/,                          // Cannot start with hyphen (interpreted as option)
+    /^\./,                         // Cannot start with dot
+    /\/\//,                        // Double slashes
+    /\/$/,                         // Cannot end with slash
+    /^\/$/,                        // Cannot be just a slash
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(branch)) {
+      throw new Error(
+        `Invalid branch name "${branch.slice(0, 50)}": contains disallowed pattern ${pattern.toString()}`
+      );
+    }
+  }
+
+  // Validate it matches git's ref naming convention (alphanumeric, dots, hyphens, underscores, slashes)
+  // This is the positive allowlist after filtering out dangerous patterns
+  const validBranchPattern = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+  if (!validBranchPattern.test(branch)) {
+    throw new Error(
+      `Invalid branch name "${branch.slice(0, 50)}": must contain only alphanumeric characters, dots, hyphens, underscores, and forward slashes`
+    );
+  }
+}
+
 interface RepositoryOperation {
   promise: Promise<void>;
   timestamp: number;
@@ -416,6 +470,9 @@ export class RepositoryManager {
     ttlMs = 30 * 60 * 1000,
     authenticatedUrl?: string
   ): Promise<void> {
+    // Validate branch name early to prevent injection attacks
+    validateBranchName(branch);
+
     const gitDir = await this.getGitDir(repoPath);
     const stamp = path.join(gitDir, "cmux-prewarm.stamp");
     try {
@@ -483,6 +540,9 @@ export class RepositoryManager {
     ttlMs = 20_000,
     authenticatedUrl?: string
   ): Promise<void> {
+    // Validate branch name early to prevent injection attacks
+    validateBranchName(branch);
+
     const safeBranch = branch.replace(/[^a-zA-Z0-9._-]/g, "_");
     const gitDir = await this.getGitDir(repoPath);
     const stamp = path.join(gitDir, `cmux-fetch-${safeBranch}.stamp`);
@@ -547,6 +607,11 @@ export class RepositoryManager {
     branch?: string,
     remoteUrl?: string
   ): Promise<void> {
+    // Validate branch name early to prevent injection attacks
+    if (branch) {
+      validateBranchName(branch);
+    }
+
     this.cleanupStaleOperations();
 
     // Use remoteUrl for storage if provided, otherwise use repoUrl
@@ -846,6 +911,9 @@ export class RepositoryManager {
     branch: string,
     authenticatedUrl?: string
   ): Promise<void> {
+    // Defense in depth: validate branch name even in private methods
+    validateBranchName(branch);
+
     const pullFlags =
       this.config.pullStrategy === "rebase"
         ? "--rebase"
@@ -925,6 +993,9 @@ export class RepositoryManager {
     branch: string,
     authenticatedUrl?: string
   ): Promise<void> {
+    // Defense in depth: validate branch name even in private methods
+    validateBranchName(branch);
+
     // Fetch the specific branch and explicitly update the remote-tracking ref
     // even if the clone was created with --single-branch.
     // Force-update the remote-tracking ref to tolerate non-fast-forward updates
@@ -1043,6 +1114,10 @@ export class RepositoryManager {
     baseBranch: string = "main",
     authenticatedUrl?: string
   ): Promise<string> {
+    // Validate branch names early to prevent injection attacks
+    validateBranchName(branchName);
+    validateBranchName(baseBranch);
+
     // In-process lock keyed by repo+branch to avoid concurrent add for same branch
     const inProcessLockKey = `${originPath}::${branchName}`;
     const existingLock = this.worktreeLocks.get(inProcessLockKey);
