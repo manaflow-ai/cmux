@@ -1388,7 +1388,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         Self.attachRetryCount.removeValue(forKey: surfaceId)
         surfaceAttached = true
         terminalSurface.attachToView(self)
-        terminalSurface.setFocus(desiredFocus)
+
+        // During rapid split/tab creation, focus can be assigned (first responder changes)
+        // before the ghostty surface exists. In that case, `desiredFocus` may still be false
+        // when we attach and create the surface, which can leave the view interactive but not
+        // rendering until focus changes again (alt-tab / pane switch).
+        let responderWantsFocus: Bool = {
+            guard let window, window.isKeyWindow else { return false }
+            guard let fr = window.firstResponder as? NSView else { return false }
+            return fr === self || fr.isDescendant(of: self)
+        }()
+
+        let shouldFocus = desiredFocus || responderWantsFocus
+        desiredFocus = shouldFocus
+        terminalSurface.setFocus(shouldFocus)
+
+        if shouldFocus, let surface = terminalSurface.surface {
+            // Ensure the first interactive frame is rendered immediately after attach.
+            ghostty_surface_draw(surface)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -1549,6 +1567,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
+        if result {
+            // If we become first responder before the ghostty surface exists (e.g. during
+            // split/tab creation while the view is still attaching), record the desired focus
+            // so attachSurfaceIfNeeded can apply it once the surface is created.
+            desiredFocus = true
+        }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
