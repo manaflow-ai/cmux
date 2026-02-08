@@ -161,7 +161,9 @@ jobs:
           STAGING_DIR="$(mktemp -d)"
           cp -R "$APP_PATH" "$STAGING_DIR/cmuxterm.app"
           ln -s /Applications "$STAGING_DIR/Applications"
-          hdiutil create -volname "cmuxterm" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
+          # hdiutil defaults to APFS for -srcfolder images (volume name becomes "Untitled" on mount).
+          # Force HFS+ so the mounted volume name is stable and Finder shows the contents reliably.
+          hdiutil create -fs HFS+ -volname "cmuxterm" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
           rm -rf "$STAGING_DIR"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
