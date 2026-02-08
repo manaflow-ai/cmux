@@ -395,6 +395,112 @@ const hasTaskRunId = (
   typeof value === "object" && value !== null && "taskRunId" in value;
 
 const pendingEvents: PendingEvent[] = [];
+const MAX_PENDING_EVENTS = 200;
+const MAX_PENDING_FILE_CHANGE_EVENTS = 10;
+const MAX_FILE_CHANGE_BATCH = 100;
+const MAX_FILE_DIFFS_PER_EVENT = 25;
+
+function summarizePayload(
+  event: WorkerToServerEventNames,
+  payload: unknown
+): Record<string, unknown> {
+  if (event === "worker:file-changes" && payload && typeof payload === "object") {
+    const data = payload as {
+      taskRunId?: string;
+      changes?: unknown[];
+      gitDiff?: string;
+      fileDiffs?: unknown[];
+      timestamp?: number;
+    };
+    return {
+      taskRunId: data.taskRunId,
+      changes: Array.isArray(data.changes) ? data.changes.length : undefined,
+      gitDiffChars: typeof data.gitDiff === "string" ? data.gitDiff.length : 0,
+      fileDiffs: Array.isArray(data.fileDiffs) ? data.fileDiffs.length : 0,
+      timestamp: data.timestamp,
+    };
+  }
+  if (event === "worker:terminal-failed" && payload && typeof payload === "object") {
+    const data = payload as { taskRunId?: string; errorMessage?: string };
+    return {
+      taskRunId: data.taskRunId,
+      errorMessage: data.errorMessage?.slice(0, 200),
+    };
+  }
+  if (payload && typeof payload === "object") {
+    if ("taskRunId" in payload) {
+      return { taskRunId: (payload as { taskRunId?: string }).taskRunId };
+    }
+    if ("taskId" in payload) {
+      return { taskId: (payload as { taskId?: string }).taskId };
+    }
+  }
+  return {};
+}
+
+function queuePendingEvent<K extends WorkerToServerEventNames>(
+  event: K,
+  args: Parameters<WorkerToServerEvents[K]>
+): void {
+  const pendingEvent: PendingEvent<K> = {
+    event,
+    args,
+    timestamp: Date.now(),
+  };
+
+  if (event === "worker:file-changes") {
+    const payload = args[0];
+    const taskRunId =
+      payload && hasTaskRunId(payload) ? payload.taskRunId : undefined;
+    if (taskRunId) {
+      const existingIndex = pendingEvents.findIndex((existing) => {
+        if (existing.event !== "worker:file-changes") {
+          return false;
+        }
+        const existingPayload = existing.args[0];
+        return (
+          existingPayload &&
+          hasTaskRunId(existingPayload) &&
+          existingPayload.taskRunId === taskRunId
+        );
+      });
+
+      if (existingIndex !== -1) {
+        pendingEvents[existingIndex] = pendingEvent;
+        return;
+      }
+    }
+
+    const fileChangeCount = pendingEvents.filter(
+      (existing) => existing.event === "worker:file-changes"
+    ).length;
+    if (fileChangeCount >= MAX_PENDING_FILE_CHANGE_EVENTS) {
+      const dropIndex = pendingEvents.findIndex(
+        (existing) => existing.event === "worker:file-changes"
+      );
+      if (dropIndex !== -1) {
+        const dropped = pendingEvents.splice(dropIndex, 1);
+        const droppedPayload = dropped[0]?.args[0];
+        log("WARNING", "Dropping pending file-changes event (queue full)", {
+          taskRunId:
+            droppedPayload && hasTaskRunId(droppedPayload)
+              ? droppedPayload.taskRunId
+              : undefined,
+        });
+      }
+    }
+  }
+
+  pendingEvents.push(pendingEvent);
+
+  if (pendingEvents.length > MAX_PENDING_EVENTS) {
+    const excess = pendingEvents.length - MAX_PENDING_EVENTS;
+    const dropped = pendingEvents.splice(0, excess);
+    log("WARNING", `Dropping ${dropped.length} pending events (queue full)`, {
+      droppedEvents: dropped.map((item) => item.event),
+    });
+  }
+}
 
 /**
  * Emit an event to the main server, queuing it if not connected
@@ -406,19 +512,18 @@ function emitToMainServer<K extends WorkerToServerEventNames>(
   const [payload] = args;
 
   if (mainServerSocket && mainServerSocket.connected) {
-    log("DEBUG", `Emitting ${event} to main server`, { event, data: payload });
+    log("DEBUG", `Emitting ${event} to main server`, {
+      event,
+      ...summarizePayload(event, payload),
+    });
     mainServerSocket.emit(event, ...args);
   } else {
     log("WARNING", `Main server not connected, queuing ${event} event`, {
       event,
-      data: payload,
+      ...summarizePayload(event, payload),
       pendingEventsCount: pendingEvents.length + 1,
     });
-    pendingEvents.push({
-      event,
-      args,
-      timestamp: Date.now(),
-    });
+    queuePendingEvent(event, args);
   }
 }
 
@@ -455,7 +560,7 @@ function sendPendingEvents() {
       `Sending pending ${pendingEvent.event} event (age: ${age}ms)`,
       {
         event: pendingEvent.event,
-        data: payload,
+        ...summarizePayload(pendingEvent.event, payload),
         age,
       }
     );
@@ -1198,18 +1303,35 @@ managementIO.on("connection", (socket) => {
       debounceMs: 2000, // 2 second debounce
       gitIgnore: true,
       onFileChange: async (changes) => {
+        const limitedChanges = changes.slice(0, MAX_FILE_CHANGE_BATCH);
+        if (changes.length > MAX_FILE_CHANGE_BATCH) {
+          log(
+            "WARNING",
+            `[Worker] Dropping ${changes.length - MAX_FILE_CHANGE_BATCH} file change(s) (batch too large)`,
+            { taskRunId }
+          );
+        }
+
         log("INFO", `[Worker] File changes detected for task ${taskRunId}:`, {
-          changeCount: changes.length,
+          changeCount: limitedChanges.length,
           taskRunId,
         });
 
         // Compute git diff for changed files
-        const changedFiles = changes.map((c) => c.path);
+        const changedFiles = limitedChanges.map((c) => c.path);
         const gitDiff = await computeGitDiff(worktreePath, changedFiles);
 
         // Get detailed diffs for each file
         const fileDiffs = [];
-        for (const change of changes) {
+        const diffTargets = limitedChanges.slice(0, MAX_FILE_DIFFS_PER_EVENT);
+        if (limitedChanges.length > MAX_FILE_DIFFS_PER_EVENT) {
+          log(
+            "WARNING",
+            `[Worker] Dropping ${limitedChanges.length - MAX_FILE_DIFFS_PER_EVENT} file diff(s) (limit reached)`,
+            { taskRunId }
+          );
+        }
+        for (const change of diffTargets) {
           const diff = await getFileWithDiff(change.path, worktreePath);
           fileDiffs.push({
             path: change.path,
@@ -1222,7 +1344,7 @@ managementIO.on("connection", (socket) => {
         emitToMainServer("worker:file-changes", {
           workerId: WORKER_ID,
           taskRunId,
-          changes,
+          changes: limitedChanges,
           gitDiff,
           fileDiffs,
           timestamp: Date.now(),

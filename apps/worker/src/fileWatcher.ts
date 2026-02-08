@@ -7,6 +7,48 @@ import { detectGitRepoPath } from "./crown/git";
 
 const execAsync = promisify(exec);
 
+const MAX_FILE_CONTENT_BYTES = 256 * 1024; // 256KB
+const MAX_GIT_SHOW_BYTES = 256 * 1024; // 256KB
+const MAX_PATCH_BYTES = 512 * 1024; // 512KB
+const MAX_GIT_DIFF_BYTES = 1 * 1024 * 1024; // 1MB
+
+function extractExecStdout(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return "";
+  }
+  const stdout = (error as { stdout?: unknown }).stdout;
+  if (typeof stdout === "string") {
+    return stdout;
+  }
+  if (stdout instanceof Buffer) {
+    return stdout.toString("utf-8");
+  }
+  return "";
+}
+
+async function readFileLimited(
+  filePath: string,
+  maxBytes: number
+): Promise<string> {
+  try {
+    const handle = await fs.open(filePath, "r");
+    try {
+      const stats = await handle.stat();
+      const toRead = Math.min(stats.size, maxBytes);
+      if (toRead <= 0) {
+        return "";
+      }
+      const buffer = Buffer.alloc(toRead);
+      const { bytesRead } = await handle.read(buffer, 0, toRead, 0);
+      return buffer.slice(0, bytesRead).toString("utf-8");
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return "";
+  }
+}
+
 interface FileChange {
   type: "added" | "modified" | "deleted";
   path: string;
@@ -241,12 +283,20 @@ export async function computeGitDiff(
 
     const { stdout } = await execAsync(command, {
       cwd: gitRepoPath,
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+      maxBuffer: MAX_GIT_DIFF_BYTES,
     });
 
     return stdout;
   } catch (error) {
-    log("ERROR,", `[FileWatcher] Failed to compute git diff:`, error);
+    const fallback = extractExecStdout(error);
+    if (fallback) {
+      log(
+        "WARN",
+        "[FileWatcher] Git diff output truncated due to size limit"
+      );
+      return fallback;
+    }
+    log("ERROR", `[FileWatcher] Failed to compute git diff:`, error);
     return "";
   }
 }
@@ -267,22 +317,18 @@ export async function getFileWithDiff(
     const relativePath = path.relative(gitRepoPath, filePath);
 
     // Get current content
-    let newContent = "";
-    try {
-      newContent = await fs.readFile(filePath, "utf-8");
-    } catch {
-      // File might be deleted
-    }
+    const newContent = await readFileLimited(filePath, MAX_FILE_CONTENT_BYTES);
 
     // Get old content from git
     let oldContent = "";
     try {
       const { stdout } = await execAsync(`git show HEAD:"${relativePath}"`, {
         cwd: gitRepoPath,
+        maxBuffer: MAX_GIT_SHOW_BYTES,
       });
       oldContent = stdout;
-    } catch {
-      // File might be new
+    } catch (error) {
+      oldContent = extractExecStdout(error);
     }
 
     // Get patch
@@ -290,11 +336,11 @@ export async function getFileWithDiff(
     try {
       const { stdout } = await execAsync(`git diff HEAD -- "${relativePath}"`, {
         cwd: gitRepoPath,
-        maxBuffer: 5 * 1024 * 1024,
+        maxBuffer: MAX_PATCH_BYTES,
       });
       patch = stdout;
-    } catch {
-      // Might not have a diff
+    } catch (error) {
+      patch = extractExecStdout(error);
     }
 
     return { oldContent, newContent, patch };
