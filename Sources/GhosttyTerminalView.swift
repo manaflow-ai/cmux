@@ -696,9 +696,11 @@ class GhosttyApp {
 
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
+        // Only make window non-opaque when liquid glass is available (macOS 26+).
+        // On older macOS the behindWindow blur causes a dim/dark window.
         let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-        if sidebarBlendMode == "behindWindow" {
+        let bgGlassEnabled = UserDefaults.standard.bool(forKey: "bgGlassEnabled")
+        if sidebarBlendMode == "behindWindow" && bgGlassEnabled && WindowGlassEffect.isAvailable {
             window.backgroundColor = .clear
             window.isOpaque = false
             if backgroundLogEnabled {
@@ -1106,9 +1108,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
+        // Only make window non-opaque when liquid glass is available (macOS 26+).
+        // On older macOS the behindWindow blur causes a dim/dark window.
         let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-        if sidebarBlendMode == "behindWindow" {
+        let bgGlassEnabled = UserDefaults.standard.bool(forKey: "bgGlassEnabled")
+        if sidebarBlendMode == "behindWindow" && bgGlassEnabled && WindowGlassEffect.isAvailable {
             window.backgroundColor = .clear
             window.isOpaque = false
         } else {
