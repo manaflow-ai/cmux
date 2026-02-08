@@ -129,6 +129,9 @@ class CmuxPseudoterminal implements vscode.Pseudoterminal {
   private _reconnectMaxDelayMs = 30000;
   private _showedDisconnectMessage = false;
 
+  // Track if close was due to process exit (should delete session) vs unexpected disconnect (should reconnect)
+  private _processExited = false;
+
   public readonly onDidWrite: vscode.Event<string> = this._onDidWrite.event;
   public readonly onDidClose: vscode.Event<number | void> = this._onDidClose.event;
 
@@ -207,6 +210,9 @@ class CmuxPseudoterminal implements vscode.Pseudoterminal {
             if (msg.type === 'exit') {
               const exitCode = msg.exit_code ?? msg.exitCode ?? 0;
               console.log(`[cmux] PTY ${this.ptyId} received exit event, code: ${exitCode}`);
+              // Mark that the process exited - this prevents reconnection attempts
+              // and allows the session to be properly deleted
+              this._processExited = true;
               this._onDidClose.fire(exitCode);
               this.dispose();
               return;
@@ -249,6 +255,11 @@ class CmuxPseudoterminal implements vscode.Pseudoterminal {
     ws.onclose = () => {
       if (this._ws !== ws) return;
       if (this._isDisposed) return;
+      // Don't reconnect if the process exited - the session should be deleted
+      if (this._processExited) {
+        this._onDidClose.fire();
+        return;
+      }
       this._scheduleReconnect();
     };
   }
@@ -264,6 +275,7 @@ class CmuxPseudoterminal implements vscode.Pseudoterminal {
 
   private _scheduleReconnect(): void {
     if (this._isDisposed) return;
+    if (this._processExited) return;
     if (this._reconnectTimer) return;
 
     if (!this._showedDisconnectMessage) {
@@ -362,6 +374,14 @@ class CmuxPseudoterminal implements vscode.Pseudoterminal {
 
     this._onDidWrite.dispose();
     this._onDidClose.dispose();
+  }
+
+  /**
+   * Check if the terminal was closed due to process exit (vs unexpected disconnect).
+   * Used by the terminal manager to decide whether to delete the PTY session.
+   */
+  get processExited(): boolean {
+    return this._processExited;
   }
 }
 
@@ -941,6 +961,15 @@ class CmuxTerminalManager {
           return;
         }
 
+        // Only delete PTY sessions when the process actually exited.
+        // If the terminal closed due to unexpected WebSocket disconnect (e.g., Docker
+        // networking blip), the PTY session is likely still alive on the server.
+        // This is critical for local Docker containers where network issues are common.
+        if (!pty.processExited) {
+          console.log(`[cmux] PTY ${info.id} closed but process did not exit - preserving session on server`);
+          return;
+        }
+
         // Schedule DELETE with short delay - cancelled on dispose() during page refresh
         // This allows user-initiated closes to delete, while preserving PTYs on refresh
         const deleteTimeout = setTimeout(async () => {
@@ -950,7 +979,7 @@ class CmuxTerminalManager {
             return;
           }
           try {
-            console.log(`[cmux] Deleting PTY ${info.id} on server`);
+            console.log(`[cmux] Deleting PTY ${info.id} on server (process exited)`);
             await fetch(`${config.serverUrl}/sessions/${info.id}`, { method: 'DELETE' });
           } catch (err) {
             console.error(`[cmux] Failed to delete PTY ${info.id}:`, err);
@@ -1197,6 +1226,15 @@ class CmuxTerminalManager {
           return;
         }
 
+        // Only delete PTY sessions when the process actually exited.
+        // If the terminal closed due to unexpected WebSocket disconnect (e.g., Docker
+        // networking blip), the PTY session is likely still alive on the server.
+        // This is critical for local Docker containers where network issues are common.
+        if (!pending.pty.processExited) {
+          console.log(`[cmux] PTY ${pending.id} closed but process did not exit - preserving session on server`);
+          return;
+        }
+
         // Schedule DELETE with short delay - cancelled on dispose() during page refresh
         const deleteTimeout = setTimeout(async () => {
           this._pendingDeletes.delete(pending.id);
@@ -1205,7 +1243,7 @@ class CmuxTerminalManager {
             return;
           }
           try {
-            console.log(`[cmux] Deleting PTY ${pending.id} on server`);
+            console.log(`[cmux] Deleting PTY ${pending.id} on server (process exited)`);
             await fetch(`${config.serverUrl}/sessions/${pending.id}`, { method: 'DELETE' });
           } catch (err) {
             console.error(`[cmux] Failed to delete PTY ${pending.id}:`, err);
