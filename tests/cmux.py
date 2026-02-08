@@ -526,6 +526,12 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def activate_app(self) -> None:
+        """Bring app + main window to front (debug builds only)."""
+        response = self._send_command("activate_app")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def is_terminal_focused(self, panel: Union[str, int]) -> bool:
         """Return True if the terminal panel's Ghostty view (or descendant) is first responder (debug builds only)."""
         response = self._send_command(f"is_terminal_focused {panel}")
@@ -558,6 +564,20 @@ class cmux:
         b64 = response[3:].strip()
         raw = base64.b64decode(b64) if b64 else b""
         return raw.decode("utf-8", errors="replace")
+
+    def render_stats(self, panel: Union[str, int, None] = None) -> dict:
+        """Return terminal render stats (Metal drawable counters; debug builds only)."""
+        cmd = "render_stats"
+        if panel is not None:
+            cmd += f" {panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK "):
+            raise cmuxError(response)
+        payload = response[3:].strip()
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as e:
+            raise cmuxError(f"render_stats JSON decode failed: {e}: {payload[:200]}")
 
     def empty_panel_count(self) -> int:
         """Return the number of EmptyPanelView appearances (debug builds only)."""

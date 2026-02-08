@@ -224,11 +224,17 @@ class TerminalController {
         case "simulate_type":
             return simulateType(args)
 
+        case "activate_app":
+            return activateApp()
+
         case "is_terminal_focused":
             return isTerminalFocused(args)
 
         case "read_terminal_text":
             return readTerminalText(args)
+
+        case "render_stats":
+            return renderStats(args)
 
         case "layout_debug":
             return layoutDebug()
@@ -379,8 +385,10 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
+          activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
+          render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
@@ -471,6 +479,17 @@ class TerminalController {
             result = "OK"
         }
         return result
+    }
+
+    private func activateApp() -> String {
+        DispatchQueue.main.sync {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.unhide(nil)
+            if let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+        return "OK"
     }
 
     private func simulateType(_ args: String) -> String {
@@ -625,6 +644,73 @@ class TerminalController {
 
             result = "OK \(b64)"
         }
+        return result
+    }
+
+    private struct RenderStatsResponse: Codable {
+        let panelId: String
+        let drawCount: Int
+        let lastDrawTime: Double
+        let metalDrawableCount: Int
+        let metalLastDrawableTime: Double
+        let layerClass: String
+        let inWindow: Bool
+        let windowIsKey: Bool
+        let isActive: Bool
+        let desiredFocus: Bool
+        let isFirstResponder: Bool
+    }
+
+    private func renderStats(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var result = "ERROR: No tab selected"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            let panelId: UUID?
+            if panelArg.isEmpty {
+                panelId = tab.focusedPanelId
+            } else {
+                panelId = resolveSurfaceId(from: panelArg, tab: tab)
+            }
+
+            guard let panelId,
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+
+            let stats = terminalPanel.hostedView.debugRenderStats()
+            let payload = RenderStatsResponse(
+                panelId: panelId.uuidString,
+                drawCount: stats.drawCount,
+                lastDrawTime: stats.lastDrawTime,
+                metalDrawableCount: stats.metalDrawableCount,
+                metalLastDrawableTime: stats.metalLastDrawableTime,
+                layerClass: stats.layerClass,
+                inWindow: stats.inWindow,
+                windowIsKey: stats.windowIsKey,
+                isActive: stats.isActive,
+                desiredFocus: stats.desiredFocus,
+                isFirstResponder: stats.isFirstResponder
+            )
+
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(payload),
+                  let json = String(data: data, encoding: .utf8) else {
+                result = "ERROR: Failed to encode render_stats"
+                return
+            }
+
+            result = "OK \(json)"
+        }
+
         return result
     }
 

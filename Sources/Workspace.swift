@@ -93,12 +93,14 @@ final class Workspace: Identifiable, ObservableObject {
         panels[terminalPanel.id] = terminalPanel
 
         // Create initial tab in bonsplit and store the mapping
+        var initialTabId: TabID?
         if let tabId = bonsplitController.createTab(
             title: title,
             icon: "terminal",
             isDirty: false
         ) {
             surfaceIdToPanelId[tabId] = terminalPanel.id
+            initialTabId = tabId
         }
 
         // Close the default Welcome tab(s)
@@ -108,6 +110,25 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Set ourselves as delegate
         bonsplitController.delegate = self
+
+        // Ensure bonsplit has a focused pane and our didSelectTab handler runs for the
+        // initial terminal. bonsplit's createTab selects internally but does not emit
+        // didSelectTab, and focusedPaneId can otherwise be nil until user interaction.
+        if let initialTabId {
+            // Focus the pane containing the initial tab (or the first pane as fallback).
+            let paneToFocus: PaneID? = {
+                for paneId in bonsplitController.allPaneIds {
+                    if bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == initialTabId }) {
+                        return paneId
+                    }
+                }
+                return bonsplitController.allPaneIds.first
+            }()
+            if let paneToFocus {
+                bonsplitController.focusPane(paneToFocus)
+            }
+            bonsplitController.selectTab(initialTabId)
+        }
     }
 
     // MARK: - Surface ID to Panel ID Mapping

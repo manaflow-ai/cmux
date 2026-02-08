@@ -96,6 +96,9 @@ class GhosttyApp {
     private let scrollLagThresholdMs: Double = 25  // Alert if tick takes >25ms during scroll
     private var scrollEndTimer: DispatchWorkItem?
 
+    // Coalesce redraw requests so multiple wakeups in a single runloop turn don't spam draws.
+    private var drawScheduled = false
+
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
         // Cancel any pending scroll-end timer
         scrollEndTimer?.cancel()
@@ -392,6 +395,41 @@ class GhosttyApp {
             scrollLagSampleCount += 1
             scrollLagTotalMs += elapsedMs
             scrollLagMaxMs = max(scrollLagMaxMs, elapsedMs)
+        }
+
+        // Ensure visible terminals redraw on Ghostty wakeups. Relying solely on focus/resize
+        // events can leave a surface visually "frozen" until the next focus change.
+        scheduleDrawVisibleSurfaces()
+    }
+
+    private func scheduleDrawVisibleSurfaces() {
+        guard !drawScheduled else { return }
+        drawScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.drawScheduled = false
+            Task { @MainActor in
+                self.drawVisibleSurfaces()
+            }
+        }
+    }
+
+    @MainActor
+    private func drawVisibleSurfaces() {
+        guard NSApp.isActive else { return }
+        guard (NSApp.keyWindow ?? NSApp.mainWindow) != nil else { return }
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let tabId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+
+        for panel in tab.panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            guard terminalPanel.surface.isViewInWindow else { continue }
+            guard let surface = terminalPanel.surface.surface else { continue }
+#if DEBUG
+            GhosttySurfaceScrollView.recordSurfaceDraw(terminalPanel.id)
+#endif
+            ghostty_surface_draw(surface)
         }
     }
 
@@ -837,6 +875,31 @@ class GhosttyApp {
     }
 }
 
+// MARK: - Debug Render Instrumentation
+
+/// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
+/// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
+/// mask redraw issues by forcing a window server flush).
+final class GhosttyMetalLayer: CAMetalLayer {
+    private let lock = NSLock()
+    private var drawableCount: Int = 0
+    private var lastDrawableTime: CFTimeInterval = 0
+
+    func debugStats() -> (count: Int, last: CFTimeInterval) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (drawableCount, lastDrawableTime)
+    }
+
+    override func nextDrawable() -> CAMetalDrawable? {
+        lock.lock()
+        drawableCount += 1
+        lastDrawableTime = CACurrentMediaTime()
+        lock.unlock()
+        return super.nextDrawable()
+    }
+}
+
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -1149,6 +1212,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
         attachedView?.forceRefreshSurface()
         if let surface = surface {
+#if DEBUG
+            GhosttySurfaceScrollView.recordSurfaceDraw(id)
+#endif
             ghostty_surface_draw(surface)
         }
     }
@@ -1233,7 +1299,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func makeBackingLayer() -> CALayer {
         // Ghostty renders into a CAMetalLayer. Without this the terminal can appear blank.
-        let metalLayer = CAMetalLayer()
+        let metalLayer = GhosttyMetalLayer()
         metalLayer.device = MTLCreateSystemDefaultDevice()
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.framebufferOnly = true
@@ -1405,6 +1471,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         if shouldFocus, let surface = terminalSurface.surface {
             // Ensure the first interactive frame is rendered immediately after attach.
+#if DEBUG
+            GhosttySurfaceScrollView.recordSurfaceDraw(surfaceId)
+#endif
             ghostty_surface_draw(surface)
         }
     }
@@ -1444,7 +1513,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // won't redraw if dimensions haven't changed.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 guard let self, self.window != nil,
-                      let surface = self.terminalSurface?.surface else { return }
+                      let terminalSurface = self.terminalSurface,
+                      let surface = terminalSurface.surface else { return }
+#if DEBUG
+                GhosttySurfaceScrollView.recordSurfaceDraw(terminalSurface.id)
+#endif
                 ghostty_surface_draw(surface)
             }
         }
@@ -2225,6 +2298,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var focusWorkItem: DispatchWorkItem?
 #if DEBUG
     private static var flashCounts: [UUID: Int] = [:]
+    private static var drawCounts: [UUID: Int] = [:]
+    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
 
     static func flashCount(for surfaceId: UUID) -> Int {
         flashCounts[surfaceId, default: 0]
@@ -2236,6 +2311,20 @@ final class GhosttySurfaceScrollView: NSView {
 
     private static func recordFlash(for surfaceId: UUID) {
         flashCounts[surfaceId, default: 0] += 1
+    }
+
+    static func drawStats(for surfaceId: UUID) -> (count: Int, last: CFTimeInterval) {
+        (drawCounts[surfaceId, default: 0], lastDrawTimes[surfaceId, default: 0])
+    }
+
+    static func resetDrawStats() {
+        drawCounts.removeAll()
+        lastDrawTimes.removeAll()
+    }
+
+    static func recordSurfaceDraw(_ surfaceId: UUID) {
+        drawCounts[surfaceId, default: 0] += 1
+        lastDrawTimes[surfaceId] = CACurrentMediaTime()
     }
 #endif
 
@@ -2516,7 +2605,16 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func updateFocusForWindow() {
-        let shouldFocus = isActive && (window?.isKeyWindow ?? false)
+        // `isActive` is derived from SwiftUI/bonsplit focus state and can be transiently false
+        // during split tree updates. If we drop focus while this view is still the window first
+        // responder, Ghostty can appear "frozen" until the user manually changes focus again.
+        let isKey = window?.isKeyWindow ?? false
+        let responderWantsFocus: Bool = {
+            guard isKey, let window else { return false }
+            guard let fr = window.firstResponder as? NSView else { return false }
+            return fr === surfaceView || fr.isDescendant(of: surfaceView)
+        }()
+        let shouldFocus = isKey && (responderWantsFocus || isActive)
         let wasFocused = surfaceView.desiredFocus
         surfaceView.desiredFocus = shouldFocus
         surfaceView.terminalSurface?.setFocus(shouldFocus)
@@ -2525,10 +2623,54 @@ final class GhosttySurfaceScrollView: NSView {
         // the surface attaches. Some paths (notably bonsplit's createTab) don't emit a select
         // callback, so relying on focus changes alone can leave the first frame undrawn until
         // another event (alt-tab, pane switch) triggers a redraw.
-        if shouldFocus && !wasFocused, let surface = surfaceView.terminalSurface?.surface {
+        if shouldFocus && !wasFocused,
+           let terminalSurface = surfaceView.terminalSurface,
+           let surface = terminalSurface.surface {
+#if DEBUG
+            GhosttySurfaceScrollView.recordSurfaceDraw(terminalSurface.id)
+#endif
             ghostty_surface_draw(surface)
         }
     }
+
+#if DEBUG
+    struct DebugRenderStats {
+        let drawCount: Int
+        let lastDrawTime: CFTimeInterval
+        let metalDrawableCount: Int
+        let metalLastDrawableTime: CFTimeInterval
+        let layerClass: String
+        let inWindow: Bool
+        let windowIsKey: Bool
+        let isActive: Bool
+        let desiredFocus: Bool
+        let isFirstResponder: Bool
+    }
+
+    func debugRenderStats() -> DebugRenderStats {
+        let layerClass = surfaceView.layer.map { String(describing: type(of: $0)) } ?? "nil"
+        let (metalCount, metalLast) = (surfaceView.layer as? GhosttyMetalLayer)?.debugStats() ?? (0, 0)
+        let (drawCount, lastDraw): (Int, CFTimeInterval) = surfaceView.terminalSurface.map { terminalSurface in
+            Self.drawStats(for: terminalSurface.id)
+        } ?? (0, 0)
+        let inWindow = (window != nil)
+        let windowIsKey = window?.isKeyWindow ?? false
+        let fr = window?.firstResponder as? NSView
+        let isFirstResponder = fr == surfaceView || (fr?.isDescendant(of: surfaceView) ?? false)
+        return DebugRenderStats(
+            drawCount: drawCount,
+            lastDrawTime: lastDraw,
+            metalDrawableCount: metalCount,
+            metalLastDrawableTime: metalLast,
+            layerClass: layerClass,
+            inWindow: inWindow,
+            windowIsKey: windowIsKey,
+            isActive: isActive,
+            desiredFocus: surfaceView.desiredFocus,
+            isFirstResponder: isFirstResponder
+        )
+    }
+#endif
 
     private func requestFocus(delay: TimeInterval? = nil) {
         guard isActive else { return }
