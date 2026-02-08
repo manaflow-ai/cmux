@@ -1,5 +1,6 @@
 import { CmuxComments } from "@/components/cmux-comments";
 import { CommandBar } from "@/components/CommandBar";
+import { OfflineIndicator } from "@/components/offline-indicator";
 import { Sidebar } from "@/components/Sidebar";
 import { SIDEBAR_PRS_DEFAULT_LIMIT } from "@/components/sidebar/const";
 import { convexQueryClient } from "@/contexts/convex/convex-query-client";
@@ -88,6 +89,10 @@ function LayoutComponent() {
             <Outlet />
           </Suspense>
         </div>
+      </div>
+
+      <div className="fixed bottom-4 right-4 z-[var(--z-overlay)]">
+        <OfflineIndicator />
       </div>
 
       <button
