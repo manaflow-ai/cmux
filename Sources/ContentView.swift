@@ -516,11 +516,12 @@ struct TabItemView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 let unreadCount = notificationStore.unreadCount(forTabId: tab.id)
-                if unreadCount > 0 {
+                let displayCount = max(unreadCount, tab.manuallyMarkedUnread ? 1 : 0)
+                if displayCount > 0 {
                     ZStack {
                         Circle()
-                            .fill(isActive ? Color.white.opacity(0.25) : Color.accentColor)
-                        Text("\(unreadCount)")
+                            .fill(isActive ? Color.white.opacity(0.5) : Color.accentColor)
+                        Text("\(displayCount)")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
                     }
@@ -703,12 +704,11 @@ struct TabItemView: View {
             Button("Mark as Read") {
                 markTabsRead(targetIds)
             }
-            .disabled(!hasUnreadNotifications(in: targetIds))
+            .disabled(!hasUnreadNotifications(in: targetIds) && !hasManuallyMarkedUnread(in: targetIds))
 
             Button("Mark as Unread") {
                 markTabsUnread(targetIds)
             }
-            .disabled(!hasReadNotifications(in: targetIds))
         }
     }
 
@@ -723,6 +723,7 @@ struct TabItemView: View {
     }
 
     private func updateSelection() {
+        let wasAlreadySelected = tabManager.selectedTabId == tab.id
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
@@ -749,6 +750,14 @@ struct TabItemView: View {
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
         selection = .tabs
+
+        // Re-clicking the active tab clears manual unread with flash
+        if wasAlreadySelected && tab.manuallyMarkedUnread {
+            if let surfaceId = tab.focusedSurfaceId {
+                tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false, shouldFocus: false)
+            }
+            tab.manuallyMarkedUnread = false
+        }
     }
 
     private func contextTargetIds() -> [UUID] {
@@ -790,12 +799,18 @@ struct TabItemView: View {
 
     private func markTabsRead(_ targetIds: [UUID]) {
         for id in targetIds {
+            if let tab = tabManager.tabs.first(where: { $0.id == id }) {
+                tab.manuallyMarkedUnread = false
+            }
             notificationStore.markRead(forTabId: id)
         }
     }
 
     private func markTabsUnread(_ targetIds: [UUID]) {
         for id in targetIds {
+            if let tab = tabManager.tabs.first(where: { $0.id == id }) {
+                tab.manuallyMarkedUnread = true
+            }
             notificationStore.markUnread(forTabId: id)
         }
     }
@@ -808,6 +823,11 @@ struct TabItemView: View {
     private func hasReadNotifications(in targetIds: [UUID]) -> Bool {
         let targetSet = Set(targetIds)
         return notificationStore.notifications.contains { targetSet.contains($0.tabId) && $0.isRead }
+    }
+
+    private func hasManuallyMarkedUnread(in targetIds: [UUID]) -> Bool {
+        let targetSet = Set(targetIds)
+        return tabManager.tabs.contains { targetSet.contains($0.id) && $0.manuallyMarkedUnread }
     }
 
     private func syncSelectionAfterMutation() {

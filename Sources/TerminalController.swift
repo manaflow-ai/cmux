@@ -211,6 +211,9 @@ class TerminalController {
         case "simulate_app_active":
             return simulateAppDidBecomeActive()
 
+        case "simulate_app_resign":
+            return simulateAppDidResignActive()
+
 #if DEBUG
         case "focus_notification":
             return focusFromNotification(args)
@@ -220,6 +223,15 @@ class TerminalController {
 
         case "reset_flash_counts":
             return resetFlashCounts()
+
+        case "mark_unread":
+            return markTabUnread(args)
+
+        case "mark_read":
+            return markTabRead(args)
+
+        case "tab_unread_state":
+            return tabUnreadState(args)
 #endif
 
         case "set_status":
@@ -320,6 +332,9 @@ class TerminalController {
           focus_notification <tab|idx> [surface|idx] - Focus via notification flow
           flash_count <id|idx>    - Read flash count for a surface
           reset_flash_counts      - Reset flash counters
+          mark_unread [tab|idx]   - Mark tab as manually unread
+          mark_read [tab|idx]     - Mark tab as manually read
+          tab_unread_state [tab|idx] - Get manual unread state for tab
         """
 #endif
         return text
@@ -616,6 +631,15 @@ class TerminalController {
         return "OK"
     }
 
+    private func simulateAppDidResignActive() -> String {
+        DispatchQueue.main.sync {
+            AppDelegate.shared?.applicationDidResignActive(
+                Notification(name: NSApplication.didResignActiveNotification)
+            )
+        }
+        return "OK"
+    }
+
 #if DEBUG
     private func focusFromNotification(_ args: String) -> String {
         guard let tabManager else { return "ERROR: TabManager not available" }
@@ -667,6 +691,38 @@ class TerminalController {
             GhosttySurfaceScrollView.resetFlashCounts()
         }
         return "OK"
+    }
+
+    private func markTabUnread(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        return DispatchQueue.main.sync {
+            guard let tab = resolveTab(from: args, tabManager: tabManager) else {
+                return "ERROR: Tab not found"
+            }
+            tab.manuallyMarkedUnread = true
+            return "OK"
+        }
+    }
+
+    private func markTabRead(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        return DispatchQueue.main.sync {
+            guard let tab = resolveTab(from: args, tabManager: tabManager) else {
+                return "ERROR: Tab not found"
+            }
+            tab.manuallyMarkedUnread = false
+            return "OK"
+        }
+    }
+
+    private func tabUnreadState(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        return DispatchQueue.main.sync {
+            guard let tab = resolveTab(from: args, tabManager: tabManager) else {
+                return "ERROR: Tab not found"
+            }
+            return tab.manuallyMarkedUnread ? "unread" : "read"
+        }
     }
 #endif
 

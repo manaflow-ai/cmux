@@ -28,6 +28,14 @@ class Tab: Identifiable, ObservableObject {
     @Published var title: String
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
+    @Published var manuallyMarkedUnread: Bool = false {
+        didSet {
+            if manuallyMarkedUnread {
+                manuallyMarkedUnreadAt = Date()
+            }
+        }
+    }
+    var manuallyMarkedUnreadAt: Date?
     @Published var currentDirectory: String
     @Published var splitTree: SplitTree<TerminalSurface>
     @Published var focusedSurfaceId: UUID? {
@@ -586,7 +594,11 @@ class TabManager: ObservableObject {
             tabs.remove(at: index)
 
             if selectedTabId == tab.id {
-                if index > 0 {
+                if index < tabs.count {
+                    // Prefer the tab below (now at the same index after removal)
+                    selectedTabId = tabs[index].id
+                } else if index > 0 {
+                    // Closed the last tab — fall back to the one above
                     selectedTabId = tabs[index - 1].id
                 } else {
                     selectedTabId = tabs.first?.id
@@ -707,6 +719,16 @@ class TabManager: ObservableObject {
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppActive() else { return }
+
+        // Clear manual unread flag when switching to this tab,
+        // but not if it was just set (context menu dismiss race with stale async blocks)
+        if let tab = tabs.first(where: { $0.id == tabId }) {
+            let recentlyMarked = tab.manuallyMarkedUnreadAt.map { Date().timeIntervalSince($0) < 1.0 } ?? false
+            if !recentlyMarked {
+                tab.manuallyMarkedUnread = false
+            }
+        }
+
         guard let surfaceId = focusedSurfaceId(for: tabId) else { return }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }

@@ -601,6 +601,28 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def mark_unread(self, tab: Union[str, int, None] = None) -> None:
+        """Mark a tab as manually unread."""
+        arg = "" if tab is None else str(tab)
+        response = self._send_command(f"mark_unread {arg}".rstrip())
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def mark_read(self, tab: Union[str, int, None] = None) -> None:
+        """Mark a tab as manually read."""
+        arg = "" if tab is None else str(tab)
+        response = self._send_command(f"mark_read {arg}".rstrip())
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def tab_unread_state(self, tab: Union[str, int, None] = None) -> str:
+        """Get manual unread state for a tab. Returns 'unread' or 'read'."""
+        arg = "" if tab is None else str(tab)
+        response = self._send_command(f"tab_unread_state {arg}".rstrip())
+        if response in ("unread", "read"):
+            return response
+        raise cmuxError(response)
+
 
 def main():
     """CLI interface for cmux"""

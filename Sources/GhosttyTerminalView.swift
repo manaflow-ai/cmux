@@ -1726,11 +1726,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
         pasteItem.target = self
+
+        if let tabId,
+           let _ = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId }) {
+            menu.addItem(.separator())
+            let unreadItem = menu.addItem(withTitle: "Mark as Unread", action: #selector(markTabUnread(_:)), keyEquivalent: "")
+            unreadItem.target = self
+            let readItem = menu.addItem(withTitle: "Mark as Read", action: #selector(markTabRead(_:)), keyEquivalent: "")
+            readItem.target = self
+        }
+
         return menu
     }
 
     @objc private func triggerFlash(_ sender: Any?) {
         onTriggerFlash?()
+    }
+
+    @objc private func markTabUnread(_ sender: Any?) {
+        guard let tabId,
+              let tab = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId }) else { return }
+        tab.manuallyMarkedUnread = true
+        AppDelegate.shared?.notificationStore?.markUnread(forTabId: tabId)
+    }
+
+    @objc private func markTabRead(_ sender: Any?) {
+        guard let tabId,
+              let tab = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId }) else { return }
+        tab.manuallyMarkedUnread = false
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: tabId)
     }
 
     override func mouseMoved(with event: NSEvent) {
