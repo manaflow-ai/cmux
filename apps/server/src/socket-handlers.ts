@@ -1649,12 +1649,30 @@ export function setupSocketHandlers(
                 await cleanupWorkspace();
               }
               const execErr = isExecError(error) ? error : null;
-              const message =
+              const rawMessage =
                 execErr?.stderr?.trim() ||
                 (error instanceof Error ? error.message : "Git clone failed");
-              throw new Error(
-                message ? `Git clone failed: ${message}` : "Git clone failed"
-              );
+
+              // Check if this is a repository access/not found error
+              const isAccessError =
+                rawMessage.includes("Repository not found") ||
+                rawMessage.includes("repository not found") ||
+                rawMessage.includes("Authentication failed") ||
+                rawMessage.includes("Permission denied") ||
+                rawMessage.includes("could not read Username") ||
+                rawMessage.includes("Invalid username or password") ||
+                rawMessage.includes("403");
+
+              let message: string;
+              if (isAccessError) {
+                // Extract repo URL from clone args for the error message
+                const repoUrlArg = cloneArgs[cloneArgs.length - 2]; // URL is second to last arg
+                message = `Unable to access repository${repoUrlArg ? ` '${repoUrlArg}'` : ''}. This repository may be private or you may not have permission to access it. If this is a teammate's task, they may need to make the repository public or grant you access.`;
+              } else {
+                message = rawMessage ? `Git clone failed: ${rawMessage}` : "Git clone failed";
+              }
+
+              throw new Error(message);
             }
 
             try {
