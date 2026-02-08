@@ -1,5 +1,6 @@
 use chrono::SecondsFormat;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::{generate, Shell};
 use cmux_sandbox::models::{
     CreateSandboxRequest, EnvVar, ExecRequest, ExecResponse, NotificationLogEntry, SandboxSummary,
 };
@@ -168,6 +169,17 @@ enum Command {
 
     /// Remove old sandboxes and optionally prune Docker resources
     Prune(PruneArgs),
+
+    /// Generate shell completions (or install with --install)
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+
+        /// Install completions to the standard location (~/.zfunc for zsh)
+        #[arg(long)]
+        install: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -1244,6 +1256,75 @@ async fn run() -> anyhow::Result<()> {
         }
         Command::Prune(args) => {
             handle_prune(&client, &cli.base_url, args).await?;
+        }
+        Command::Completions { shell, install } => {
+            // Determine the binary name based on how we were invoked
+            let bin_name = std::env::args()
+                .next()
+                .and_then(|s| {
+                    std::path::Path::new(&s)
+                        .file_name()
+                        .map(|os| os.to_string_lossy().into_owned())
+                })
+                .unwrap_or_else(|| "cmux".to_string());
+            let mut cmd = Cli::command();
+
+            if install {
+                // Install completions to standard location
+                match shell {
+                    Shell::Zsh => {
+                        let home = std::env::var("HOME")
+                            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
+                        let zfunc_dir = PathBuf::from(&home).join(".zfunc");
+                        std::fs::create_dir_all(&zfunc_dir)?;
+                        let completion_file = zfunc_dir.join(format!("_{}", bin_name));
+                        let mut file = std::fs::File::create(&completion_file)?;
+                        generate(shell, &mut cmd, &bin_name, &mut file);
+                        println!("Installed zsh completions to {}", completion_file.display());
+                        println!();
+                        println!("To enable, add this to your ~/.zshrc (before compinit):");
+                        println!("  fpath=(~/.zfunc $fpath)");
+                        println!();
+                        println!("Then reload your shell or run: exec zsh");
+                    }
+                    Shell::Bash => {
+                        let home = std::env::var("HOME")
+                            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
+                        let completion_dir =
+                            PathBuf::from(&home).join(".local/share/bash-completion/completions");
+                        std::fs::create_dir_all(&completion_dir)?;
+                        let completion_file = completion_dir.join(&bin_name);
+                        let mut file = std::fs::File::create(&completion_file)?;
+                        generate(shell, &mut cmd, &bin_name, &mut file);
+                        println!(
+                            "Installed bash completions to {}",
+                            completion_file.display()
+                        );
+                        println!("Reload your shell to enable completions.");
+                    }
+                    Shell::Fish => {
+                        let home = std::env::var("HOME")
+                            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
+                        let completion_dir = PathBuf::from(&home).join(".config/fish/completions");
+                        std::fs::create_dir_all(&completion_dir)?;
+                        let completion_file = completion_dir.join(format!("{}.fish", bin_name));
+                        let mut file = std::fs::File::create(&completion_file)?;
+                        generate(shell, &mut cmd, &bin_name, &mut file);
+                        println!(
+                            "Installed fish completions to {}",
+                            completion_file.display()
+                        );
+                    }
+                    _ => {
+                        anyhow::bail!(
+                            "Install not supported for {:?}. Use stdout redirection instead.",
+                            shell
+                        );
+                    }
+                }
+            } else {
+                generate(shell, &mut cmd, &bin_name, &mut std::io::stdout());
+            }
         }
         Command::Sandboxes(cmd) => {
             match cmd {

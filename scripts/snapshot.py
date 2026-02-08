@@ -1622,6 +1622,20 @@ EOF
         cat >> /root/.zshrc <<'EOF'
 HISTFILE=~/.zsh_history
 setopt HIST_IGNORE_DUPS HIST_VERIFY
+
+# Add user completion directories to fpath (synced from host)
+# These must be added before compinit to be recognized
+[[ -d ~/.zfunc ]] && fpath=(~/.zfunc $fpath)
+[[ -d ~/.local/share/zsh/completions ]] && fpath=(~/.local/share/zsh/completions $fpath)
+[[ -d ~/.zsh/completions ]] && fpath=(~/.zsh/completions $fpath)
+
+# Enable completion system
+autoload -Uz compinit && compinit
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+
+# Source user's local customizations (synced from host)
+[[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
 EOF
         cat > /root/.zprofile <<'EOF'
 [[ -f ~/.zshrc ]] && source ~/.zshrc
