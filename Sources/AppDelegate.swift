@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
+    private var appWasDeactivated = false
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
@@ -69,6 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidBecomeActive(_ notification: Notification) {
         guard let tabManager, let notificationStore else { return }
         guard let tabId = tabManager.selectedTabId else { return }
+
+        // Clear manual unread on the active tab when app regains focus,
+        // but only if the app was truly deactivated (not just a context menu)
+        // and the flag wasn't set very recently (context menu dismiss race).
+        if let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+           tab.manuallyMarkedUnread,
+           appWasDeactivated {
+            let recentlyMarked = tab.manuallyMarkedUnreadAt.map { Date().timeIntervalSince($0) < 1.0 } ?? false
+            if !recentlyMarked {
+                tab.manuallyMarkedUnread = false
+            }
+        }
+        appWasDeactivated = false
+
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
 
@@ -77,6 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tab.triggerNotificationFocusFlash(surfaceId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        appWasDeactivated = true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
