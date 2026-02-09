@@ -2,6 +2,11 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.19.4] - 2026-02-09
+
+### Fixed
+- Update pill never appearing due to constraint/sizing feedback loop
+
 ## [1.19.3] - 2026-02-09
 
 ### Fixed

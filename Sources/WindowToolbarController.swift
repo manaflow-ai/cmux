@@ -128,16 +128,17 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             let view = NonDraggableHostingView(rootView: UpdatePill(model: updateViewModel))
             let key = ObjectIdentifier(toolbar)
             item.view = view
-            sizeToolbarItem(for: key, hostingView: view)
+            let visible = !updateViewModel.effectiveState.isIdle
+            sizeToolbarItem(for: key, hostingView: view, visible: visible)
             updateSizeCancellables[key]?.cancel()
             updateSizeCancellables[key] = updateViewModel.$state
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak view] _ in
+                .sink { [weak self, weak view] newState in
                     // @Published fires on willSet, so SwiftUI hasn't processed the
                     // new state yet. Defer measurement to the next run loop cycle.
                     DispatchQueue.main.async { [weak self, weak view] in
                         guard let self, let view else { return }
-                        self.sizeToolbarItem(for: key, hostingView: view)
+                        self.sizeToolbarItem(for: key, hostingView: view, visible: !newState.isIdle)
                     }
                 }
             return item
@@ -146,10 +147,19 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         return nil
     }
 
-    private func sizeToolbarItem(for key: ObjectIdentifier, hostingView: NSView) {
+    private func sizeToolbarItem(for key: ObjectIdentifier, hostingView: NSView, visible: Bool) {
+        // Deactivate existing constraints before measuring so they don't
+        // clamp fittingSize to zero (chicken-and-egg sizing problem).
+        if let constraints = updateViewConstraints[key] {
+            constraints.width.isActive = false
+            constraints.height.isActive = false
+        }
+
         hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
-        let size = hostingView.fittingSize
+        let naturalSize = hostingView.fittingSize
+        let size = visible ? naturalSize : .zero
+
         hostingView.setFrameSize(size)
         hostingView.setContentHuggingPriority(.required, for: .horizontal)
         hostingView.setContentHuggingPriority(.required, for: .vertical)
@@ -157,6 +167,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         if let constraints = updateViewConstraints[key] {
             constraints.width.constant = size.width
             constraints.height.constant = size.height
+            constraints.width.isActive = true
+            constraints.height.isActive = true
         } else {
             let width = hostingView.widthAnchor.constraint(equalToConstant: size.width)
             let height = hostingView.heightAnchor.constraint(equalToConstant: size.height)
