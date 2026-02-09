@@ -139,8 +139,15 @@ def main() -> int:
             _wait_for_git_branch(client, "main")
 
             # Branch change should update.
-            client.send("git checkout -b feature/sidebar\n")
+            # Cover alias/non-`git ...` command paths too (regression: branch could
+            # stick for ~3s when switching via alias/tools like `gh pr checkout`).
+            client.send("alias gco='git checkout'\n")
+            time.sleep(0.2)
+            client.send("gco -b feature/sidebar\n")
             _wait_for_git_branch(client, "feature/sidebar")
+
+            client.send("gco main\n")
+            _wait_for_git_branch(client, "main")
 
             # Leaving the repo should clear the branch.
             client.send(f"cd {other}\n")
@@ -167,4 +174,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

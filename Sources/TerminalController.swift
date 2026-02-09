@@ -298,7 +298,7 @@ class TerminalController {
           clear_notifications     - Clear all notifications
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active     - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X] - Set a status entry
           clear_status <key> [--tab=X] - Remove a status entry
           list_status [--tab=X]   - List all status entries
           log [--level=X] [--source=X] [--tab=X] -- <message> - Append a log entry
@@ -490,14 +490,19 @@ class TerminalController {
                 result = "ERROR: No tab selected"
                 return
             }
+            guard let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: Tab not found"
+                return
+            }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
             let (title, subtitle, body) = parseNotificationPayload(args)
+            let bodyWithStatus = appendStatusTextIfPresent(body: body, tab: tab)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: bodyWithStatus
             )
         }
         return result
@@ -524,12 +529,13 @@ class TerminalController {
                 return
             }
             let (title, subtitle, body) = parseNotificationPayload(payload)
+            let bodyWithStatus = appendStatusTextIfPresent(body: body, tab: tab)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: bodyWithStatus
             )
         }
         return result
@@ -559,15 +565,41 @@ class TerminalController {
                 return
             }
             let (title, subtitle, body) = parseNotificationPayload(payload)
+            let bodyWithStatus = appendStatusTextIfPresent(body: body, tab: tab)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tab.id,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: bodyWithStatus
             )
         }
         return result
+    }
+
+    private func appendStatusTextIfPresent(body: String, tab: Tab) -> String {
+        let statusText = statusTextForNotification(tab: tab)
+        guard !statusText.isEmpty else { return body }
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedBody.isEmpty {
+            return statusText
+        }
+        return body + "\n\n" + statusText
+    }
+
+    private func statusTextForNotification(tab: Tab) -> String {
+        let entries = tab.statusEntries.values.sorted(by: { (lhs, rhs) in
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        })
+
+        let lines = entries.compactMap { entry -> String? in
+            let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+            let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            return key.isEmpty ? nil : key
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func listNotifications() -> String {
@@ -1010,9 +1042,9 @@ class TerminalController {
 
     // MARK: - Option Parsing
 
-    private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+    private func tokenizeArgs(_ args: String) -> [String] {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ([], [:]) }
+        guard !trimmed.isEmpty else { return [] }
 
         // Tokenize respecting quoted strings. Support basic backslash escapes inside quotes
         // (e.g. \" within "...") so shell integrations can safely escape embedded quotes.
@@ -1072,6 +1104,12 @@ class TerminalController {
         if !current.isEmpty {
             tokens.append(current)
         }
+        return tokens
+    }
+
+    private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+        let tokens = tokenizeArgs(args)
+        guard !tokens.isEmpty else { return ([], [:]) }
 
         var positional: [String] = []
         var options: [String: String] = [:]
@@ -1084,6 +1122,43 @@ class TerminalController {
             } else if token == "--" {
                 stopParsingOptions = true
             } else if token.hasPrefix("--") {
+                if let eqIndex = token.firstIndex(of: "=") {
+                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
+                    let value = String(token[token.index(after: eqIndex)...])
+                    options[key] = value
+                } else {
+                    let key = String(token.dropFirst(2))
+                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
+                        options[key] = tokens[i + 1]
+                        i += 1
+                    } else {
+                        options[key] = ""
+                    }
+                }
+            } else {
+                positional.append(token)
+            }
+            i += 1
+        }
+        return (positional, options)
+    }
+
+    private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
+        // Like parseOptions, but continues parsing `--key` options even after a `--` token.
+        // Used for commands where we never want UI-facing content to accidentally include flags.
+        let tokens = tokenizeArgs(args)
+        guard !tokens.isEmpty else { return ([], [:]) }
+
+        var positional: [String] = []
+        var options: [String: String] = [:]
+        var i = 0
+        while i < tokens.count {
+            let token = tokens[i]
+            if token == "--" {
+                i += 1
+                continue
+            }
+            if token.hasPrefix("--") {
                 if let eqIndex = token.firstIndex(of: "=") {
                     let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
                     let value = String(token[token.index(after: eqIndex)...])
@@ -1119,7 +1194,9 @@ class TerminalController {
 
     private func setStatus(_ args: String) -> String {
         guard tabManager != nil else { return "ERROR: TabManager not available" }
-        let parsed = parseOptions(args)
+        // Parse options even if the caller used `--` before/inside the value.
+        // This avoids leaking flags like `--tab` into the stored (and rendered) status text.
+        let parsed = parseOptionsNoStop(args)
         guard parsed.positional.count >= 2 else {
             return "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X]"
         }
@@ -1130,7 +1207,16 @@ class TerminalController {
 
         var result = "OK"
         DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
+            guard let tabManager else { result = "ERROR: TabManager not available"; return }
+            let tab: Tab?
+            if let tabArg = parsed.options["tab"], !tabArg.isEmpty {
+                tab = resolveTab(from: tabArg, tabManager: tabManager)
+            } else if let selectedId = tabManager.selectedTabId {
+                tab = tabManager.tabs.first(where: { $0.id == selectedId })
+            } else {
+                tab = nil
+            }
+            guard let tab else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }

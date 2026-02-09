@@ -7,6 +7,10 @@
   </a>
 </p>
 
+<p align="center">
+  <img src="./docs/assets/screenshot.png" alt="cmuxterm screenshot" width="900" />
+</p>
+
 ## Features
 
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.

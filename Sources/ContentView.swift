@@ -554,7 +554,8 @@ struct TabItemView: View {
                         if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
                         return lhs.key < rhs.key
                     }),
-                    isActive: isActive
+                    isActive: isActive,
+                    onFocus: { updateSelection() }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -921,90 +922,65 @@ struct TabItemView: View {
 }
 
 private struct SidebarStatusPillsRow: View {
+    // Renamed/replaced: we now render status as normal text with an optional expand/collapse.
+    // Kept as a separate view for minimal churn in call sites.
     let entries: [SidebarStatusEntry]
     let isActive: Bool
+    let onFocus: () -> Void
 
-    private let maxVisiblePills = 3
-
-    var body: some View {
-        let visible = Array(entries.prefix(maxVisiblePills))
-        let overflow = max(0, entries.count - visible.count)
-
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(visible) { entry in
-                    SidebarStatusPill(entry: entry, isActive: isActive)
-                }
-                if overflow > 0 {
-                    SidebarStatusOverflowPill(count: overflow, isActive: isActive)
-                }
-            }
-            .padding(.vertical, 1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct SidebarStatusPill: View {
-    let entry: SidebarStatusEntry
-    let isActive: Bool
+    @State private var isExpanded: Bool = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            if let icon = entry.icon, !icon.isEmpty {
-                Image(systemName: icon)
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(iconColor)
-            }
-            Text("\(entry.key)=\(entry.value)")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(textColor)
-                .lineLimit(1)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(statusText)
+                .font(.system(size: 10))
+                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                .lineLimit(isExpanded ? nil : 3)
                 .truncationMode(.tail)
-                .frame(maxWidth: 150, alignment: .leading)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onFocus()
+                    guard shouldShowToggle else { return }
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+
+            if shouldShowToggle {
+                Button(isExpanded ? "Show less" : "Show more") {
+                    onFocus()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(backgroundColor)
-        )
-        .help("\(entry.key)=\(entry.value)")
+        .help(statusText)
     }
 
-    private var backgroundColor: Color {
-        isActive ? .white.opacity(0.15) : .secondary.opacity(0.14)
+    private var statusText: String {
+        entries
+            .map { entry in
+                // Render like notification text: show the status contents only.
+                // If the value is empty, fall back to the key so the line isn't blank.
+                let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty { return value }
+                return entry.key
+            }
+            .joined(separator: "\n")
     }
 
-    private var textColor: Color {
-        isActive ? .white.opacity(0.9) : .secondary
-    }
-
-    private var iconColor: Color {
-        guard !isActive else { return .white.opacity(0.85) }
-        if let hex = entry.color, let nsColor = NSColor(hex: hex) {
-            return Color(nsColor: nsColor)
-        }
-        return .secondary
-    }
-}
-
-private struct SidebarStatusOverflowPill: View {
-    let count: Int
-    let isActive: Bool
-
-    var body: some View {
-        Text("+\(count)")
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .foregroundColor(isActive ? .white.opacity(0.85) : .secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(isActive ? .white.opacity(0.15) : .secondary.opacity(0.14))
-            )
-            .help("\(count) more status entries")
+    private var shouldShowToggle: Bool {
+        // We can't reliably measure truncation in SwiftUI without extra layout plumbing.
+        // Heuristic: show toggle when there are multiple entries or the text is long enough
+        // that it likely wraps past 3 lines in the sidebar.
+        entries.count > 1 || statusText.count > 120
     }
 }
 
@@ -1096,6 +1072,7 @@ private struct DraggableFolderIconRepresentable: NSViewRepresentable {
 private final class DraggableFolderNSView: NSView, NSDraggingSource {
     var directory: String
     private var imageView: NSImageView!
+    private static let iconSide: CGFloat = 16
 
     init(directory: String) {
         self.directory = directory
@@ -1121,9 +1098,15 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         updateIcon()
     }
 
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: Self.iconSide, height: Self.iconSide)
+    }
+
     func updateIcon() {
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
+        // NSWorkspace may return cached/shared NSImage instances. Never mutate the shared image size,
+        // since other callsites (e.g. dragging preview) may resize it and inadvertently affect layout.
+        let icon = (NSWorkspace.shared.icon(forFile: directory).copy() as? NSImage) ?? NSImage()
+        icon.size = NSSize(width: Self.iconSide, height: Self.iconSide)
         imageView.image = icon
     }
 
@@ -1135,7 +1118,7 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 
-        let iconImage = NSWorkspace.shared.icon(forFile: directory)
+        let iconImage = (NSWorkspace.shared.icon(forFile: directory).copy() as? NSImage) ?? NSImage()
         iconImage.size = NSSize(width: 32, height: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
@@ -1164,8 +1147,8 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
 
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
-            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
+            let icon = (NSWorkspace.shared.icon(forFile: pathURL.path).copy() as? NSImage) ?? NSImage()
+            icon.size = NSSize(width: Self.iconSide, height: Self.iconSide)
 
             let displayName: String
             if pathURL.path == "/" {
@@ -1188,8 +1171,8 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
 
         // Add computer name at the bottom (like native proxy icon)
         let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
-        computerIcon.size = NSSize(width: 16, height: 16)
+        let computerIcon = (NSImage(named: NSImage.computerName)?.copy() as? NSImage) ?? NSImage()
+        computerIcon.size = NSSize(width: Self.iconSide, height: Self.iconSide)
 
         let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
         computerItem.target = self
