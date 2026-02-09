@@ -23,9 +23,8 @@ enum WindowGlassEffect {
 
         let bounds = contentView.bounds
 
-        // macOS 26+: Prefer NSGlassEffectView. Avoid re-parenting the SwiftUI NSHostingView via
-        // constraints (it can result in a blank content area). Keep the original content view
-        // on autoresizing masks and just insert it into the glass view.
+        // macOS 26+: Insert NSGlassEffectView as a background subview (never replace
+        // window.contentView — reparenting the SwiftUI hosting view causes blank content).
         if let glassClass = NSClassFromString("NSGlassEffectView") as? NSVisualEffectView.Type {
             let glassView = glassClass.init(frame: bounds)
             glassView.wantsLayer = true
@@ -39,13 +38,7 @@ enum WindowGlassEffect {
                 }
             }
 
-            window.contentView = glassView
-
-            contentView.wantsLayer = true
-            contentView.layer?.backgroundColor = NSColor.clear.cgColor
-            contentView.frame = glassView.bounds
-            contentView.autoresizingMask = [.width, .height]
-            glassView.addSubview(contentView)
+            contentView.addSubview(glassView, positioned: .below, relativeTo: contentView.subviews.first)
 
             objc_setAssociatedObject(window, &glassViewKey, glassView, .OBJC_ASSOCIATION_RETAIN)
             return

@@ -205,7 +205,7 @@ class UpdateViewModel: ObservableObject {
             case 1, 2, 3001, 3002:
                 return "Update Signature Error"
             case 1003, 1005:
-                return "App Location Issue"
+                return "Move to Applications"
             default:
                 break
             }
