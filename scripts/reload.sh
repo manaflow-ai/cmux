@@ -228,10 +228,36 @@ osascript -e "tell application id \"${BUNDLE_ID}\" to activate" || true
 sleep 0.2
 PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
 if [[ "${#PIDS[@]}" -gt 1 ]]; then
+  # macOS `ps` doesn't support GNU `etimes`. Use portable `etime` and parse it.
+  # `etime` formats: [[dd-]hh:]mm:ss
+  age_seconds() {
+    local pid="$1"
+    local etime days hours mins secs a b c
+    etime="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [[ -z "$etime" ]] && return 1
+
+    days=0
+    if [[ "$etime" == *-* ]]; then
+      days="${etime%%-*}"
+      etime="${etime#*-}"
+    fi
+
+    a=""; b=""; c=""
+    IFS=: read -r a b c <<<"$etime"
+    hours=0; mins=0; secs=0
+    if [[ -n "${c:-}" ]]; then
+      hours="$a"; mins="$b"; secs="$c"
+    else
+      mins="$a"; secs="$b"
+    fi
+
+    echo $((10#$days*86400 + 10#$hours*3600 + 10#$mins*60 + 10#$secs))
+  }
+
   NEWEST_PID=""
   NEWEST_AGE=999999
   for PID in "${PIDS[@]}"; do
-    AGE="$(ps -o etimes= -p "$PID" | tr -d ' ')"
+    AGE="$(age_seconds "$PID" 2>/dev/null || true)"
     if [[ -n "$AGE" && "$AGE" -lt "$NEWEST_AGE" ]]; then
       NEWEST_AGE="$AGE"
       NEWEST_PID="$PID"
