@@ -12,6 +12,9 @@ permissions:
 jobs:
   build-sign-notarize:
     runs-on: self-hosted
+    concurrency:
+      group: self-hosted-build
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,6 +44,7 @@ jobs:
         run: |
           brew update
           brew install zig
+          npm install --global create-dmg
 
       - name: Build GhosttyKit.xcframework
         run: |
@@ -53,7 +57,7 @@ jobs:
       - name: Clear SPM cache
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Configure SwiftPM cache
         run: |
@@ -134,6 +138,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
@@ -155,11 +160,12 @@ jobs:
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
           rm -f "$ZIP_SUBMIT"
-          STAGING_DIR="$(mktemp -d)"
-          cp -R "$APP_PATH" "$STAGING_DIR/cmuxterm.app"
-          ln -s /Applications "$STAGING_DIR/Applications"
-          hdiutil create -volname "cmuxterm" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_RELEASE"
-          rm -rf "$STAGING_DIR"
+          # create-dmg generates a styled drag-to-install DMG
+          create-dmg \
+            --identity="$APPLE_SIGNING_IDENTITY" \
+            "$APP_PATH" \
+            ./
+          mv ./cmuxterm*.dmg "$DMG_RELEASE"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"

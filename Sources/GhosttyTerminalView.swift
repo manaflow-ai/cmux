@@ -1057,6 +1057,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        // Shell integration: inject ZDOTDIR wrapper for zsh
+        let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        if shellIntegrationEnabled,
+           let integrationDir = Bundle.main.resourceURL?
+            .appendingPathComponent("shell-integration").path {
+            env["CMUX_SHELL_INTEGRATION"] = "1"
+            env["CMUX_SHELL_INTEGRATION_DIR"] = integrationDir
+
+            // Prefer the per-surface environment (from Ghostty config/env vars),
+            // falling back to the app's environment. This avoids regressions when
+            // users override SHELL/ZDOTDIR at the surface level.
+            let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
+                ?? ProcessInfo.processInfo.environment["SHELL"]
+                ?? "/bin/zsh"
+            let shellName = URL(fileURLWithPath: shell).lastPathComponent
+            if shellName == "zsh" {
+                let originalZdotdir = env["ZDOTDIR"] ?? ProcessInfo.processInfo.environment["ZDOTDIR"] ?? ""
+                env["CMUX_ORIGINAL_ZDOTDIR"] = originalZdotdir
+                env["ZDOTDIR"] = integrationDir
+            }
+        }
+
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)
             envStorage.reserveCapacity(env.count)

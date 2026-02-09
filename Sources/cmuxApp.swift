@@ -913,6 +913,14 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
+    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
+    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
+    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
+    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
+    @AppStorage("sidebarShellIntegration") private var sidebarShellIntegration = true
+    @AppStorage("sidebarMaxLogEntries") private var sidebarMaxLogEntries = 50
     @State private var notificationsShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
     @State private var jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
 
@@ -929,6 +937,26 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
+
+                Divider()
+
+                Text("Sidebar")
+                    .font(.headline)
+
+                Toggle("Show status pills", isOn: $sidebarShowStatusPills)
+                Toggle("Show git branch", isOn: $sidebarShowGitBranch)
+                Toggle("Show branch icon", isOn: $sidebarShowGitBranchIcon)
+                    .disabled(!sidebarShowGitBranch)
+                Toggle("Show listening ports", isOn: $sidebarShowPorts)
+                Toggle("Show latest log entry", isOn: $sidebarShowLog)
+                Toggle("Show progress bar", isOn: $sidebarShowProgress)
+                Toggle("Shell integration (auto-detect git branch and ports)", isOn: $sidebarShellIntegration)
+
+                Stepper("Max log entries: \(sidebarMaxLogEntries)", value: $sidebarMaxLogEntries, in: 10...500, step: 10)
+
+                Text("Shell integration injects a precmd hook to report git branch and ports automatically.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
                 Divider()
 
@@ -997,6 +1025,14 @@ struct SettingsView: View {
     private func resetAllSettings() {
         appearanceMode = AppearanceMode.dark.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        sidebarShowStatusPills = true
+        sidebarShowGitBranch = true
+        sidebarShowGitBranchIcon = false
+        sidebarShowPorts = true
+        sidebarShowLog = true
+        sidebarShowProgress = true
+        sidebarShellIntegration = true
+        sidebarMaxLogEntries = 50
         KeyboardShortcutSettings.resetAll()
         notificationsShortcut = KeyboardShortcutSettings.showNotificationsDefault
         jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadDefault

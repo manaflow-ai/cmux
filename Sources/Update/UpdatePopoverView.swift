@@ -337,6 +337,11 @@ fileprivate struct UpdateErrorView: View {
     let error: UpdateState.Error
     let dismiss: DismissAction
 
+    private var isLocationError: Bool {
+        let nsError = error.error as NSError
+        return nsError.domain == SUSparkleErrorDomain && (nsError.code == 1003 || nsError.code == 1005)
+    }
+
     var body: some View {
         let title = UpdateViewModel.userFacingErrorTitle(for: error.error)
         let message = UpdateViewModel.userFacingErrorMessage(for: error.error)
@@ -349,8 +354,8 @@ fileprivate struct UpdateErrorView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                    Image(systemName: isLocationError ? "arrow.right.doc.on.clipboard" : "exclamationmark.triangle.fill")
+                        .foregroundColor(isLocationError ? .accentColor : .orange)
                         .font(.system(size: 13))
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
@@ -362,39 +367,57 @@ fileprivate struct UpdateErrorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Details")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(details)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
+            if isLocationError {
+                HStack(spacing: 8) {
+                    Button("Open Applications Folder") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: "/Applications")
+                    }
+                    .controlSize(.small)
 
-            HStack(spacing: 8) {
-                Button("Copy Details") {
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.setString(details, forType: .string)
+                    Spacer()
+
+                    Button("OK") {
+                        error.dismiss()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
-
-                Button("OK") {
-                    error.dismiss()
-                    dismiss()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Details")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(details)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
-                .keyboardShortcut(.cancelAction)
-                .controlSize(.small)
 
-                Spacer()
+                HStack(spacing: 8) {
+                    Button("Copy Details") {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(details, forType: .string)
+                    }
+                    .controlSize(.small)
 
-                Button("Retry") {
-                    error.retry()
-                    dismiss()
+                    Button("OK") {
+                        error.dismiss()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .controlSize(.small)
+
+                    Spacer()
+
+                    Button("Retry") {
+                        error.retry()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.small)
                 }
-                .keyboardShortcut(.defaultAction)
-                .controlSize(.small)
             }
         }
         .padding(16)

@@ -569,6 +569,17 @@ struct CMUXCLI {
           clear-notifications
           set-app-focus <active|inactive|clear>
           simulate-app-active
+          set-status <key> <value> [--icon <name>] [--color <hex>] [--tab <id|index>]
+          clear-status <key> [--tab <id|index>]
+          log <message> [--level <level>] [--source <name>] [--tab <id|index>]
+          clear-log [--tab <id|index>]
+          set-progress <value> [--label <text>] [--tab <id|index>]
+          clear-progress [--tab <id|index>]
+          report-git-branch <branch> [--status <clean|dirty>] [--tab <id|index>]
+          report-ports <port1> [port2...] [--tab <id|index>] [--panel <id|index>]
+          clear-ports [--tab <id|index>] [--panel <id|index>]
+          sidebar-state [--tab <id|index>]
+          reset-sidebar [--tab <id|index>]
           open-browser [url]
           navigate --panel <id> <url>
           browser-back --panel <id>

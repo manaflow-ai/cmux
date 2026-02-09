@@ -9,6 +9,9 @@ on:
 jobs:
   ui-tests:
     runs-on: self-hosted
+    concurrency:
+      group: self-hosted-build
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
