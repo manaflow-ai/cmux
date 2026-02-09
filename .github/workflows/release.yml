@@ -44,7 +44,7 @@ jobs:
         run: |
           brew update
           brew install zig
-          npm uninstall --global create-dmg 2>/dev/null || true
+          npm install --global create-dmg
 
       - name: Build GhosttyKit.xcframework
         run: |
@@ -160,14 +160,12 @@ jobs:
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
           rm -f "$ZIP_SUBMIT"
-          # Build DMG with Applications symlink (no Finder/AppleScript needed)
-          DMG_SOURCE="$(mktemp -d)/cmuxterm"
-          mkdir -p "$DMG_SOURCE"
-          cp -R "$APP_PATH" "$DMG_SOURCE/"
-          ln -s /Applications "$DMG_SOURCE/Applications"
-          hdiutil create -volname "cmuxterm" -srcfolder "$DMG_SOURCE" -ov -format UDZO "$DMG_RELEASE"
-          rm -rf "$(dirname "$DMG_SOURCE")"
-          /usr/bin/codesign --force --sign "$APPLE_SIGNING_IDENTITY" "$DMG_RELEASE"
+          # create-dmg generates a styled drag-to-install DMG
+          create-dmg \
+            --identity="$APPLE_SIGNING_IDENTITY" \
+            "$APP_PATH" \
+            ./
+          mv ./cmuxterm*.dmg "$DMG_RELEASE"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
