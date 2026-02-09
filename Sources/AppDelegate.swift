@@ -626,39 +626,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
+        // Primary UI shortcuts
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
+            sidebarState?.toggle()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newTab)) {
+            tabManager?.addTab()
+            return true
+        }
+
         // Check Show Notifications shortcut
-        let notifShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
-        if matchShortcut(event: event, shortcut: notifShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
             toggleNotificationsPopover(animated: false)
             return true
         }
 
         // Check Jump to Unread shortcut
-        let unreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
-        if matchShortcut(event: event, shortcut: unreadShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .jumpToUnread)) {
             jumpToLatestUnread()
             return true
         }
 
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.nextSurfaceShortcut()) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSurface)) {
             tabManager?.selectNextSurface()
             return true
         }
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.prevSurfaceShortcut()) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSurface)) {
             tabManager?.selectPreviousSurface()
             return true
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
-        let nextSidebarShortcut = KeyboardShortcutSettings.nextSidebarTabShortcut()
-        if matchShortcut(event: event, shortcut: nextSidebarShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSidebarTab)) {
             tabManager?.selectNextTab()
             return true
         }
 
-        let prevSidebarShortcut = KeyboardShortcutSettings.prevSidebarTabShortcut()
-        if matchShortcut(event: event, shortcut: prevSidebarShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSidebarTab)) {
             tabManager?.selectPreviousTab()
             return true
         }
@@ -686,7 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
         if matchDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.focusLeftShortcut(),
+            shortcut: KeyboardShortcutSettings.shortcut(for: .focusLeft),
             arrowGlyph: "←",
             arrowKeyCode: 123
         ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
@@ -698,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.focusRightShortcut(),
+            shortcut: KeyboardShortcutSettings.shortcut(for: .focusRight),
             arrowGlyph: "→",
             arrowKeyCode: 124
         ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
@@ -710,7 +717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.focusUpShortcut(),
+            shortcut: KeyboardShortcutSettings.shortcut(for: .focusUp),
             arrowGlyph: "↑",
             arrowKeyCode: 126
         ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
@@ -722,7 +729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.focusDownShortcut(),
+            shortcut: KeyboardShortcutSettings.shortcut(for: .focusDown),
             arrowGlyph: "↓",
             arrowKeyCode: 125
         ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
@@ -734,14 +741,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Split actions: Cmd+D / Cmd+Shift+D
-        let splitRightShortcut = KeyboardShortcutSettings.splitRightShortcut()
-        if matchShortcut(event: event, shortcut: splitRightShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
             tabManager?.createSplit(direction: .right)
             return true
         }
 
-        let splitDownShortcut = KeyboardShortcutSettings.splitDownShortcut()
-        if matchShortcut(event: event, shortcut: splitDownShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
             tabManager?.createSplit(direction: .down)
             return true
         }
@@ -757,15 +762,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // New surface: Cmd+T
-        let newSurfaceShortcut = KeyboardShortcutSettings.newSurfaceShortcut()
-        if matchShortcut(event: event, shortcut: newSurfaceShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newSurface)) {
             tabManager?.newSurface()
             return true
         }
 
         // Open browser: Cmd+Shift+B
-        let openBrowserShortcut = KeyboardShortcutSettings.openBrowserShortcut()
-        if matchShortcut(event: event, shortcut: openBrowserShortcut) {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
             tabManager?.openBrowser()
             return true
         }

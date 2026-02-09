@@ -259,12 +259,19 @@ private struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @State private var shortcutRefreshTick = 0
 
     var body: some View {
+        // Force the `.help(...)` tooltips to re-evaluate when shortcuts are changed in settings.
+        // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
+        let _ = shortcutRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         controlsGroup(config: config)
             .padding(.leading, 4)
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                shortcutRefreshTick &+= 1
+            }
     }
 
     @ViewBuilder
@@ -274,7 +281,7 @@ private struct TitlebarControlsView: View {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
             .accessibilityLabel("Toggle Sidebar")
-            .help("Show or hide the sidebar (Cmd+B)")
+            .help(KeyboardShortcutSettings.Action.toggleSidebar.tooltip("Show or hide the sidebar"))
 
             TitlebarControlButton(config: config, action: onToggleNotifications) {
                 ZStack(alignment: .topTrailing) {
@@ -295,13 +302,13 @@ private struct TitlebarControlsView: View {
             }
             .overlay(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 }.allowsHitTesting(false))
             .accessibilityLabel("Notifications")
-            .help("Show notifications (Cmd+Shift+I)")
+            .help(KeyboardShortcutSettings.Action.showNotifications.tooltip("Show notifications"))
 
             TitlebarControlButton(config: config, action: onNewTab) {
                 iconLabel(systemName: "plus", config: config)
             }
             .accessibilityLabel("New Tab")
-            .help("Open a new tab (Cmd+N)")
+            .help(KeyboardShortcutSettings.Action.newTab.tooltip("Open a new tab"))
         }
 
         let paddedContent = content.padding(config.groupPadding)

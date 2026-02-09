@@ -197,12 +197,6 @@ struct cmuxApp: App {
                 Button("New Tab") {
                     tabManager.addTab()
                 }
-                .keyboardShortcut("n", modifiers: .command)
-
-                Button("New Tab") {
-                    tabManager.addTab()
-                }
-                .keyboardShortcut("`", modifiers: [.control, .shift])
             }
 
             // Close tab
@@ -259,19 +253,16 @@ struct cmuxApp: App {
                 Button("Toggle Sidebar") {
                     sidebarState.toggle()
                 }
-                .keyboardShortcut("b", modifiers: .command)
 
                 Divider()
 
                 Button("Next Surface") {
                     tabManager.selectNextSurface()
                 }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
 
                 Button("Previous Surface") {
                     tabManager.selectPreviousSurface()
                 }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
 
                 Button("Back") {
                     tabManager.navigateBack()
@@ -286,12 +277,10 @@ struct cmuxApp: App {
                 Button("Next Workspace") {
                     tabManager.selectNextTab()
                 }
-                .keyboardShortcut("]", modifiers: [.command, .control])
 
                 Button("Previous Workspace") {
                     tabManager.selectPreviousTab()
                 }
-                .keyboardShortcut("[", modifiers: [.command, .control])
 
                 Divider()
 
@@ -913,8 +902,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @State private var notificationsShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
-    @State private var jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
+    @State private var shortcutResetToken = UUID()
 
     var body: some View {
         ScrollView {
@@ -935,15 +923,10 @@ struct SettingsView: View {
                 Text("Keyboard Shortcuts")
                     .font(.headline)
 
-                KeyboardShortcutRecorder(label: "Show Notifications", shortcut: $notificationsShortcut)
-                    .onChange(of: notificationsShortcut) { newValue in
-                        KeyboardShortcutSettings.setShowNotificationsShortcut(newValue)
-                    }
-
-                KeyboardShortcutRecorder(label: "Jump to Unread", shortcut: $jumpToUnreadShortcut)
-                    .onChange(of: jumpToUnreadShortcut) { newValue in
-                        KeyboardShortcutSettings.setJumpToUnreadShortcut(newValue)
-                    }
+                ForEach(KeyboardShortcutSettings.Action.allCases) { action in
+                    ShortcutSettingRow(action: action)
+                }
+                .id(shortcutResetToken)
 
                 Text("Click to record a new shortcut.")
                     .font(.caption)
@@ -998,8 +981,30 @@ struct SettingsView: View {
         appearanceMode = AppearanceMode.dark.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         KeyboardShortcutSettings.resetAll()
-        notificationsShortcut = KeyboardShortcutSettings.showNotificationsDefault
-        jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadDefault
+        shortcutResetToken = UUID()
+    }
+}
+
+private struct ShortcutSettingRow: View {
+    let action: KeyboardShortcutSettings.Action
+    @State private var shortcut: StoredShortcut
+
+    init(action: KeyboardShortcutSettings.Action) {
+        self.action = action
+        _shortcut = State(initialValue: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    var body: some View {
+        KeyboardShortcutRecorder(label: action.label, shortcut: $shortcut)
+            .onChange(of: shortcut) { newValue in
+                KeyboardShortcutSettings.setShortcut(newValue, for: action)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                let latest = KeyboardShortcutSettings.shortcut(for: action)
+                if latest != shortcut {
+                    shortcut = latest
+                }
+            }
     }
 }
 
@@ -1035,7 +1040,7 @@ private struct SettingsRootView: View {
             guard let identifier = accessories[index].view.identifier?.rawValue else { continue }
             guard identifier.hasPrefix("cmux.") else { continue }
             window.removeTitlebarAccessoryViewController(at: index)
-        }
+            }
         AppDelegate.shared?.applyWindowDecorations(to: window)
     }
 }
