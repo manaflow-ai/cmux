@@ -2,27 +2,13 @@
 
 All notable changes to cmuxterm are documented here.
 
-## [1.19.4] - 2026-02-09
-
-### Fixed
-- Update pill never appearing due to constraint/sizing feedback loop
-
-## [1.19.3] - 2026-02-09
-
-### Fixed
-- Update status pill not rendering in toolbar due to zero-frame hosting view
-
-## [1.19.2] - 2026-02-09
-
-### Fixed
-- Update status pill not showing in production builds
-- Update errors appearing instantly without showing checking state first
-
-## [1.19.1] - 2026-02-08
+## [1.20.0] - 2026-02-09
 
 ### Fixed
 - Blank window on macOS 26 when background glass effect is enabled
-- "Copy Update Logs" showing empty logs in production builds
+- Update status pill not appearing in toolbar
+- Update errors appearing instantly without showing checking spinner first
+- "Copy Update Logs" showing empty logs
 
 ### Changed
 - Clearer error when app needs to be moved to Applications before updating

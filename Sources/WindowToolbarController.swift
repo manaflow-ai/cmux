@@ -11,8 +11,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
-    private var updateSizeCancellables: [ObjectIdentifier: AnyCancellable] = [:]
-    private var updateViewConstraints: [ObjectIdentifier: (width: NSLayoutConstraint, height: NSLayoutConstraint)] = [:]
+    private var updateCancellables: [ObjectIdentifier: AnyCancellable] = [:]
+    private var updateHostingViews: [ObjectIdentifier: NSView] = [:]
 
     init(updateViewModel: UpdateViewModel) {
         self.updateViewModel = updateViewModel
@@ -23,7 +23,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
-        for cancellable in updateSizeCancellables.values {
+        for cancellable in updateCancellables.values {
             cancellable.cancel()
         }
     }
@@ -125,20 +125,19 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
         if itemIdentifier == updateItemIdentifier, let updateViewModel {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            let view = NonDraggableHostingView(rootView: UpdatePill(model: updateViewModel))
+            let hostingView = NonDraggableHostingView(rootView: UpdatePill(model: updateViewModel))
             let key = ObjectIdentifier(toolbar)
-            item.view = view
-            let visible = !updateViewModel.effectiveState.isIdle
-            sizeToolbarItem(for: key, hostingView: view, visible: visible)
-            updateSizeCancellables[key]?.cancel()
-            updateSizeCancellables[key] = updateViewModel.$state
+            item.view = hostingView
+            updateHostingViews[key] = hostingView
+
+            // Observe state changes to nudge the toolbar into re-laying-out
+            // the item when the pill's intrinsic content size changes.
+            updateCancellables[key]?.cancel()
+            updateCancellables[key] = updateViewModel.$state
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak view] newState in
-                    // @Published fires on willSet, so SwiftUI hasn't processed the
-                    // new state yet. Defer measurement to the next run loop cycle.
-                    DispatchQueue.main.async { [weak self, weak view] in
-                        guard let self, let view else { return }
-                        self.sizeToolbarItem(for: key, hostingView: view, visible: !newState.isIdle)
+                .sink { [weak hostingView] _ in
+                    DispatchQueue.main.async { [weak hostingView] in
+                        hostingView?.invalidateIntrinsicContentSize()
                     }
                 }
             return item
@@ -147,33 +146,4 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         return nil
     }
 
-    private func sizeToolbarItem(for key: ObjectIdentifier, hostingView: NSView, visible: Bool) {
-        // Deactivate existing constraints before measuring so they don't
-        // clamp fittingSize to zero (chicken-and-egg sizing problem).
-        if let constraints = updateViewConstraints[key] {
-            constraints.width.isActive = false
-            constraints.height.isActive = false
-        }
-
-        hostingView.invalidateIntrinsicContentSize()
-        hostingView.layoutSubtreeIfNeeded()
-        let naturalSize = hostingView.fittingSize
-        let size = visible ? naturalSize : .zero
-
-        hostingView.setFrameSize(size)
-        hostingView.setContentHuggingPriority(.required, for: .horizontal)
-        hostingView.setContentHuggingPriority(.required, for: .vertical)
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        if let constraints = updateViewConstraints[key] {
-            constraints.width.constant = size.width
-            constraints.height.constant = size.height
-            constraints.width.isActive = true
-            constraints.height.isActive = true
-        } else {
-            let width = hostingView.widthAnchor.constraint(equalToConstant: size.width)
-            let height = hostingView.heightAnchor.constraint(equalToConstant: size.height)
-            NSLayoutConstraint.activate([width, height])
-            updateViewConstraints[key] = (width: width, height: height)
-        }
-    }
 }
