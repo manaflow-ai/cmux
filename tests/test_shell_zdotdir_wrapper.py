@@ -47,7 +47,7 @@ def main() -> int:
 
         env = dict(os.environ)
         env["ZDOTDIR"] = str(wrapper_dir)
-        env["CMUX_ORIGINAL_ZDOTDIR"] = str(orig)
+        env["CMUX_ZSH_ZDOTDIR"] = str(orig)
         env["CMUX_ZDOTDIR_TEST_OUTPUT"] = str(seen_path)
         env["CMUX_SHELL_INTEGRATION"] = "0"
 

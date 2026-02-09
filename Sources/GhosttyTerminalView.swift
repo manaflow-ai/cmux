@@ -173,7 +173,6 @@ class GhosttyApp {
         ghostty_config_load_default_files(config)
         ghostty_config_finalize(config)
         updateDefaultBackground(from: config)
-
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
@@ -735,6 +734,7 @@ class GhosttyApp {
             }
         }
     }
+
 }
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
@@ -858,7 +858,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        var env: [String: String] = [:]
+        // IMPORTANT:
+        // Pass a complete, sane environment to the shell process. Some zsh
+        // features/plugins (including zsh-autosuggestions highlighting) rely on
+        // terminfo/`TERM` being correct, and those can break if we accidentally
+        // provide only a minimal env var set.
+        //
+        // Start from the app's environment (already adjusted in `cmuxApp`),
+        // then layer in any per-surface environment from Ghostty config, then
+        // apply cmuxterm-specific overrides below.
+        var env: [String: String] = ProcessInfo.processInfo.environment
+        // Don't leak NO_COLOR into child processes (we explicitly disable it for TUIs).
+        env.removeValue(forKey: "NO_COLOR")
+        // `ProcessInfo.processInfo.environment` should reflect `setenv`/`unsetenv`,
+        // but defensively re-read critical vars from libc to avoid stale snapshots.
+        for key in ["GHOSTTY_RESOURCES_DIR", "XDG_DATA_DIRS", "MANPATH", "TERMINFO", "TERM", "TERM_PROGRAM", "COLORTERM"] {
+            if let value = getenv(key) {
+                env[key] = String(cString: value)
+            }
+        }
         if surfaceConfig.env_var_count > 0, let existingEnv = surfaceConfig.env_vars {
             let count = Int(surfaceConfig.env_var_count)
             if count > 0 {
@@ -870,6 +888,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     }
                 }
             }
+        }
+
+        if (env["TERM"] ?? "").isEmpty {
+            env["TERM"] = "xterm-ghostty"
+        }
+        if (env["TERM_PROGRAM"] ?? "").isEmpty {
+            env["TERM_PROGRAM"] = "ghostty"
         }
 
         env["CMUX_PANEL_ID"] = id.uuidString
@@ -902,8 +927,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? "/bin/zsh"
             let shellName = URL(fileURLWithPath: shell).lastPathComponent
             if shellName == "zsh" {
-                let originalZdotdir = env["ZDOTDIR"] ?? ProcessInfo.processInfo.environment["ZDOTDIR"] ?? ""
-                env["CMUX_ORIGINAL_ZDOTDIR"] = originalZdotdir
+                // GhosttyKit already injects zsh integration by setting ZDOTDIR to
+                // Ghostty's integration directory. We still need to set ZDOTDIR
+                // to our wrapper to load Resources/shell-integration/.zshenv,
+                // but we must not treat Ghostty's injected ZDOTDIR as the user's
+                // "real" ZDOTDIR (or zsh history will end up inside the app bundle).
+                //
+                // If the user explicitly set ZDOTDIR, preserve it in CMUX_ZSH_ZDOTDIR
+                // so our wrapper can restore it immediately.
+                let candidateZdotdir = (env["ZDOTDIR"]?.isEmpty == false ? env["ZDOTDIR"] : nil)
+                    ?? (ProcessInfo.processInfo.environment["ZDOTDIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["ZDOTDIR"] : nil)
+
+                if let candidateZdotdir, !candidateZdotdir.isEmpty {
+                    var isGhosttyInjected = false
+                    if let ghosttyResources = env["GHOSTTY_RESOURCES_DIR"], !ghosttyResources.isEmpty {
+                        let ghosttyZdotdir = URL(fileURLWithPath: ghosttyResources)
+                            .appendingPathComponent("shell-integration/zsh").path
+                        isGhosttyInjected = (candidateZdotdir == ghosttyZdotdir)
+                    }
+                    if !isGhosttyInjected {
+                        env["CMUX_ZSH_ZDOTDIR"] = candidateZdotdir
+                    }
+                }
+
                 env["ZDOTDIR"] = integrationDir
             }
         }
