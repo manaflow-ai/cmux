@@ -44,6 +44,7 @@ jobs:
         run: |
           brew update
           brew install zig
+          npm uninstall --global create-dmg 2>/dev/null || true
           brew install create-dmg
 
       - name: Build GhosttyKit.xcframework
