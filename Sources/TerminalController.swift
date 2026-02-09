@@ -490,14 +490,19 @@ class TerminalController {
                 result = "ERROR: No tab selected"
                 return
             }
+            guard let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: Tab not found"
+                return
+            }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
             let (title, subtitle, body) = parseNotificationPayload(args)
+            let bodyWithStatus = appendStatusTextIfPresent(body: body, tab: tab)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: bodyWithStatus
             )
         }
         return result
@@ -524,12 +529,13 @@ class TerminalController {
                 return
             }
             let (title, subtitle, body) = parseNotificationPayload(payload)
+            let bodyWithStatus = appendStatusTextIfPresent(body: body, tab: tab)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: bodyWithStatus
             )
         }
         return result
@@ -559,15 +565,41 @@ class TerminalController {
                 return
             }
             let (title, subtitle, body) = parseNotificationPayload(payload)
+            let bodyWithStatus = appendStatusTextIfPresent(body: body, tab: tab)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tab.id,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: bodyWithStatus
             )
         }
         return result
+    }
+
+    private func appendStatusTextIfPresent(body: String, tab: Tab) -> String {
+        let statusText = statusTextForNotification(tab: tab)
+        guard !statusText.isEmpty else { return body }
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedBody.isEmpty {
+            return statusText
+        }
+        return body + "\n\n" + statusText
+    }
+
+    private func statusTextForNotification(tab: Tab) -> String {
+        let entries = tab.statusEntries.values.sorted(by: { (lhs, rhs) in
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        })
+
+        let lines = entries.compactMap { entry -> String? in
+            let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+            let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            return key.isEmpty ? nil : key
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func listNotifications() -> String {
