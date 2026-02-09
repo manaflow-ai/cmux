@@ -360,23 +360,22 @@ struct ContentView: View {
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             window.titlebarAppearsTransparent = true
             window.styleMask.insert(.fullSizeContentView)
-            // For behindWindow blur to work, window must be non-opaque with transparent content view
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled {
+            // Background glass: skip on macOS 26+ where NSGlassEffectView causes blank SwiftUI content.
+            // The transparency setup (non-opaque window + clear subview backgrounds) breaks rendering.
+            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled
+                && !WindowGlassEffect.isAvailable {
                 window.isOpaque = false
                 window.backgroundColor = .clear
-                // Configure contentView and all subviews for transparency
                 if let contentView = window.contentView {
                     contentView.wantsLayer = true
                     contentView.layer?.backgroundColor = NSColor.clear.cgColor
                     contentView.layer?.isOpaque = false
-                    // Make SwiftUI hosting view transparent
                     for subview in contentView.subviews {
                         subview.wantsLayer = true
                         subview.layer?.backgroundColor = NSColor.clear.cgColor
                         subview.layer?.isOpaque = false
                     }
                 }
-                // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
             }
