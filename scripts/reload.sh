@@ -242,6 +242,10 @@ OPEN_CLEAN_ENV=(
   -u GHOSTTY_BIN_DIR
   -u GHOSTTY_RESOURCES_DIR
   -u GHOSTTY_SHELL_FEATURES
+  # Dev shells (including CI/Codex) often force-disable paging by exporting these.
+  # Don't leak that into cmuxterm, otherwise `git diff` won't page even with PAGER=less.
+  -u GIT_PAGER
+  -u GH_PAGER
   -u TERMINFO
   -u XDG_DATA_DIRS
 )
