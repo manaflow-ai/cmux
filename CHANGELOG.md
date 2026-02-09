@@ -2,11 +2,20 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.19.1] - 2026-02-08
+
+### Fixed
+- Blank window on macOS 26 when background glass effect is enabled
+- "Copy Update Logs" showing empty logs in production builds
+
+### Changed
+- Clearer error when app needs to be moved to Applications before updating
+- DMG installer now shows drag-to-install window with Applications shortcut
+
 ## [1.19.0] - 2026-02-08
 
 ### Fixed
 - Blank window on macOS 26 caused by NSGlassEffectView wrapper
-- "Copy Update Logs" showing empty logs in production builds
 
 ## [1.18.0] - 2026-02-06
 
