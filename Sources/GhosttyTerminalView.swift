@@ -859,24 +859,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         // IMPORTANT:
-        // Pass a complete, sane environment to the shell process. Some zsh
-        // features/plugins (including zsh-autosuggestions highlighting) rely on
-        // terminfo/`TERM` being correct, and those can break if we accidentally
-        // provide only a minimal env var set.
+        // `surfaceConfig.env_vars` are *overrides* layered on top of Ghostty's
+        // default subprocess environment.
         //
-        // Start from the app's environment (already adjusted in `cmuxApp`),
-        // then layer in any per-surface environment from Ghostty config, then
-        // apply cmuxterm-specific overrides below.
-        var env: [String: String] = ProcessInfo.processInfo.environment
-        // Don't leak NO_COLOR into child processes (we explicitly disable it for TUIs).
-        env.removeValue(forKey: "NO_COLOR")
-        // `ProcessInfo.processInfo.environment` should reflect `setenv`/`unsetenv`,
-        // but defensively re-read critical vars from libc to avoid stale snapshots.
-        for key in ["GHOSTTY_RESOURCES_DIR", "XDG_DATA_DIRS", "MANPATH", "TERMINFO", "TERM", "TERM_PROGRAM", "COLORTERM"] {
-            if let value = getenv(key) {
-                env[key] = String(cString: value)
-            }
-        }
+        // Do not seed this map with the full app environment: that would
+        // bypass Ghostty's env filtering (e.g. LANGUAGE, Xcode DYLD vars) by
+        // re-introducing stripped variables via overrides.
+        var env: [String: String] = [:]
         if surfaceConfig.env_var_count > 0, let existingEnv = surfaceConfig.env_vars {
             let count = Int(surfaceConfig.env_var_count)
             if count > 0 {
@@ -890,19 +879,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if (env["TERM"] ?? "").isEmpty {
-            env["TERM"] = "xterm-ghostty"
-        }
-        if (env["TERM_PROGRAM"] ?? "").isEmpty {
-            env["TERM_PROGRAM"] = "ghostty"
-        }
-
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
@@ -923,6 +906,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // falling back to the app's environment. This avoids regressions when
             // users override SHELL/ZDOTDIR at the surface level.
             let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
+                ?? getenv("SHELL").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["SHELL"]
                 ?? "/bin/zsh"
             let shellName = URL(fileURLWithPath: shell).lastPathComponent
@@ -936,11 +920,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // If the user explicitly set ZDOTDIR, preserve it in CMUX_ZSH_ZDOTDIR
                 // so our wrapper can restore it immediately.
                 let candidateZdotdir = (env["ZDOTDIR"]?.isEmpty == false ? env["ZDOTDIR"] : nil)
+                    ?? getenv("ZDOTDIR").map { String(cString: $0) }
                     ?? (ProcessInfo.processInfo.environment["ZDOTDIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["ZDOTDIR"] : nil)
 
                 if let candidateZdotdir, !candidateZdotdir.isEmpty {
                     var isGhosttyInjected = false
-                    if let ghosttyResources = env["GHOSTTY_RESOURCES_DIR"], !ghosttyResources.isEmpty {
+                    let ghosttyResources = (env["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? env["GHOSTTY_RESOURCES_DIR"] : nil)
+                        ?? getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
+                        ?? (ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"] : nil)
+                    if let ghosttyResources {
                         let ghosttyZdotdir = URL(fileURLWithPath: ghosttyResources)
                             .appendingPathComponent("shell-integration/zsh").path
                         isGhosttyInjected = (candidateZdotdir == ghosttyZdotdir)
