@@ -277,11 +277,10 @@ def run_tests():
     print("=" * 60)
     print()
 
-    socket_path = cmux().socket_path
+    socket_path = cmux.DEFAULT_SOCKET_PATH
     if not os.path.exists(socket_path):
         print(f"Error: Socket not found at {socket_path}")
         print("Please make sure cmux is running.")
-        print("Tip: set CMUX_TAG=<tag> or CMUX_SOCKET_PATH=<path> to target a tagged instance.")
         return 1
 
     results = []

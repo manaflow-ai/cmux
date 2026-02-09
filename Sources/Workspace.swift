@@ -47,19 +47,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
 
-    // MARK: - Sidebar Metadata (Shell Integration)
-
-    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
-    @Published var logEntries: [SidebarLogEntry] = []
-    @Published var progress: (value: Double, label: String?)? = nil
-    @Published var gitBranch: (branch: String, isDirty: Bool)? = nil
-
-    // Per-panel ports reported by shell integration. `listeningPorts` is the union for display.
-    @Published var panelListeningPorts: [UUID: [Int]] = [:]
-    @Published var listeningPorts: [Int] = []
-
-    static let maxLogEntries = 50
-
     private var processTitle: String
 
     // MARK: - Initialization

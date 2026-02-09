@@ -77,7 +77,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         UpdateLogStore.shared.append("show updater error: \(details)")
-        setStateAfterMinimumCheckDelay(.error(.init(
+        setState(.error(.init(
             error: error,
             retry: { [weak viewModel] in
                 viewModel?.state = .idle

@@ -183,7 +183,6 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmuxterm"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET="/tmp/cmuxterm-debug-${TAG_SLUG}.sock"
-      echo "$CMUX_SOCKET" > /tmp/cmuxterm-last-socket-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
@@ -207,12 +206,9 @@ fi
 # Ensure any running instance is fully terminated, regardless of DerivedData path.
 /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
 sleep 0.3
-if [[ -z "$TAG" ]]; then
-  # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-  pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-else
-  # Tag mode: only kill the tagged instance; allow side-by-side with the main app.
-  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+if [[ "${APP_NAME}" != "${BASE_APP_NAME}" ]]; then
+  pkill -f "/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" || true
 fi
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
@@ -225,33 +221,7 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
-# Avoid inheriting cmuxterm/ghostty environment variables from the terminal that
-# runs this script (often inside another cmuxterm instance), which can cause
-# socket and resource-path conflicts.
-OPEN_CLEAN_ENV=(
-  env
-  -u CMUX_SOCKET_PATH
-  -u CMUX_TAB_ID
-  -u CMUX_PANEL_ID
-  -u CMUXD_UNIX_PATH
-  -u CMUX_TAG
-  -u CMUXTERM_TAG
-  -u CMUX_BUNDLE_ID
-  -u CMUXTERM_BUNDLE_ID
-  -u CMUX_SHELL_INTEGRATION
-  -u GHOSTTY_BIN_DIR
-  -u GHOSTTY_RESOURCES_DIR
-  -u GHOSTTY_SHELL_FEATURES
-  -u TERMINFO
-  -u XDG_DATA_DIRS
-)
-
-if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
-  # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-  "${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
-else
-  "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
-fi
+open "$APP_PATH"
 osascript -e "tell application id \"${BUNDLE_ID}\" to activate" || true
 
 # Safety: ensure only one instance is running.

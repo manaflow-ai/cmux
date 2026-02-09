@@ -19,14 +19,8 @@ import subprocess
 import sys
 import time
 import re
-import os
 from pathlib import Path
 from typing import List, Optional
-
-# Allow importing tests/cmux.py when running from repo root.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from cmux import cmux
 
 
 # Maximum acceptable CPU usage during idle (percentage)
@@ -51,31 +45,6 @@ SUSPICIOUS_PATTERNS = [
 
 def get_cmuxterm_pid() -> Optional[int]:
     """Get the PID of the running cmuxterm process."""
-    socket_path = os.environ.get("CMUX_SOCKET_PATH")
-    if not socket_path:
-        try:
-            socket_path = cmux().socket_path
-        except Exception:
-            socket_path = None
-
-    if socket_path and os.path.exists(socket_path):
-        result = subprocess.run(
-            ["lsof", "-t", socket_path],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    pid = int(line)
-                except ValueError:
-                    continue
-                if pid != os.getpid():
-                    return pid
-
     result = subprocess.run(
         ["pgrep", "-f", r"cmuxterm\.app/Contents/MacOS/cmuxterm$"],
         capture_output=True,
@@ -187,7 +156,7 @@ def main():
                 print(f"  - {issue}")
 
         # Save sample for debugging
-        sample_file = Path(f"/tmp/cmuxterm_cpu_test_sample_{pid}.txt")
+        sample_file = Path("/tmp/cmuxterm_cpu_test_sample.txt")
         sample_file.write_text(sample_output)
         print(f"\nFull sample saved to: {sample_file}")
 

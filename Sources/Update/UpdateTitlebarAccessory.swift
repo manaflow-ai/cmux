@@ -79,8 +79,12 @@ private struct TitlebarAccessoryView: View {
     @ObservedObject var model: UpdateViewModel
 
     var body: some View {
+        #if DEBUG
         UpdatePill(model: model)
             .padding(.trailing, 8)
+        #else
+        EmptyView()
+        #endif
     }
 }
 

@@ -192,6 +192,8 @@ class UpdateViewModel: ObservableObject {
         }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
+            case 4005:
+                return "Updater Permission Error"
             case 2001:
                 return "Couldn't Download Update"
             case 1000, 1002:
@@ -202,8 +204,8 @@ class UpdateViewModel: ObservableObject {
                 return "Insecure Update Feed"
             case 1, 2, 3001, 3002:
                 return "Update Signature Error"
-            case 1003, 1005, 4005:
-                return "Move to Applications"
+            case 1003, 1005:
+                return "App Location Issue"
             default:
                 break
             }
@@ -237,8 +239,10 @@ class UpdateViewModel: ObservableObject {
         }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
+            case 4005:
+                return "macOS blocked cmuxterm from updating apps. Open System Settings → Privacy & Security → App Management, allow cmuxterm, then try again."
             case 2001:
-                return "cmuxterm couldn't download the update feed. Check your connection and try again."
+                return "cmuxterm couldn’t download the update feed. Check your connection and try again."
             case 1000, 1002:
                 return "The update feed could not be read. Please try again later."
             case 4:
@@ -246,8 +250,8 @@ class UpdateViewModel: ObservableObject {
             case 3:
                 return "The update feed is insecure. Please contact support."
             case 1, 2, 3001, 3002:
-                return "The update's signature could not be verified. Please try again later."
-            case 1003, 1005, 4005:
+                return "The update’s signature could not be verified. Please try again later."
+            case 1003, 1005:
                 return "Move cmuxterm into Applications and relaunch to enable updates."
             default:
                 break
