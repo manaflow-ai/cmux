@@ -21,8 +21,6 @@ struct UpdatePill: View {
                 UpdatePopoverView(model: model)
             }
             .opacity(visible ? 1 : 0)
-            .frame(width: visible ? nil : 0, height: visible ? nil : 0)
-            .clipped()
     }
 
     @ViewBuilder
