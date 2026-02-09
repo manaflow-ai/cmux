@@ -12,7 +12,7 @@ enum WindowGlassEffect {
     }
 
     static func apply(to window: NSWindow, tintColor: NSColor? = nil) {
-        guard let contentView = window.contentView else { return }
+        guard let originalContentView = window.contentView else { return }
 
         // Check if we already applied glass (avoid re-wrapping)
         if let existingGlass = objc_getAssociatedObject(window, &glassViewKey) as? NSView {
@@ -21,52 +21,87 @@ enum WindowGlassEffect {
             return
         }
 
-        let bounds = contentView.bounds
+        let bounds = originalContentView.bounds
 
-        // macOS 26+: Insert NSGlassEffectView as a background subview (never replace
-        // window.contentView — reparenting the SwiftUI hosting view causes blank content).
+        // Create the glass/blur view
+        let glassView: NSVisualEffectView
+        let usingGlassEffectView: Bool
+
+        // Try NSGlassEffectView first (macOS 26 Tahoe+)
         if let glassClass = NSClassFromString("NSGlassEffectView") as? NSVisualEffectView.Type {
-            let glassView = glassClass.init(frame: bounds)
+            usingGlassEffectView = true
+            glassView = glassClass.init(frame: bounds)
             glassView.wantsLayer = true
             glassView.layer?.cornerRadius = 0
-            glassView.autoresizingMask = [.width, .height]
 
+            // Apply tint color via private API
             if let color = tintColor {
                 let selector = NSSelectorFromString("setTintColor:")
                 if glassView.responds(to: selector) {
                     glassView.perform(selector, with: color)
                 }
             }
-
-            contentView.addSubview(glassView, positioned: .below, relativeTo: contentView.subviews.first)
-
-            objc_setAssociatedObject(window, &glassViewKey, glassView, .OBJC_ASSOCIATION_RETAIN)
-            return
+        } else {
+            usingGlassEffectView = false
+            // Fallback to NSVisualEffectView
+            glassView = NSVisualEffectView(frame: bounds)
+            glassView.blendingMode = .behindWindow
+            glassView.material = .hudWindow
+            glassView.state = .active
+            glassView.wantsLayer = true
         }
 
-        // Older macOS: insert blur as a background subview instead of replacing contentView.
-        // Replacing contentView on macOS 13-15 breaks traffic light rendering when the
-        // window uses fullSizeContentView + titlebarAppearsTransparent.
-        let blurView = NSVisualEffectView(frame: bounds)
-        blurView.blendingMode = .behindWindow
-        blurView.material = .hudWindow
-        blurView.state = .active
-        blurView.wantsLayer = true
-        blurView.autoresizingMask = [.width, .height]
+        glassView.autoresizingMask = [.width, .height]
 
-        contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
+        if usingGlassEffectView {
+            // NSGlassEffectView is a full replacement for the contentView.
+            window.contentView = glassView
 
-        // Tint overlay on top of blur, still behind content
-        if let color = tintColor {
+            // Re-add the original SwiftUI hosting view on top of the glass, filling entire area.
+            originalContentView.translatesAutoresizingMaskIntoConstraints = false
+            originalContentView.wantsLayer = true
+            originalContentView.layer?.backgroundColor = NSColor.clear.cgColor
+            glassView.addSubview(originalContentView)
+
+            NSLayoutConstraint.activate([
+                originalContentView.topAnchor.constraint(equalTo: glassView.topAnchor),
+                originalContentView.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+                originalContentView.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+                originalContentView.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
+            ])
+        } else {
+            // For NSVisualEffectView fallback (macOS 13-15), do NOT replace window.contentView.
+            // Replacing contentView can break traffic light rendering with
+            // `.fullSizeContentView` + `titlebarAppearsTransparent`.
+            glassView.translatesAutoresizingMaskIntoConstraints = false
+            originalContentView.addSubview(glassView, positioned: .below, relativeTo: nil)
+
+            NSLayoutConstraint.activate([
+                glassView.topAnchor.constraint(equalTo: originalContentView.topAnchor),
+                glassView.bottomAnchor.constraint(equalTo: originalContentView.bottomAnchor),
+                glassView.leadingAnchor.constraint(equalTo: originalContentView.leadingAnchor),
+                glassView.trailingAnchor.constraint(equalTo: originalContentView.trailingAnchor)
+            ])
+        }
+
+        // Add tint overlay between glass and content (for fallback)
+        if let tintColor, !usingGlassEffectView {
             let tintOverlay = NSView(frame: bounds)
-            tintOverlay.autoresizingMask = [.width, .height]
+            tintOverlay.translatesAutoresizingMaskIntoConstraints = false
             tintOverlay.wantsLayer = true
-            tintOverlay.layer?.backgroundColor = color.cgColor
-            contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
+            tintOverlay.layer?.backgroundColor = tintColor.cgColor
+            glassView.addSubview(tintOverlay)
+            NSLayoutConstraint.activate([
+                tintOverlay.topAnchor.constraint(equalTo: glassView.topAnchor),
+                tintOverlay.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+                tintOverlay.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+                tintOverlay.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
+            ])
             objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
         }
 
-        objc_setAssociatedObject(window, &glassViewKey, blurView, .OBJC_ASSOCIATION_RETAIN)
+        // Store reference
+        objc_setAssociatedObject(window, &glassViewKey, glassView, .OBJC_ASSOCIATION_RETAIN)
     }
 
     /// Update the tint color on an existing glass effect
@@ -167,8 +202,7 @@ struct ContentView: View {
                                     isResizerHovering = true
                                 }
                             }
-                            // Allow a wider sidebar so long paths and metadata aren't constantly truncated.
-                            let nextWidth = max(186, min(640, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
+                            let nextWidth = max(186, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
                             withTransaction(Transaction(animation: nil)) {
                                 sidebarWidth = nextWidth
                             }
@@ -193,7 +227,7 @@ struct ContentView: View {
             ZStack {
                 ForEach(tabManager.tabs) { tab in
                     let isActive = tabManager.selectedTabId == tab.id
-                    TerminalSplitTreeView(tab: tab, isTabActive: isActive)
+                    WorkspaceContentView(workspace: tab, isTabActive: isActive)
                         .opacity(isActive ? 1 : 0)
                         .allowsHitTesting(isActive)
                 }
@@ -263,10 +297,10 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
-        // Use focused surface's directory if available
-        if let focusedSurfaceId = tab.focusedSurfaceId,
-           let surfaceDir = tab.surfaceDirectories[focusedSurfaceId] {
-            let trimmed = surfaceDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Use focused panel's directory if available
+        if let focusedPanelId = tab.focusedPanelId,
+           let panelDir = tab.panelDirectories[focusedPanelId] {
+            let trimmed = panelDir.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return trimmed
             }
@@ -360,22 +394,23 @@ struct ContentView: View {
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
             window.titlebarAppearsTransparent = true
             window.styleMask.insert(.fullSizeContentView)
-            // Background glass: skip on macOS 26+ where NSGlassEffectView causes blank SwiftUI content.
-            // The transparency setup (non-opaque window + clear subview backgrounds) breaks rendering.
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled
-                && !WindowGlassEffect.isAvailable {
+            // For behindWindow blur to work, window must be non-opaque with transparent content view
+            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled {
                 window.isOpaque = false
                 window.backgroundColor = .clear
+                // Configure contentView and all subviews for transparency
                 if let contentView = window.contentView {
                     contentView.wantsLayer = true
                     contentView.layer?.backgroundColor = NSColor.clear.cgColor
                     contentView.layer?.isOpaque = false
+                    // Make SwiftUI hosting view transparent
                     for subview in contentView.subviews {
                         subview.wantsLayer = true
                         subview.layer?.backgroundColor = NSColor.clear.cgColor
                         subview.layer?.isOpaque = false
                     }
                 }
+                // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
             }
@@ -492,13 +527,6 @@ struct TabItemView: View {
         selectedTabIds.contains(tab.id)
     }
 
-    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
-    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
-    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
-    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
-    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
-    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -548,74 +576,14 @@ struct TabItemView: View {
                     .multilineTextAlignment(.leading)
             }
 
-            if sidebarShowStatusPills, !tab.statusEntries.isEmpty {
-                SidebarStatusPillsRow(
-                    entries: tab.statusEntries.values.sorted(by: { (lhs, rhs) in
-                        if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-                        return lhs.key < rhs.key
-                    }),
-                    isActive: isActive
-                )
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            // Latest log entry
-            if sidebarShowLog, let latestLog = tab.logEntries.last {
-                HStack(spacing: 4) {
-                    Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: 8))
-                        .foregroundColor(logLevelColor(latestLog.level, isActive: isActive))
-                    Text(latestLog.message)
-                        .font(.system(size: 10))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            // Progress bar
-            if sidebarShowProgress, let progress = tab.progress {
-                VStack(alignment: .leading, spacing: 2) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(isActive ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2))
-                            Capsule()
-                                .fill(isActive ? Color.white.opacity(0.8) : Color.accentColor)
-                                .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
-                        }
-                    }
-                    .frame(height: 3)
-
-                    if let label = progress.label {
-                        Text(label)
-                            .font(.system(size: 9))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            // Branch + directory row
-            if let dirRow = branchDirectoryRow {
-                HStack(spacing: 3) {
-                    if sidebarShowGitBranch && tab.gitBranch != nil && sidebarShowGitBranchIcon {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 9))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
-                    }
-                    Text(dirRow)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+            if let directories = directorySummary {
+                Text(directories)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
-        .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -815,39 +783,13 @@ struct TabItemView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private var branchDirectoryRow: String? {
-        var parts: [String] = []
-
-        // Git branch (if enabled and available)
-        if sidebarShowGitBranch, let git = tab.gitBranch {
-            let dirty = git.isDirty ? "*" : ""
-            parts.append("\(git.branch)\(dirty)")
-        }
-
-        // Directory summary
-        if let dirs = directorySummaryText {
-            parts.append(dirs)
-        }
-
-        // Ports (if enabled and available)
-        if sidebarShowPorts, !tab.listeningPorts.isEmpty {
-            let portsStr = tab.listeningPorts.map { ":\($0)" }.joined(separator: ",")
-            parts.append(portsStr)
-        }
-
-        let result = parts.joined(separator: " · ")
-        return result.isEmpty ? nil : result
-    }
-
-    private var directorySummaryText: String? {
-        guard let root = tab.splitTree.root else { return nil }
-        let surfaces = root.leaves()
-        guard !surfaces.isEmpty else { return nil }
+    private var directorySummary: String? {
+        guard !tab.panels.isEmpty else { return nil }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var seen: Set<String> = []
         var entries: [String] = []
-        for surface in surfaces {
-            let directory = tab.surfaceDirectories[surface.id] ?? tab.currentDirectory
+        for panelId in tab.panels.keys {
+            let directory = tab.panelDirectories[panelId] ?? tab.currentDirectory
             let shortened = shortenPath(directory, home: home)
             guard !shortened.isEmpty else { continue }
             if seen.insert(shortened).inserted {
@@ -855,35 +797,6 @@ struct TabItemView: View {
             }
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
-    }
-
-    private func logLevelIcon(_ level: SidebarLogLevel) -> String {
-        switch level {
-        case .info: return "circle.fill"
-        case .progress: return "arrowtriangle.right.fill"
-        case .success: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .error: return "xmark.circle.fill"
-        }
-    }
-
-    private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
-        if isActive {
-            switch level {
-            case .info: return .white.opacity(0.5)
-            case .progress: return .white.opacity(0.8)
-            case .success: return .white.opacity(0.9)
-            case .warning: return .white.opacity(0.9)
-            case .error: return .white.opacity(0.9)
-            }
-        }
-        switch level {
-        case .info: return .secondary
-        case .progress: return .blue
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
-        }
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
@@ -917,94 +830,6 @@ struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
-    }
-}
-
-private struct SidebarStatusPillsRow: View {
-    let entries: [SidebarStatusEntry]
-    let isActive: Bool
-
-    private let maxVisiblePills = 3
-
-    var body: some View {
-        let visible = Array(entries.prefix(maxVisiblePills))
-        let overflow = max(0, entries.count - visible.count)
-
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(visible) { entry in
-                    SidebarStatusPill(entry: entry, isActive: isActive)
-                }
-                if overflow > 0 {
-                    SidebarStatusOverflowPill(count: overflow, isActive: isActive)
-                }
-            }
-            .padding(.vertical, 1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct SidebarStatusPill: View {
-    let entry: SidebarStatusEntry
-    let isActive: Bool
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if let icon = entry.icon, !icon.isEmpty {
-                Image(systemName: icon)
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(iconColor)
-            }
-            Text("\(entry.key)=\(entry.value)")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(textColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 150, alignment: .leading)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(backgroundColor)
-        )
-        .help("\(entry.key)=\(entry.value)")
-    }
-
-    private var backgroundColor: Color {
-        isActive ? .white.opacity(0.15) : .secondary.opacity(0.14)
-    }
-
-    private var textColor: Color {
-        isActive ? .white.opacity(0.9) : .secondary
-    }
-
-    private var iconColor: Color {
-        guard !isActive else { return .white.opacity(0.85) }
-        if let hex = entry.color, let nsColor = NSColor(hex: hex) {
-            return Color(nsColor: nsColor)
-        }
-        return .secondary
-    }
-}
-
-private struct SidebarStatusOverflowPill: View {
-    let count: Int
-    let isActive: Bool
-
-    var body: some View {
-        Text("+\(count)")
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .foregroundColor(isActive ? .white.opacity(0.85) : .secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(isActive ? .white.opacity(0.15) : .secondary.opacity(0.14))
-            )
-            .help("\(count) more status entries")
     }
 }
 
