@@ -15,5 +15,7 @@ if [[ -z "${APP_PATH}" ]]; then
   echo "cmuxterm.app not found in DerivedData" >&2
   exit 1
 fi
-open "$APP_PATH"
+# Dev shells (including CI/Codex) often force-disable paging by exporting these.
+# Don't leak that into cmuxterm, otherwise `git diff` won't page even with PAGER=less.
+env -u GIT_PAGER -u GH_PAGER open "$APP_PATH"
 osascript -e 'tell application "cmuxterm" to activate' || true
