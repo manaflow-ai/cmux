@@ -1,28 +1,47 @@
-# cmuxterm ZDOTDIR wrapper — sources user's .zshenv
+# vim:ft=zsh
 #
-# zsh resolves startup files relative to $ZDOTDIR. We point $ZDOTDIR at this
-# wrapper directory so zsh loads our wrappers, but we must preserve the user's
-# semantics when sourcing their real files. In particular, many setups rely on
-# $ZDOTDIR inside early startup files, so source with ZDOTDIR temporarily
-# restored to the original value.
-_cmux_wrapper_zdotdir="${ZDOTDIR:-}"
-_cmux_real_zdotdir="${CMUX_ORIGINAL_ZDOTDIR:-$HOME}"
-if [ -f "$_cmux_real_zdotdir/.zshenv" ]; then
-    ZDOTDIR="$_cmux_real_zdotdir"
-    source "$_cmux_real_zdotdir/.zshenv"
+# cmuxterm ZDOTDIR bootstrap for zsh.
+#
+# GhosttyKit already uses a ZDOTDIR injection mechanism for zsh (setting ZDOTDIR
+# to Ghostty's integration dir). cmuxterm also needs to run its integration, but
+# we must restore the user's real ZDOTDIR immediately so that:
+# - /etc/zshrc sets HISTFILE relative to the real ZDOTDIR/HOME (shared history)
+# - zsh loads the user's real .zprofile/.zshrc normally (no wrapper recursion)
+#
+# We restore ZDOTDIR from (in priority order):
+# - GHOSTTY_ZSH_ZDOTDIR (set by GhosttyKit when it overwrote ZDOTDIR)
+# - CMUX_ZSH_ZDOTDIR (set by cmuxterm when it overwrote a user-provided ZDOTDIR)
+# - unset (zsh treats unset ZDOTDIR as $HOME)
+
+if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
+    builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
+    builtin unset GHOSTTY_ZSH_ZDOTDIR
+elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]]; then
+    builtin export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"
+    builtin unset CMUX_ZSH_ZDOTDIR
+else
+    builtin unset ZDOTDIR
 fi
 
-# For interactive shells, keep the wrapper chain intact so zsh loads our
-# .zprofile/.zshrc wrappers next. For non-interactive shells, leave ZDOTDIR
-# pointing at the real directory to avoid surprising script semantics.
-case $- in
-    *i*)
-        if [ -n "$_cmux_wrapper_zdotdir" ]; then
-            ZDOTDIR="$_cmux_wrapper_zdotdir"
-        else
-            unset ZDOTDIR
+{
+    # zsh treats unset ZDOTDIR as if it were HOME. We do the same.
+    builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zshenv"
+    [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
+} always {
+    if [[ -o interactive ]]; then
+        # We overwrote GhosttyKit's injected ZDOTDIR, so manually load Ghostty's
+        # zsh integration if available.
+        if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+            builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
+            [[ -r "$_cmux_ghostty" ]] && builtin source -- "$_cmux_ghostty"
         fi
-        ;;
-esac
 
-unset _cmux_real_zdotdir _cmux_wrapper_zdotdir
+        # Load cmuxterm integration (unless disabled)
+        if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then
+            builtin typeset _cmux_integ="$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"
+            [[ -r "$_cmux_integ" ]] && builtin source -- "$_cmux_integ"
+        fi
+    fi
+
+    builtin unset _cmux_file _cmux_ghostty _cmux_integ
+}

@@ -59,6 +59,8 @@ struct cmuxApp: App {
             let resourcesParent = resourcesURL.deletingLastPathComponent()
             let dataDir = resourcesParent.path
             let manDir = resourcesParent.appendingPathComponent("man").path
+            let bundledTerminfoDir = resourcesURL.appendingPathComponent("terminfo").path
+            let siblingTerminfoDir = resourcesParent.appendingPathComponent("terminfo").path
 
             appendEnvPathIfMissing(
                 "XDG_DATA_DIRS",
@@ -66,6 +68,18 @@ struct cmuxApp: App {
                 defaultValue: "/usr/local/share:/usr/share"
             )
             appendEnvPathIfMissing("MANPATH", path: manDir)
+
+            // Ensure `TERM=xterm-ghostty` works even when launching from Finder
+            // (no shell to pre-seed TERMINFO). Prefer a terminfo directory next
+            // to the configured ghostty resources, but fall back to the sibling
+            // layout used by the Ghostty.app bundle.
+            if getenv("TERMINFO") == nil {
+                if fileManager.fileExists(atPath: bundledTerminfoDir) {
+                    setenv("TERMINFO", bundledTerminfoDir, 1)
+                } else if fileManager.fileExists(atPath: siblingTerminfoDir) {
+                    setenv("TERMINFO", siblingTerminfoDir, 1)
+                }
+            }
         }
     }
 

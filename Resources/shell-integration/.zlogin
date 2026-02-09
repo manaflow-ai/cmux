@@ -1,16 +1,19 @@
-# cmuxterm ZDOTDIR wrapper — sources user's .zlogin
-_cmux_wrapper_zdotdir="${ZDOTDIR:-}"
-_cmux_real_zdotdir="${CMUX_ORIGINAL_ZDOTDIR:-$HOME}"
-if [ -f "$_cmux_real_zdotdir/.zlogin" ]; then
-    ZDOTDIR="$_cmux_real_zdotdir"
-    source "$_cmux_real_zdotdir/.zlogin"
-fi
+# vim:ft=zsh
+#
+# Compatibility shim: with the current integration model, cmuxterm restores
+# ZDOTDIR in .zshenv so this file should never be reached. If it is, restore
+# ZDOTDIR and behave like vanilla zsh by sourcing the user's .zlogin.
 
-# Restore whatever ZDOTDIR was for the current shell.
-if [ -n "$_cmux_wrapper_zdotdir" ]; then
-    ZDOTDIR="$_cmux_wrapper_zdotdir"
+if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
+    builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
+    builtin unset GHOSTTY_ZSH_ZDOTDIR
+elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]]; then
+    builtin export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"
+    builtin unset CMUX_ZSH_ZDOTDIR
 else
-    unset ZDOTDIR
+    builtin unset ZDOTDIR
 fi
 
-unset _cmux_real_zdotdir _cmux_wrapper_zdotdir
+builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zlogin"
+[[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
+builtin unset _cmux_file
