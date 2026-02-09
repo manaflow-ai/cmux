@@ -96,7 +96,7 @@ final class Workspace: Identifiable, ObservableObject {
         var initialTabId: TabID?
         if let tabId = bonsplitController.createTab(
             title: title,
-            icon: "terminal",
+            icon: "terminal.fill",
             isDirty: false
         ) {
             surfaceIdToPanelId[tabId] = terminalPanel.id

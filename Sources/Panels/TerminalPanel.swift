@@ -35,7 +35,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "terminal"
+        "terminal.fill"
     }
 
     var isDirty: Bool {

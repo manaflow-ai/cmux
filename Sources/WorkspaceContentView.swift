@@ -73,7 +73,7 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "terminal")
+            Image(systemName: "terminal.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
