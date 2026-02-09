@@ -212,6 +212,9 @@ def _focused_panel_rect(c: cmux, panel_id: str) -> dict:
 
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
+        c.activate_app()
+        time.sleep(0.2)
+
         c.new_workspace()
         time.sleep(0.3)
 
@@ -231,6 +234,10 @@ def main() -> int:
         # Create a new nested tab in the focused pane.
         new_id = c.new_surface(panel_type="terminal")
         time.sleep(0.35)
+
+        # Ensure the app/key window is active before asserting first-responder focus.
+        c.activate_app()
+        time.sleep(0.2)
 
         # The new surface should be focused and interactive immediately.
         _wait_for_terminal_focus(c, new_id, timeout_s=2.0)

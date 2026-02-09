@@ -239,6 +239,12 @@ class TerminalController {
         case "layout_debug":
             return layoutDebug()
 
+        case "bonsplit_underflow_count":
+            return bonsplitUnderflowCount()
+
+        case "reset_bonsplit_underflow_count":
+            return resetBonsplitUnderflowCount()
+
         case "empty_panel_count":
             return emptyPanelCount()
 
@@ -396,6 +402,8 @@ class TerminalController {
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
+          bonsplit_underflow_count        - Count bonsplit arranged-subview underflow events (test-only)
+          reset_bonsplit_underflow_count  - Reset bonsplit underflow counter (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
         """
@@ -1648,6 +1656,27 @@ class TerminalController {
     private func resetEmptyPanelCount() -> String {
         DispatchQueue.main.sync {
             DebugUIEventCounters.resetEmptyPanelAppearCount()
+        }
+        return "OK"
+    }
+
+    private func bonsplitUnderflowCount() -> String {
+        var result = "OK 0"
+        DispatchQueue.main.sync {
+#if DEBUG
+            result = "OK \(BonsplitDebugCounters.arrangedSubviewUnderflowCount)"
+#else
+            result = "OK 0"
+#endif
+        }
+        return result
+    }
+
+    private func resetBonsplitUnderflowCount() -> String {
+        DispatchQueue.main.sync {
+#if DEBUG
+            BonsplitDebugCounters.reset()
+#endif
         }
         return "OK"
     }

@@ -615,6 +615,19 @@ class cmux:
             "path": path,
         }
 
+    def bonsplit_underflow_count(self) -> int:
+        """Return bonsplit arranged-subview underflow counter (debug builds only)."""
+        response = self._send_command("bonsplit_underflow_count")
+        if response.startswith("OK "):
+            return int(response.split(" ", 1)[1])
+        raise cmuxError(response)
+
+    def reset_bonsplit_underflow_count(self) -> None:
+        """Reset bonsplit arranged-subview underflow counter (debug builds only)."""
+        response = self._send_command("reset_bonsplit_underflow_count")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def empty_panel_count(self) -> int:
         """Return the number of EmptyPanelView appearances (debug builds only)."""
         response = self._send_command("empty_panel_count")

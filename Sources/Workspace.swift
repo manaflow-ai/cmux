@@ -319,7 +319,10 @@ final class Workspace: Identifiable, ObservableObject {
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId)
+            // Kick focus immediately, even if bonsplit selection state lags by a tick.
+            // `ensureFocus` will retry until this surface is the focused model surface.
+            newPanel.focus()
+            applyTabSelectionEventually(tabId: newTabId, inPane: paneId)
         }
         return newPanel
     }
@@ -406,7 +409,8 @@ final class Workspace: Identifiable, ObservableObject {
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId)
+            browserPanel.focus()
+            applyTabSelectionEventually(tabId: newTabId, inPane: paneId)
         }
 
         // Subscribe to browser title changes to update the bonsplit tab
@@ -604,6 +608,23 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
+    }
+
+    private func applyTabSelectionEventually(tabId: TabID, inPane pane: PaneID, attempt: Int = 0) {
+        let maxAttempts = 50
+        guard attempt < maxAttempts else { return }
+
+        // Wait until bonsplit's internal focus/selection state has actually applied.
+        // In some programmatic paths (createTab/selectTab), these can lag by a runloop tick.
+        if bonsplitController.focusedPaneId == pane,
+           bonsplitController.selectedTab(inPane: pane)?.id == tabId {
+            applyTabSelection(tabId: tabId, inPane: pane)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+            self?.applyTabSelectionEventually(tabId: tabId, inPane: pane, attempt: attempt + 1)
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
