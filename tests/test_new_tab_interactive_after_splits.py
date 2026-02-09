@@ -25,6 +25,14 @@ from cmux import cmux, cmuxError
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmuxterm-debug.sock")
 
+def _wait_for(pred, timeout_s: float, step_s: float = 0.05) -> None:
+    start = time.time()
+    while time.time() - start < timeout_s:
+        if pred():
+            return
+        time.sleep(step_s)
+    raise cmuxError("Timed out waiting for condition")
+
 
 def _wait_for_terminal_focus(c: cmux, panel_id: str, timeout_s: float = 3.0) -> None:
     start = time.time()
@@ -49,6 +57,9 @@ def _wait_for_text(c: cmux, panel_id: str, needle: str, timeout_s: float = 2.5) 
 
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
+        c.activate_app()
+        time.sleep(0.2)
+
         c.new_workspace()
         time.sleep(0.35)
 
@@ -83,10 +94,36 @@ def main() -> int:
 
             _wait_for_terminal_focus(c, new_id, timeout_s=3.0)
 
+            baseline_present = int(c.render_stats(new_id).get("presentCount", 0) or 0)
+
             token = f"CMUX_NEW_TAB_OK_{i}_{uuid.uuid4().hex[:10]}"
-            c.simulate_type(f"echo {token}")
-            c.simulate_shortcut("enter")
-            _wait_for_text(c, new_id, token, timeout_s=2.5)
+            tmp = f"/tmp/cmux_new_tab_{token}.txt"
+            cmd = f"echo {token} > {tmp}"
+            c.simulate_type(cmd)
+
+            # Regression: typed text must show up before Enter.
+            _wait_for_text(c, new_id, cmd, timeout_s=2.0)
+
+            # And the view must actually present a new frame while typing.
+            def did_present() -> bool:
+                stats = c.render_stats(new_id)
+                return int(stats.get("presentCount", 0) or 0) > baseline_present
+
+            _wait_for(lambda: did_present(), timeout_s=2.0)
+
+            # Use insertText for newline instead of a synthetic keyDown "enter" event.
+            # This avoids flakiness when the key window/responder chain is in flux.
+            c.simulate_type("\n")
+            start = time.time()
+            while time.time() - start < 3.0:
+                try:
+                    if Path(tmp).read_text().strip() == token:
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.05)
+            else:
+                raise cmuxError(f"Timed out waiting for tmp file write: {tmp}")
 
         print("PASS: new tab is interactive after many splits")
         return 0
@@ -94,4 +131,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

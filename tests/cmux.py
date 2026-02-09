@@ -579,6 +579,42 @@ class cmux:
         except json.JSONDecodeError as e:
             raise cmuxError(f"render_stats JSON decode failed: {e}: {payload[:200]}")
 
+    def panel_snapshot_reset(self, panel: Union[str, int]) -> None:
+        """Reset the stored snapshot for a panel (debug builds only)."""
+        response = self._send_command(f"panel_snapshot_reset {panel}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def panel_snapshot(self, panel: Union[str, int], label: str = "") -> dict:
+        """
+        Capture a screenshot of a panel and return pixel-diff info (debug builds only).
+
+        Returns dict:
+          panel_id: str
+          changed_pixels: int  (-1 means "no previous snapshot" or size mismatch)
+          width: int
+          height: int
+          path: str (PNG path)
+        """
+        cmd = f"panel_snapshot {panel}"
+        if label:
+            cmd += f" {label}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK "):
+            raise cmuxError(response)
+        payload = response[3:].strip()
+        parts = payload.split(" ", 4)
+        if len(parts) != 5:
+            raise cmuxError(f"panel_snapshot parse failed: {response}")
+        panel_id, changed, width, height, path = parts
+        return {
+            "panel_id": panel_id,
+            "changed_pixels": int(changed),
+            "width": int(width),
+            "height": int(height),
+            "path": path,
+        }
+
     def empty_panel_count(self) -> int:
         """Return the number of EmptyPanelView appearances (debug builds only)."""
         response = self._send_command("empty_panel_count")

@@ -254,6 +254,12 @@ class TerminalController {
         case "reset_flash_counts":
             return resetFlashCounts()
 
+        case "panel_snapshot":
+            return panelSnapshot(args)
+
+        case "panel_snapshot_reset":
+            return panelSnapshotReset(args)
+
         case "screenshot":
             return captureScreenshot(args)
 #endif
@@ -449,28 +455,39 @@ class TerminalController {
         return "OK"
     }
 
-    private func simulateShortcut(_ args: String) -> String {
-        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !combo.isEmpty else {
-            return "ERROR: Usage: simulate_shortcut <combo>"
-        }
-        guard let parsed = parseShortcutCombo(combo) else {
-            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
-        }
-
-        var result = "ERROR: Failed to create event"
-        DispatchQueue.main.sync {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: parsed.modifierFlags,
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
-                context: nil,
-                characters: parsed.characters,
-                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-                isARepeat: false,
-                keyCode: parsed.keyCode
+	    private func simulateShortcut(_ args: String) -> String {
+	        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
+	        guard !combo.isEmpty else {
+	            return "ERROR: Usage: simulate_shortcut <combo>"
+	        }
+	        guard let parsed = parseShortcutCombo(combo) else {
+	            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+	        }
+	
+	        var result = "ERROR: Failed to create event"
+	        DispatchQueue.main.sync {
+	            // Tests can run while the app is activating (no keyWindow yet). Prefer a visible
+	            // window to keep input simulation deterministic in debug builds.
+	            let targetWindow = NSApp.keyWindow
+	                ?? NSApp.mainWindow
+	                ?? NSApp.windows.first(where: { $0.isVisible })
+	                ?? NSApp.windows.first
+	            if let targetWindow {
+	                NSApp.activate(ignoringOtherApps: true)
+	                targetWindow.makeKeyAndOrderFront(nil)
+	            }
+	            let windowNumber = (NSApp.keyWindow ?? targetWindow)?.windowNumber ?? 0
+	            guard let event = NSEvent.keyEvent(
+	                with: .keyDown,
+	                location: .zero,
+	                modifierFlags: parsed.modifierFlags,
+	                timestamp: ProcessInfo.processInfo.systemUptime,
+	                windowNumber: windowNumber,
+	                context: nil,
+	                characters: parsed.characters,
+	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+	                isARepeat: false,
+	                keyCode: parsed.keyCode
             ) else {
                 result = "ERROR: NSEvent.keyEvent returned nil"
                 return
@@ -492,22 +509,29 @@ class TerminalController {
         return "OK"
     }
 
-    private func simulateType(_ args: String) -> String {
-        let raw = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else {
-            return "ERROR: Usage: simulate_type <text>"
-        }
+	    private func simulateType(_ args: String) -> String {
+	        let raw = args.trimmingCharacters(in: .whitespacesAndNewlines)
+	        guard !raw.isEmpty else {
+	            return "ERROR: Usage: simulate_type <text>"
+	        }
 
         // Socket commands are line-based; allow callers to express control chars with backslash escapes.
         let text = unescapeSocketText(raw)
 
-        var result = "ERROR: No key window"
-        DispatchQueue.main.sync {
-            guard let window = NSApp.keyWindow else { return }
-            guard let fr = window.firstResponder else {
-                result = "ERROR: No first responder"
-                return
-            }
+	        var result = "ERROR: No window"
+	        DispatchQueue.main.sync {
+	            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
+	            // fail during key window transitions.
+	            guard let window = NSApp.keyWindow
+	                ?? NSApp.mainWindow
+	                ?? NSApp.windows.first(where: { $0.isVisible })
+	                ?? NSApp.windows.first else { return }
+	            NSApp.activate(ignoringOtherApps: true)
+	            window.makeKeyAndOrderFront(nil)
+	            guard let fr = window.firstResponder else {
+	                result = "ERROR: No first responder"
+	                return
+	            }
 
             if let client = fr as? NSTextInputClient {
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -653,9 +677,14 @@ class TerminalController {
         let lastDrawTime: Double
         let metalDrawableCount: Int
         let metalLastDrawableTime: Double
+        let presentCount: Int
+        let lastPresentTime: Double
         let layerClass: String
+        let layerContentsKey: String
         let inWindow: Bool
         let windowIsKey: Bool
+        let windowOcclusionVisible: Bool
+        let appIsActive: Bool
         let isActive: Bool
         let desiredFocus: Bool
         let isFirstResponder: Bool
@@ -693,9 +722,14 @@ class TerminalController {
                 lastDrawTime: stats.lastDrawTime,
                 metalDrawableCount: stats.metalDrawableCount,
                 metalLastDrawableTime: stats.metalLastDrawableTime,
+                presentCount: stats.presentCount,
+                lastPresentTime: stats.lastPresentTime,
                 layerClass: stats.layerClass,
+                layerContentsKey: stats.layerContentsKey,
                 inWindow: stats.inWindow,
                 windowIsKey: stats.windowIsKey,
+                windowOcclusionVisible: stats.windowOcclusionVisible,
+                appIsActive: stats.appIsActive,
                 isActive: stats.isActive,
                 desiredFocus: stats.desiredFocus,
                 isFirstResponder: stats.isFirstResponder
@@ -1207,6 +1241,199 @@ class TerminalController {
         }
         return "OK"
     }
+
+#if DEBUG
+    private struct PanelSnapshotState: Sendable {
+        let width: Int
+        let height: Int
+        let bytesPerRow: Int
+        let rgba: Data
+    }
+
+    /// Most tests run single-threaded but socket handlers can be invoked concurrently.
+    /// Keep snapshot bookkeeping simple and thread-safe.
+    private static let panelSnapshotLock = NSLock()
+    private static var panelSnapshots: [UUID: PanelSnapshotState] = [:]
+
+    private func panelSnapshotReset(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !panelArg.isEmpty else { return "ERROR: Usage: panel_snapshot_reset <panel_id|idx>" }
+
+        var result = "ERROR: No tab selected"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+            guard let panelId = resolveSurfaceId(from: panelArg, tab: tab) else {
+                result = "ERROR: Surface not found"
+                return
+            }
+            Self.panelSnapshotLock.lock()
+            Self.panelSnapshots.removeValue(forKey: panelId)
+            Self.panelSnapshotLock.unlock()
+            result = "OK"
+        }
+
+        return result
+    }
+
+    private static func makePanelSnapshot(from cgImage: CGImage) -> PanelSnapshotState? {
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return nil }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var data = Data(count: bytesPerRow * height)
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        let ok: Bool = data.withUnsafeMutableBytes { rawBuf in
+            guard let base = rawBuf.baseAddress else { return false }
+            guard let ctx = CGContext(
+                data: base,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else { return false }
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard ok else { return nil }
+
+        return PanelSnapshotState(width: width, height: height, bytesPerRow: bytesPerRow, rgba: data)
+    }
+
+    private static func countChangedPixels(previous: PanelSnapshotState, current: PanelSnapshotState) -> Int {
+        // Any mismatch means we can't sensibly diff; treat as a fresh snapshot.
+        guard previous.width == current.width,
+              previous.height == current.height,
+              previous.bytesPerRow == current.bytesPerRow else {
+            return -1
+        }
+
+        let threshold = 8 // ignore tiny per-channel jitter
+        var changed = 0
+
+        previous.rgba.withUnsafeBytes { prevRaw in
+            current.rgba.withUnsafeBytes { curRaw in
+                guard let prev = prevRaw.bindMemory(to: UInt8.self).baseAddress,
+                      let cur = curRaw.bindMemory(to: UInt8.self).baseAddress else {
+                    return
+                }
+
+                let count = min(prevRaw.count, curRaw.count)
+                var i = 0
+                while i + 3 < count {
+                    let dr = abs(Int(prev[i]) - Int(cur[i]))
+                    let dg = abs(Int(prev[i + 1]) - Int(cur[i + 1]))
+                    let db = abs(Int(prev[i + 2]) - Int(cur[i + 2]))
+                    // Skip alpha channel at i+3.
+                    if dr + dg + db > threshold {
+                        changed += 1
+                    }
+                    i += 4
+                }
+            }
+        }
+
+        return changed
+    }
+
+    private func panelSnapshot(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "ERROR: Usage: panel_snapshot <panel_id|idx> [label]" }
+
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        let panelArg = parts.first ?? ""
+        let label = parts.count > 1 ? parts[1] : ""
+
+        // Generate unique ID for this snapshot/screenshot
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "+", with: "_")
+        let shortId = UUID().uuidString.prefix(8)
+        let snapshotId = "\(timestamp)_\(shortId)"
+
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-screenshots")
+        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let filename = label.isEmpty ? "\(snapshotId).png" : "\(label)_\(snapshotId).png"
+        let outputPath = outputDir.appendingPathComponent(filename)
+
+        var result = "ERROR: No tab selected"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            guard let panelId = resolveSurfaceId(from: panelArg, tab: tab),
+                  let terminalPanel = tab.terminalPanel(for: panelId),
+                  let window = terminalPanel.hostedView.window else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+
+            // Prefer the view's frame as laid out by its superview.
+            let view = terminalPanel.hostedView
+            let rectInWindow: CGRect = if let superview = view.superview {
+                superview.convert(view.frame, to: nil)
+            } else {
+                view.convert(view.bounds, to: nil)
+            }
+            let rectInScreen = window.convertToScreen(rectInWindow)
+            let windowNumber = CGWindowID(window.windowNumber)
+
+            guard let cgImage = CGWindowListCreateImage(
+                rectInScreen,
+                .optionIncludingWindow,
+                windowNumber,
+                [.boundsIgnoreFraming, .nominalResolution]
+            ) else {
+                result = "ERROR: Failed to capture panel image"
+                return
+            }
+
+            guard let current = Self.makePanelSnapshot(from: cgImage) else {
+                result = "ERROR: Failed to read panel pixels"
+                return
+            }
+
+            var changedPixels = -1
+            Self.panelSnapshotLock.lock()
+            if let previous = Self.panelSnapshots[panelId] {
+                changedPixels = Self.countChangedPixels(previous: previous, current: current)
+            }
+            Self.panelSnapshots[panelId] = current
+            Self.panelSnapshotLock.unlock()
+
+            // Save PNG for postmortem debugging.
+            let bitmap = NSBitmapImageRep(cgImage: cgImage)
+            guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                result = "ERROR: Failed to encode PNG"
+                return
+            }
+
+            do {
+                try pngData.write(to: outputPath)
+            } catch {
+                result = "ERROR: Failed to write file: \(error.localizedDescription)"
+                return
+            }
+
+            result = "OK \(panelId.uuidString) \(changedPixels) \(current.width) \(current.height) \(outputPath.path)"
+        }
+
+        return result
+    }
+#endif
 
     private struct LayoutDebugSelectedPanel: Codable, Sendable {
         let paneId: String

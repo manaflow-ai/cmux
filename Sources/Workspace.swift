@@ -313,11 +313,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceIdToPanelId[newTabId] = newPanel.id
 
-        // bonsplit's createTab selects the new tab internally but does not emit didSelectTab.
-        // If we don't explicitly select it, our focus/unfocus handlers won't run, which can
-        // leave the new surface visually "frozen" until a later focus change triggers it.
+        // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
+        // updates can be deferred. Force a deterministic selection + focus path so the new
+        // surface becomes interactive immediately (no "frozen until pane switch" state).
         if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
         }
         return newPanel
     }
@@ -400,9 +402,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceIdToPanelId[newTabId] = browserPanel.id
 
-        // Match terminal behavior: ensure delegate focus handlers run for the newly-selected tab.
+        // Match terminal behavior: enforce deterministic selection + focus.
         if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
         }
 
         // Subscribe to browser title changes to update the bonsplit tab
@@ -564,6 +568,44 @@ final class Workspace: Identifiable, ObservableObject {
 // MARK: - BonsplitDelegate
 
 extension Workspace: BonsplitDelegate {
+    /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
+    /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
+    private func applyTabSelection(tabId: TabID, inPane pane: PaneID) {
+        // Avoid racing with later user-driven selection changes.
+        guard bonsplitController.focusedPaneId == pane,
+              bonsplitController.selectedTab(inPane: pane)?.id == tabId else {
+            return
+        }
+
+        // Focus the selected panel
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let panel = panels[panelId] else {
+            return
+        }
+
+        // Unfocus all other panels
+        for (id, p) in panels where id != panelId {
+            p.unfocus()
+        }
+
+        panel.focus()
+
+        // Update current directory if this is a terminal
+        if let dir = panelDirectories[panelId] {
+            currentDirectory = dir
+        }
+
+        // Post notification
+        NotificationCenter.default.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: self.id,
+                GhosttyNotificationKey.surfaceId: panelId
+            ]
+        )
+    }
+
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
@@ -597,52 +639,17 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        // Focus the selected panel
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let panel = panels[panelId] else {
-            return
-        }
-
-        // Unfocus all other panels
-        for (id, p) in panels where id != panelId {
-            p.unfocus()
-        }
-
-        panel.focus()
-
-        // Update current directory if this is a terminal
-        if let dir = panelDirectories[panelId] {
-            currentDirectory = dir
-        }
-
-        // Post notification
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusSurface,
-            object: nil,
-            userInfo: [
-                GhosttyNotificationKey.tabId: self.id,
-                GhosttyNotificationKey.surfaceId: panelId
-            ]
-        )
+        applyTabSelection(tabId: tab.id, inPane: pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
         // When a pane is focused, focus its selected tab's panel
-        guard let tab = controller.selectedTab(inPane: pane),
-              let panelId = panelIdFromSurfaceId(tab.id),
-              let panel = panels[panelId] else {
-            return
-        }
-
-        // Unfocus all other panels
-        for (id, p) in panels where id != panelId {
-            p.unfocus()
-        }
-
-        panel.focus()
+        guard let tab = controller.selectedTab(inPane: pane) else { return }
+        applyTabSelection(tabId: tab.id, inPane: pane)
 
         // Apply window background for terminal
-        if let terminalPanel = panel as? TerminalPanel {
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
         }
     }

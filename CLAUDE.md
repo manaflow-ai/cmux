@@ -64,6 +64,19 @@ For parallel/isolated builds (e.g., testing a feature alongside the main app), u
 
 This creates an isolated app with its own name, bundle ID, socket, and derived data path so it runs side-by-side with the main app. Important: use a non-`/tmp` derived data path if you need xcframework resolution (the script handles this automatically).
 
+### Cleanup tagged DEV apps
+
+Tagged reloads create additional running apps named `cmuxterm DEV <tag>`. After finishing testing, quit/kill them so we don't accumulate lots of `cmuxterm DEV <tag>` processes:
+
+```bash
+osascript -e 'tell application "cmuxterm DEV <tag>" to quit' >/dev/null 2>&1 || true
+# Tagged apps keep the on-disk executable name `cmuxterm DEV` (no tag) inside the bundle.
+pkill -f "/cmuxterm DEV <tag>.app/Contents/MacOS/cmuxterm DEV" || true
+rm -f "/tmp/cmuxterm-debug-<tag>.sock" || true
+# Tagged reloads also create per-tag DerivedData in /tmp.
+rm -rf "/tmp/cmuxterm-<tag>" "/private/tmp/cmuxterm-<tag>" || true
+```
+
 ## Pitfalls
 
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
@@ -81,7 +94,7 @@ ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcode
 Run basic automated tests on the UTM macOS VM (never on the host machine):
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmuxterm DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmuxterm DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmuxterm.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmuxterm DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmuxterm DEV.app" -print -quit) && open "$APP" && for i in {1..40}; do [ -S /tmp/cmuxterm-debug.sock ] || [ -S /tmp/cmuxterm.sock ] && break; sleep 0.5; done && SOCK=/tmp/cmuxterm-debug.sock && [ ! -S "$SOCK" ] && SOCK=/tmp/cmuxterm.sock && export CMUX_SOCKET_PATH="$SOCK" && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
 ## Ghostty submodule workflow
