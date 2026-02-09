@@ -39,3 +39,5 @@ node_modules/
 # Test outputs
 tests/visual_output/
 tests/visual_report.html
+tests/terminal_input_report.html
+tests/*_report*.html
