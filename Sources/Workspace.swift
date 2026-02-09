@@ -3,29 +3,6 @@ import SwiftUI
 import Bonsplit
 import Combine
 
-// MARK: - Sidebar Metadata Types (Shell Integration)
-
-struct SidebarStatusEntry: Identifiable {
-    let id = UUID()
-    let key: String
-    var value: String
-    var icon: String?
-    var color: String?
-    var timestamp: Date
-}
-
-enum SidebarLogLevel: String {
-    case info, progress, success, warning, error
-}
-
-struct SidebarLogEntry: Identifiable {
-    let id = UUID()
-    let message: String
-    let level: SidebarLogLevel
-    let source: String?
-    let timestamp: Date
-}
-
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
