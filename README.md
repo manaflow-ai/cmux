@@ -1,5 +1,5 @@
 <h1 align="center">cmuxterm</h1>
-<p align="center">A lightweight native macOS terminal with vertical tabs and notifications for AI coding agents</p>
+<p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
 
 <p align="center">
   <a href="https://github.com/manaflow-ai/cmuxterm/releases/latest/download/cmuxterm-macos.dmg">
@@ -15,7 +15,8 @@
 
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Vertical tabs** — See all your terminals at a glance in a sidebar
-- **Notification panel** — Tabs flash when AI agents (Claude Code, Codex) need your attention
+- **Notification panel** — See which agents are waiting for input at a glance
+- **Notification rings** — Tabs flash when AI agents (Claude Code, Codex) need your attention
 - **Lightweight** — Small binary, minimal resource footprint. No bundled browser engine.
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
 
