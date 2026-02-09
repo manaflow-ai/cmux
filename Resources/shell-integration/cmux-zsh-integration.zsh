@@ -30,11 +30,78 @@ typeset -g _CMUX_GIT_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_RUN=0
 typeset -g _CMUX_GIT_JOB_PID=""
 typeset -g _CMUX_GIT_FORCE=0
+typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
+typeset -g _CMUX_GIT_HEAD_PATH=""
+typeset -g _CMUX_GIT_HEAD_MTIME=0
+typeset -g _CMUX_HAVE_ZSTAT=0
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_PORTS_JOB_PID=""
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
+
+_cmux_ensure_zstat() {
+    # zstat is substantially cheaper than spawning external `stat`.
+    if (( _CMUX_HAVE_ZSTAT != 0 )); then
+        return 0
+    fi
+    if zmodload -F zsh/stat b:zstat 2>/dev/null; then
+        _CMUX_HAVE_ZSTAT=1
+        return 0
+    fi
+    _CMUX_HAVE_ZSTAT=-1
+    return 1
+}
+
+_cmux_git_resolve_head_path() {
+    # Resolve the HEAD file path without invoking git (fast; works for worktrees).
+    local dir="$PWD"
+    while true; do
+        if [[ -d "$dir/.git" ]]; then
+            print -r -- "$dir/.git/HEAD"
+            return 0
+        fi
+        if [[ -f "$dir/.git" ]]; then
+            local line gitdir
+            line="$(<"$dir/.git")"
+            if [[ "$line" == gitdir:* ]]; then
+                gitdir="${line#gitdir:}"
+                gitdir="${gitdir## }"
+                gitdir="${gitdir%% }"
+                [[ -n "$gitdir" ]] || return 1
+                [[ "$gitdir" != /* ]] && gitdir="$dir/$gitdir"
+                print -r -- "$gitdir/HEAD"
+                return 0
+            fi
+        fi
+        [[ "$dir" == "/" || -z "$dir" ]] && break
+        dir="${dir:h}"
+    done
+    return 1
+}
+
+_cmux_git_head_mtime() {
+    local head_path="$1"
+    [[ -n "$head_path" && -f "$head_path" ]] || { print -r -- 0; return 0; }
+
+    if _cmux_ensure_zstat; then
+        typeset -A st
+        if zstat -H st +mtime -- "$head_path" 2>/dev/null; then
+            print -r -- "${st[mtime]:-0}"
+            return 0
+        fi
+    fi
+
+    # Fallback for environments where zsh/stat isn't available.
+    if command -v stat >/dev/null 2>&1; then
+        local mtime
+        mtime="$(stat -f %m "$head_path" 2>/dev/null || stat -c %Y "$head_path" 2>/dev/null || echo 0)"
+        print -r -- "$mtime"
+        return 0
+    fi
+
+    print -r -- 0
+}
 
 _cmux_ports_scan() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -173,6 +240,23 @@ _cmux_precmd() {
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.
     local should_git=0
+
+    # Git branch can change without a `git ...`-prefixed command (aliases like `gco`,
+    # tools like `gh pr checkout`, etc.). Detect HEAD changes and force a refresh.
+    if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
+        _CMUX_GIT_HEAD_LAST_PWD="$pwd"
+        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
+        _CMUX_GIT_HEAD_MTIME=0
+    fi
+    if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
+        local head_mtime
+        head_mtime="$(_cmux_git_head_mtime "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || echo 0)"
+        if [[ -n "$head_mtime" && "$head_mtime" != 0 && "$head_mtime" != "$_CMUX_GIT_HEAD_MTIME" ]]; then
+            _CMUX_GIT_HEAD_MTIME="$head_mtime"
+            should_git=1
+        fi
+    fi
+
     if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]]; then
         should_git=1
     elif (( _CMUX_GIT_FORCE )); then
