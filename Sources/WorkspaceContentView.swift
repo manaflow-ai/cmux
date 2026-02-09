@@ -33,18 +33,42 @@ struct WorkspaceContentView: View {
                 }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
-                EmptyPanelView()
+                EmptyPanelView(workspace: workspace, paneId: paneId)
             }
         } emptyPane: { paneId in
             // Empty pane content
-            EmptyPanelView()
+            EmptyPanelView(workspace: workspace, paneId: paneId)
                 .onTapGesture {
                     workspace.bonsplitController.focusPane(paneId)
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: notificationStore.notifications) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             config = GhosttyConfig.load()
+        }
+    }
+
+    private func syncBonsplitNotificationBadges() {
+        let unreadPanelIds: Set<UUID> = Set(
+            notificationStore.notifications
+                .filter { $0.tabId == workspace.id && !$0.isRead }
+                .compactMap { $0.surfaceId }
+        )
+
+        for paneId in workspace.bonsplitController.allPaneIds {
+            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                let panelId = workspace.panelIdFromSurfaceId(tab.id)
+                let shouldShow = panelId.map { unreadPanelIds.contains($0) } ?? false
+                if tab.showsNotificationBadge != shouldShow {
+                    workspace.bonsplitController.updateTab(tab.id, showsNotificationBadge: shouldShow)
+                }
+            }
         }
     }
 }
@@ -71,6 +95,36 @@ extension WorkspaceContentView {
 
 /// View shown for empty panes
 struct EmptyPanelView: View {
+    @ObservedObject var workspace: Workspace
+    let paneId: PaneID
+
+    private struct ShortcutHint: View {
+        let text: String
+
+        var body: some View {
+            Text(text)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.white.opacity(0.18), in: Capsule())
+        }
+    }
+
+    private func focusPane() {
+        workspace.bonsplitController.focusPane(paneId)
+    }
+
+    private func createTerminal() {
+        focusPane()
+        _ = workspace.newTerminalSurface(inPane: paneId)
+    }
+
+    private func createBrowser() {
+        focusPane()
+        _ = workspace.newBrowserSurface(inPane: paneId)
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal.fill")
@@ -81,9 +135,29 @@ struct EmptyPanelView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            Text("Create a new tab or split")
-                .font(.subheadline)
-                .foregroundStyle(.tertiary)
+            HStack(spacing: 12) {
+                Button {
+                    createTerminal()
+                } label: {
+                    HStack(spacing: 10) {
+                        Label("Terminal", systemImage: "terminal.fill")
+                        ShortcutHint(text: "⌘T")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("t", modifiers: [.command])
+
+                Button {
+                    createBrowser()
+                } label: {
+                    HStack(spacing: 10) {
+                        Label("Browser", systemImage: "globe")
+                        ShortcutHint(text: "⌘⇧B")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))

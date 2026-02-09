@@ -562,6 +562,7 @@ struct TabItemView: View {
                         .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Close Tab (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
                 .frame(width: 16, height: 16)
                 .opacity((isHovering && tabManager.tabs.count > 1) ? 1 : 0)
                 .allowsHitTesting(isHovering && tabManager.tabs.count > 1)
