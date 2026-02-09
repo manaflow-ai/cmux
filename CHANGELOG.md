@@ -2,6 +2,11 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.20.1] - 2026-02-09
+
+### Fixed
+- Updater permission error now correctly tells user to move app to Applications
+
 ## [1.20.0] - 2026-02-09
 
 ### Fixed
