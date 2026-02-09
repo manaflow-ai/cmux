@@ -123,7 +123,6 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             return item
         }
 
-        #if DEBUG
         if itemIdentifier == updateItemIdentifier, let updateViewModel {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             let view = NonDraggableHostingView(rootView: UpdatePill(model: updateViewModel))
@@ -139,7 +138,6 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 }
             return item
         }
-        #endif
 
         return nil
     }
