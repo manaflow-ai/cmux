@@ -962,7 +962,7 @@ struct SettingsView: View {
                 Text("Sidebar")
                     .font(.headline)
 
-                Toggle("Show status pills", isOn: $sidebarShowStatusPills)
+                Toggle("Show status", isOn: $sidebarShowStatusPills)
                 Toggle("Show git branch", isOn: $sidebarShowGitBranch)
                 Toggle("Show branch icon", isOn: $sidebarShowGitBranchIcon)
                     .disabled(!sidebarShowGitBranch)
