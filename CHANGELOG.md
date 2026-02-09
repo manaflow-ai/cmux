@@ -2,6 +2,12 @@
 
 All notable changes to cmuxterm are documented here.
 
+## [1.19.0] - 2026-02-08
+
+### Fixed
+- Blank window on macOS 26 caused by NSGlassEffectView wrapper
+- "Copy Update Logs" showing empty logs in production builds
+
 ## [1.18.0] - 2026-02-06
 
 ### Added
