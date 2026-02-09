@@ -14,10 +14,13 @@ Run the setup script to initialize submodules and build GhosttyKit:
 
 ## Local dev
 
-After making code changes, always run the reload script to launch the Debug app:
+After making code changes, always run the reload script to launch the Debug app.
+
+Agent rule: always use `--tag` for reloads so we don't kill/relaunch the user's main `cmuxterm DEV` app instance.
+Pick a short descriptive tag per task/bugfix (and reuse it during that task).
 
 ```bash
-./scripts/reload.sh
+./scripts/reload.sh --tag <tag>
 ```
 
 After making code changes, always run the build:
@@ -41,19 +44,19 @@ cd cmuxd && zig build -Doptimize=ReleaseFast
 `reload` = kill and launch the Debug app only:
 
 ```bash
-./scripts/reload.sh
+./scripts/reload.sh --tag <tag>
 ```
 
 `reloadp` = kill and launch the Release app:
 
 ```bash
-./scripts/reloadp.sh
+./scripts/reloadp.sh --tag <tag>
 ```
 
 `reload2` = reload both Debug and Release:
 
 ```bash
-./scripts/reload2.sh
+./scripts/reload2.sh --tag <tag>
 ```
 
 For parallel/isolated builds (e.g., testing a feature alongside the main app), use `--tag` with a short descriptive name:
@@ -67,6 +70,8 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 ### Cleanup tagged DEV apps
 
 Tagged reloads create additional running apps named `cmuxterm DEV <tag>`. After finishing testing, quit/kill them so we don't accumulate lots of `cmuxterm DEV <tag>` processes:
+
+Important: only clean up tags you personally started in this session. Do not quit/kill other tags, and never blanket-kill `cmuxterm DEV`.
 
 ```bash
 osascript -e 'tell application "cmuxterm DEV <tag>" to quit' >/dev/null 2>&1 || true
