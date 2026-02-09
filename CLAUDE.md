@@ -16,6 +16,12 @@ After making code changes, always run the reload script to launch the Debug app:
 ./scripts/reload.sh
 ```
 
+After you're done with a fix, also reload with a tag so you can verify it in an isolated side-by-side app:
+
+```bash
+./scripts/reload.sh --tag fix-zsh-autosuggestions
+```
+
 After making code changes, always run the build:
 
 ```bash
