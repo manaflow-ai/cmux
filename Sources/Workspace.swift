@@ -136,6 +136,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
     private var surfaceIdToPanelId: [TabID: UUID] = [:]
 
+    /// Tab IDs that are allowed to close even if they would normally require confirmation.
+    /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Panel?") so the
+    /// Bonsplit delegate doesn't block the close after the user already confirmed.
+    private var forceCloseTabIds: Set<TabID> = []
+
+    /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
+    /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
+    private var pendingCloseConfirmTabIds: Set<TabID> = []
+
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
     }
@@ -429,8 +438,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Close a panel
-    func closePanel(_ panelId: UUID) {
+    func closePanel(_ panelId: UUID, force: Bool = false) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+
+        if force {
+            forceCloseTabIds.insert(tabId)
+        }
 
         // Close the tab in bonsplit (this triggers delegate callback)
         bonsplitController.closeTab(tabId)
@@ -572,6 +585,27 @@ final class Workspace: Identifiable, ObservableObject {
 // MARK: - BonsplitDelegate
 
 extension Workspace: BonsplitDelegate {
+    @MainActor
+    private func confirmClosePanel(for tabId: TabID) async -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Close panel?"
+        alert.informativeText = "This will close the current split panel in this tab."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+
+        // Prefer a sheet if we can find a window, otherwise fall back to modal.
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { response in
+                    continuation.resume(returning: response == .alertFirstButtonReturn)
+                }
+            }
+        }
+
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
     private func applyTabSelection(tabId: TabID, inPane pane: PaneID) {
@@ -628,15 +662,51 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        if forceCloseTabIds.contains(tab.id) {
+            return true
+        }
+
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let terminalPanel = terminalPanel(for: panelId) else {
             return true
         }
-        return !terminalPanel.needsConfirmClose()
+
+        // If confirmation is required, Bonsplit will call into this delegate and we must return false.
+        // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
+        // this gating on the second pass.
+        if terminalPanel.needsConfirmClose() {
+            if pendingCloseConfirmTabIds.contains(tab.id) {
+                return false
+            }
+
+            pendingCloseConfirmTabIds.insert(tab.id)
+            let tabId = tab.id
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    defer { self.pendingCloseConfirmTabIds.remove(tabId) }
+
+                    // If the tab disappeared while we were scheduling, do nothing.
+                    guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+
+                    let confirmed = await self.confirmClosePanel(for: tabId)
+                    guard confirmed else { return }
+
+                    self.forceCloseTabIds.insert(tabId)
+                    self.bonsplitController.closeTab(tabId)
+                }
+            }
+
+            return false
+        }
+
+        return true
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        forceCloseTabIds.remove(tabId)
+
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
             #if DEBUG
@@ -679,6 +749,7 @@ extension Workspace: BonsplitDelegate {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
         for tab in tabs {
+            if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
                terminalPanel.needsConfirmClose() {

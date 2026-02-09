@@ -141,6 +141,13 @@ class TabManager: ObservableObject {
             object: nil,
             userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
         )
+#if DEBUG
+        UITestRecorder.incrementInt("addTabInvocations")
+        UITestRecorder.record([
+            "tabCount": String(tabs.count),
+            "selectedTabId": newWorkspace.id.uuidString
+        ])
+#endif
         return newWorkspace
     }
 
@@ -275,6 +282,9 @@ class TabManager: ObservableObject {
     }
 
     func closeCurrentPanelWithConfirmation() {
+#if DEBUG
+        UITestRecorder.incrementInt("closePanelInvocations")
+#endif
         guard let selectedId = selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedId }),
               let focusedPanelId = tab.focusedPanelId else { return }
@@ -331,7 +341,8 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        tab.closePanel(panelId)
+        // We already confirmed (if needed); bypass Bonsplit's delegate gating.
+        tab.closePanel(panelId, force: true)
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {

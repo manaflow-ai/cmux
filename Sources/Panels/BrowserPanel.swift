@@ -74,7 +74,7 @@ final class BrowserPanel: Panel, ObservableObject {
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
         // Set up web view
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
 
         // Set modern Chrome user agent so sites don't serve degraded versions
