@@ -133,8 +133,12 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             updateSizeCancellables[key] = updateViewModel.$state
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak view] _ in
-                    guard let self, let view else { return }
-                    self.sizeToolbarItem(for: key, hostingView: view)
+                    // @Published fires on willSet, so SwiftUI hasn't processed the
+                    // new state yet. Defer measurement to the next run loop cycle.
+                    DispatchQueue.main.async { [weak self, weak view] in
+                        guard let self, let view else { return }
+                        self.sizeToolbarItem(for: key, hostingView: view)
+                    }
                 }
             return item
         }
