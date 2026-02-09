@@ -326,18 +326,27 @@ struct CMUXCLI {
             print(response)
 
         case "set-status":
-            guard commandArgs.count >= 2 else {
+            // Remove options by position (flag + following value), not by string value,
+            // so message tokens that happen to equal an option value aren't dropped.
+            let (icon, argsWithoutIcon) = parseOption(commandArgs, name: "--icon")
+            let (color, argsWithoutColor) = parseOption(argsWithoutIcon, name: "--color")
+            let (explicitTab, remaining) = parseOption(argsWithoutColor, name: "--tab")
+            guard remaining.count >= 2 else {
                 throw CLIError(message: "set-status requires <key> <value>")
             }
-            let key = commandArgs[0]
-            let value = commandArgs[1]
-            let icon = optionValue(commandArgs, name: "--icon")
-            let color = optionValue(commandArgs, name: "--color")
-            let tabArg = optionValue(commandArgs, name: "--tab") ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
-            var cmd = "set_status \(key) \(value)"
+
+            let key = remaining[0]
+            let value = remaining[1...].joined(separator: " ")
+            let tabArg = explicitTab ?? ProcessInfo.processInfo.environment["CMUX_TAB_ID"]
+
+            // TerminalController.parseOptions treats any --* token as an option until a
+            // `--` separator. Put options first and then use `--` so values can contain
+            // arbitrary tokens like `--tab` without affecting routing.
+            var cmd = "set_status \(key)"
             if let icon { cmd += " --icon=\(icon)" }
             if let color { cmd += " --color=\(color)" }
             if let tabArg { cmd += " --tab=\(tabArg)" }
+            cmd += " -- \(quoteOptionValue(value))"
             let response = try client.send(command: cmd)
             print(response)
 

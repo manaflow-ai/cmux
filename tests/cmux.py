@@ -475,13 +475,15 @@ class cmux:
 
     def set_status(self, key: str, value: str, icon: str = None, color: str = None, tab: str = None) -> None:
         """Set a sidebar status entry."""
-        cmd = f"set_status {key} {value}"
+        # Put options before `--` so value can contain arbitrary tokens like `--tab`.
+        cmd = f"set_status {key}"
         if icon:
             cmd += f" --icon={icon}"
         if color:
             cmd += f" --color={color}"
         if tab:
             cmd += f" --tab={tab}"
+        cmd += f" -- {_quote_option_value(value)}"
         response = self._send_command(cmd)
         if not response.startswith("OK"):
             raise cmuxError(response)
