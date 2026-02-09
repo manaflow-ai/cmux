@@ -684,7 +684,7 @@ struct CMUXCLI {
 }
 
 @main
-struct CMUXTermMain {
+struct CMUXMain {
     static func main() {
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
