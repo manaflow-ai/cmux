@@ -3,7 +3,7 @@
 Regression: zsh wrapper startup files must source user files with the *original*
 ZDOTDIR, not the wrapper directory.
 
-The cmuxterm zsh integration sets ZDOTDIR to the app's wrapper directory so zsh
+The cmux zsh integration sets ZDOTDIR to the app's wrapper directory so zsh
 loads wrapper .zshenv/.zprofile/.zshrc. Those wrappers must temporarily restore
 ZDOTDIR while sourcing the user's real startup files so $ZDOTDIR semantics match
 normal zsh behavior.

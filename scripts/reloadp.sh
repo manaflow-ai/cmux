@@ -2,20 +2,20 @@
 set -euo pipefail
 
 xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
-pkill -x cmuxterm || true
+pkill -x cmux || true
 sleep 0.2
 APP_PATH="$(
-  find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Release/cmuxterm.app" -print0 \
+  find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Release/cmux.app" -print0 \
   | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
   | sort -nr \
   | head -n 1 \
   | cut -d' ' -f2-
 )"
 if [[ -z "${APP_PATH}" ]]; then
-  echo "cmuxterm.app not found in DerivedData" >&2
+  echo "cmux.app not found in DerivedData" >&2
   exit 1
 fi
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
-# Don't leak that into cmuxterm, otherwise `git diff` won't page even with PAGER=less.
+# Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
 env -u GIT_PAGER -u GH_PAGER open "$APP_PATH"
-osascript -e 'tell application "cmuxterm" to activate' || true
+osascript -e 'tell application "cmux" to activate' || true

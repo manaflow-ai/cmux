@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="cmuxterm DEV"
-BUNDLE_ID="com.cmuxterm.app.debug"
-BASE_APP_NAME="cmuxterm DEV"
+APP_NAME="cmux DEV"
+BUNDLE_ID="com.cmux.app.debug"
+BASE_APP_NAME="cmux DEV"
 DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
@@ -97,13 +97,13 @@ if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
   if [[ "$NAME_SET" -eq 0 ]]; then
-    APP_NAME="cmuxterm DEV ${TAG}"
+    APP_NAME="cmux DEV ${TAG}"
   fi
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
-    BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
+    BUNDLE_ID="com.cmux.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="/tmp/cmuxterm-${TAG_SLUG}"
+    DERIVED_DATA="/tmp/cmux-${TAG_SLUG}"
   fi
 fi
 
@@ -180,10 +180,10 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
     if [[ -n "${TAG_SLUG:-}" ]]; then
-      APP_SUPPORT_DIR="$HOME/Library/Application Support/cmuxterm"
+      APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET="/tmp/cmuxterm-debug-${TAG_SLUG}.sock"
-      echo "$CMUX_SOCKET" > /tmp/cmuxterm-last-socket-path || true
+      CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
@@ -225,8 +225,8 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
-# Avoid inheriting cmuxterm/ghostty environment variables from the terminal that
-# runs this script (often inside another cmuxterm instance), which can cause
+# Avoid inheriting cmux/ghostty environment variables from the terminal that
+# runs this script (often inside another cmux instance), which can cause
 # socket and resource-path conflicts.
 OPEN_CLEAN_ENV=(
   env
@@ -235,15 +235,13 @@ OPEN_CLEAN_ENV=(
   -u CMUX_PANEL_ID
   -u CMUXD_UNIX_PATH
   -u CMUX_TAG
-  -u CMUXTERM_TAG
   -u CMUX_BUNDLE_ID
-  -u CMUXTERM_BUNDLE_ID
   -u CMUX_SHELL_INTEGRATION
   -u GHOSTTY_BIN_DIR
   -u GHOSTTY_RESOURCES_DIR
   -u GHOSTTY_SHELL_FEATURES
   # Dev shells (including CI/Codex) often force-disable paging by exporting these.
-  # Don't leak that into cmuxterm, otherwise `git diff` won't page even with PAGER=less.
+  # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
   -u GIT_PAGER
   -u GH_PAGER
   -u TERMINFO

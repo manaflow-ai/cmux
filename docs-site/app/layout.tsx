@@ -8,8 +8,8 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: 'cmuxterm Documentation',
-  description: 'Documentation for cmuxterm - A Ghostty-based terminal for AI agents',
+  title: 'cmux Documentation',
+  description: 'Documentation for cmux - A Ghostty-based terminal for AI agents',
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

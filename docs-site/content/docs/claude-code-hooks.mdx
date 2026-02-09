@@ -1,38 +1,38 @@
 ---
 title: Claude Code Hooks
-description: Set up notifications for Claude Code using cmuxterm hooks
+description: Set up notifications for Claude Code using cmux hooks
 ---
 
 # Claude Code Hooks
 
-cmuxterm integrates with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via hooks to notify you when tasks complete or when Claude needs attention.
+cmux integrates with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via hooks to notify you when tasks complete or when Claude needs attention.
 
-## Detecting cmuxterm
+## Detecting cmux
 
-Before sending notifications, you should detect if you're running inside cmuxterm to avoid conflicts with other terminals.
+Before sending notifications, you should detect if you're running inside cmux to avoid conflicts with other terminals.
 
 ### Detection Methods
 
 **1. Check for the socket:**
 
 ```bash
-[ -S /tmp/cmuxterm.sock ] && echo "In cmuxterm"
+[ -S /tmp/cmux.sock ] && echo "In cmux"
 ```
 
 **2. Check for the CLI:**
 
 ```bash
-command -v cmuxterm &>/dev/null && echo "cmuxterm available"
+command -v cmux &>/dev/null && echo "cmux available"
 ```
 
 **3. Check the TERM_PROGRAM environment variable:**
 
 ```bash
-[ "$TERM_PROGRAM" = "ghostty" ] && [ -S /tmp/cmuxterm.sock ] && echo "In cmuxterm"
+[ "$TERM_PROGRAM" = "ghostty" ] && [ -S /tmp/cmux.sock ] && echo "In cmux"
 ```
 
 <Callout type="info">
-  cmuxterm sets `TERM_PROGRAM=ghostty` since it's built on Ghostty. Use the socket check to distinguish from regular Ghostty.
+  cmux sets `TERM_PROGRAM=ghostty` since it's built on Ghostty. Use the socket check to distinguish from regular Ghostty.
 </Callout>
 
 ## Setting Up Hooks
@@ -46,12 +46,12 @@ Claude Code supports hooks that run on specific events. Add these to your `~/.cl
       {
         "matcher": "Task",
         "hooks": [
-          "/path/to/cmuxterm-notify.sh"
+          "/path/to/cmux-notify.sh"
         ]
       }
     ],
     "Stop": [
-      "/path/to/cmuxterm-notify.sh"
+      "/path/to/cmux-notify.sh"
     ]
   }
 }
@@ -59,14 +59,14 @@ Claude Code supports hooks that run on specific events. Add these to your `~/.cl
 
 ## Notification Hook Script
 
-Create a script that checks for cmuxterm and sends notifications:
+Create a script that checks for cmux and sends notifications:
 
 ```bash
 #!/bin/bash
-# ~/.claude/hooks/cmuxterm-notify.sh
+# ~/.claude/hooks/cmux-notify.sh
 
-# Only proceed if we're in cmuxterm
-if [ ! -S /tmp/cmuxterm.sock ]; then
+# Only proceed if we're in cmux
+if [ ! -S /tmp/cmux.sock ]; then
     exit 0
 fi
 
@@ -80,14 +80,14 @@ SESSION=$(echo "$EVENT" | jq -r '.session_id // ""' | cut -c1-8)
 
 case "$EVENT_TYPE" in
     "Stop")
-        cmuxterm notify \
+        cmux notify \
             --title "Claude Code" \
             --subtitle "Task Complete" \
             --body "Session $SESSION finished"
         ;;
     "PostToolUse")
         if [ "$TOOL_NAME" = "Task" ]; then
-            cmuxterm notify \
+            cmux notify \
                 --title "Claude Code" \
                 --subtitle "Agent Finished" \
                 --body "Task agent completed in session $SESSION"
@@ -99,7 +99,7 @@ esac
 Make it executable:
 
 ```bash
-chmod +x ~/.claude/hooks/cmuxterm-notify.sh
+chmod +x ~/.claude/hooks/cmux-notify.sh
 ```
 
 ## Example Configurations
@@ -112,7 +112,7 @@ Get notified whenever Claude Code finishes a task:
 {
   "hooks": {
     "Stop": [
-      "~/.claude/hooks/cmuxterm-notify.sh"
+      "~/.claude/hooks/cmux-notify.sh"
     ]
   }
 }
@@ -128,7 +128,7 @@ Only notify for Task tool completions (agent subprocesses):
     "PostToolUse": [
       {
         "matcher": "Task",
-        "hooks": ["~/.claude/hooks/cmuxterm-notify.sh"]
+        "hooks": ["~/.claude/hooks/cmux-notify.sh"]
       }
     ]
   }
@@ -141,9 +141,9 @@ Add error notifications:
 
 ```bash
 #!/bin/bash
-# cmuxterm-notify.sh with error handling
+# cmux-notify.sh with error handling
 
-if [ ! -S /tmp/cmuxterm.sock ]; then
+if [ ! -S /tmp/cmux.sock ]; then
     exit 0
 fi
 
@@ -152,11 +152,11 @@ EVENT_TYPE=$(echo "$EVENT" | jq -r '.event // "unknown"')
 ERROR=$(echo "$EVENT" | jq -r '.error // ""')
 
 if [ -n "$ERROR" ] && [ "$ERROR" != "null" ]; then
-    cmuxterm notify \
+    cmux notify \
         --title "Claude Code Error" \
         --body "$ERROR"
 elif [ "$EVENT_TYPE" = "Stop" ]; then
-    cmuxterm notify \
+    cmux notify \
         --title "Claude Code" \
         --body "Task complete"
 fi
@@ -168,20 +168,20 @@ Only notify if the terminal is not focused:
 
 ```bash
 #!/bin/bash
-# cmuxterm-notify.sh with focus detection
+# cmux-notify.sh with focus detection
 
-if [ ! -S /tmp/cmuxterm.sock ]; then
+if [ ! -S /tmp/cmux.sock ]; then
     exit 0
 fi
 
-# cmuxterm automatically suppresses notifications for focused tabs,
+# cmux automatically suppresses notifications for focused tabs,
 # so we can always send - it will handle suppression for us
 
 EVENT=$(cat)
 EVENT_TYPE=$(echo "$EVENT" | jq -r '.event // "unknown"')
 
 if [ "$EVENT_TYPE" = "Stop" ]; then
-    cmuxterm notify \
+    cmux notify \
         --title "Claude Code" \
         --subtitle "Ready" \
         --body "Waiting for your input"
@@ -196,7 +196,7 @@ If you prefer not to use the CLI, you can emit OSC sequences directly:
 #!/bin/bash
 # Direct OSC notification (no CLI needed)
 
-if [ ! -S /tmp/cmuxterm.sock ]; then
+if [ ! -S /tmp/cmux.sock ]; then
     exit 0
 fi
 
@@ -220,12 +220,12 @@ mkdir -p ~/.claude/hooks
 2. Create the notification script:
 
 ```bash
-cat > ~/.claude/hooks/cmuxterm-notify.sh << 'EOF'
+cat > ~/.claude/hooks/cmux-notify.sh << 'EOF'
 #!/bin/bash
-# cmuxterm notification hook for Claude Code
+# cmux notification hook for Claude Code
 
-# Skip if not in cmuxterm
-[ -S /tmp/cmuxterm.sock ] || exit 0
+# Skip if not in cmux
+[ -S /tmp/cmux.sock ] || exit 0
 
 EVENT=$(cat)
 EVENT_TYPE=$(echo "$EVENT" | jq -r '.event // "unknown"')
@@ -233,14 +233,14 @@ TOOL=$(echo "$EVENT" | jq -r '.tool_name // ""')
 
 case "$EVENT_TYPE" in
     "Stop")
-        cmuxterm notify --title "Claude Code" --body "Session complete"
+        cmux notify --title "Claude Code" --body "Session complete"
         ;;
     "PostToolUse")
-        [ "$TOOL" = "Task" ] && cmuxterm notify --title "Claude Code" --body "Agent finished"
+        [ "$TOOL" = "Task" ] && cmux notify --title "Claude Code" --body "Agent finished"
         ;;
 esac
 EOF
-chmod +x ~/.claude/hooks/cmuxterm-notify.sh
+chmod +x ~/.claude/hooks/cmux-notify.sh
 ```
 
 3. Configure Claude Code:
@@ -249,11 +249,11 @@ chmod +x ~/.claude/hooks/cmuxterm-notify.sh
 cat > ~/.claude/settings.json << 'EOF'
 {
   "hooks": {
-    "Stop": ["~/.claude/hooks/cmuxterm-notify.sh"],
+    "Stop": ["~/.claude/hooks/cmux-notify.sh"],
     "PostToolUse": [
       {
         "matcher": "Task",
-        "hooks": ["~/.claude/hooks/cmuxterm-notify.sh"]
+        "hooks": ["~/.claude/hooks/cmux-notify.sh"]
       }
     ]
   }
@@ -263,4 +263,4 @@ EOF
 
 4. Restart Claude Code to apply the hooks.
 
-Now you'll receive desktop notifications in cmuxterm whenever Claude Code finishes a task or needs attention.
+Now you'll receive desktop notifications in cmux whenever Claude Code finishes a task or needs attention.

@@ -8,7 +8,7 @@
   - Opens a new terminal
   - Shows user the diff to their config file (claude.json, opencode config, codex config, etc.)
   - Prompts user to type 'y' to confirm
-  - Implement as part of `cmuxterm` CLI, menubar just triggers the CLI command
+  - Implement as part of `cmux` CLI, menubar just triggers the CLI command
 
 ## Additional Integrations
 - [ ] Codex integration

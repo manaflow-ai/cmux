@@ -3,14 +3,14 @@ import Foundation
 
 final class AutomationSocketUITests: XCTestCase {
     private var socketPath = ""
-    private let defaultsDomain = "com.cmuxterm.app.debug"
+    private let defaultsDomain = "com.cmux.app.debug"
     private let modeKey = "socketControlMode"
     private let legacyKey = "socketControlEnabled"
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        socketPath = "/tmp/cmuxterm-debug-\(UUID().uuidString).sock"
+        socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
         resetSocketDefaults()
         removeSocketFile()
     }
@@ -75,7 +75,7 @@ final class AutomationSocketUITests: XCTestCase {
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmpPath) else {
             return nil
         }
-        let matches = entries.filter { $0.hasPrefix("cmuxterm") && $0.hasSuffix(".sock") }
+        let matches = entries.filter { $0.hasPrefix("cmux") && $0.hasSuffix(".sock") }
         if let debug = matches.first(where: { $0.contains("debug") }) {
             return (tmpPath as NSString).appendingPathComponent(debug)
         }

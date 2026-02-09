@@ -113,7 +113,7 @@ final class UpdatePillUITests: XCTestCase {
     private func launchAppWithMockFeed(mode: String, version: String, timingPath: URL? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmuxterm.test/appcast.xml"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = mode
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = version
         app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"

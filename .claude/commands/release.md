@@ -1,6 +1,6 @@
 # Release
 
-Prepare a new release for cmuxterm. This command updates the changelog, bumps the version, creates a PR, monitors CI, and then merges and tags.
+Prepare a new release for cmux. This command updates the changelog, bumps the version, creates a PR, monitors CI, and then merges and tags.
 
 ## Steps
 
@@ -51,8 +51,8 @@ Prepare a new release for cmuxterm. This command updates the changelog, bumps th
     - Push tag: `git push origin vX.Y.Z`
 
 11. **Monitor the release workflow**
-    - Watch: `gh run watch --repo manaflow-ai/cmuxterm`
-    - Verify the release appears at: https://github.com/manaflow-ai/cmuxterm/releases
+    - Watch: `gh run watch --repo manaflow-ai/cmux`
+    - Verify the release appears at: https://github.com/manaflow-ai/cmux/releases
     - Check that the DMG is attached to the release
 
 ## Changelog Guidelines

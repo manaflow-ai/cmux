@@ -3,8 +3,8 @@
 Regression: if the user's .zshenv changes ZDOTDIR, then .zshrc should be sourced
 from the updated ZDOTDIR (matching vanilla zsh semantics).
 
-Why this matters for cmuxterm:
-- cmuxterm sets ZDOTDIR to the app wrapper directory so zsh loads wrapper
+Why this matters for cmux:
+- cmux sets ZDOTDIR to the app wrapper directory so zsh loads wrapper
   startup files.
 - The wrapper .zshenv temporarily restores ZDOTDIR to the original directory
   while sourcing the user's real .zshenv.
