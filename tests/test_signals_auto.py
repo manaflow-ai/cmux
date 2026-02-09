@@ -36,12 +36,14 @@ def test_sigint_in_pty():
 import signal
 import sys
 import time
+import os
 
 received = False
 def handler(sig, frame):
     global received
     received = True
-    print("SIGINT_RECEIVED", flush=True)
+    # Avoid print() from a signal handler (it can raise "reentrant call" on some Python builds).
+    os.write(1, b"SIGINT_RECEIVED\\n")
     sys.exit(0)
 
 signal.signal(signal.SIGINT, handler)
