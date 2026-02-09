@@ -128,7 +128,7 @@ struct cmuxApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About cmuxterm") {
+                Button("About cmux") {
                     showAboutPanel()
                 }
                 Button("Ghostty Settings…") {
@@ -462,7 +462,7 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmuxterm")
+    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private let docsURL = URL(string: "https://term.cmux.dev")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
@@ -486,7 +486,7 @@ private struct AboutPanelView: View {
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
-                    Text("cmuxterm")
+                    Text("cmux")
                         .bold()
                         .font(.title)
                     Text("A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS.")
@@ -507,7 +507,7 @@ private struct AboutPanelView: View {
                     }
                     let commitText = commit ?? "—"
                     let commitURL = commit.flatMap { hash in
-                        URL(string: "https://github.com/manaflow-ai/cmuxterm/commit/\(hash)")
+                        URL(string: "https://github.com/manaflow-ai/cmux/commit/\(hash)")
                     }
                     AboutPropertyRow(label: "Commit", text: commitText, url: commitURL)
                 }

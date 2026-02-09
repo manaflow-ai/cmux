@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Regression: cmuxterm relies on Ghostty's xterm-ghostty terminfo entry.
+Regression: cmux relies on Ghostty's xterm-ghostty terminfo entry.
 
-In cmuxterm (embedded GhosttyKit), "bright" SGR 90-97 can render incorrectly
+In cmux (embedded GhosttyKit), "bright" SGR 90-97 can render incorrectly
 for some palettes. zsh-autosuggestions defaults to `fg=8`, which historically
 resolved to SGR 90 via terminfo `setaf`.
 
-cmuxterm ships a terminfo overlay that forces bright colors to use indexed
+cmux ships a terminfo overlay that forces bright colors to use indexed
 256-color sequences (`38;5;<n>` / `48;5;<n>`) instead of SGR 90-97/100-107.
 This test ensures the overlay remains in place.
 """

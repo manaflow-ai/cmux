@@ -129,7 +129,7 @@ struct CMUXCLI {
     let args: [String]
 
     func run() throws {
-        var socketPath = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"] ?? "/tmp/cmuxterm.sock"
+        var socketPath = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"] ?? "/tmp/cmux.sock"
         var jsonOutput = false
 
         var index = 1
@@ -640,10 +640,10 @@ struct CMUXCLI {
 
     private func usage() -> String {
         return """
-        cmuxterm - control cmuxterm via Unix socket
+        cmux - control cmux via Unix socket
 
         Usage:
-          cmuxterm [--socket PATH] [--json] <command> [options]
+          cmux [--socket PATH] [--json] <command> [options]
 
         Commands:
           ping

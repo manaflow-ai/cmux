@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to cmuxterm are documented here.
+All notable changes to cmux are documented here.
 
 ## [1.22.0] - 2026-02-09
 
@@ -114,7 +114,7 @@ All notable changes to cmuxterm are documented here.
 ### Added
 - Sentry SDK for crash reporting
 - Documentation site with Fumadocs
-- Homebrew installation support (`brew install --cask cmuxterm`)
+- Homebrew installation support (`brew install --cask cmux`)
 - Auto-update Homebrew cask on release
 
 ### Fixed
@@ -160,7 +160,7 @@ All notable changes to cmuxterm are documented here.
 ## [1.4.0] - 2025-01-28
 
 ### Added
-- cmuxterm CLI with socket control modes
+- cmux CLI with socket control modes
 - NSPopover-based notifications
 
 ### Fixed
@@ -184,7 +184,7 @@ All notable changes to cmuxterm are documented here.
 - Update UI error details and pill visibility
 
 ### Changed
-- Renamed app to cmuxterm
+- Renamed app to cmux
 - Improved CI UI test stability
 
 ## [1.1.0] - 2025-01-28

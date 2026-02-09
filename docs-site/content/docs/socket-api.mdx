@@ -1,24 +1,24 @@
 ---
 title: Socket API
-description: Unix socket API for programmatic control of cmuxterm
+description: Unix socket API for programmatic control of cmux
 ---
 
 # Socket API
 
-cmuxterm exposes a Unix socket for programmatic control, enabling automation and integration with tools like Claude Code.
+cmux exposes a Unix socket for programmatic control, enabling automation and integration with tools like Claude Code.
 
 ## Socket Location
 
 | Build | Socket Path |
 |-------|-------------|
-| Release | `/tmp/cmuxterm.sock` |
-| Debug | `/tmp/cmuxterm-debug.sock` |
+| Release | `/tmp/cmux.sock` |
+| Debug | `/tmp/cmux-debug.sock` |
 
 You can override the path with the `CMUX_SOCKET_PATH` environment variable.
 
 ## Access Modes
 
-cmuxterm has three access modes, configurable in Settings:
+cmux has three access modes, configurable in Settings:
 
 | Mode | Description |
 |------|-------------|
@@ -227,7 +227,7 @@ import json
 
 def send_command(cmd):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect('/tmp/cmuxterm.sock')
+    sock.connect('/tmp/cmux.sock')
     sock.send(json.dumps(cmd).encode() + b'\n')
     response = sock.recv(4096).decode()
     sock.close()
@@ -252,7 +252,7 @@ send_command({
 
 # Function to send commands
 cmux_cmd() {
-    echo "$1" | nc -U /tmp/cmuxterm.sock
+    echo "$1" | nc -U /tmp/cmux.sock
 }
 
 # List tabs
