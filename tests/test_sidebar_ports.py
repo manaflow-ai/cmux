@@ -83,7 +83,7 @@ def _find_free_allowed_port() -> int:
 
 def _start_external_server(base: Path, port: int) -> subprocess.Popen:
     """
-    Start an http.server outside cmuxterm and ensure it is actually listening.
+    Start an http.server outside cmux and ensure it is actually listening.
     Retries are handled by the caller by picking a different port.
     """
     proc = subprocess.Popen(
@@ -201,7 +201,7 @@ def _wait_for_lsof_listen_gone(port: int, timeout: float = 8.0) -> None:
 
 
 def main() -> int:
-    tag = os.environ.get("CMUX_TAG") or os.environ.get("CMUXTERM_TAG") or ""
+    tag = os.environ.get("CMUX_TAG") or ""
     if not tag:
         print("Tip: set CMUX_TAG=<tag> when running this test to avoid socket conflicts.")
 
@@ -215,7 +215,7 @@ def main() -> int:
             shutil.rmtree(base)
         base.mkdir(parents=True, exist_ok=True)
 
-        # Start a listening server outside cmuxterm. A fresh tab should NOT show this port,
+        # Start a listening server outside cmux. A fresh tab should NOT show this port,
         # since ports should be attributed to the shell session in the tab.
         port = None
         last_start_err: Exception | None = None

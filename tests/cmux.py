@@ -43,8 +43,8 @@ class cmuxError(Exception):
     pass
 
 
-_LAST_SOCKET_PATH_FILE = "/tmp/cmuxterm-last-socket-path"
-_DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
+_LAST_SOCKET_PATH_FILE = "/tmp/cmux-last-socket-path"
+_DEFAULT_DEBUG_BUNDLE_ID = "com.cmux.app.debug"
 
 
 def _sanitize_tag_slug(raw: str) -> str:
@@ -68,11 +68,11 @@ def _quote_option_value(value: str) -> str:
 
 
 def _default_bundle_id() -> str:
-    override = os.environ.get("CMUX_BUNDLE_ID") or os.environ.get("CMUXTERM_BUNDLE_ID")
+    override = os.environ.get("CMUX_BUNDLE_ID")
     if override:
         return override
 
-    tag = os.environ.get("CMUX_TAG") or os.environ.get("CMUXTERM_TAG")
+    tag = os.environ.get("CMUX_TAG")
     if tag:
         suffix = _sanitize_bundle_suffix(tag)
         return f"{_DEFAULT_DEBUG_BUNDLE_ID}.{suffix}"
@@ -110,12 +110,12 @@ def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
 
 
 def _default_socket_path() -> str:
-    tag = os.environ.get("CMUX_TAG") or os.environ.get("CMUXTERM_TAG")
+    tag = os.environ.get("CMUX_TAG")
     if tag:
         slug = _sanitize_tag_slug(tag)
         tagged_candidates = [
-            f"/tmp/cmuxterm-debug-{slug}.sock",
-            f"/tmp/cmuxterm-{slug}.sock",
+            f"/tmp/cmux-debug-{slug}.sock",
+            f"/tmp/cmux-{slug}.sock",
         ]
         for path in tagged_candidates:
             if os.path.exists(path) and _can_connect(path):
@@ -142,13 +142,13 @@ def _default_socket_path() -> str:
             return last_socket
 
     # Prefer the non-tagged sockets when present.
-    candidates = ["/tmp/cmuxterm-debug.sock", "/tmp/cmuxterm.sock"]
+    candidates = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
     for path in candidates:
         if os.path.exists(path) and _can_connect(path):
             return path
 
     # Otherwise, fall back to the newest tagged debug socket if there is one.
-    tagged = glob.glob("/tmp/cmuxterm-debug-*.sock")
+    tagged = glob.glob("/tmp/cmux-debug-*.sock")
     tagged = [p for p in tagged if os.path.exists(p)]
     if tagged:
         tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)

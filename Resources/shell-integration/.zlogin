@@ -1,6 +1,6 @@
 # vim:ft=zsh
 #
-# Compatibility shim: with the current integration model, cmuxterm restores
+# Compatibility shim: with the current integration model, cmux restores
 # ZDOTDIR in .zshenv so this file should never be reached. If it is, restore
 # ZDOTDIR and behave like vanilla zsh by sourcing the user's .zlogin.
 

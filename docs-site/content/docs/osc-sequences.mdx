@@ -1,11 +1,11 @@
 ---
 title: OSC Sequences
-description: OSC escape sequence reference for cmuxterm notifications
+description: OSC escape sequence reference for cmux notifications
 ---
 
 # OSC Sequences
 
-cmuxterm supports two OSC (Operating System Command) escape sequence standards for sending notifications from terminal programs.
+cmux supports two OSC (Operating System Command) escape sequence standards for sending notifications from terminal programs.
 
 ## OSC 99 (Kitty Protocol)
 
@@ -137,13 +137,13 @@ notify_osc777 "Download Complete" "File saved to ~/Downloads"
 | Subtitle | ✓ | ✗ |
 | Notification ID | ✓ | ✗ |
 | Complexity | Higher | Lower |
-| Compatibility | Kitty, cmuxterm | RXVT, cmuxterm |
+| Compatibility | Kitty, cmux | RXVT, cmux |
 
 ## Recommendations
 
 - **Use OSC 777** for simple title + body notifications
 - **Use OSC 99** when you need subtitles or notification IDs
-- **Use the CLI** (`cmuxterm notify`) for the easiest integration
+- **Use the CLI** (`cmux notify`) for the easiest integration
 
 ## Testing
 
@@ -163,7 +163,7 @@ printf '\e]99;i=test;e=1;d=1;p=body:This is the body text\e\\'
 
 ### tmux
 
-If using tmux inside cmuxterm, enable passthrough:
+If using tmux inside cmux, enable passthrough:
 
 ```bash
 # In .tmux.conf

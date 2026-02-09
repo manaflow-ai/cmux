@@ -1,4 +1,4 @@
-# cmuxterm shell integration for bash
+# cmux shell integration for bash
 
 _cmux_send() {
     local payload="$1"
@@ -10,7 +10,7 @@ _cmux_send() {
         # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
         #
         # Important: macOS/BSD nc will often wait for the peer to close the socket
-        # after it has finished writing. cmuxterm keeps the connection open, so
+        # after it has finished writing. cmux keeps the connection open, so
         # a plain `nc -U` can hang indefinitely and leak background processes.
         #
         # Prefer flags that guarantee we exit after sending, and fall back to a

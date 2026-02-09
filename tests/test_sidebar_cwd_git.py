@@ -89,8 +89,8 @@ def _git(cwd: Path, *args: str) -> None:
 def _init_git_repo(repo: Path) -> None:
     repo.mkdir(parents=True, exist_ok=True)
     _git(repo, "init")
-    _git(repo, "config", "user.email", "cmuxterm-test@example.com")
-    _git(repo, "config", "user.name", "cmuxterm-test")
+    _git(repo, "config", "user.email", "cmux-test@example.com")
+    _git(repo, "config", "user.name", "cmux-test")
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-m", "init")
@@ -103,7 +103,7 @@ def _init_git_repo(repo: Path) -> None:
 
 
 def main() -> int:
-    tag = os.environ.get("CMUX_TAG") or os.environ.get("CMUXTERM_TAG") or ""
+    tag = os.environ.get("CMUX_TAG") or ""
     if not tag:
         print("Tip: set CMUX_TAG=<tag> when running this test to avoid socket conflicts.")
 

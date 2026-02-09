@@ -1,11 +1,11 @@
 ---
 title: Split Panes
-description: Working with split panes in cmuxterm
+description: Working with split panes in cmux
 ---
 
 # Split Panes
 
-cmuxterm supports splitting terminal panes within a tab, allowing you to view multiple terminals side by side.
+cmux supports splitting terminal panes within a tab, allowing you to view multiple terminals side by side.
 
 ## Creating Splits
 
@@ -20,10 +20,10 @@ cmuxterm supports splitting terminal panes within a tab, allowing you to view mu
 
 ```bash
 # Split in a specific direction
-cmuxterm new-split right
-cmuxterm new-split down
-cmuxterm new-split left
-cmuxterm new-split up
+cmux new-split right
+cmux new-split down
+cmux new-split left
+cmux new-split up
 ```
 
 ## Navigating Splits
@@ -43,10 +43,10 @@ Use **⌘⌥** + arrow keys to move between splits:
 
 ```bash
 # List all panes in current tab
-cmuxterm list-panels
+cmux list-panels
 
 # Focus a specific pane
-cmuxterm focus-panel --panel <panel-id>
+cmux focus-panel --panel <panel-id>
 ```
 
 ## Closing Splits
@@ -75,7 +75,7 @@ split-divider-color = #45475a
 
 ## Split Layout
 
-cmuxterm uses a binary split tree structure:
+cmux uses a binary split tree structure:
 
 - Each split creates two child panes
 - Nested splits create a tree of panes
@@ -104,8 +104,8 @@ With the CLI, you can send input to specific panes:
 
 ```bash
 # Send text to a specific pane
-cmuxterm send-panel --panel <panel-id> "echo hello"
+cmux send-panel --panel <panel-id> "echo hello"
 
 # Send a keypress to a specific pane
-cmuxterm send-key-panel --panel <panel-id> enter
+cmux send-key-panel --panel <panel-id> enter
 ```

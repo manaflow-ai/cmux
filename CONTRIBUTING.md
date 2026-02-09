@@ -1,4 +1,4 @@
-# Contributing to cmuxterm
+# Contributing to cmux
 
 ## Prerequisites
 
@@ -10,8 +10,8 @@
 
 1. Clone the repository with submodules:
    ```bash
-   git clone --recursive https://github.com/manaflow-ai/cmuxterm.git
-   cd cmuxterm
+   git clone --recursive https://github.com/manaflow-ai/cmux.git
+   cd cmux
    ```
 
 2. Run the setup script:
@@ -20,7 +20,7 @@
    ```
 
    This will:
-   - Initialize git submodules (ghostty, homebrew-cmuxterm)
+   - Initialize git submodules (ghostty, homebrew-cmux)
    - Build the GhosttyKit.xcframework from source
    - Create the necessary symlinks
 
@@ -53,7 +53,7 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ### Basic tests (run on VM)
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmuxterm DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmuxterm DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmuxterm.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
 ### UI tests (run on VM)

@@ -10,7 +10,7 @@ Tests that CPU usage stays reasonable when:
 Usage:
     python3 tests/test_cpu_notifications.py
 
-Requires cmuxterm to be running with socket control enabled.
+Requires cmux to be running with socket control enabled.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ SETTLE_TIME = 2.0
 MONITOR_DURATION = 3.0
 
 
-def get_cmuxterm_pid() -> Optional[int]:
-    """Get the PID of the running cmuxterm process."""
+def get_cmux_pid() -> Optional[int]:
+    """Get the PID of the running cmux process."""
     socket_path = os.environ.get("CMUX_SOCKET_PATH")
     if not socket_path:
         # Ask cmux.py to resolve default socket path (supports CMUX_TAG and last-socket file).
@@ -68,14 +68,14 @@ def get_cmuxterm_pid() -> Optional[int]:
                     return pid
 
     result = subprocess.run(
-        ["pgrep", "-f", r"cmuxterm\.app/Contents/MacOS/cmuxterm$"],
+        ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         # Try DEV build
         result = subprocess.run(
-            ["pgrep", "-f", r"cmuxterm DEV\.app/Contents/MacOS/cmuxterm"],
+            ["pgrep", "-f", r"cmux DEV\.app/Contents/MacOS/cmux"],
             capture_output=True,
             text=True,
         )
@@ -167,7 +167,7 @@ def test_cpu_after_popover_close(client: cmux, pid: int) -> tuple[bool, str]:
         time.sleep(0.1)
     time.sleep(0.5)
 
-    # Ensure the correct cmuxterm instance is frontmost (tag-safe).
+    # Ensure the correct cmux instance is frontmost (tag-safe).
     bundle_id = cmux.default_bundle_id()
     subprocess.run(
         ["osascript", "-e", f'tell application id "{bundle_id}" to activate'],
@@ -243,17 +243,17 @@ def test_cpu_idle_with_notifications(client: cmux, pid: int) -> tuple[bool, str]
 
 def main():
     print("=" * 60)
-    print("cmuxterm Notification CPU Tests")
+    print("cmux Notification CPU Tests")
     print("=" * 60)
 
     socket_path = cmux().socket_path
 
-    pid = get_cmuxterm_pid()
+    pid = get_cmux_pid()
     if pid is None:
-        print("\n❌ SKIP: cmuxterm is not running")
+        print("\n❌ SKIP: cmux is not running")
         return 0
 
-    print(f"\nFound cmuxterm process: PID {pid}")
+    print(f"\nFound cmux process: PID {pid}")
 
     # Try to connect to the socket
     client = cmux(socket_path)
@@ -261,7 +261,7 @@ def main():
         client.connect()
         print(f"Connected to {socket_path}")
     except cmuxError:
-        print("\n❌ SKIP: Could not connect to cmuxterm socket")
+        print("\n❌ SKIP: Could not connect to cmux socket")
         print("Tip: set CMUX_TAG=<tag> or CMUX_SOCKET_PATH=<path> to target a tagged instance.")
         return 0
 

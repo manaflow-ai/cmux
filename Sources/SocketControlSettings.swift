@@ -47,9 +47,9 @@ struct SocketControlSettings {
             return override
         }
 #if DEBUG
-        return "/tmp/cmuxterm-debug.sock"
+        return "/tmp/cmux-debug.sock"
 #else
-        return "/tmp/cmuxterm.sock"
+        return "/tmp/cmux.sock"
 #endif
     }
 

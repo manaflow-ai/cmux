@@ -85,11 +85,11 @@ jobs:
 
       - name: Inject Sparkle keys into Info.plist
         run: |
-          APP_PLIST="build/Build/Products/Release/cmuxterm.app/Contents/Info.plist"
+          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
           echo "Adding SUPublicEDKey to Info.plist..."
           /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
           echo "Adding SUFeedURL to Info.plist..."
-          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
           echo "Verifying:"
           /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP_PLIST"
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
@@ -125,8 +125,8 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmuxterm.app"
-          CLI_PATH="$APP_PATH/Contents/Resources/bin/cmuxterm"
+          APP_PATH="build/Build/Products/Release/cmux.app"
+          CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
           if [ -f "$CLI_PATH" ]; then
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$CLI_PATH"
           fi
@@ -144,9 +144,9 @@ jobs:
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmuxterm.app"
-          ZIP_SUBMIT="cmuxterm-notary.zip"
-          DMG_RELEASE="cmuxterm-macos.dmg"
+          APP_PATH="build/Build/Products/Release/cmux.app"
+          ZIP_SUBMIT="cmux-notary.zip"
+          DMG_RELEASE="cmux-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
@@ -165,7 +165,7 @@ jobs:
             --identity="$APPLE_SIGNING_IDENTITY" \
             "$APP_PATH" \
             ./
-          mv ./cmuxterm*.dmg "$DMG_RELEASE"
+          mv ./cmux*.dmg "$DMG_RELEASE"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
@@ -185,13 +185,13 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmuxterm-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            cmuxterm-macos.dmg
+            cmux-macos.dmg
             appcast.xml
           generate_release_notes: true
 

@@ -12,7 +12,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
 #endif
         let infoURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let fallback = "https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml"
+        let fallback = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
         let feedURLString = (infoURL?.isEmpty == false) ? infoURL! : fallback
         recordFeedURLString(feedURLString, usedFallback: feedURLString == fallback)
         return feedURLString

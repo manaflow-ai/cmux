@@ -1,6 +1,15 @@
 # Changelog
 
-All notable changes to cmuxterm are documented here.
+All notable changes to cmux are documented here.
+
+## [1.23.0] - 2026-02-09
+
+### Changed
+- Rename app from cmuxterm to cmux — new app name, bundle ID, socket paths, Homebrew tap, and CLI binary name
+- Sidebar now shows tab status as text instead of colored dots, with instant git HEAD change detection
+
+### Fixed
+- CLI `set-status` command not properly quoting values or routing `--tab` flag
 
 ## [1.22.0] - 2026-02-09
 
@@ -114,7 +123,7 @@ All notable changes to cmuxterm are documented here.
 ### Added
 - Sentry SDK for crash reporting
 - Documentation site with Fumadocs
-- Homebrew installation support (`brew install --cask cmuxterm`)
+- Homebrew installation support (`brew install --cask cmux`)
 - Auto-update Homebrew cask on release
 
 ### Fixed
@@ -160,7 +169,7 @@ All notable changes to cmuxterm are documented here.
 ## [1.4.0] - 2025-01-28
 
 ### Added
-- cmuxterm CLI with socket control modes
+- cmux CLI with socket control modes
 - NSPopover-based notifications
 
 ### Fixed
@@ -184,7 +193,7 @@ All notable changes to cmuxterm are documented here.
 - Update UI error details and pill visibility
 
 ### Changed
-- Renamed app to cmuxterm
+- Renamed app to cmux
 - Improved CI UI test stability
 
 ## [1.1.0] - 2025-01-28

@@ -7,7 +7,7 @@ import Foundation
 class TerminalController {
     static let shared = TerminalController()
 
-    private var socketPath = "/tmp/cmuxterm.sock"
+    private var socketPath = "/tmp/cmux.sock"
     private var serverSocket: Int32 = -1
     private var isRunning = false
     private var clientHandlers: [Int32: Thread] = [:]
