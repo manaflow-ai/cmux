@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
+import { ThemeToggle } from "../theme";
 import {
   useMobileDrawer,
   MobileDrawerOverlay,
@@ -48,17 +49,21 @@ export function SiteHeader({
           )}
         </div>
 
-        {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-4 text-sm text-muted">
-          <NavLinks />
-        </nav>
+        <div className="flex items-center gap-1">
+          {/* Desktop nav */}
+          <nav className="hidden md:flex items-center gap-4 text-sm text-muted">
+            <NavLinks />
+          </nav>
 
-        {/* Mobile hamburger */}
-        <MobileDrawerToggle
-          open={open}
-          onClick={toggle}
-          buttonRef={buttonRef}
-        />
+          <ThemeToggle />
+
+          {/* Mobile hamburger */}
+          <MobileDrawerToggle
+            open={open}
+            onClick={toggle}
+            buttonRef={buttonRef}
+          />
+        </div>
       </div>
 
       {/* Mobile overlay */}
