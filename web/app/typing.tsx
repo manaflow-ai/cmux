@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useDevValues } from "./components/spacing-control";
 
 const phrases = [
   "coding agents",
@@ -15,21 +16,7 @@ export function TypingTagline() {
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [charIndex, setCharIndex] = useState(0);
   const [deleting, setDeleting] = useState(false);
-  const [showControls, setShowControls] = useState(false);
-  const [topOffset, setTopOffset] = useState(0);
-  const [blink, setBlink] = useState(true);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "." && e.metaKey) {
-        e.preventDefault();
-        setShowControls((s) => !s);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  const dev = useDevValues();
 
   useEffect(() => {
     const phrase = phrases[phraseIndex];
@@ -57,49 +44,14 @@ export function TypingTagline() {
 
   const phrase = phrases[phraseIndex];
   const displayed = phrase.slice(0, charIndex);
-  const tailwindClass =
-    topOffset > 0
-      ? `-top-[${topOffset}px]`
-      : topOffset < 0
-        ? `top-[${Math.abs(topOffset)}px]`
-        : "";
 
   return (
     <span>
       {displayed}
       <span
-        className={`inline-block w-[2px] h-[1.1em] bg-foreground/70 ml-[1px] ${blink ? "animate-blink" : ""}`}
-        style={{ position: "relative", top: "2.5px" }}
-        onDoubleClick={() => setShowControls((s) => !s)}
+        className={`inline-block w-[2px] h-[1.1em] bg-foreground/70 ml-[1px] ${dev.cursorBlink ? "animate-blink" : ""}`}
+        style={{ position: "relative", top: `${dev.cursorTop}px` }}
       />
-      {showControls && (
-        <span className="fixed bottom-5 right-5 z-50 flex w-[420px] items-center gap-3 rounded-xl bg-[#222] px-4 py-3 font-mono text-xs text-white shadow-lg">
-          <label className="flex items-center gap-2">
-            top:
-            <input
-              type="range"
-              min={-5}
-              max={5}
-              step={0.5}
-              value={topOffset}
-              onChange={(e) => setTopOffset(parseFloat(e.target.value))}
-              className="w-24"
-            />
-            <span className="w-12">{topOffset}px</span>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={blink}
-              onChange={(e) => setBlink(e.target.checked)}
-            />
-            blink
-          </label>
-          <code className="select-all cursor-pointer rounded bg-[#333] px-2 py-0.5">
-            {tailwindClass || "0px"}
-          </code>
-        </span>
-      )}
     </span>
   );
 }

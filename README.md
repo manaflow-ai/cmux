@@ -13,12 +13,12 @@
 
 ## Features
 
-- **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
-- **Vertical tabs** — See all your terminals at a glance in a sidebar
-- **Notification panel** — See which agents are waiting for input at a glance
-- **Notification rings** — Tabs flash when AI agents (Claude Code, Codex) need your attention
-- **Lightweight** — Small binary, minimal resource footprint. No bundled browser engine.
-- **GPU-accelerated** — Powered by libghostty for smooth rendering
+: **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
+: **Vertical tabs** — See all your terminals at a glance in a sidebar
+: **Notification panel** — See which agents are waiting for input at a glance
+: **Notification rings** — Tabs flash when AI agents (Claude Code, Codex) need your attention
+: **Lightweight** — Small binary, minimal resource footprint. No bundled browser engine.
+: **GPU-accelerated** — Powered by libghostty for smooth rendering
 
 ## Install
 

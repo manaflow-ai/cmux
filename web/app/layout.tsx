@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "./providers";
+import { ThemeToggle } from "./theme";
+import { DevPanel } from "./components/spacing-control";
+import { SiteFooter } from "./components/nav-links";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -53,7 +56,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
-        <Providers>{children}</Providers>
+        <Providers>
+          <div className="fixed top-2 right-4 z-50">
+            <ThemeToggle />
+          </div>
+          {children}
+          <SiteFooter />
+          <DevPanel />
+        </Providers>
       </body>
     </html>
   );
