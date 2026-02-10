@@ -4,7 +4,8 @@ import path from "path";
 
 export const metadata: Metadata = {
   title: "Changelog",
-  description: "Release notes and version history for cmux",
+  description:
+    "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
 };
 
 interface ChangelogSection {

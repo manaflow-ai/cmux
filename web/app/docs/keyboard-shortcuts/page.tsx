@@ -3,7 +3,8 @@ import { KeyboardShortcuts } from "../../keyboard-shortcuts";
 
 export const metadata: Metadata = {
   title: "Keyboard Shortcuts",
-  description: "Complete list of cmux keyboard shortcuts",
+  description:
+    "All cmux keyboard shortcuts for workspaces, surfaces, split panes, browser, notifications, find, and window management on macOS.",
 };
 
 export default function KeyboardShortcutsPage() {

@@ -4,7 +4,8 @@ import { Callout } from "../../components/callout";
 
 export const metadata: Metadata = {
   title: "Notifications",
-  description: "Desktop notifications in cmux for AI agents and scripts",
+  description:
+    "Send desktop notifications from AI agents and scripts in cmux. CLI, OSC 99/777 escape sequences, and Claude Code hooks integration.",
 };
 
 export default function NotificationsPage() {
