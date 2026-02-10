@@ -4,7 +4,7 @@ import { CodeBlock } from "../../components/code-block";
 export const metadata: Metadata = {
   title: "Concepts",
   description:
-    "Understanding cmux's window, workspace, pane, and surface hierarchy",
+    "How cmux organizes terminals: windows, workspaces, panes, and surfaces. The hierarchy behind the sidebar, splits, and socket API.",
 };
 
 export default function ConceptsPage() {

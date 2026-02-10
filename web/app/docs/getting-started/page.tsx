@@ -5,7 +5,8 @@ import { DownloadButton } from "../../components/download-button";
 
 export const metadata: Metadata = {
   title: "Getting Started",
-  description: "Install and set up cmux on macOS",
+  description:
+    "Install cmux, the native macOS terminal for AI coding agents. Homebrew, DMG download, CLI setup, and auto-updates via Sparkle.",
 };
 
 export default function GettingStartedPage() {

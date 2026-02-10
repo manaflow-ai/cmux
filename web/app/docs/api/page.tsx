@@ -4,7 +4,8 @@ import { Callout } from "../../components/callout";
 
 export const metadata: Metadata = {
   title: "API Reference",
-  description: "CLI and socket API reference for cmux",
+  description:
+    "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, environment variables, and detection methods.",
 };
 
 function Cmd({

@@ -4,7 +4,8 @@ import { Callout } from "../../components/callout";
 
 export const metadata: Metadata = {
   title: "Configuration",
-  description: "Configure cmux appearance and behavior",
+  description:
+    "Configure cmux via Ghostty config files. Font, theme, colors, split pane styling, scrollback, and app settings for automation mode.",
 };
 
 export default function ConfigurationPage() {
