@@ -74,12 +74,35 @@ export function SiteHeader({
         ref={drawerRef}
         role="navigation"
         aria-label="Main navigation"
-        className={`fixed top-12 right-0 z-40 w-56 bg-background border-l border-border py-4 px-4 overflow-y-auto transition-transform md:hidden ${
+        className={`fixed inset-y-0 right-0 z-50 w-56 bg-background border-l border-border overflow-y-auto transition-transform md:hidden ${
           open ? "translate-x-0" : "translate-x-full invisible"
         }`}
-        style={{ height: "calc(100dvh - 3rem)" }}
       >
-        <div className="flex flex-col gap-3 text-sm text-muted">
+        {/* Drawer header — mirrors the site header row */}
+        <div className="flex items-center justify-end gap-1 px-4 h-12">
+          <ThemeToggle />
+          <button
+            onClick={close}
+            className="w-8 h-8 flex items-center justify-center text-muted hover:text-foreground transition-colors"
+            aria-label="Close menu"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3 text-sm text-muted px-4 pb-4">
           <Link
             href="/docs/getting-started"
             onClick={close}

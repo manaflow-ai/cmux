@@ -70,7 +70,7 @@ export function MobileDrawerOverlay({ open, onClose }: { open: boolean; onClose:
   if (!open) return null;
   return (
     <div
-      className="fixed top-12 left-0 right-0 bottom-0 z-30 bg-black/50 md:hidden"
+      className="fixed inset-0 z-40 bg-black/50 md:hidden"
       aria-hidden="true"
       onClick={onClose}
     />
