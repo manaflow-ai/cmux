@@ -28,12 +28,14 @@ export function NavLinks() {
       >
         Community
       </Link>
-      <Link
+      <a
         href="https://github.com/manaflow-ai/cmux"
+        target="_blank"
+        rel="noopener noreferrer"
         className="hover:text-foreground transition-colors"
       >
         GitHub
-      </Link>
+      </a>
       <DownloadButton size="sm" />
     </>
   );
