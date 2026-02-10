@@ -262,11 +262,11 @@ class TabManager: ObservableObject {
             tabs.remove(at: index)
 
             if selectedTabId == workspace.id {
-                if index > 0 {
-                    selectedTabId = tabs[index - 1].id
-                } else {
-                    selectedTabId = tabs.first?.id
-                }
+                // Keep the "focused index" stable when possible:
+                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
+                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
+                let newIndex = min(index, max(0, tabs.count - 1))
+                selectedTabId = tabs[newIndex].id
             }
         }
     }

@@ -11,6 +11,8 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - 2026-02-09: Fixed Cmd+W close panel confirmation path not closing when a running-process dialog appears (bypass Bonsplit delegate gating after user confirms).
 - 2026-02-09: Fixed WKWebView consuming app menu shortcuts (e.g. Cmd+N/Cmd+W, tab switching) by routing key equivalents through the main menu first; added unit tests and UI-test coverage scaffolding.
 - 2026-02-09: Centralized customizable shortcut definitions and wired titlebar button tooltips to show effective shortcuts.
+- 2026-02-10: Sidebar workspace close keeps focused index stable when possible (prefer focusing the next workspace, not the one above).
+- 2026-02-10: Closing Bonsplit tabs keeps focused index stable when possible (prefer focusing the next tab, not the one above).
 
 ## Backlog
 - Browser panels: investigate intermittent crash/relaunch around WKWebView lifecycle and focus notifications.
