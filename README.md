@@ -36,3 +36,78 @@ Or [download the DMG](https://github.com/manaflow-ai/cmux/releases/latest/downlo
 Running multiple AI coding agents? cmux helps you manage them. Instead of losing track of which terminal needs input, the notification panel shows you exactly where to look.
 
 A native macOS app means it launches instantly, uses minimal RAM, and feels right at home on your Mac.
+
+## Keyboard Shortcuts
+
+### Workspaces
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ N | New workspace |
+| ⌘ 1–8 | Jump to workspace 1–8 |
+| ⌘ 9 | Jump to last workspace |
+| ⌘ ⇧ W | Close workspace |
+
+### Surfaces
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ T | New surface |
+| ⌘ ⇧ [ | Previous surface |
+| ⌃ ⇧ Tab | Previous surface |
+| ⌃ 1–8 | Jump to surface 1–8 |
+| ⌃ 9 | Jump to last surface |
+| ⌘ W | Close surface |
+
+### Split Panes
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ D | Split right |
+| ⌘ ⇧ D | Split down |
+| ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+
+### Browser
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ B | Open browser in split |
+| ⌘ L | Focus address bar |
+| ⌘ ] | Forward |
+| ⌘ R | Reload page |
+| ⌥ ⌘ I | Open Developer Tools |
+
+### Notifications
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ I | Show notifications panel |
+| ⌘ ⇧ U | Jump to latest unread |
+
+### Find
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ F | Find |
+| ⌘ G / ⌘ ⇧ G | Find next / previous |
+| ⌘ ⇧ F | Hide find bar |
+| ⌘ E | Use selection for find |
+
+### Terminal
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ K | Clear scrollback |
+| ⌘ C | Copy (with selection) |
+| ⌘ V | Paste |
+| ⌘ + / ⌘ - | Increase / decrease font size |
+| ⌘ 0 | Reset font size |
+
+### Window
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ N | New window |
+| ⌘ , | Settings |
+| ⌘ ⇧ R | Reload configuration |
+| ⌘ Q | Quit |
