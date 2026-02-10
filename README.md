@@ -22,14 +22,26 @@
 
 ## Install
 
-**Homebrew:**
+### DMG (recommended)
+
+[**Download for Mac**](https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg)
+
+Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+
+### Homebrew
 
 ```bash
 brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 
-Or [download the DMG](https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg) directly.
+To update later:
+
+```bash
+brew upgrade --cask cmux
+```
+
+On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
 ## Why cmux?
 
