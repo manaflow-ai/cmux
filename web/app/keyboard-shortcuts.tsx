@@ -1,198 +1,350 @@
-export function KeyboardShortcuts() {
+"use client";
+
+import { useMemo, useState } from "react";
+
+type Shortcut = {
+  id: string;
+  combos: string[][];
+  description: string;
+  note?: string;
+};
+
+type ShortcutCategory = {
+  id: string;
+  title: string;
+  blurb?: string;
+  shortcuts: Shortcut[];
+};
+
+const CATEGORIES: ShortcutCategory[] = [
+  {
+    id: "workspaces",
+    title: "Workspaces",
+    blurb: "Workspaces live in the sidebar. Each workspace has its own set of panes and surfaces.",
+    shortcuts: [
+      { id: "ws-new", combos: [["⌘", "N"]], description: "New workspace" },
+      {
+        id: "ws-jump-1-8",
+        combos: [["⌘", "1–8"]],
+        description: "Jump to workspace 1–8",
+      },
+      {
+        id: "ws-jump-last",
+        combos: [["⌘", "9"]],
+        description: "Jump to last workspace",
+      },
+      {
+        id: "ws-close",
+        combos: [["⌘", "⇧", "W"]],
+        description: "Close workspace",
+      },
+    ],
+  },
+  {
+    id: "surfaces",
+    title: "Surfaces",
+    blurb: "Surfaces are tabs inside a pane.",
+    shortcuts: [
+      { id: "sf-new", combos: [["⌘", "T"]], description: "New surface" },
+      {
+        id: "sf-prev-1",
+        combos: [["⌘", "⇧", "["]],
+        description: "Previous surface",
+      },
+      {
+        id: "sf-prev-2",
+        combos: [["⌃", "⇧", "Tab"]],
+        description: "Previous surface",
+      },
+      {
+        id: "sf-jump-1-8",
+        combos: [["⌃", "1–8"]],
+        description: "Jump to surface 1–8",
+      },
+      {
+        id: "sf-jump-last",
+        combos: [["⌃", "9"]],
+        description: "Jump to last surface",
+      },
+      { id: "sf-close", combos: [["⌘", "W"]], description: "Close surface" },
+    ],
+  },
+  {
+    id: "split-panes",
+    title: "Split Panes",
+    shortcuts: [
+      { id: "sp-right", combos: [["⌘", "D"]], description: "Split right" },
+      { id: "sp-down", combos: [["⌘", "⇧", "D"]], description: "Split down" },
+      {
+        id: "sp-focus",
+        combos: [["⌥", "⌘", "←/→/↑/↓"]],
+        description: "Focus pane directionally",
+      },
+    ],
+  },
+  {
+    id: "browser",
+    title: "Browser",
+    shortcuts: [
+      {
+        id: "br-open",
+        combos: [["⌘", "⇧", "B"]],
+        description: "Open browser in split",
+      },
+      { id: "br-addr", combos: [["⌘", "L"]], description: "Focus address bar" },
+      { id: "br-forward", combos: [["⌘", "]"]], description: "Forward" },
+      { id: "br-reload", combos: [["⌘", "R"]], description: "Reload page" },
+      {
+        id: "br-devtools",
+        combos: [["⌥", "⌘", "I"]],
+        description: "Open Developer Tools",
+      },
+    ],
+  },
+  {
+    id: "notifications",
+    title: "Notifications",
+    shortcuts: [
+      {
+        id: "nt-panel",
+        combos: [["⌘", "⇧", "I"]],
+        description: "Show notifications panel",
+      },
+      {
+        id: "nt-latest",
+        combos: [["⌘", "⇧", "U"]],
+        description: "Jump to latest unread",
+      },
+      {
+        id: "nt-flash",
+        combos: [["⌘", "⇧", "L"]],
+        description: "Trigger flash",
+      },
+    ],
+  },
+  {
+    id: "find",
+    title: "Find",
+    shortcuts: [
+      { id: "fd-find", combos: [["⌘", "F"]], description: "Find" },
+      {
+        id: "fd-next-prev",
+        combos: [
+          ["⌘", "G"],
+          ["⌘", "⇧", "G"],
+        ],
+        description: "Find next / previous",
+      },
+      {
+        id: "fd-hide",
+        combos: [["⌘", "⇧", "F"]],
+        description: "Hide find bar",
+      },
+      {
+        id: "fd-selection",
+        combos: [["⌘", "E"]],
+        description: "Use selection for find",
+      },
+    ],
+  },
+  {
+    id: "terminal",
+    title: "Terminal",
+    shortcuts: [
+      {
+        id: "tm-clear",
+        combos: [["⌘", "K"]],
+        description: "Clear scrollback",
+      },
+      {
+        id: "tm-copy",
+        combos: [["⌘", "C"]],
+        description: "Copy (with selection)",
+      },
+      { id: "tm-paste", combos: [["⌘", "V"]], description: "Paste" },
+      {
+        id: "tm-font",
+        combos: [
+          ["⌘", "+"],
+          ["⌘", "-"],
+        ],
+        description: "Increase / decrease font size",
+      },
+      { id: "tm-reset", combos: [["⌘", "0"]], description: "Reset font size" },
+    ],
+  },
+  {
+    id: "window",
+    title: "Window",
+    shortcuts: [
+      { id: "wn-new", combos: [["⌘", "⇧", "N"]], description: "New window" },
+      { id: "wn-settings", combos: [["⌘", ","]], description: "Settings" },
+      {
+        id: "wn-reload",
+        combos: [["⌘", "⇧", "R"]],
+        description: "Reload configuration",
+      },
+      { id: "wn-quit", combos: [["⌘", "Q"]], description: "Quit" },
+    ],
+  },
+];
+
+function normalize(s: string) {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function comboToText(combo: string[]) {
+  return combo.join(" ");
+}
+
+function shortcutSearchText(category: ShortcutCategory, s: Shortcut) {
+  const combos = s.combos.map(comboToText).join(" ");
+  return normalize(`${category.title} ${combos} ${s.description} ${s.note ?? ""}`);
+}
+
+function KeyCombo({ combo }: { combo: string[] }) {
   return (
-    <section className="mb-12">
-      <h2 className="text-xs font-medium text-muted tracking-tight mb-6">
-        Keyboard Shortcuts
-      </h2>
-      <div className="space-y-8 text-[15px]">
-        {/* Workspaces */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Workspaces</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ N</span>
-              <span className="text-muted">New workspace</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ 1 – 8</span>
-              <span className="text-muted">Jump to workspace 1–8</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ 9</span>
-              <span className="text-muted">Jump to last workspace</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ W</span>
-              <span className="text-muted">Close workspace</span>
-            </li>
-          </ul>
-        </div>
+    <span className="inline-flex items-center">
+      {combo.map((k, idx) => (
+        <span key={`${k}-${idx}`} className="inline-flex items-center">
+          <kbd>{k}</kbd>
+          {idx < combo.length - 1 && (
+            <span className="text-muted/30 text-[10px] mx-[3px] select-none font-mono">
+              +
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
 
-        {/* Surfaces */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Surfaces</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ T</span>
-              <span className="text-muted">New surface</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ [</span>
-              <span className="text-muted">Previous surface</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌃ ⇧ Tab</span>
-              <span className="text-muted">Previous surface</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌃ 1 – 8</span>
-              <span className="text-muted">Jump to surface 1–8</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌃ 9</span>
-              <span className="text-muted">Jump to last surface</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ W</span>
-              <span className="text-muted">Close surface</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Split Panes */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Split Panes</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ D</span>
-              <span className="text-muted">Split right</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ D</span>
-              <span className="text-muted">Split down</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌥ ⌘ ← → ↑ ↓</span>
-              <span className="text-muted">Focus pane directionally</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Browser */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Browser</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ B</span>
-              <span className="text-muted">Open browser in split</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ L</span>
-              <span className="text-muted">Focus address bar</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ]</span>
-              <span className="text-muted">Forward</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ R</span>
-              <span className="text-muted">Reload page</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌥ ⌘ I</span>
-              <span className="text-muted">Open Developer Tools</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Notifications */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Notifications</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ I</span>
-              <span className="text-muted">Show notifications panel</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ U</span>
-              <span className="text-muted">Jump to latest unread</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Find */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Find</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ F</span>
-              <span className="text-muted">Find</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ G &nbsp;/&nbsp; ⌘ ⇧ G</span>
-              <span className="text-muted">Find next / previous</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ F</span>
-              <span className="text-muted">Hide find bar</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ E</span>
-              <span className="text-muted">Use selection for find</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Terminal */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Terminal</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ K</span>
-              <span className="text-muted">Clear scrollback</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ C</span>
-              <span className="text-muted">Copy (with selection)</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ V</span>
-              <span className="text-muted">Paste</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ + &nbsp;/&nbsp; ⌘ -</span>
-              <span className="text-muted">Increase / decrease font size</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ 0</span>
-              <span className="text-muted">Reset font size</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Window */}
-        <div>
-          <h3 className="text-[11px] uppercase tracking-widest text-muted/60 mb-3">Window</h3>
-          <ul className="space-y-3">
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ N</span>
-              <span className="text-muted">New window</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ,</span>
-              <span className="text-muted">Settings</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ ⇧ R</span>
-              <span className="text-muted">Reload configuration</span>
-            </li>
-            <li className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px]">⌘ Q</span>
-              <span className="text-muted">Quit</span>
-            </li>
-          </ul>
-        </div>
+function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-[11px] px-4 hover:bg-foreground/[0.025] transition-colors">
+      <div className="min-w-0">
+        <span className="text-[14px] text-foreground/90">
+          {shortcut.description}
+        </span>
+        {shortcut.note && (
+          <span className="text-[12px] text-muted/50 ml-2">
+            {shortcut.note}
+          </span>
+        )}
       </div>
-    </section>
+      <div className="flex items-center gap-3 shrink-0">
+        {shortcut.combos.map((combo, idx) => (
+          <span
+            key={`${shortcut.id}-combo-${idx}`}
+            className="inline-flex items-center"
+          >
+            {idx > 0 && (
+              <span className="text-muted/30 text-[11px] select-none mr-3 font-mono">
+                /
+              </span>
+            )}
+            <KeyCombo combo={combo} />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function KeyboardShortcuts() {
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = normalize(query);
+    if (!q) return CATEGORIES;
+    return CATEGORIES.map((cat) => ({
+      ...cat,
+      shortcuts: cat.shortcuts.filter((s) =>
+        shortcutSearchText(cat, s).includes(q),
+      ),
+    })).filter((cat) => cat.shortcuts.length > 0);
+  }, [query]);
+
+  return (
+    <div className="mt-2 mb-12">
+      {/* Search */}
+      <div className="relative mb-8">
+        <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted/40">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.3-4.3" />
+          </svg>
+        </div>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search shortcuts..."
+          className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-border bg-transparent text-[13px] placeholder:text-muted/40 focus:outline-none focus:border-foreground/20 transition-colors"
+          aria-label="Search keyboard shortcuts"
+        />
+      </div>
+
+      {/* Category jump links */}
+      {!query && (
+        <nav className="flex flex-wrap items-center gap-y-2 mb-10">
+          {CATEGORIES.map((cat, idx) => (
+            <span key={cat.id} className="inline-flex items-center">
+              <a
+                href={`#${cat.id}`}
+                className="text-[13px] text-muted hover:text-foreground transition-colors"
+              >
+                {cat.title}
+              </a>
+              {idx < CATEGORIES.length - 1 && (
+                <span className="text-border mx-2.5 text-[10px] select-none">
+                  ·
+                </span>
+              )}
+            </span>
+          ))}
+        </nav>
+      )}
+
+      {/* Content */}
+      {filtered.length === 0 ? (
+        <div className="py-16 text-center">
+          <p className="text-[14px] text-muted/70">No shortcuts found</p>
+          <p className="text-[13px] text-muted/40 mt-1.5">
+            Try a different search term
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-10">
+          {filtered.map((cat) => (
+            <section key={cat.id} id={cat.id} className="scroll-mt-20">
+              <div className="mb-3">
+                <div className="text-[13px] font-medium text-muted/60">
+                  {cat.title}
+                </div>
+                {cat.blurb && (
+                  <p className="text-[13px] text-muted/50 mt-1">{cat.blurb}</p>
+                )}
+              </div>
+              <div className="rounded-xl border border-border overflow-hidden">
+                <div className="divide-y divide-border/60">
+                  {cat.shortcuts.map((s) => (
+                    <ShortcutRow key={s.id} shortcut={s} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
