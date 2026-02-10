@@ -118,7 +118,7 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
         role="navigation"
         aria-label="Documentation"
         style={{ height: "calc(100dvh - 3rem)" }}
-        className={`fixed top-12 left-0 z-40 w-56 bg-background py-4 pr-4 overflow-y-auto transition-transform md:sticky md:top-12 md:shrink-0 md:translate-x-0 ${
+        className={`fixed top-12 left-0 z-40 w-56 bg-background py-4 pr-4 overflow-y-auto transition-transform md:sticky md:top-12 md:z-20 md:shrink-0 md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
