@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
@@ -28,13 +27,12 @@ export function SiteHeader({
             {!hideLogo && (
               <>
                 <Link href="/" className="flex items-center gap-2.5">
-                  <Image
+                  <img
                     src="/icon.png"
                     alt="cmux"
                     width={24}
                     height={24}
                     className="rounded-md"
-                    unoptimized
                   />
                   <span className="text-sm font-semibold tracking-tight">
                     cmux

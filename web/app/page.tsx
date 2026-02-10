@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
@@ -12,14 +11,12 @@ export default function Home() {
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
-          <Image
+          <img
             src="/icon.png"
             alt="cmux icon"
             width={48}
             height={48}
             className="rounded-xl"
-            unoptimized
-            priority
           />
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>
         </div>
