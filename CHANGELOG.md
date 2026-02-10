@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [1.24.0] - 2026-02-09
+
+### Changed
+- Update bundle identifier to `com.cmuxterm.app` for consistency
+
 ## [1.23.0] - 2026-02-09
 
 ### Changed
