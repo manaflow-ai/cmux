@@ -20,7 +20,7 @@ export default function IntroducingCmuxPage() {
       </div>
 
       <h1>Introducing cmux</h1>
-      <time className="text-sm text-muted">June 1, 2025</time>
+      <time className="text-sm text-muted">February 12, 2026</time>
 
       <p className="mt-6">
         cmux is a native macOS terminal application built on top of Ghostty,

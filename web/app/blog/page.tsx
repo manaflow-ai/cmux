@@ -10,7 +10,7 @@ const posts = [
   {
     slug: "introducing-cmux",
     title: "Introducing cmux",
-    date: "2025-06-01",
+    date: "2026-02-12",
     summary:
       "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
   },
