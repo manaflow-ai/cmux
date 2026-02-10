@@ -7,8 +7,8 @@ const phrases = [
   "multitasking",
   "Claude Code",
   "Codex",
-  "Opencode",
-  "Gemini",
+  "OpenCode",
+  "Gemini CLI",
 ];
 
 export function TypingTagline() {
@@ -20,6 +20,7 @@ export function TypingTagline() {
   const [blink, setBlink] = useState(true);
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "." && e.metaKey) {
         e.preventDefault();
@@ -39,9 +40,11 @@ export function TypingTagline() {
     }
 
     if (deleting && charIndex === 0) {
-      setDeleting(false);
-      setPhraseIndex((i) => (i + 1) % phrases.length);
-      return;
+      const timeout = setTimeout(() => {
+        setDeleting(false);
+        setPhraseIndex((i) => (i + 1) % phrases.length);
+      }, 0);
+      return () => clearTimeout(timeout);
     }
 
     const speed = deleting ? 30 : 60;
@@ -66,7 +69,7 @@ export function TypingTagline() {
       {displayed}
       <span
         className={`inline-block w-[2px] h-[1.1em] bg-foreground/70 ml-[1px] ${blink ? "animate-blink" : ""}`}
-        style={{ position: "relative", top: `${-topOffset}px` }}
+        style={{ position: "relative", top: "2.5px" }}
         onDoubleClick={() => setShowControls((s) => !s)}
       />
       {showControls && (
