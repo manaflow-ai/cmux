@@ -28,7 +28,7 @@ export function SiteHeader({
               <>
                 <Link href="/" className="flex items-center gap-2.5">
                   <img
-                    src="/icon.png"
+                    src="/logo.png"
                     alt="cmux"
                     width={24}
                     height={24}
