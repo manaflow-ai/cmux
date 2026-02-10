@@ -12,7 +12,7 @@ export default function Home() {
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
           <img
-            src="/icon.png"
+            src="/logo.png"
             alt="cmux icon"
             width={48}
             height={48}
