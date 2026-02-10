@@ -16,6 +16,7 @@ export function SiteHeader({ section, hideLogo }: { section?: string; hideLogo?:
                   width={24}
                   height={24}
                   className="rounded-md"
+                  unoptimized
                 />
                 <span className="text-sm font-semibold tracking-tight">
                   cmux
