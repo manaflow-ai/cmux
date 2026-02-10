@@ -21,61 +21,61 @@ export function SiteHeader({
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
 
   return (
-    <header className="sticky top-0 z-30 w-full bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-5xl mx-auto flex items-center justify-between px-6 h-12">
-        <div className="flex items-center gap-3">
-          {!hideLogo && (
-            <>
-              <Link href="/" className="flex items-center gap-2.5">
-                <Image
-                  src="/icon.png"
-                  alt="cmux"
-                  width={24}
-                  height={24}
-                  className="rounded-md"
-                  unoptimized
-                />
-                <span className="text-sm font-semibold tracking-tight">
-                  cmux
-                </span>
-              </Link>
-              {section && (
-                <>
-                  <span className="text-border text-[13px]">/</span>
-                  <span className="text-[13px] text-muted">{section}</span>
-                </>
-              )}
-            </>
-          )}
+    <>
+      <header className="sticky top-0 z-30 w-full bg-background/80 backdrop-blur-sm">
+        <div className="w-full max-w-5xl mx-auto flex items-center justify-between px-6 h-12">
+          <div className="flex items-center gap-3">
+            {!hideLogo && (
+              <>
+                <Link href="/" className="flex items-center gap-2.5">
+                  <Image
+                    src="/icon.png"
+                    alt="cmux"
+                    width={24}
+                    height={24}
+                    className="rounded-md"
+                    unoptimized
+                  />
+                  <span className="text-sm font-semibold tracking-tight">
+                    cmux
+                  </span>
+                </Link>
+                {section && (
+                  <>
+                    <span className="text-border text-[13px]">/</span>
+                    <span className="text-[13px] text-muted">{section}</span>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1">
+            {/* Desktop nav */}
+            <nav className="hidden md:flex items-center gap-4 text-sm text-muted">
+              <NavLinks />
+            </nav>
+
+            <ThemeToggle />
+
+            {/* Mobile hamburger */}
+            <MobileDrawerToggle
+              open={open}
+              onClick={toggle}
+              buttonRef={buttonRef}
+            />
+          </div>
         </div>
+      </header>
 
-        <div className="flex items-center gap-1">
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-4 text-sm text-muted">
-            <NavLinks />
-          </nav>
-
-          <ThemeToggle />
-
-          {/* Mobile hamburger */}
-          <MobileDrawerToggle
-            open={open}
-            onClick={toggle}
-            buttonRef={buttonRef}
-          />
-        </div>
-      </div>
-
-      {/* Mobile overlay */}
+      {/* Mobile overlay + drawer — outside header to avoid backdrop-filter breaking fixed positioning on iOS */}
       <MobileDrawerOverlay open={open} onClose={close} />
-
-      {/* Mobile drawer */}
       <nav
         ref={drawerRef}
         role="navigation"
         aria-label="Main navigation"
         className={`fixed top-12 right-0 z-40 w-56 bg-background border-l border-border py-4 px-4 overflow-y-auto transition-transform md:hidden ${
-          open ? "translate-x-0" : "translate-x-full"
+          open ? "translate-x-0" : "translate-x-full invisible"
         }`}
         style={{ height: "calc(100dvh - 3rem)" }}
       >
@@ -121,6 +121,6 @@ export function SiteHeader({
           </div>
         </div>
       </nav>
-    </header>
+    </>
   );
 }
