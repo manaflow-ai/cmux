@@ -18,6 +18,7 @@ export default function Home() {
             width={48}
             height={48}
             className="rounded-xl"
+            unoptimized
             priority
           />
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>
