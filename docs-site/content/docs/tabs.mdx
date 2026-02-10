@@ -5,55 +5,53 @@ description: Managing terminal tabs in cmuxterm
 
 # Vertical Tabs
 
-cmuxterm displays all your terminal tabs in a vertical sidebar on the left side of the window, making it easy to see and switch between multiple terminals at a glance.
+cmuxterm displays all your workspaces as vertical tabs in a sidebar on the left side of the window, making it easy to see and switch between them at a glance. Each sidebar tab is a [workspace](/concepts) that can contain multiple split panes and surfaces.
 
 ## Sidebar Features
 
-- **Always visible** - All tabs shown at once, no hidden tabs
+- **Always visible** - All workspaces shown at once, no hidden tabs
 - **Resizable** - Drag the sidebar edge to resize (140-360pt)
-- **Current directory** - Each tab shows its working directory
+- **Current directory** - Each workspace shows its working directory
 - **Notification badges** - Unread notification indicators
 - **Keyboard navigation** - Quick switching without mouse
 
 ## Tab Operations
 
-### Create New Tab
+### Create
 
-- **⌘N** - Create a new tab
-- **⌘T** - Create a new surface (tab within pane)
+- **⌘N** - New workspace
+- **⌘T** - New surface (tab within the current pane)
 
-### Close Tab
+### Close
 
-- **⌘⇧W** - Close the current tab
-- **⌘W** - Close the current pane (closes tab if only one pane)
+- **⌘⇧W** - Close the current workspace
+- **⌘W** - Close the current surface (closes workspace if it's the last one)
 
-### Switch Tabs
+### Switch Workspaces
 
 | Shortcut | Action |
 |----------|--------|
-| **⌘1** - **⌘9** | Jump to tab 1-9 |
-| **⌘]** | Next tab |
-| **⌘[** | Previous tab |
-| **⌃Tab** | Next tab |
-| **⌃⇧Tab** | Previous tab |
+| **⌘1** - **⌘9** | Jump to workspace 1-9 |
+| **⌘⇧]** | Next workspace |
+| **⌘⇧[** | Previous workspace |
 
 ### Jump to Notifications
 
-- **⌘⇧U** - Jump to the tab with the latest unread notification
+- **⌘⇧U** - Jump to the workspace with the latest unread notification
 - **⌘⇧I** - Show the notifications panel
 
-## Tab Titles
+## Workspace Titles
 
-Tab titles are determined by:
+Workspace titles are determined by:
 
 1. **Terminal title** - Set via OSC escape sequence
 2. **Current directory** - Shown if no title is set
-3. **Tab number** - Fallback display
+3. **Workspace number** - Fallback display
 
-You can set a custom tab title from within the terminal:
+You can set a custom title from within the terminal:
 
 ```bash
-# Set tab title
+# Set workspace title
 echo -e "\033]0;My Custom Title\007"
 
 # Or using printf
@@ -66,10 +64,10 @@ printf "\033]0;Build Server\007"
 
 When the sidebar is hidden, you can still use keyboard shortcuts to navigate between tabs.
 
-## Tab Indicators
+## Sidebar Indicators
 
-Tabs display visual indicators:
+Workspaces display visual indicators:
 
-- **Blue dot** - Unread notification in this tab
-- **Bold title** - Currently selected tab
-- **Directory path** - Current working directory for the tab
+- **Blue dot** - Unread notification in this workspace
+- **Bold title** - Currently selected workspace
+- **Directory path** - Current working directory

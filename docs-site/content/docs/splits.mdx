@@ -5,7 +5,7 @@ description: Working with split panes in cmuxterm
 
 # Split Panes
 
-cmuxterm supports splitting terminal panes within a tab, allowing you to view multiple terminals side by side.
+cmuxterm supports splitting panes within a workspace, allowing you to view multiple terminals side by side. See [Concepts](/concepts) for how panes fit into the hierarchy.
 
 ## Creating Splits
 
@@ -42,17 +42,17 @@ Use **⌘⌥** + arrow keys to move between splits:
 ### CLI
 
 ```bash
-# List all panes in current tab
-cmuxterm list-panels
+# List all surfaces in current workspace
+cmuxterm list-surfaces
 
-# Focus a specific pane
-cmuxterm focus-panel --panel <panel-id>
+# Focus a specific surface
+cmuxterm focus-surface <surface-id>
 ```
 
 ## Closing Splits
 
-- **⌘W** - Close the focused pane
-- If only one pane remains, **⌘W** closes the tab
+- **⌘W** - Close the focused surface (collapses the split if it's the last surface in a pane)
+- If only one surface remains, **⌘W** closes the workspace
 
 ## Visual Styling
 
@@ -79,13 +79,13 @@ cmuxterm uses a binary split tree structure:
 
 - Each split creates two child panes
 - Nested splits create a tree of panes
-- Each pane has a unique `panel-id` for CLI access
+- Each surface has a unique ID accessible via `CMUX_SURFACE_ID`
 
 ### Example Layout
 
 ```
 ┌────────────────────────────────┐
-│           Tab 1                │
+│        Workspace 1             │
 ├──────────────┬─────────────────┤
 │              │     Pane 2      │
 │   Pane 1     ├─────────────────┤
@@ -98,14 +98,14 @@ This layout is created by:
 2. Focus Pane 2
 3. Split down → Pane 2 | Pane 3
 
-## Sending Input to Specific Panes
+## Sending Input to Specific Surfaces
 
-With the CLI, you can send input to specific panes:
+With the CLI, you can send input to a specific surface:
 
 ```bash
-# Send text to a specific pane
-cmuxterm send-panel --panel <panel-id> "echo hello"
+# Send text to a specific surface
+cmuxterm send-surface <surface-id> "echo hello"
 
-# Send a keypress to a specific pane
-cmuxterm send-key-panel --panel <panel-id> enter
+# Send a keypress to a specific surface
+cmuxterm send-key-surface <surface-id> enter
 ```
