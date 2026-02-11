@@ -120,8 +120,9 @@ jobs:
             subnet="${CMUX_VM_SUBNET:-192.168.64}"
             port="${CMUX_VM_PORT:-22}"
             echo "Attempting VM discovery on ${subnet}.0/24 (port ${port})..."
+            # Note: most probes will fail; force a 0 exit status so `set -euo pipefail` doesn't abort.
             candidates="$(
-              seq 1 254 | xargs -n1 -P 64 -I{} sh -c "nc -z -w 1 ${subnet}.{} ${port} >/dev/null 2>&1 && echo ${subnet}.{}" | head -n 20
+              seq 1 254 | xargs -P 48 -I{} sh -c "ip='${subnet}.{}'; nc -z -w 1 \"$ip\" \"${port}\" >/dev/null 2>&1 && echo \"$ip\"; exit 0" | head -n 20
             )"
             for ip in $candidates; do
               if ssh "${ssh_opts[@]}" "$vm_user@$ip" 'true' >/dev/null 2>&1; then
