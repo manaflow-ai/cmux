@@ -22,8 +22,9 @@ export function SiteHeader({
   return (
     <>
       <header className="sticky top-0 z-30 w-full bg-background/80 backdrop-blur-sm">
-        <div className="w-full max-w-5xl mx-auto flex items-center justify-between px-6 h-12">
-          <div className="flex items-center gap-3">
+        <div className="w-full max-w-6xl mx-auto flex items-center px-6 h-12">
+          {/* Left: logo + section */}
+          <div className="flex flex-1 items-center gap-3 min-w-0">
             {!hideLogo && (
               <>
                 <Link href="/" className="flex items-center gap-2.5">
@@ -48,15 +49,17 @@ export function SiteHeader({
             )}
           </div>
 
-          <div className="flex items-center gap-1">
-            {/* Desktop nav */}
-            <nav className="hidden md:flex items-center gap-4 text-sm text-muted">
-              <NavLinks />
-            </nav>
+          {/* Center: nav links */}
+          <nav className="hidden md:flex items-center justify-center gap-4 text-sm text-muted shrink-0">
+            <NavLinks />
+          </nav>
 
+          {/* Right: Download + theme + mobile */}
+          <div className="flex flex-1 items-center justify-end gap-1 min-w-0">
+            <div className="hidden md:block">
+              <DownloadButton size="sm" />
+            </div>
             <ThemeToggle />
-
-            {/* Mobile hamburger */}
             <MobileDrawerToggle
               open={open}
               onClick={toggle}

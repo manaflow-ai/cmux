@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { DownloadButton } from "./download-button";
 
 export function NavLinks() {
   return (
@@ -36,7 +35,6 @@ export function NavLinks() {
       >
         GitHub
       </a>
-      <DownloadButton size="sm" />
     </>
   );
 }

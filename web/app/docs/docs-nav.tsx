@@ -11,7 +11,7 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
 
   return (
-    <div className="max-w-5xl mx-auto flex px-4">
+    <div className="max-w-6xl mx-auto flex px-4">
       {/* Mobile menu button */}
       <button
         ref={buttonRef}
@@ -63,7 +63,7 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
 
       {/* Content */}
       <main className="flex-1 min-w-0">
-        <div className="max-w-2xl px-6 pb-10 ml-0" data-dev="docs-content" style={{ paddingTop: 8 }}>
+        <div className="max-w-3xl px-6 pb-10 ml-0" data-dev="docs-content" style={{ paddingTop: 8 }}>
           <div className="docs-content text-[15px]">{children}</div>
           <DocsPager />
         </div>
