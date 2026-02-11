@@ -746,6 +746,18 @@ class GhosttyApp {
                 )
             }
             return true
+        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            // The child (shell) exited. Ghostty will fall back to printing
+            // "Process exited. Press any key..." into the terminal unless the host
+            // handles this action. For cmuxterm, the correct behavior is to close
+            // the panel immediately (no prompt).
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
+            return performOnMain {
+                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                tabManager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+                return true
+            }
         case GHOSTTY_ACTION_COLOR_CHANGE:
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
                 let change = action.action.color_change

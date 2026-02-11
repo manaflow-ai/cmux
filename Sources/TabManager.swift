@@ -583,6 +583,30 @@ class TabManager: ObservableObject {
         closePanelWithConfirmation(tab: tab, panelId: surfaceId)
     }
 
+    /// Close a panel because its child process exited (e.g. the user hit Ctrl+D).
+    ///
+    /// This should never prompt: the process is already gone, and Ghostty emits the
+    /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
+    func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+
+        // If this is the last panel in the workspace, mirror Cmd+W semantics:
+        // close the workspace (and the window if it's the last workspace).
+        let isLastTabInWorkspace = tab.panels.count <= 1
+        if isLastTabInWorkspace {
+            let willCloseWindow = tabs.count <= 1
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+            if willCloseWindow {
+                AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)
+            } else {
+                closeWorkspace(tab)
+            }
+            return
+        }
+
+        tab.closePanel(surfaceId, force: true)
+    }
+
     private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] == "1" {

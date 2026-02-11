@@ -46,7 +46,15 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     var isDirty: Bool {
-        surface.needsConfirmClose()
+        // Bonsplit's "dirty" indicator is a very small dot in the tab strip.
+        //
+        // For terminals, `ghostty_surface_needs_confirm_quit` is driven by shell integration
+        // heuristics and can be transiently (or permanently) wrong, which results in a dot
+        // showing on every new terminal. That reads as a notification/alert and is misleading.
+        //
+        // We still honor `needsConfirmClose()` when actually closing a panel; we just don't
+        // surface it as a tab-level dirty indicator.
+        false
     }
 
     /// The hosted NSView for embedding in SwiftUI
