@@ -754,7 +754,8 @@ class GhosttyApp {
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let app = AppDelegate.shared else { return false }
+                guard let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                 tabManager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
                 return true
             }
@@ -1549,12 +1550,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
             desiredFocus = true
+            // Always notify the host app that this pane became the first responder so bonsplit
+            // focus/selection can converge. Previously this was gated on `surface != nil`, which
+            // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
+            // stayed behind.
+            onFocus?()
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
-            onFocus?()
 #if DEBUG
             if let terminalSurface {
                 AppDelegate.shared?.recordJumpUnreadFocusIfExpected(

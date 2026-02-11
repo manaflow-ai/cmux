@@ -33,6 +33,7 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - 2026-02-10: Added PostHog Swift SDK integration and a stable DAU signal (`cmuxterm_daily_active`, once per UTC day per install).
 - 2026-02-10: Added a v2 JSON socket API (handle-based) and migrated the automated test suite to v2 while keeping v1 compatibility. Verified v1 + v2 suites passing on the VM (see `docs/v2-api-migration.md`).
 - 2026-02-11: Extended the socket/CLI to handle multi-window automation: added v2 `window.list/current/focus/create/close`, v2 `workspace.move_to_window`, and included `window_id` in `system.identify` (plus caller validation). Added v1 window commands for the CLI (`list_windows`, etc). Added VM test coverage (`tests_v2/test_windows_api.py`) and verified v1 + v2 suites passing on the VM.
+- 2026-02-11: Fixed split child-exit close semantics and focus indicator drift: exiting (`Ctrl+D`) one side of a split now only closes that pane (never the whole workspace due to transient panel-count state), and terminal first-responder focus now always re-syncs active bonsplit focus so blue focus indicators match actual keyboard focus. Added VM UI regression coverage for child-exit-in-split behavior.
 
 ## Backlog
 - Browser panels: investigate intermittent crash/relaunch around WKWebView lifecycle and focus notifications.

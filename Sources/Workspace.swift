@@ -535,7 +535,11 @@ final class Workspace: Identifiable, ObservableObject {
             panel.focus()
 
             if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+                // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
+                // (becomeFirstResponder -> onFocus -> focusPanel).
+                if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                    terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+                }
             }
         }
 

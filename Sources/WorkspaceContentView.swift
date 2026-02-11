@@ -30,13 +30,11 @@ struct WorkspaceContentView: View {
                     appearance: appearance,
                     notificationStore: notificationStore,
                     onFocus: {
-                        // Only treat terminal focus events as authoritative when the pane is already
-                        // focused. This prevents background terminal focus retries (ensureFocus /
-                        // requestFocus) from stealing bonsplit focus back after the user navigates
-                        // to another pane (e.g. a browser WKWebView).
-                        if workspace.bonsplitController.focusedPaneId == paneId {
-                            workspace.focusPanel(panel.id)
-                        }
+                        // Keep bonsplit focus in sync with the AppKit first responder for the
+                        // active workspace. This prevents divergence between the blue focused-tab
+                        // indicator and where keyboard input/flash-focus actually lands.
+                        guard isTabActive else { return }
+                        workspace.focusPanel(panel.id)
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )

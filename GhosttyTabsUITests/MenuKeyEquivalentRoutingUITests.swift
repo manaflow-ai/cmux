@@ -301,11 +301,11 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertFalse(
             blankSeen,
-            "Transient blank frame detected. at=\(data[\"blankObservedAt\"] ?? \"\") iter=\(data[\"blankObservedIteration\"] ?? \"\") trace=\(trace)"
+            "Transient blank frame detected. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
         )
         XCTAssertFalse(
             sizeMismatchSeen,
-            "Transient IOSurface size mismatch detected (stretched text). at=\(data[\"sizeMismatchObservedAt\"] ?? \"\") iter=\(data[\"sizeMismatchObservedIteration\"] ?? \"\") trace=\(trace)"
+            "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
         )
     }
 
@@ -350,11 +350,11 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertFalse(
             blankSeen,
-            "Transient blank frame detected. at=\(data[\"blankObservedAt\"] ?? \"\") iter=\(data[\"blankObservedIteration\"] ?? \"\") trace=\(trace)"
+            "Transient blank frame detected. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
         )
         XCTAssertFalse(
             sizeMismatchSeen,
-            "Transient IOSurface size mismatch detected (stretched text). at=\(data[\"sizeMismatchObservedAt\"] ?? \"\") iter=\(data[\"sizeMismatchObservedIteration\"] ?? \"\") trace=\(trace)"
+            "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
         )
     }
 

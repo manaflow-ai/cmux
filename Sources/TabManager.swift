@@ -3,6 +3,7 @@ import SwiftUI
 import Foundation
 import Bonsplit
 import CoreVideo
+import Combine
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
@@ -179,6 +180,7 @@ class TabManager: ObservableObject {
 #if DEBUG
     private var didSetupSplitCloseRightUITest = false
     private var didSetupUITestFocusShortcuts = false
+    private var didSetupChildExitSplitUITest = false
 #endif
 
     init() {
@@ -208,6 +210,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
+        setupChildExitSplitUITestIfNeeded()
 #endif
     }
 
@@ -590,9 +593,13 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
 
-        // If this is the last panel in the workspace, mirror Cmd+W semantics:
+        // If this is the last tab in the workspace, mirror Cmd+W semantics:
         // close the workspace (and the window if it's the last workspace).
-        let isLastTabInWorkspace = tab.panels.count <= 1
+        //
+        // Important: use bonsplit's tab model as the source of truth. `panels` can be
+        // transiently behind during close/mutation callbacks, and closing a workspace based on a
+        // stale `panels.count == 1` causes data loss when exiting one side of a split.
+        let isLastTabInWorkspace = tab.bonsplitController.allTabIds.count <= 1
         if isLastTabInWorkspace {
             let willCloseWindow = tabs.count <= 1
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
@@ -604,6 +611,9 @@ class TabManager: ObservableObject {
             return
         }
 
+        // Non-last tabs should only close that one panel. If the mapping is already gone, treat
+        // it as already-closed and do nothing (never escalate to workspace close here).
+        guard tab.surfaceIdFromPanelId(surfaceId) != nil else { return }
         tab.closePanel(surfaceId, force: true)
     }
 
@@ -1462,6 +1472,89 @@ class TabManager: ObservableObject {
             return [:]
         }
         return object
+    }
+
+    private func setupChildExitSplitUITestIfNeeded() {
+        guard !didSetupChildExitSplitUITest else { return }
+        didSetupChildExitSplitUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_CHILD_EXIT_SPLIT_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_CHILD_EXIT_SPLIT_PATH"], !path.isEmpty else { return }
+
+        func write(_ updates: [String: String]) {
+            var payload: [String: String] = {
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+                    return [:]
+                }
+                return obj
+            }()
+            for (k, v) in updates { payload[k] = v }
+            guard let out = try? JSONSerialization.data(withJSONObject: payload) else { return }
+            try? out.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Small delay so the initial window/panel has completed first layout.
+            try? await Task.sleep(nanoseconds: 200_000_000)
+
+            guard let tab = self.selectedWorkspace else {
+                write(["setupError": "Missing selected workspace", "done": "1"])
+                return
+            }
+            guard let leftPanelId = tab.focusedPanelId else {
+                write(["setupError": "Missing initial focused panel", "done": "1"])
+                return
+            }
+            guard let rightPanel = tab.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+                write(["setupError": "Failed to create right split", "done": "1"])
+                return
+            }
+
+            write([
+                "workspaceCountBefore": String(self.tabs.count),
+                "panelCountBefore": String(tab.panels.count),
+                "leftPanelId": leftPanelId.uuidString,
+                "rightPanelId": rightPanel.id.uuidString,
+                "done": "0",
+            ])
+
+            // Focus the right pane, then send Ctrl+D to exit that shell.
+            tab.focusPanel(rightPanel.id)
+            rightPanel.surface.sendText("\u{04}")
+
+            // Wait for the panel to actually close (event-driven via Published panels).
+            let closed = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                var cancellable: AnyCancellable?
+                cancellable = tab.$panels
+                    .map { $0.count }
+                    .removeDuplicates()
+                    .sink { count in
+                        if count == 1 {
+                            cancellable?.cancel()
+                            cont.resume(returning: true)
+                        }
+                    }
+
+                // Hard timeout to avoid hanging the UI test runner.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                    cancellable?.cancel()
+                    cont.resume(returning: false)
+                }
+            }
+
+            let workspaceStillOpen = self.tabs.contains(where: { $0.id == tab.id })
+            write([
+                "workspaceCountAfter": String(self.tabs.count),
+                "panelCountAfter": String(tab.panels.count),
+                "workspaceStillOpen": workspaceStillOpen ? "1" : "0",
+                "closedWorkspace": workspaceStillOpen ? "0" : "1",
+                "timedOut": closed ? "0" : "1",
+                "done": "1",
+            ])
+        }
     }
 #endif
 }

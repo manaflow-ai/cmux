@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 
 final class CloseWorkspaceCmdDUITests: XCTestCase {
     override func setUp() {
@@ -72,6 +73,41 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         )
     }
 
+    func testChildExitInHorizontalSplitClosesOnlyExitedPane() {
+        let app = XCUIApplication()
+        let dataPath = "/tmp/cmux-ui-test-child-exit-split-\(UUID().uuidString).json"
+        let socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: socketPath)
+
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: 12.0), "Expected child-exit test data at \(dataPath)")
+        guard let data = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 20.0) else {
+            XCTFail("Timed out waiting for done=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let workspaceCountAfter = Int(data["workspaceCountAfter"] ?? "") ?? -1
+        let panelCountAfter = Int(data["panelCountAfter"] ?? "") ?? -1
+        let closedWorkspace = (data["closedWorkspace"] ?? "") == "1"
+        let timedOut = (data["timedOut"] ?? "") == "1"
+
+        XCTAssertEqual(workspaceCountAfter, 1, "Expected workspace to remain open. data=\(data)")
+        XCTAssertEqual(panelCountAfter, 1, "Expected only exited pane to close. data=\(data)")
+        XCTAssertFalse(closedWorkspace, "Expected workspace/window to stay open. data=\(data)")
+        XCTAssertFalse(timedOut, "Timed out waiting for exited pane to close. data=\(data)")
+    }
+
     private func waitForCloseWorkspaceAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -120,5 +156,36 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return app.state != .runningForeground || app.windows.count == 0
+    }
+
+    private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if loadJSON(atPath: path) != nil { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return loadJSON(atPath: path) != nil
+    }
+
+    private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path), data[key] == expected {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path), data[key] == expected {
+            return data
+        }
+        return nil
+    }
+
+    private func loadJSON(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
     }
 }
