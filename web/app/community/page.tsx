@@ -44,7 +44,7 @@ export default function CommunityPage() {
   return (
     <div className="min-h-screen">
       <SiteHeader section="community" />
-      <main className="w-full max-w-5xl mx-auto px-6 py-10">
+      <main className="w-full max-w-6xl mx-auto px-6 py-10">
         <h1 className="text-2xl font-semibold tracking-tight mb-2">
           Community
         </h1>
