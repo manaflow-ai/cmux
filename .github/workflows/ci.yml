@@ -82,11 +82,11 @@ jobs:
           # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
           # state is frequently non-interactive on CI and causes false failures.
           vm_user="${CMUX_VM_USER:-cmux}"
-          ssh_run_opts=(
+          ssh_opts=(
             -o BatchMode=yes
             -o StrictHostKeyChecking=no
             -o UserKnownHostsFile=/dev/null
-            -o ConnectTimeout=15
+            -o ConnectTimeout=5
             -o ConnectionAttempts=1
             -o NumberOfPasswordPrompts=0
             -o PreferredAuthentications=publickey
@@ -97,92 +97,35 @@ jobs:
             -o GSSAPIAuthentication=no
             -o LogLevel=ERROR
           )
-          # Faster opts for probing a bunch of hosts.
-          ssh_check_opts=(
-            "${ssh_run_opts[@]}"
-            -o ConnectTimeout=2
-            -o ServerAliveInterval=2
-            -o ServerAliveCountMax=1
-          )
 
-          # Resolve a usable vm host. Prefer explicit env, then ssh config, then a known default.
-          cfg_host=""
-          if command -v ssh >/dev/null 2>&1; then
-            cfg_host="$(ssh -G cmux-vm 2>/dev/null | awk '$1 == "hostname" { print $2; exit }' || true)"
-          fi
-          lease_hosts=()
-          if [ -z "${CMUX_VM_HOST:-}" ] && [ -f /var/db/dhcpd_leases ]; then
-            while IFS= read -r ip; do
-              [ -n "$ip" ] && lease_hosts+=("$ip")
-            done < <(
-              awk -F= '/ip_address=/{gsub(/[[:space:]]/, "", $2); print $2}' /var/db/dhcpd_leases \
-                | sort -u \
-                | head -n 50
-            )
-          fi
-          candidate_hosts=()
+          vm_candidates=()
           if [ -n "${CMUX_VM_HOST:-}" ]; then
-            candidate_hosts+=("$CMUX_VM_HOST")
+            vm_candidates+=("$CMUX_VM_HOST")
           else
-            candidate_hosts+=("cmux-vm")
-            if [ -n "$cfg_host" ] && [ "$cfg_host" != "cmux-vm" ]; then
-              candidate_hosts+=("$cfg_host")
-            fi
-            if [ "${#lease_hosts[@]}" -gt 0 ]; then
-              candidate_hosts+=("${lease_hosts[@]}")
-            fi
-            # Default from common local UTM/VZ NAT ranges (can be overridden via CMUX_VM_HOST).
-            candidate_hosts+=("192.168.64.73")
+            vm_candidates+=("cmux-vm" "cmux-vm.local" "192.168.64.73")
           fi
 
-          probe_deadline="$(( $(date +%s) + ${CMUX_VM_PROBE_BUDGET_SECS:-30} ))"
           vm_host=""
-          for h in "${candidate_hosts[@]}"; do
-            if ssh "${ssh_check_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
+          for h in "${vm_candidates[@]}"; do
+            if ssh "${ssh_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
               vm_host="$h"
               break
             fi
           done
-
-          # If the host isn't explicitly configured, fall back to scanning the common UTM/VZ subnet.
-          if [ -z "$vm_host" ] && [ -z "${CMUX_VM_HOST:-}" ] && [ "${#lease_hosts[@]}" -eq 0 ]; then
-            subnet="${CMUX_VM_SUBNET:-192.168.64}"
-            port="${CMUX_VM_PORT:-22}"
-            echo "Attempting VM discovery on ${subnet}.0/24 (port ${port})..."
-            # Note: most probes will fail; force a 0 exit status so `set -euo pipefail` doesn't abort.
-            candidates="$(
-              seq 1 254 | xargs -P 48 -I{} sh -c "nc -z -w 1 ${subnet}.{} ${port} >/dev/null 2>&1 && echo ${subnet}.{}; exit 0" | head -n 20
-            )"
-            for ip in $candidates; do
-              if [ "$(date +%s)" -ge "$probe_deadline" ]; then
-                break
-              fi
-              if ssh "${ssh_check_opts[@]}" "$vm_user@$ip" 'true' >/dev/null 2>&1; then
-                vm_host="$ip"
-                break
-              fi
-            done
-          fi
           if [ -z "$vm_host" ]; then
-            echo "ERROR: Could not reach the UI-test VM via SSH; UI tests are required."
+            echo "ERROR: Could not SSH into the UI-test VM; UI tests are required."
             echo "Tried:"
-            for h in "${candidate_hosts[@]}"; do
+            for h in "${vm_candidates[@]}"; do
               echo "  - $vm_user@$h"
             done
-            echo "ssh -G cmux-vm:"
-            ssh -G cmux-vm 2>/dev/null | head -40 || true
-            echo "Name resolution:"
-            dscacheutil -q host -a name cmux-vm || true
-            echo "Network probe (nc):"
-            nc -z -w 1 cmux-vm 22 || true
-            nc -z -w 1 192.168.64.73 22 || true
+            echo "Fix: set CMUX_VM_HOST (repo secret or runner env), or add a working 'cmux-vm' Host entry in ~/.ssh/config on the self-hosted runner."
             exit 1
           fi
 
           echo "Running UI tests on $vm_user@$vm_host..."
-          rsync -e "ssh ${ssh_run_opts[*]}" -a --delete \
+          rsync -e "ssh ${ssh_opts[*]}" -a --delete \
             --exclude build \
             --exclude .git \
             --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
             ./ "$vm_user@$vm_host":/Users/cmux/GhosttyTabs/
-          ssh "${ssh_run_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+          ssh "${ssh_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
