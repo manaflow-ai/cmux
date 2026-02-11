@@ -110,6 +110,40 @@ jobs:
           if command -v ssh >/dev/null 2>&1; then
             cfg_host="$(ssh -G cmux-vm 2>/dev/null | awk '$1 == "hostname" { print $2; exit }' || true)"
           fi
+          dhcp_host=""
+          if [ -z "${CMUX_VM_HOST:-}" ] && [ -f /var/db/dhcpd_leases ]; then
+            dhcp_host="$(
+              python3 - <<'PY' || true
+import pathlib, re
+p = pathlib.Path("/var/db/dhcpd_leases")
+try:
+    text = p.read_text()
+except Exception:
+    raise SystemExit(0)
+
+blocks = re.findall(r"\\{([^}]*)\\}", text, flags=re.S)
+cands = []
+for b in blocks:
+    m_name = re.search(r"^\\s*name=(.+)$", b, flags=re.M)
+    m_ip = re.search(r"^\\s*ip_address=([0-9.]+)$", b, flags=re.M)
+    if not (m_name and m_ip):
+        continue
+    name = m_name.group(1).strip()
+    ip = m_ip.group(1).strip()
+    score = 0
+    if "cmux" in name.lower():
+        score += 10
+    if "machine" in name.lower():
+        score += 1
+    if score:
+        cands.append((score, name, ip))
+
+cands.sort(reverse=True)
+if cands:
+    print(cands[0][2])
+PY
+            )"
+          fi
           candidate_hosts=()
           if [ -n "${CMUX_VM_HOST:-}" ]; then
             candidate_hosts+=("$CMUX_VM_HOST")
@@ -117,6 +151,9 @@ jobs:
             candidate_hosts+=("cmux-vm")
             if [ -n "$cfg_host" ] && [ "$cfg_host" != "cmux-vm" ]; then
               candidate_hosts+=("$cfg_host")
+            fi
+            if [ -n "$dhcp_host" ]; then
+              candidate_hosts+=("$dhcp_host")
             fi
             # Default from common local UTM/VZ NAT ranges (can be overridden via CMUX_VM_HOST).
             candidate_hosts+=("192.168.64.73")
