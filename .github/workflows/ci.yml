@@ -81,15 +81,26 @@ jobs:
           set -euo pipefail
           # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
           # state is frequently non-interactive on CI and causes false failures.
-          if ! ssh -o BatchMode=yes -o ConnectTimeout=5 cmux-vm 'true' >/dev/null 2>&1; then
-            echo "cmux-vm is not reachable from this runner. Skipping UI tests."
-            exit 0
+          vm_host="${CMUX_VM_HOST:-cmux-vm}"
+          ssh_opts=(
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=15
+          )
+
+          if ! ssh "${ssh_opts[@]}" "$vm_host" 'true' >/dev/null 2>&1; then
+            echo "ERROR: $vm_host is not reachable from this runner; UI tests are required."
+            echo "Diagnostics:"
+            (dscacheutil -q host -a name "$vm_host" || true) 2>/dev/null
+            (ping -c 1 -t 1 "$vm_host" || true) 2>/dev/null
+            exit 1
           fi
 
-          echo "Running UI tests on cmux-vm..."
-          rsync -a --delete \
+          echo "Running UI tests on $vm_host..."
+          rsync -e "ssh ${ssh_opts[*]}" -a --delete \
             --exclude build \
             --exclude .git \
             --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
-            ./ cmux-vm:/Users/cmux/GhosttyTabs/
-          ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+            ./ "$vm_host":/Users/cmux/GhosttyTabs/
+          ssh "${ssh_opts[@]}" "$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
