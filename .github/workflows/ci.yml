@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
           # state is frequently non-interactive on CI and causes false failures.
-          vm_host="${CMUX_VM_HOST:-cmux-vm}"
+          vm_user="${CMUX_VM_USER:-cmux}"
           ssh_opts=(
             -o BatchMode=yes
             -o StrictHostKeyChecking=no
@@ -89,18 +89,46 @@ jobs:
             -o ConnectTimeout=15
           )
 
-          if ! ssh "${ssh_opts[@]}" "$vm_host" 'true' >/dev/null 2>&1; then
-            echo "ERROR: $vm_host is not reachable from this runner; UI tests are required."
-            echo "Diagnostics:"
-            (dscacheutil -q host -a name "$vm_host" || true) 2>/dev/null
-            (ping -c 1 -t 1 "$vm_host" || true) 2>/dev/null
+          # Resolve a usable vm host. Prefer explicit env, then ssh config, then a known default.
+          cfg_host=""
+          if command -v ssh >/dev/null 2>&1; then
+            cfg_host="$(ssh -G cmux-vm 2>/dev/null | awk '$1 == \"hostname\" { print $2; exit }' || true)"
+          fi
+          candidate_hosts=()
+          if [ -n "${CMUX_VM_HOST:-}" ]; then
+            candidate_hosts+=("$CMUX_VM_HOST")
+          else
+            candidate_hosts+=("cmux-vm")
+            if [ -n "$cfg_host" ] && [ "$cfg_host" != "cmux-vm" ]; then
+              candidate_hosts+=("$cfg_host")
+            fi
+            # Default from common local UTM/VZ NAT ranges (can be overridden via CMUX_VM_HOST).
+            candidate_hosts+=("192.168.64.73")
+          fi
+
+          vm_host=""
+          for h in "${candidate_hosts[@]}"; do
+            if ssh "${ssh_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
+              vm_host="$h"
+              break
+            fi
+          done
+          if [ -z "$vm_host" ]; then
+            echo "ERROR: Could not reach the UI-test VM via SSH; UI tests are required."
+            echo "Tried:"
+            printf '  - %s@%s\n' "$vm_user" "${candidate_hosts[@]}"
+            echo "Name resolution:"
+            dscacheutil -q host -a name cmux-vm || true
+            echo "Network probe:"
+            ping -c 1 cmux-vm || true
+            ping -c 1 192.168.64.73 || true
             exit 1
           fi
 
-          echo "Running UI tests on $vm_host..."
+          echo "Running UI tests on $vm_user@$vm_host..."
           rsync -e "ssh ${ssh_opts[*]}" -a --delete \
             --exclude build \
             --exclude .git \
             --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
-            ./ "$vm_host":/Users/cmux/GhosttyTabs/
-          ssh "${ssh_opts[@]}" "$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+            ./ "$vm_user@$vm_host":/Users/cmux/GhosttyTabs/
+          ssh "${ssh_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
