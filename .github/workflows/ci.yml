@@ -113,35 +113,21 @@ jobs:
           dhcp_host=""
           if [ -z "${CMUX_VM_HOST:-}" ] && [ -f /var/db/dhcpd_leases ]; then
             dhcp_host="$(
-              python3 - <<'PY' || true
-import pathlib, re
-p = pathlib.Path("/var/db/dhcpd_leases")
-try:
-    text = p.read_text()
-except Exception:
-    raise SystemExit(0)
-
-blocks = re.findall(r"\\{([^}]*)\\}", text, flags=re.S)
-cands = []
-for b in blocks:
-    m_name = re.search(r"^\\s*name=(.+)$", b, flags=re.M)
-    m_ip = re.search(r"^\\s*ip_address=([0-9.]+)$", b, flags=re.M)
-    if not (m_name and m_ip):
-        continue
-    name = m_name.group(1).strip()
-    ip = m_ip.group(1).strip()
-    score = 0
-    if "cmux" in name.lower():
-        score += 10
-    if "machine" in name.lower():
-        score += 1
-    if score:
-        cands.append((score, name, ip))
-
-cands.sort(reverse=True)
-if cands:
-    print(cands[0][2])
-PY
+              awk '
+                BEGIN { RS="}"; FS="\\n" }
+                {
+                  name=""; ip="";
+                  for (i=1; i<=NF; i++) {
+                    if ($i ~ /^name=/)       { name=substr($i, 6) }
+                    if ($i ~ /^ip_address=/) { ip=substr($i, 12) }
+                  }
+                  if (name != "" && ip != "" && tolower(name) ~ /cmux/) {
+                    gsub(/[[:space:]]/, "", ip);
+                    print ip;
+                    exit;
+                  }
+                }
+              ' /var/db/dhcpd_leases || true
             )"
           fi
           candidate_hosts=()
