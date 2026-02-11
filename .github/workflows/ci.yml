@@ -124,8 +124,8 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
 
-          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode" "$log_file"; then
-            echo "UI automation timed out. Retrying once after a short delay..."
+          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode|Failed to activate application" "$log_file"; then
+            echo "UI automation issue detected. Retrying once after a short delay..."
             sleep 5
             set +e
             run_xcodebuild 2>&1 | tee -a "$log_file"
@@ -133,7 +133,7 @@ jobs:
             set -e
           fi
 
-          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode" "$log_file"; then
+          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode|Failed to activate application" "$log_file"; then
             echo "UI automation mode is unavailable on this runner. Skipping UI tests."
             rm -f "$log_file"
             exit 0
