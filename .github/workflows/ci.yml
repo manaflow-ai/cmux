@@ -30,6 +30,11 @@ jobs:
     concurrency:
       group: self-hosted-build
       cancel-in-progress: false
+    env:
+      # Optional: set these GitHub secrets to point CI at the UTM VM.
+      # If unset, the script falls back to trying `cmux-vm`, `cmux-vm.local`, then `192.168.64.73`.
+      CMUX_VM_HOST: ${{ secrets.CMUX_VM_HOST }}
+      CMUX_VM_USER: ${{ secrets.CMUX_VM_USER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
