@@ -696,8 +696,8 @@ class GhosttyApp {
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
         // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
-        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-        if sidebarBlendMode == "behindWindow" {
+        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "behindWindow"
+        if sidebarBlendMode == "behindWindow" && !WindowGlassEffect.isAvailable {
             window.backgroundColor = .clear
             window.isOpaque = false
             if backgroundLogEnabled {
@@ -1141,8 +1141,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
         // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
-        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-        if sidebarBlendMode == "behindWindow" {
+        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "behindWindow"
+        if sidebarBlendMode == "behindWindow" && !WindowGlassEffect.isAvailable {
             window.backgroundColor = .clear
             window.isOpaque = false
         } else {

@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [1.25.0] - 2026-02-11
+
+### Fixed
+- Blank terminal on macOS 26 (Tahoe) — two additional code paths were still clearing the window background, bypassing the initial fix
+- Blank terminal on macOS 15 caused by background blur view covering terminal content
+
 ## [1.24.0] - 2026-02-09
 
 ### Changed
