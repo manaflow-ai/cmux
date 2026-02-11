@@ -79,82 +79,17 @@ jobs:
       - name: Run UI tests
         run: |
           set -euo pipefail
-          log_file="$(mktemp /tmp/cmux-ui-tests.XXXXXX)"
-          console_user="$(stat -f%Su /dev/console)"
-          console_uid=""
-          if [ "$console_user" != "root" ]; then
-            console_uid="$(id -u "$console_user")"
-          fi
-
-          run_xcodebuild() {
-            if [ -n "$console_uid" ] && [ "$console_uid" != "0" ]; then
-              /bin/launchctl asuser "$console_uid" xcodebuild \
-                -project GhosttyTabs.xcodeproj \
-                -scheme cmux \
-                -configuration Debug \
-                -destination 'platform=macOS' \
-                -only-testing:GhosttyTabsUITests/UpdatePillUITests \
-                test
-            else
-              xcodebuild \
-                -project GhosttyTabs.xcodeproj \
-                -scheme cmux \
-                -configuration Debug \
-                -destination 'platform=macOS' \
-                -only-testing:GhosttyTabsUITests/UpdatePillUITests \
-                test
-            fi
-          }
-
-          if ssh -o BatchMode=yes -o ConnectTimeout=5 cmux-vm 'true' >/dev/null 2>&1; then
-            echo "Running UI tests on cmux-vm..."
-            rsync -a --delete \
-              --exclude build \
-              --exclude .git \
-              --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
-              ./ cmux-vm:/Users/cmux/GhosttyTabs/
-            ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+          # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
+          # state is frequently non-interactive on CI and causes false failures.
+          if ! ssh -o BatchMode=yes -o ConnectTimeout=5 cmux-vm 'true' >/dev/null 2>&1; then
+            echo "cmux-vm is not reachable from this runner. Skipping UI tests."
             exit 0
           fi
 
-          # macOS UI tests require an interactive Aqua session. On self-hosted runners it is
-          # easy to end up with a runner that's online but has no foreground-capable GUI.
-          if [ "$console_user" = "root" ] || [ -z "$console_uid" ] || [ "$console_uid" = "0" ]; then
-            echo "No console user session detected (/dev/console is root). Skipping UI tests on this runner."
-            rm -f "$log_file"
-            exit 0
-          fi
-          if ! /bin/launchctl print "gui/$console_uid" >/dev/null 2>&1; then
-            echo "No gui/$console_uid launchd domain; UI tests require an Aqua session. Skipping UI tests."
-            rm -f "$log_file"
-            exit 0
-          fi
-          if ! pgrep -x WindowServer >/dev/null 2>&1; then
-            echo "WindowServer is not running; UI tests require a GUI session. Skipping UI tests."
-            rm -f "$log_file"
-            exit 0
-          fi
-          if ! /usr/bin/osascript -e 'tell application "Finder" to activate' >/dev/null 2>&1; then
-            echo "Runner cannot activate GUI apps (Finder activate failed). Skipping UI tests."
-            rm -f "$log_file"
-            exit 0
-          fi
-
-          set +e
-          run_xcodebuild 2>&1 | tee "$log_file"
-          status=${PIPESTATUS[0]}
-          set -e
-
-          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode|Failed to activate application" "$log_file"; then
-            echo "UI automation flake detected. Retrying once after a short delay..."
-            pkill -x "cmux DEV" >/dev/null 2>&1 || true
-            killall Dock >/dev/null 2>&1 || true
-            sleep 5
-            set +e
-            run_xcodebuild 2>&1 | tee -a "$log_file"
-            status=${PIPESTATUS[0]}
-            set -e
-          fi
-
-          rm -f "$log_file"
-          exit "$status"
+          echo "Running UI tests on cmux-vm..."
+          rsync -a --delete \
+            --exclude build \
+            --exclude .git \
+            --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
+            ./ cmux-vm:/Users/cmux/GhosttyTabs/
+          ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
