@@ -87,6 +87,7 @@ jobs:
             -o StrictHostKeyChecking=no
             -o UserKnownHostsFile=/dev/null
             -o ConnectTimeout=15
+            -o PreferredAuthentications=publickey
           )
 
           # Resolve a usable vm host. Prefer explicit env, then ssh config, then a known default.
@@ -113,6 +114,22 @@ jobs:
               break
             fi
           done
+
+          # If the host isn't explicitly configured, fall back to scanning the common UTM/VZ subnet.
+          if [ -z "$vm_host" ] && [ -z "${CMUX_VM_HOST:-}" ]; then
+            subnet="${CMUX_VM_SUBNET:-192.168.64}"
+            port="${CMUX_VM_PORT:-22}"
+            echo "Attempting VM discovery on ${subnet}.0/24 (port ${port})..."
+            candidates="$(
+              seq 1 254 | xargs -n1 -P 64 -I{} sh -c "nc -z -w 1 ${subnet}.{} ${port} >/dev/null 2>&1 && echo ${subnet}.{}" | head -n 20
+            )"
+            for ip in $candidates; do
+              if ssh "${ssh_opts[@]}" "$vm_user@$ip" 'true' >/dev/null 2>&1; then
+                vm_host="$ip"
+                break
+              fi
+            done
+          fi
           if [ -z "$vm_host" ]; then
             echo "ERROR: Could not reach the UI-test VM via SSH; UI tests are required."
             echo "Tried:"
@@ -123,9 +140,9 @@ jobs:
             ssh -G cmux-vm 2>/dev/null | head -40 || true
             echo "Name resolution:"
             dscacheutil -q host -a name cmux-vm || true
-            echo "Network probe:"
-            ping -c 1 cmux-vm || true
-            ping -c 1 192.168.64.73 || true
+            echo "Network probe (nc):"
+            nc -z -w 1 cmux-vm 22 || true
+            nc -z -w 1 192.168.64.73 22 || true
             exit 1
           fi
 
