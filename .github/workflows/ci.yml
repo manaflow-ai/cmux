@@ -110,25 +110,15 @@ jobs:
           if command -v ssh >/dev/null 2>&1; then
             cfg_host="$(ssh -G cmux-vm 2>/dev/null | awk '$1 == "hostname" { print $2; exit }' || true)"
           fi
-          dhcp_host=""
+          lease_hosts=()
           if [ -z "${CMUX_VM_HOST:-}" ] && [ -f /var/db/dhcpd_leases ]; then
-            dhcp_host="$(
-              awk '
-                BEGIN { RS="}"; FS="\\n" }
-                {
-                  name=""; ip="";
-                  for (i=1; i<=NF; i++) {
-                    if ($i ~ /^name=/)       { name=substr($i, 6) }
-                    if ($i ~ /^ip_address=/) { ip=substr($i, 12) }
-                  }
-                  if (name != "" && ip != "" && tolower(name) ~ /cmux/) {
-                    gsub(/[[:space:]]/, "", ip);
-                    print ip;
-                    exit;
-                  }
-                }
-              ' /var/db/dhcpd_leases || true
-            )"
+            while IFS= read -r ip; do
+              [ -n "$ip" ] && lease_hosts+=("$ip")
+            done < <(
+              awk -F= '/ip_address=/{gsub(/[[:space:]]/, "", $2); print $2}' /var/db/dhcpd_leases \
+                | sort -u \
+                | head -n 50
+            )
           fi
           candidate_hosts=()
           if [ -n "${CMUX_VM_HOST:-}" ]; then
@@ -138,8 +128,8 @@ jobs:
             if [ -n "$cfg_host" ] && [ "$cfg_host" != "cmux-vm" ]; then
               candidate_hosts+=("$cfg_host")
             fi
-            if [ -n "$dhcp_host" ]; then
-              candidate_hosts+=("$dhcp_host")
+            if [ "${#lease_hosts[@]}" -gt 0 ]; then
+              candidate_hosts+=("${lease_hosts[@]}")
             fi
             # Default from common local UTM/VZ NAT ranges (can be overridden via CMUX_VM_HOST).
             candidate_hosts+=("192.168.64.73")
@@ -155,7 +145,7 @@ jobs:
           done
 
           # If the host isn't explicitly configured, fall back to scanning the common UTM/VZ subnet.
-          if [ -z "$vm_host" ] && [ -z "${CMUX_VM_HOST:-}" ]; then
+          if [ -z "$vm_host" ] && [ -z "${CMUX_VM_HOST:-}" ] && [ "${#lease_hosts[@]}" -eq 0 ]; then
             subnet="${CMUX_VM_SUBNET:-192.168.64}"
             port="${CMUX_VM_PORT:-22}"
             echo "Attempting VM discovery on ${subnet}.0/24 (port ${port})..."
