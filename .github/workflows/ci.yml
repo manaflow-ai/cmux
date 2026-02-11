@@ -85,17 +85,15 @@ jobs:
           if [ "$console_user" != "root" ]; then
             console_uid="$(id -u "$console_user")"
           fi
-          current_uid="$(id -u)"
 
           run_xcodebuild() {
-            if [ "$current_uid" -eq 0 ] && [ -n "$console_uid" ] && [ "$console_uid" != "0" ]; then
-              /bin/launchctl asuser "$console_uid" \
-                xcodebuild \
-                  -project GhosttyTabs.xcodeproj \
-                  -scheme cmux \
-                  -configuration Debug \
-                  -destination 'platform=macOS' \
-                  -only-testing:GhosttyTabsUITests/UpdatePillUITests \
+            if [ -n "$console_uid" ] && [ "$console_uid" != "0" ]; then
+              /bin/launchctl asuser "$console_uid" xcodebuild \
+                -project GhosttyTabs.xcodeproj \
+                -scheme cmux \
+                -configuration Debug \
+                -destination 'platform=macOS' \
+                -only-testing:GhosttyTabsUITests/UpdatePillUITests \
                 test
             else
               xcodebuild \
@@ -119,13 +117,38 @@ jobs:
             exit 0
           fi
 
+          # macOS UI tests require an interactive Aqua session. On self-hosted runners it is
+          # easy to end up with a runner that's online but has no foreground-capable GUI.
+          if [ "$console_user" = "root" ] || [ -z "$console_uid" ] || [ "$console_uid" = "0" ]; then
+            echo "No console user session detected (/dev/console is root). Skipping UI tests on this runner."
+            rm -f "$log_file"
+            exit 0
+          fi
+          if ! /bin/launchctl print "gui/$console_uid" >/dev/null 2>&1; then
+            echo "No gui/$console_uid launchd domain; UI tests require an Aqua session. Skipping UI tests."
+            rm -f "$log_file"
+            exit 0
+          fi
+          if ! pgrep -x WindowServer >/dev/null 2>&1; then
+            echo "WindowServer is not running; UI tests require a GUI session. Skipping UI tests."
+            rm -f "$log_file"
+            exit 0
+          fi
+          if ! /usr/bin/osascript -e 'tell application "Finder" to activate' >/dev/null 2>&1; then
+            echo "Runner cannot activate GUI apps (Finder activate failed). Skipping UI tests."
+            rm -f "$log_file"
+            exit 0
+          fi
+
           set +e
           run_xcodebuild 2>&1 | tee "$log_file"
           status=${PIPESTATUS[0]}
           set -e
 
           if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode|Failed to activate application" "$log_file"; then
-            echo "UI automation issue detected. Retrying once after a short delay..."
+            echo "UI automation flake detected. Retrying once after a short delay..."
+            pkill -x "cmux DEV" >/dev/null 2>&1 || true
+            killall Dock >/dev/null 2>&1 || true
             sleep 5
             set +e
             run_xcodebuild 2>&1 | tee -a "$log_file"
@@ -133,10 +156,5 @@ jobs:
             set -e
           fi
 
-          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode|Failed to activate application" "$log_file"; then
-            echo "UI automation mode is unavailable on this runner. Skipping UI tests."
-            rm -f "$log_file"
-            exit 0
-          fi
           rm -f "$log_file"
           exit "$status"
