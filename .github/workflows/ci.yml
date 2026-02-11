@@ -82,12 +82,27 @@ jobs:
           # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
           # state is frequently non-interactive on CI and causes false failures.
           vm_user="${CMUX_VM_USER:-cmux}"
-          ssh_opts=(
+          ssh_run_opts=(
             -o BatchMode=yes
             -o StrictHostKeyChecking=no
             -o UserKnownHostsFile=/dev/null
             -o ConnectTimeout=15
+            -o ConnectionAttempts=1
+            -o NumberOfPasswordPrompts=0
             -o PreferredAuthentications=publickey
+            -o PubkeyAuthentication=yes
+            -o PasswordAuthentication=no
+            -o KbdInteractiveAuthentication=no
+            -o ChallengeResponseAuthentication=no
+            -o GSSAPIAuthentication=no
+            -o LogLevel=ERROR
+          )
+          # Faster opts for probing a bunch of hosts.
+          ssh_check_opts=(
+            "${ssh_run_opts[@]}"
+            -o ConnectTimeout=2
+            -o ServerAliveInterval=2
+            -o ServerAliveCountMax=1
           )
 
           # Resolve a usable vm host. Prefer explicit env, then ssh config, then a known default.
@@ -107,9 +122,10 @@ jobs:
             candidate_hosts+=("192.168.64.73")
           fi
 
+          probe_deadline="$(( $(date +%s) + ${CMUX_VM_PROBE_BUDGET_SECS:-30} ))"
           vm_host=""
           for h in "${candidate_hosts[@]}"; do
-            if ssh "${ssh_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
+            if ssh "${ssh_check_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
               vm_host="$h"
               break
             fi
@@ -125,7 +141,10 @@ jobs:
               seq 1 254 | xargs -P 48 -I{} sh -c "nc -z -w 1 ${subnet}.{} ${port} >/dev/null 2>&1 && echo ${subnet}.{}; exit 0" | head -n 20
             )"
             for ip in $candidates; do
-              if ssh "${ssh_opts[@]}" "$vm_user@$ip" 'true' >/dev/null 2>&1; then
+              if [ "$(date +%s)" -ge "$probe_deadline" ]; then
+                break
+              fi
+              if ssh "${ssh_check_opts[@]}" "$vm_user@$ip" 'true' >/dev/null 2>&1; then
                 vm_host="$ip"
                 break
               fi
@@ -148,9 +167,9 @@ jobs:
           fi
 
           echo "Running UI tests on $vm_user@$vm_host..."
-          rsync -e "ssh ${ssh_opts[*]}" -a --delete \
+          rsync -e "ssh ${ssh_run_opts[*]}" -a --delete \
             --exclude build \
             --exclude .git \
             --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
             ./ "$vm_user@$vm_host":/Users/cmux/GhosttyTabs/
-          ssh "${ssh_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+          ssh "${ssh_run_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
