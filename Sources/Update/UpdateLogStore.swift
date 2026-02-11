@@ -22,7 +22,9 @@ final class UpdateLogStore {
     func append(_ message: String) {
         #if DEBUG
         let timestamp = formatter.string(from: Date())
-        let line = "[\(timestamp)] \(message)"
+        let bundle = Bundle.main.bundleIdentifier ?? "<no.bundle.id>"
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let line = "[\(timestamp)] [\(bundle):\(pid)] \(message)"
         queue.async { [weak self] in
             guard let self else { return }
             entries.append(line)

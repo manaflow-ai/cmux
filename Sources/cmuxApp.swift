@@ -7,6 +7,8 @@ struct cmuxApp: App {
     @StateObject private var tabManager = TabManager()
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
+    @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    private let primaryWindowId = UUID()
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -22,6 +24,10 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.full.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+
+        // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
+        // callbacks (e.g. `.onAppear`) are delayed or skipped.
+        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
     }
 
     private func configureGhosttyEnvironment() {
@@ -84,11 +90,17 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(updateViewModel: appDelegate.updateViewModel)
+            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
                 .environmentObject(tabManager)
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
+                .environmentObject(sidebarSelectionState)
                 .onAppear {
+#if DEBUG
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                        UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
+                    }
+#endif
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
@@ -194,20 +206,30 @@ struct cmuxApp: App {
 
             // New tab commands
             CommandGroup(replacing: .newItem) {
-                Button("New Tab") {
-                    tabManager.addTab()
+                Button("New Window") {
+                    appDelegate.openNewMainWindow(nil)
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
+                Button("New Workspace") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).addTab()
                 }
             }
 
-            // Close tab
+            // Close tab/workspace
             CommandGroup(after: .newItem) {
-                Button("Close Panel") {
+                // Terminal semantics:
+                // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
+                // tab in the last workspace, it closes the window.
+                Button("Close Tab") {
                     closePanelOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: .command)
 
-                Button("Close Tab") {
-                    tabManager.closeCurrentTabWithConfirmation()
+                // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
+                // is the last workspace, it closes the window.
+                Button("Close Workspace") {
+                    closeTabOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
@@ -216,35 +238,35 @@ struct cmuxApp: App {
             CommandGroup(after: .textEditing) {
                 Menu("Find") {
                     Button("Find…") {
-                        tabManager.startSearch()
+                        (AppDelegate.shared?.tabManager ?? tabManager).startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
 
                     Button("Find Next") {
-                        tabManager.findNext()
+                        (AppDelegate.shared?.tabManager ?? tabManager).findNext()
                     }
                     .keyboardShortcut("g", modifiers: .command)
 
                     Button("Find Previous") {
-                        tabManager.findPrevious()
+                        (AppDelegate.shared?.tabManager ?? tabManager).findPrevious()
                     }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
                     Button("Hide Find Bar") {
-                        tabManager.hideFind()
+                        (AppDelegate.shared?.tabManager ?? tabManager).hideFind()
                     }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(!tabManager.isFindVisible)
+                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).isFindVisible))
 
                     Divider()
 
                     Button("Use Selection for Find") {
-                        tabManager.searchSelection()
+                        (AppDelegate.shared?.tabManager ?? tabManager).searchSelection()
                     }
                     .keyboardShortcut("e", modifiers: .command)
-                    .disabled(!tabManager.canUseSelectionForFind)
+                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).canUseSelectionForFind))
                 }
             }
 
@@ -257,29 +279,34 @@ struct cmuxApp: App {
                 Divider()
 
                 Button("Next Surface") {
-                    tabManager.selectNextSurface()
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextSurface()
                 }
 
                 Button("Previous Surface") {
-                    tabManager.selectPreviousSurface()
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousSurface()
                 }
 
                 Button("Back") {
-                    tabManager.navigateBack()
+                    (AppDelegate.shared?.tabManager ?? tabManager).navigateBack()
                 }
                 .keyboardShortcut("[", modifiers: .command)
 
                 Button("Forward") {
-                    tabManager.navigateForward()
+                    (AppDelegate.shared?.tabManager ?? tabManager).navigateForward()
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
+                Button("Reload Page") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+
                 Button("Next Workspace") {
-                    tabManager.selectNextTab()
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
                 }
 
                 Button("Previous Workspace") {
-                    tabManager.selectPreviousTab()
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
                 }
 
                 Divider()
@@ -287,10 +314,11 @@ struct cmuxApp: App {
                 // Cmd+1 through Cmd+9 for tab selection
                 ForEach(1...9, id: \.self) { number in
                     Button("Tab \(number)") {
+                        let manager = (AppDelegate.shared?.tabManager ?? tabManager)
                         if number == 9 {
-                            tabManager.selectLastTab()
+                            manager.selectLastTab()
                         } else {
-                            tabManager.selectTab(at: number - 1)
+                            manager.selectTab(at: number - 1)
                         }
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
@@ -353,7 +381,11 @@ struct cmuxApp: App {
             window.performClose(nil)
             return
         }
-        tabManager.closeCurrentPanelWithConfirmation()
+        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentPanelWithConfirmation()
+    }
+
+    private func closeTabOrWindow() {
+        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentTabWithConfirmation()
     }
 
     private func showNotificationsPopover() {
@@ -776,7 +808,18 @@ private struct BackgroundDebugView: View {
     }
 
     private func updateWindowGlassTint() {
-        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" }) else { return }
+        let window: NSWindow? = {
+            if let key = NSApp.keyWindow,
+               let raw = key.identifier?.rawValue,
+               raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
+                return key
+            }
+            return NSApp.windows.first(where: {
+                guard let raw = $0.identifier?.rawValue else { return false }
+                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+            })
+        }()
+        guard let window else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
     }
@@ -902,6 +945,8 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
+    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @State private var shortcutResetToken = UUID()
 
     var body: some View {
@@ -962,6 +1007,24 @@ struct SettingsView: View {
 
                 Divider()
 
+                Text("Browser")
+                    .font(.headline)
+
+                Picker("Default Search Engine", selection: $browserSearchEngine) {
+                    ForEach(BrowserSearchEngine.allCases) { engine in
+                        Text(engine.displayName).tag(engine.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Toggle("Show Search Suggestions", isOn: $browserSearchSuggestionsEnabled)
+
+                Text("Used by the browser address bar when input is not a URL.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
                 HStack {
                     Spacer()
                     Button("Reset All Settings") {
@@ -980,6 +1043,8 @@ struct SettingsView: View {
     private func resetAllSettings() {
         appearanceMode = AppearanceMode.dark.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
+        browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
     }

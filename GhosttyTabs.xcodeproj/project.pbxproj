@@ -6,13 +6,15 @@
 	objectVersion = 56;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
-		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
-		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
-		A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
-		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
-		A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
+		/* Begin PBXBuildFile section */
+			A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
+			A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
+			E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */; };
+			B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */; };
+			A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
+			A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
+			A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
+			A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		A5001500 /* CmuxWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001510 /* CmuxWebView.swift */; };
 		A5001501 /* UITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001511 /* UITestRecorder.swift */; };
@@ -25,14 +27,16 @@
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
-		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
-		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
-		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
-		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
-		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
-		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
-		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
-		A5001201 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001211 /* UpdateController.swift */; };
+			A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
+			A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
+			A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
+			A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
+			A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
+			A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
+			A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
+			A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
+			A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
+			A5001201 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001211 /* UpdateController.swift */; };
 		A5001202 /* UpdateDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001212 /* UpdateDelegate.swift */; };
 		A5001203 /* UpdateDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001213 /* UpdateDriver.swift */; };
 		A5001204 /* UpdateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001214 /* UpdateViewModel.swift */; };
@@ -55,11 +59,15 @@
 			B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 			B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 			C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
-			B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
-			D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */; };
-			E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
-			F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */; };
-	/* End PBXBuildFile section */
+					B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
+					B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
+					B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
+					B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
+					D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */; };
+					D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */; };
+					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
+				F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */; };
+		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		A5001020 /* Embed Frameworks */ = {
@@ -109,22 +117,25 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXFileReference section */
-		A5001000 /* cmuxterm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmuxterm.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F1000002A1B2C3D4E5F60718 /* GhosttyTabsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTabsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		7E7E6EF344A568AC7FEE3715 /* GhosttyTabsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTabsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
-		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
-		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
-		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
-		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
+		/* Begin PBXFileReference section */
+			A5001000 /* cmuxterm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmuxterm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+			F1000002A1B2C3D4E5F60718 /* GhosttyTabsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTabsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+			7E7E6EF344A568AC7FEE3715 /* GhosttyTabsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTabsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+			A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+			A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+			9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
+			B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
+			A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
+			A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
+			A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
+			A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
-		A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
-		A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
-		A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
+			A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
+			A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
+			A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
+			A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
@@ -160,24 +171,29 @@
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmuxterm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxterm.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmuxterm */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmuxterm; sourceTree = BUILT_PRODUCTS_DIR; };
-			B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
-			B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
-			D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneNavigationKeybindUITests.swift; sourceTree = "<group>"; };
-			E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
-		F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyEquivalentTests.swift; sourceTree = "<group>"; };
-	/* End PBXFileReference section */
+				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
+					B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
+					B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
+					B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
+					B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
+					D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneNavigationKeybindUITests.swift; sourceTree = "<group>"; };
+					D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
+					E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
+			F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyEquivalentTests.swift; sourceTree = "<group>"; };
+		/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A5001030 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A5001006 /* GhosttyKit.xcframework in Frameworks */,
-				A5001230 /* Sparkle in Frameworks */,
-				A5001250 /* Sentry in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+			A5001030 /* Frameworks */ = {
+				isa = PBXFrameworksBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					A5001006 /* GhosttyKit.xcframework in Frameworks */,
+					A5001230 /* Sparkle in Frameworks */,
+					A5001250 /* Sentry in Frameworks */,
+					A5001270 /* PostHog in Frameworks */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 		AB408954939A11B8A87BB5DE /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -264,16 +280,19 @@
 			);
 			sourceTree = "<group>";
 		};
-		A5001041 /* Sources */ = {
-			isa = PBXGroup;
-			children = (
-				A5001011 /* cmuxApp.swift */,
-				A5001012 /* ContentView.swift */,
-				A50012F0 /* Backport.swift */,
-				A50012F2 /* KeyboardShortcutSettings.swift */,
-				A5001013 /* TabManager.swift */,
-				A5001511 /* UITestRecorder.swift */,
-				A5001416 /* Workspace.swift */,
+			A5001041 /* Sources */ = {
+				isa = PBXGroup;
+				children = (
+					A5001011 /* cmuxApp.swift */,
+					A5001012 /* ContentView.swift */,
+					9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
+					B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
+					A50012F0 /* Backport.swift */,
+					A50012F2 /* KeyboardShortcutSettings.swift */,
+					A5001013 /* TabManager.swift */,
+					A5001511 /* UITestRecorder.swift */,
+					A5001520 /* PostHogAnalytics.swift */,
+					A5001416 /* Workspace.swift */,
 				A5001417 /* WorkspaceContentView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
@@ -338,14 +357,18 @@
 		};
 			3196C9C2D01F054C1D3385DD /* GhosttyTabsUITests */ = {
 				isa = PBXGroup;
-				children = (
-					B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
-					B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
-					818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
-					D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
-					C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
-					E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */,
-				);
+						children = (
+							B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
+							B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
+							B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */,
+							B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */,
+							B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */,
+							818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
+							D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
+							D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */,
+							C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
+						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */,
+					);
 				path = GhosttyTabsUITests;
 				sourceTree = "<group>";
 			};
@@ -376,11 +399,12 @@
 			dependencies = (
 				B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */,
 			);
-			packageProductDependencies = (
-				A5001231 /* Sparkle */,
-				A5001251 /* Sentry */,
-				A5001261 /* Bonsplit */,
-			);
+				packageProductDependencies = (
+					A5001231 /* Sparkle */,
+					A5001251 /* Sentry */,
+					A5001271 /* PostHog */,
+					A5001261 /* Bonsplit */,
+				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
 			productReference = A5001000 /* cmuxterm.app */;
@@ -457,11 +481,12 @@
 				Base,
 			);
 			mainGroup = A5001040;
-			packageReferences = (
-				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
-				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
-				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
-			);
+				packageReferences = (
+					A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
+					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
+					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
+				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -474,18 +499,21 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXSourcesBuildPhase section */
-		A5001051 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A5001001 /* cmuxApp.swift in Sources */,
-				A5001002 /* ContentView.swift in Sources */,
-				A50012F1 /* Backport.swift in Sources */,
-				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
-				A5001003 /* TabManager.swift in Sources */,
-				A5001501 /* UITestRecorder.swift in Sources */,
-				A5001406 /* Workspace.swift in Sources */,
+		/* Begin PBXSourcesBuildPhase section */
+			A5001051 /* Sources */ = {
+				isa = PBXSourcesBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					A5001001 /* cmuxApp.swift in Sources */,
+					A5001002 /* ContentView.swift in Sources */,
+					E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
+					B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
+					A50012F1 /* Backport.swift in Sources */,
+					A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
+						A5001003 /* TabManager.swift in Sources */,
+						A5001501 /* UITestRecorder.swift in Sources */,
+						A5001521 /* PostHogAnalytics.swift in Sources */,
+						A5001406 /* Workspace.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
@@ -523,14 +551,18 @@
 			E436EF0BA8EC9E6721A42F79 /* Sources */ = {
 				isa = PBXSourcesBuildPhase;
 				buildActionMask = 2147483647;
-				files = (
-					B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
-					B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
-					B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
-					D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
-					C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
-					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
-				);
+						files = (
+							B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
+							B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
+							B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,
+							B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */,
+							B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */,
+							B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
+							D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
+							D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
+							C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
+						E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
+					);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
 		F1000005A1B2C3D4E5F60718 /* Sources */ = {
@@ -829,18 +861,26 @@
 				minimumVersion = 2.5.1;
 			};
 		};
-		A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 9.3.0;
+			A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
+				requirement = {
+					kind = upToNextMajorVersion;
+					minimumVersion = 9.3.0;
+				};
 			};
-		};
-		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = vendor/bonsplit;
-		};
+			A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/PostHog/posthog-ios.git";
+				requirement = {
+					kind = upToNextMajorVersion;
+					minimumVersion = 3.41.0;
+				};
+			};
+			A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
+				isa = XCLocalSwiftPackageReference;
+				relativePath = vendor/bonsplit;
+			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -849,16 +889,21 @@
 			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
 		};
-		A5001251 /* Sentry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
-			productName = Sentry;
-		};
-		A5001261 /* Bonsplit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
-			productName = Bonsplit;
-		};
+			A5001251 /* Sentry */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+				productName = Sentry;
+			};
+			A5001271 /* PostHog */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+				productName = PostHog;
+			};
+			A5001261 /* Bonsplit */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
+				productName = Bonsplit;
+			};
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */

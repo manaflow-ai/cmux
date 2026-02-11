@@ -20,6 +20,14 @@ struct PanelInfo {
     let focused: Bool
 }
 
+struct WindowInfo {
+    let index: Int
+    let id: String
+    let key: Bool
+    let selectedWorkspaceId: String?
+    let workspaceCount: Int
+}
+
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -131,6 +139,7 @@ struct CMUXCLI {
     func run() throws {
         var socketPath = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"] ?? "/tmp/cmuxterm.sock"
         var jsonOutput = false
+        var windowId: String? = nil
 
         var index = 1
         while index < args.count {
@@ -146,6 +155,14 @@ struct CMUXCLI {
             if arg == "--json" {
                 jsonOutput = true
                 index += 1
+                continue
+            }
+            if arg == "--window" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "--window requires a window id")
+                }
+                windowId = args[index + 1]
+                index += 2
                 continue
             }
             if arg == "-h" || arg == "--help" {
@@ -167,9 +184,73 @@ struct CMUXCLI {
         try client.connect()
         defer { client.close() }
 
+        // If the user explicitly targets a window, focus it first so v1 commands route correctly.
+        if let windowId {
+            let resp = try client.send(command: "focus_window \(windowId)")
+            if resp.hasPrefix("ERROR") {
+                throw CLIError(message: resp)
+            }
+        }
+
         switch command {
         case "ping":
             let response = try client.send(command: "ping")
+            print(response)
+
+        case "list-windows":
+            let response = try client.send(command: "list_windows")
+            if jsonOutput {
+                let windows = parseWindows(response)
+                let payload = windows.map { item -> [String: Any] in
+                    var dict: [String: Any] = [
+                        "index": item.index,
+                        "id": item.id,
+                        "key": item.key,
+                        "workspace_count": item.workspaceCount,
+                    ]
+                    dict["selected_workspace_id"] = item.selectedWorkspaceId ?? NSNull()
+                    return dict
+                }
+                print(jsonString(payload))
+            } else {
+                print(response)
+            }
+
+        case "current-window":
+            let response = try client.send(command: "current_window")
+            if jsonOutput {
+                print(jsonString(["window_id": response]))
+            } else {
+                print(response)
+            }
+
+        case "new-window":
+            let response = try client.send(command: "new_window")
+            print(response)
+
+        case "focus-window":
+            guard let target = optionValue(commandArgs, name: "--window") else {
+                throw CLIError(message: "focus-window requires --window")
+            }
+            let response = try client.send(command: "focus_window \(target)")
+            print(response)
+
+        case "close-window":
+            guard let target = optionValue(commandArgs, name: "--window") else {
+                throw CLIError(message: "close-window requires --window")
+            }
+            let response = try client.send(command: "close_window \(target)")
+            print(response)
+
+        case "move-workspace-to-window":
+            guard let workspace = optionValue(commandArgs, name: "--workspace") else {
+                throw CLIError(message: "move-workspace-to-window requires --workspace")
+            }
+            guard let target = optionValue(commandArgs, name: "--window") else {
+                throw CLIError(message: "move-workspace-to-window requires --window")
+            }
+            let wsId = try resolveWorkspaceId(workspace, client: client)
+            let response = try client.send(command: "move_workspace_to_window \(wsId) \(target)")
             print(response)
 
         case "list-workspaces":
@@ -412,6 +493,42 @@ struct CMUXCLI {
             }
     }
 
+    private func parseWindows(_ response: String) -> [WindowInfo] {
+        guard response != "No windows" else { return [] }
+        return response
+            .split(separator: "\n")
+            .compactMap { line in
+                let raw = String(line)
+                let key = raw.hasPrefix("*")
+                let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: "* "))
+                let parts = cleaned.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+                guard parts.count >= 2 else { return nil }
+                let indexText = parts[0].replacingOccurrences(of: ":", with: "")
+                guard let index = Int(indexText) else { return nil }
+                let id = parts[1]
+
+                var selectedWorkspaceId: String?
+                var workspaceCount: Int = 0
+                for token in parts.dropFirst(2) {
+                    if token.hasPrefix("selected_workspace=") {
+                        let v = token.replacingOccurrences(of: "selected_workspace=", with: "")
+                        selectedWorkspaceId = (v == "none") ? nil : v
+                    } else if token.hasPrefix("workspaces=") {
+                        let v = token.replacingOccurrences(of: "workspaces=", with: "")
+                        workspaceCount = Int(v) ?? 0
+                    }
+                }
+
+                return WindowInfo(
+                    index: index,
+                    id: id,
+                    key: key,
+                    selectedWorkspaceId: selectedWorkspaceId,
+                    workspaceCount: workspaceCount
+                )
+            }
+    }
+
     private func parseNotifications(_ response: String) -> [NotificationInfo] {
         guard response != "No notifications" else { return [] }
         return response
@@ -548,10 +665,16 @@ struct CMUXCLI {
         cmuxterm - control cmuxterm via Unix socket
 
         Usage:
-          cmuxterm [--socket PATH] [--json] <command> [options]
+          cmuxterm [--socket PATH] [--window WINDOW_ID] [--json] <command> [options]
 
         Commands:
           ping
+          list-windows
+          current-window
+          new-window
+          focus-window --window <id>
+          close-window --window <id>
+          move-workspace-to-window --workspace <id|index> --window <id>
           list-workspaces
           new-workspace
           new-split <left|right|up|down> [--panel <id|index>]

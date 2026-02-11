@@ -4,16 +4,14 @@ import Sparkle
 /// SPUUserDriver that updates the view model for custom update UI.
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
-    let standard: SPUStandardUserDriver
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private var lastCheckStart: Date?
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
 
-    init(viewModel: UpdateViewModel, hostBundle: Bundle) {
+    init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
         self.viewModel = viewModel
-        self.standard = SPUStandardUserDriver(hostBundle: hostBundle, delegate: nil)
         super.init()
     }
 
@@ -23,26 +21,23 @@ class UpdateDriver: NSObject, SPUUserDriver {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" || env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" {
             UpdateLogStore.shared.append("auto-allow update permission (ui test)")
-            reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
+            DispatchQueue.main.async {
+                reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
+            }
             return
         }
 #endif
-        UpdateLogStore.shared.append("show update permission request")
-        setState(.permissionRequest(.init(request: request, reply: { [weak viewModel] response in
-            viewModel?.state = .idle
-            reply(response)
-        })))
-        if !hasUnobtrusiveTarget {
-            standard.show(request, reply: reply)
+        // Never show Sparkle's permission UI. cmuxterm relies on its in-app update pill instead,
+        // and defaults to manual update checks unless explicitly enabled elsewhere.
+        UpdateLogStore.shared.append("auto-deny update permission (no UI)")
+        DispatchQueue.main.async {
+            reply(SUUpdatePermissionResponse(automaticUpdateChecks: false, sendSystemProfile: false))
         }
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         UpdateLogStore.shared.append("show user-initiated update check")
         beginChecking(cancel: cancellation)
-        if !hasUnobtrusiveTarget {
-            standard.showUserInitiatedUpdateCheck(cancellation: cancellation)
-        }
     }
 
     func showUpdateFound(with appcastItem: SUAppcastItem,
@@ -50,9 +45,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
-        if !hasUnobtrusiveTarget {
-            standard.showUpdateFound(with: appcastItem, state: state, reply: reply)
-        }
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -67,10 +59,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
                                      acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update not found: \(formatErrorForLog(error))")
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
-
-        if !hasUnobtrusiveTarget {
-            standard.showUpdateNotFoundWithError(error, acknowledgement: acknowledgement)
-        }
     }
 
     func showUpdaterError(_ error: any Error,
@@ -92,12 +80,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             technicalDetails: details,
             feedURLString: lastFeedURLString
         )))
-
-        if !hasUnobtrusiveTarget {
-            standard.showUpdaterError(error, acknowledgement: acknowledgement)
-        } else {
-            acknowledgement()
-        }
+        acknowledgement()
     }
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
@@ -106,10 +89,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancel: cancellation,
             expectedLength: nil,
             progress: 0)))
-
-        if !hasUnobtrusiveTarget {
-            standard.showDownloadInitiated(cancellation: cancellation)
-        }
     }
 
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
@@ -122,10 +101,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancel: downloading.cancel,
             expectedLength: expectedContentLength,
             progress: 0)))
-
-        if !hasUnobtrusiveTarget {
-            standard.showDownloadDidReceiveExpectedContentLength(expectedContentLength)
-        }
     }
 
     func showDownloadDidReceiveData(ofLength length: UInt64) {
@@ -138,37 +113,21 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancel: downloading.cancel,
             expectedLength: downloading.expectedLength,
             progress: downloading.progress + length)))
-
-        if !hasUnobtrusiveTarget {
-            standard.showDownloadDidReceiveData(ofLength: length)
-        }
     }
 
     func showDownloadDidStartExtractingUpdate() {
         UpdateLogStore.shared.append("show extraction started")
         setState(.extracting(.init(progress: 0)))
-
-        if !hasUnobtrusiveTarget {
-            standard.showDownloadDidStartExtractingUpdate()
-        }
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
         setState(.extracting(.init(progress: progress)))
-
-        if !hasUnobtrusiveTarget {
-            standard.showExtractionReceivedProgress(progress)
-        }
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show ready to install")
-        if !hasUnobtrusiveTarget {
-            standard.showReady(toInstallAndRelaunch: reply)
-        } else {
-            reply(.install)
-        }
+        reply(.install)
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
@@ -179,43 +138,33 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 viewModel?.state = .idle
             }
         )))
-
-        if !hasUnobtrusiveTarget {
-            standard.showInstallingUpdate(withApplicationTerminated: applicationTerminated, retryTerminatingApplication: retryTerminatingApplication)
-        }
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update installed (relaunched=\(relaunched))")
-        standard.showUpdateInstalledAndRelaunched(relaunched, acknowledgement: acknowledgement)
         setState(.idle)
+        acknowledgement()
     }
 
     func showUpdateInFocus() {
-        if !hasUnobtrusiveTarget {
-            standard.showUpdateInFocus()
-        }
+        // No-op; cmuxterm never shows Sparkle dialogs.
     }
 
     func dismissUpdateInstallation() {
         UpdateLogStore.shared.append("dismiss update installation")
         if case .error = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (error visible)")
-            standard.dismissUpdateInstallation()
             return
         }
         if case .notFound = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (notFound visible)")
-            standard.dismissUpdateInstallation()
             return
         }
         if case .checking = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (checking)")
-            standard.dismissUpdateInstallation()
             return
         }
         setState(.idle)
-        standard.dismissUpdateInstallation()
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {
@@ -351,13 +300,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
         case .installing(let installing):
             return "installing(auto=\(installing.isAutoUpdate))"
         }
-    }
-
-    // MARK: No-Window Fallback
-
-    /// True if there is a target that can render our unobtrusive update checker.
-    var hasUnobtrusiveTarget: Bool {
-        NSApp.windows.contains { $0.isVisible }
     }
 
     private func runOnMain(_ action: @escaping () -> Void) {

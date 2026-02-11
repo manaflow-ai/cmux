@@ -7,11 +7,10 @@ import WebKit
 /// the first responder.
 final class CmuxWebView: WKWebView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Let the app menu handle key equivalents first (New Tab, Close Panel, tab switching, etc).
+        // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 }
-

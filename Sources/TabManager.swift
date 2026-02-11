@@ -2,10 +2,146 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
+import CoreVideo
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
+
+#if DEBUG
+// Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
+// catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
+//
+// This is DEBUG-only and used only for UI tests; no polling or display-link loops exist in normal app runtime.
+fileprivate final class VsyncIOSurfaceTimelineState {
+    struct Target {
+        let label: String
+        let sample: @MainActor () -> GhosttySurfaceScrollView.DebugFrameSample?
+    }
+
+    let frameCount: Int
+    let closeFrame: Int
+    let lock = NSLock()
+
+    var framesWritten = 0
+    var inFlight = false
+    var finished = false
+
+    var scheduledActions: [(frame: Int, action: () -> Void)] = []
+    var nextActionIndex: Int = 0
+
+    var targets: [Target] = []
+
+    // Results
+    var firstBlank: (label: String, frame: Int)?
+    var firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?
+    var trace: [String] = []
+
+    var link: CVDisplayLink?
+    var continuation: CheckedContinuation<Void, Never>?
+
+    init(frameCount: Int, closeFrame: Int) {
+        self.frameCount = frameCount
+        self.closeFrame = closeFrame
+    }
+
+    func tryBeginCapture() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if finished { return false }
+        if inFlight { return false }
+        inFlight = true
+        return true
+    }
+
+    func endCapture() {
+        lock.lock()
+        inFlight = false
+        lock.unlock()
+    }
+
+    func finish() {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+        cont?.resume()
+    }
+}
+
+fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
+    _ displayLink: CVDisplayLink,
+    _ inNow: UnsafePointer<CVTimeStamp>,
+    _ inOutputTime: UnsafePointer<CVTimeStamp>,
+    _ flagsIn: CVOptionFlags,
+    _ flagsOut: UnsafeMutablePointer<CVOptionFlags>,
+    _ ctx: UnsafeMutableRawPointer?
+) -> CVReturn {
+    guard let ctx else { return kCVReturnSuccess }
+    let st = Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).takeUnretainedValue()
+    if !st.tryBeginCapture() { return kCVReturnSuccess }
+
+    // Sample on the main thread synchronously so we don't "miss" a single compositor frame.
+    // (The previous Task/@MainActor hop could be delayed long enough to skip the blank frame.)
+    DispatchQueue.main.sync {
+        defer { st.endCapture() }
+        guard st.framesWritten < st.frameCount else { return }
+
+        while st.nextActionIndex < st.scheduledActions.count {
+            let next = st.scheduledActions[st.nextActionIndex]
+            if next.frame != st.framesWritten { break }
+            st.nextActionIndex += 1
+            next.action()
+        }
+
+        for t in st.targets {
+            guard let s = t.sample() else { continue }
+
+            if st.firstBlank == nil, s.isProbablyBlank {
+                st.firstBlank = (label: t.label, frame: st.framesWritten)
+            }
+
+            let iosW = s.iosurfaceWidthPx
+            let iosH = s.iosurfaceHeightPx
+            let expW = s.expectedWidthPx
+            let expH = s.expectedHeightPx
+            if st.firstSizeMismatch == nil,
+               iosW > 0, iosH > 0, expW > 0, expH > 0 {
+                let dw = abs(iosW - expW)
+                let dh = abs(iosH - expH)
+                if dw > 2 || dh > 2 {
+                    st.firstSizeMismatch = (
+                        label: t.label,
+                        frame: st.framesWritten,
+                        ios: "\(iosW)x\(iosH)",
+                        expected: "\(expW)x\(expH)"
+                    )
+                }
+            }
+
+            if st.trace.count < 200 {
+                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):key=\(s.layerContentsKey)")
+            }
+        }
+
+        st.framesWritten += 1
+    }
+
+    // Stop/resume outside the main-thread sync block to avoid reentrancy issues.
+    if st.framesWritten >= st.frameCount, let link = st.link {
+        CVDisplayLinkStop(link)
+        st.finish()
+        Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
+    }
+
+    return kCVReturnSuccess
+}
+#endif
 
 @MainActor
 class TabManager: ObservableObject {
@@ -40,6 +176,11 @@ class TabManager: ObservableObject {
     private var isNavigatingHistory = false
     private let maxHistorySize = 50
 
+#if DEBUG
+    private var didSetupSplitCloseRightUITest = false
+    private var didSetupUITestFocusShortcuts = false
+#endif
+
     init() {
         addWorkspace()
         observers.append(NotificationCenter.default.addObserver(
@@ -63,6 +204,11 @@ class TabManager: ObservableObject {
             guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
             self.markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
         })
+
+#if DEBUG
+        setupUITestFocusShortcutsIfNeeded()
+        setupSplitCloseRightUITestIfNeeded()
+#endif
     }
 
     var selectedWorkspace: Workspace? {
@@ -271,6 +417,41 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Detach a workspace from this window without closing its panels.
+    /// Used by the socket API for cross-window moves.
+    @discardableResult
+    func detachWorkspace(tabId: UUID) -> Workspace? {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+
+        let removed = tabs.remove(at: index)
+        lastFocusedPanelByTab.removeValue(forKey: removed.id)
+
+        if tabs.isEmpty {
+            // The UI assumes each window always has at least one workspace.
+            _ = addWorkspace()
+            return removed
+        }
+
+        if selectedTabId == removed.id {
+            let nextIndex = min(index, max(0, tabs.count - 1))
+            selectedTabId = tabs[nextIndex].id
+        }
+
+        return removed
+    }
+
+    /// Attach an existing workspace to this window.
+    func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
+        let insertIndex: Int = {
+            guard let index else { return tabs.count }
+            return max(0, min(index, tabs.count))
+        }()
+        tabs.insert(workspace, at: insertIndex)
+        if select {
+            selectedTabId = workspace.id
+        }
+    }
+
     // Keep closeTab as convenience alias
     func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
@@ -292,9 +473,21 @@ class TabManager: ObservableObject {
     }
 
     func closeCurrentWorkspaceWithConfirmation() {
+#if DEBUG
+        UITestRecorder.incrementInt("closeTabInvocations")
+#endif
         guard let selectedId = selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedId }) else { return }
+        closeWorkspaceWithConfirmation(workspace)
+    }
+
+    func closeWorkspaceWithConfirmation(_ workspace: Workspace) {
         closeWorkspaceIfRunningProcess(workspace)
+    }
+
+    func closeWorkspaceWithConfirmation(tabId: UUID) {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return }
+        closeWorkspaceWithConfirmation(workspace)
     }
 
     func selectWorkspace(_ workspace: Workspace) {
@@ -304,40 +497,80 @@ class TabManager: ObservableObject {
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
-    private func confirmClose(title: String, message: String) -> Bool {
+    private func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
+
+        // macOS convention: Cmd+D = confirm destructive close (e.g. "Don't Save").
+        // We only opt into this for the "close last workspace => close window" path to avoid
+        // conflicting with app-level Cmd+D (split right) during normal usage.
+        if acceptCmdD, let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "d"
+            closeButton.keyEquivalentModifierMask = [.command]
+
+            // Keep Return/Enter behavior by explicitly setting the default button cell.
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+        }
+
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
-        guard tabs.count > 1 else { return }
+        let willCloseWindow = tabs.count <= 1
         if workspaceNeedsConfirmClose(workspace),
            !confirmClose(
-               title: "Close tab?",
-               message: "This will close the current tab and all of its panels."
+               title: "Close workspace?",
+               message: "This will close the workspace and all of its panels.",
+               acceptCmdD: willCloseWindow
            ) {
             return
         }
-        closeWorkspace(workspace)
+        if tabs.count <= 1 {
+            // Last workspace in this window: close the window (Cmd+Shift+W behavior).
+            AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+        } else {
+            closeWorkspace(workspace)
+        }
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
-        let hasMultiplePanels = tab.panels.count > 1 || tab.bonsplitController.allPaneIds.count > 1
-        guard hasMultiplePanels else {
-            closeWorkspaceIfRunningProcess(tab)
+        // Cmd+W closes the focused Bonsplit tab (a "tab" in the UI). When the workspace only has
+        // a single tab left, closing it should close the workspace (and possibly the window),
+        // rather than creating a replacement terminal.
+        let isLastTabInWorkspace = tab.panels.count <= 1
+        if isLastTabInWorkspace {
+            let willCloseWindow = tabs.count <= 1
+            let needsConfirm = workspaceNeedsConfirmClose(tab)
+            if needsConfirm {
+                let message = willCloseWindow
+                    ? "This will close the last tab and close the window."
+                    : "This will close the last tab and close its workspace."
+                guard confirmClose(
+                    title: "Close tab?",
+                    message: message,
+                    acceptCmdD: willCloseWindow
+                ) else { return }
+            }
+
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+            if willCloseWindow {
+                AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)
+            } else {
+                closeWorkspace(tab)
+            }
             return
         }
 
         if let terminalPanel = tab.terminalPanel(for: panelId),
            terminalPanel.needsConfirmClose() {
             guard confirmClose(
-                title: "Close panel?",
-                message: "This will close the current split panel in this tab."
+                title: "Close tab?",
+                message: "This will close the current tab.",
+                acceptCmdD: false
             ) else { return }
         }
 
@@ -351,7 +584,12 @@ class TabManager: ObservableObject {
     }
 
     private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
-        workspace.needsConfirmClose()
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] == "1" {
+            return true
+        }
+#endif
+        return workspace.needsConfirmClose()
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
@@ -734,9 +972,18 @@ class TabManager: ObservableObject {
     func closeSurface(tabId: UUID, surfaceId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
 
-        // If this is the only panel and only tab, create a new one
-        if tab.panels.count <= 1 && tabs.count == 1 {
-            tab.createReplacementTerminalPanel()
+        // Closing the last panel of a workspace should close the workspace. If this is the last
+        // workspace in the window, close the window. (This matches iTerm2-style behavior when the
+        // shell exits via Ctrl+D.)
+        if tab.panels.count <= 1 {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId)
+
+            if tabs.count <= 1 {
+                AppDelegate.shared?.closeMainWindowContainingTabId(tabId)
+            } else {
+                closeWorkspace(tab)
+            }
+            return true
         }
 
         tab.closePanel(surfaceId)
@@ -778,6 +1025,13 @@ class TabManager: ObservableObject {
         _ = tab.newBrowserSurface(inPane: focusedPaneId, url: url)
     }
 
+    /// Flash the currently focused panel so the user can visually confirm focus.
+    func triggerFocusFlash() {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return }
+        tab.triggerFocusFlash(panelId: panelId)
+    }
+
     /// Get a terminal panel by ID
     func terminalPanel(tabId: UUID, panelId: UUID) -> TerminalPanel? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -788,6 +1042,404 @@ class TabManager: ObservableObject {
     func surface(for tabId: UUID, surfaceId: UUID) -> TerminalSurface? {
         terminalPanel(tabId: tabId, panelId: surfaceId)?.surface
     }
+
+#if DEBUG
+    private func setupUITestFocusShortcutsIfNeeded() {
+        guard !didSetupUITestFocusShortcuts else { return }
+        didSetupUITestFocusShortcuts = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_FOCUS_SHORTCUTS"] == "1" else { return }
+
+        // UI tests can't record arrow keys via the shortcut recorder. Use letter-based shortcuts
+        // so tests can reliably drive pane navigation without mouse clicks.
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "h", command: true, shift: false, option: false, control: true),
+            for: .focusLeft
+        )
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "l", command: true, shift: false, option: false, control: true),
+            for: .focusRight
+        )
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "k", command: true, shift: false, option: false, control: true),
+            for: .focusUp
+        )
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "j", command: true, shift: false, option: false, control: true),
+            for: .focusDown
+        )
+    }
+
+    private func setupSplitCloseRightUITestIfNeeded() {
+        guard !didSetupSplitCloseRightUITest else { return }
+        didSetupSplitCloseRightUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"], !path.isEmpty else { return }
+        let visualMode = env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] == "1"
+        let shotsDir = (env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SHOTS_DIR"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let visualIterations = Int((env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_ITERATIONS"] ?? "20").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 20
+        let burstFrames = Int((env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_BURST_FRAMES"] ?? "6").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 6
+        let closeDelayMs = Int((env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_CLOSE_DELAY_MS"] ?? "70").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 70
+        let pattern = (env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATTERN"] ?? "close_right")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let tab = self.selectedWorkspace else {
+                    self.writeSplitCloseRightTestData(["setupError": "Missing selected workspace"], at: path)
+                    return
+                }
+
+                if let terminal = tab.focusedTerminalPanel {
+                    self.writeSplitCloseRightTestData([
+                        "preTerminalAttached": terminal.hostedView.window != nil ? "1" : "0",
+                        "preTerminalSurfaceNil": terminal.surface.surface == nil ? "1" : "0"
+                    ], at: path)
+                    if terminal.hostedView.window == nil || terminal.surface.surface == nil {
+                        self.writeSplitCloseRightTestData(["setupError": "Initial terminal not ready (not attached or surface nil)"], at: path)
+                        return
+                    }
+                } else {
+                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused terminal panel"], at: path)
+                    return
+                }
+
+                guard let topLeftPanelId = tab.focusedPanelId else {
+                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused panel"], at: path)
+                    return
+                }
+
+                if visualMode {
+                    // Visual repro mode: repeat the split/close sequence many times and write
+                    // screenshots to `shotsDir`. This avoids relying on XCUITest to click hover-only
+                    // close buttons, while still exercising the "close unfocused right tabs" path.
+                    self.writeSplitCloseRightTestData([
+                        "visualMode": "1",
+                        "visualIterations": String(visualIterations),
+                        "visualDone": "0"
+                    ], at: path)
+
+                    await self.runSplitCloseRightVisualRepro(
+                        tab: tab,
+                        topLeftPanelId: topLeftPanelId,
+                        path: path,
+                        shotsDir: shotsDir,
+                        iterations: max(1, min(visualIterations, 60)),
+                        burstFrames: max(0, min(burstFrames, 80)),
+                        closeDelayMs: max(0, min(closeDelayMs, 500)),
+                        pattern: pattern
+                    )
+
+                    self.writeSplitCloseRightTestData(["visualDone": "1"], at: path)
+                    return
+                }
+
+                // Layout goal: 2x2 grid (2 top, 2 bottom), then close both right panels.
+                // Order matters: split down first, then split right in each row (matches UI shortcut repro).
+                guard let bottomLeft = tab.newTerminalSplit(from: topLeftPanelId, orientation: .vertical) else {
+                    self.writeSplitCloseRightTestData(["setupError": "Failed to create bottom-left split"], at: path)
+                    return
+                }
+                guard let bottomRight = tab.newTerminalSplit(from: bottomLeft.id, orientation: .horizontal) else {
+                    self.writeSplitCloseRightTestData(["setupError": "Failed to create bottom-right split"], at: path)
+                    return
+                }
+                tab.focusPanel(topLeftPanelId)
+                guard let topRight = tab.newTerminalSplit(from: topLeftPanelId, orientation: .horizontal) else {
+                    self.writeSplitCloseRightTestData(["setupError": "Failed to create top-right split"], at: path)
+                    return
+                }
+
+                self.writeSplitCloseRightTestData([
+                    "tabId": tab.id.uuidString,
+                    "topLeftPanelId": topLeftPanelId.uuidString,
+                    "bottomLeftPanelId": bottomLeft.id.uuidString,
+                    "topRightPanelId": topRight.id.uuidString,
+                    "bottomRightPanelId": bottomRight.id.uuidString,
+                    "createdPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "createdPanelCount": String(tab.panels.count)
+                ], at: path)
+
+                DebugUIEventCounters.resetEmptyPanelAppearCount()
+
+                // Close the two right panes via the same path as Cmd+W.
+                tab.focusPanel(topRight.id)
+                tab.closePanel(topRight.id, force: true)
+                tab.focusPanel(bottomRight.id)
+                tab.closePanel(bottomRight.id, force: true)
+
+                // Record a single final state snapshot (no polling).
+                let paneIds = tab.bonsplitController.allPaneIds
+                let bonsplitTabCount = tab.bonsplitController.allTabIds.count
+                let panelCount = tab.panels.count
+
+                var missingSelectedTabCount = 0
+                var missingPanelMappingCount = 0
+                var selectedTerminalCount = 0
+                var selectedTerminalAttachedCount = 0
+                var selectedTerminalZeroSizeCount = 0
+                var selectedTerminalSurfaceNilCount = 0
+
+                for paneId in paneIds {
+                    guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
+                        missingSelectedTabCount += 1
+                        continue
+                    }
+                    guard let panel = tab.panel(for: selected.id) else {
+                        missingPanelMappingCount += 1
+                        continue
+                    }
+                    if let terminal = panel as? TerminalPanel {
+                        selectedTerminalCount += 1
+                        if terminal.hostedView.window != nil {
+                            selectedTerminalAttachedCount += 1
+                        }
+                        let size = terminal.hostedView.bounds.size
+                        if size.width < 5 || size.height < 5 {
+                            selectedTerminalZeroSizeCount += 1
+                        }
+                        if terminal.surface.surface == nil {
+                            selectedTerminalSurfaceNilCount += 1
+                        }
+                    }
+                }
+
+                self.writeSplitCloseRightTestData([
+                    "finalPaneCount": String(paneIds.count),
+                    "finalBonsplitTabCount": String(bonsplitTabCount),
+                    "finalPanelCount": String(panelCount),
+                    "missingSelectedTabCount": String(missingSelectedTabCount),
+                    "missingPanelMappingCount": String(missingPanelMappingCount),
+                    "emptyPanelAppearCount": String(DebugUIEventCounters.emptyPanelAppearCount),
+                    "selectedTerminalCount": String(selectedTerminalCount),
+                    "selectedTerminalAttachedCount": String(selectedTerminalAttachedCount),
+                    "selectedTerminalZeroSizeCount": String(selectedTerminalZeroSizeCount),
+                    "selectedTerminalSurfaceNilCount": String(selectedTerminalSurfaceNilCount),
+                ], at: path)
+            }
+        }
+    }
+
+	    @MainActor
+	    private func runSplitCloseRightVisualRepro(
+	        tab: Workspace,
+	        topLeftPanelId: UUID,
+	        path: String,
+	        shotsDir: String,
+	        iterations: Int,
+	        burstFrames: Int,
+	        closeDelayMs: Int,
+	        pattern: String
+	    ) async {
+        _ = shotsDir // legacy: screenshots removed in favor of IOSurface sampling
+
+        func sendText(_ panelId: UUID, _ text: String) {
+            guard let tp = tab.terminalPanel(for: panelId) else { return }
+            tp.surface.sendText(text)
+        }
+
+        // Sample a stable top strip of the IOSurface. We print output at the top of the viewport
+        // so this region will contain non-background pixels when the surface is healthy.
+        let sampleCrop = CGRect(x: 0.08, y: 0.08, width: 0.84, height: 0.22)
+
+        for i in 1...iterations {
+            // Reset to a single pane: close everything except the top-left panel.
+            tab.focusPanel(topLeftPanelId)
+            let toClose = Array(tab.panels.keys).filter { $0 != topLeftPanelId }
+            for pid in toClose {
+                tab.closePanel(pid, force: true)
+            }
+
+            // Create the 2x2 grid. The bug is order-dependent, so support multiple patterns.
+            let topLeftId = topLeftPanelId
+            let topRight: TerminalPanel
+            let bottomLeft: TerminalPanel
+            let bottomRight: TerminalPanel
+
+            switch pattern {
+            case "close_right_lrtd":
+                // User repro: split left/right first, then split top/down in each column.
+                guard let tr = tab.newTerminalSplit(from: topLeftId, orientation: .horizontal) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split right from top-left (iteration \(i))"], at: path)
+                    return
+                }
+                guard let bl = tab.newTerminalSplit(from: topLeftId, orientation: .vertical) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split down from left (iteration \(i))"], at: path)
+                    return
+                }
+                guard let br = tab.newTerminalSplit(from: tr.id, orientation: .vertical) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split down from right (iteration \(i))"], at: path)
+                    return
+                }
+                topRight = tr
+                bottomLeft = bl
+                bottomRight = br
+            default:
+                // Default: split top/down first, then split left/right in each row.
+                guard let bl = tab.newTerminalSplit(from: topLeftId, orientation: .vertical) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split down from top-left (iteration \(i))"], at: path)
+                    return
+                }
+                guard let br = tab.newTerminalSplit(from: bl.id, orientation: .horizontal) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split right from bottom-left (iteration \(i))"], at: path)
+                    return
+                }
+                guard let tr = tab.newTerminalSplit(from: topLeftId, orientation: .horizontal) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split right from top-left (iteration \(i))"], at: path)
+                    return
+                }
+                topRight = tr
+                bottomLeft = bl
+                bottomRight = br
+            }
+
+            // Fill left panes with visible content.
+            sendText(topLeftId, "printf '\\033[2J\\033[H'; for i in {1..120}; do echo CMUX_SPLIT_TOPLEFT_\(i); done\r")
+            sendText(bottomLeft.id, "printf '\\033[2J\\033[H'; for i in {1..120}; do echo CMUX_SPLIT_BOTTOMLEFT_\(i); done\r")
+
+            let desiredFrames = max(16, min(burstFrames, 60))
+            let closeFrame = min(6, max(1, desiredFrames / 4))
+            let markerFrame = min(desiredFrames - 1, closeFrame + 8)
+
+            let actionClose: () -> Void = {
+                switch pattern {
+                case "close_bottom":
+                    tab.focusPanel(bottomRight.id)
+                    tab.closePanel(bottomRight.id, force: true)
+                    tab.focusPanel(bottomLeft.id)
+                    tab.closePanel(bottomLeft.id, force: true)
+                default:
+                    tab.focusPanel(topRight.id)
+                    tab.closePanel(topRight.id, force: true)
+                    tab.focusPanel(bottomRight.id)
+                    tab.closePanel(bottomRight.id, force: true)
+                }
+            }
+
+            let actionMarker: () -> Void = {
+                let token = UUID().uuidString.prefix(8)
+                let marker = "CMUX_AFTER_CLOSE_\(pattern)_\(i)_\(token)"
+                // Keep marker in the sampled region: clear + print at top.
+                sendText(topLeftId, "printf '\\033[2J\\033[H'; echo \(marker)\r")
+            }
+
+            let targets: [(label: String, view: GhosttySurfaceScrollView)] = {
+                switch pattern {
+                case "close_bottom":
+                    return [("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
+                            ("TR", topRight.surface.hostedView)]
+                default:
+                    return [("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
+                            ("BL", bottomLeft.surface.hostedView)]
+                }
+            }()
+
+            let result = await captureVsyncIOSurfaceTimeline(
+                frameCount: desiredFrames,
+                closeFrame: closeFrame,
+                crop: sampleCrop,
+                targets: targets,
+                actions: [
+                    (frame: closeFrame, action: actionClose),
+                    (frame: markerFrame, action: actionMarker),
+                ]
+            )
+
+            writeSplitCloseRightTestData([
+                "pattern": pattern,
+                "iteration": String(i),
+                "closeDelayMs": String(closeDelayMs),
+                "timelineFrameCount": String(desiredFrames),
+                "timelineCloseFrame": String(closeFrame),
+                "timelineMarkerFrame": String(markerFrame),
+                "timelineFirstBlank": result.firstBlank.map { "\($0.label)@\($0.frame)" } ?? "",
+                "timelineFirstSizeMismatch": result.firstSizeMismatch.map { "\($0.label)@\($0.frame):ios=\($0.ios):exp=\($0.expected)" } ?? "",
+                "timelineTrace": result.trace.joined(separator: "|"),
+                "visualLastIteration": String(i),
+            ], at: path)
+
+            if let firstBlank = result.firstBlank {
+                writeSplitCloseRightTestData([
+                    "blankFrameSeen": "1",
+                    "blankObservedIteration": String(i),
+                    "blankObservedAt": "\(firstBlank.label)@\(firstBlank.frame)"
+                ], at: path)
+                return
+            }
+
+            if let firstMismatch = result.firstSizeMismatch {
+                writeSplitCloseRightTestData([
+                    "sizeMismatchSeen": "1",
+                    "sizeMismatchObservedIteration": String(i),
+                    "sizeMismatchObservedAt": "\(firstMismatch.label)@\(firstMismatch.frame):ios=\(firstMismatch.ios):exp=\(firstMismatch.expected)"
+                ], at: path)
+                return
+            }
+        }
+	    }
+
+	    @MainActor
+	    private func captureVsyncIOSurfaceTimeline(
+	        frameCount: Int,
+	        closeFrame: Int,
+	        crop: CGRect,
+	        targets: [(label: String, view: GhosttySurfaceScrollView)],
+	        actions: [(frame: Int, action: () -> Void)] = []
+	    ) async -> (firstBlank: (label: String, frame: Int)?, firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?, trace: [String]) {
+	        guard frameCount > 0 else { return (nil, nil, []) }
+
+	        let st = VsyncIOSurfaceTimelineState(frameCount: frameCount, closeFrame: closeFrame)
+	        st.scheduledActions = actions.sorted(by: { $0.frame < $1.frame })
+	        st.nextActionIndex = 0
+	        st.targets = targets.map { t in
+	            VsyncIOSurfaceTimelineState.Target(label: t.label, sample: { @MainActor in
+	                t.view.debugSampleIOSurface(normalizedCrop: crop)
+	            })
+	        }
+
+	        let unmanaged = Unmanaged.passRetained(st)
+	        let ctx = unmanaged.toOpaque()
+
+	        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+	            st.continuation = cont
+	            var link: CVDisplayLink?
+	            CVDisplayLinkCreateWithActiveCGDisplays(&link)
+	            guard let link else {
+	                st.finish()
+	                Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
+	                return
+	            }
+	            st.link = link
+
+	            CVDisplayLinkSetOutputCallback(link, cmuxVsyncIOSurfaceTimelineCallback, ctx)
+	            CVDisplayLinkStart(link)
+	        }
+
+	        return (st.firstBlank, st.firstSizeMismatch, st.trace)
+	    }
+
+    private func writeSplitCloseRightTestData(_ updates: [String: String], at path: String) {
+        var payload = loadSplitCloseRightTestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadSplitCloseRightTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+#endif
 }
 
 // MARK: - Direction Types for Backwards Compatibility

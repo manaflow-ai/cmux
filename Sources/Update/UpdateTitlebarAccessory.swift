@@ -307,8 +307,8 @@ private struct TitlebarControlsView: View {
             TitlebarControlButton(config: config, action: onNewTab) {
                 iconLabel(systemName: "plus", config: config)
             }
-            .accessibilityLabel("New Tab")
-            .help(KeyboardShortcutSettings.Action.newTab.tooltip("Open a new tab"))
+            .accessibilityLabel("New Workspace")
+            .help(KeyboardShortcutSettings.Action.newTab.tooltip("New workspace"))
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -354,6 +354,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var pendingSizeUpdate = false
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
+    var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
 
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
@@ -476,6 +477,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
     }
 
+    func dismissNotificationsPopover() {
+        if notificationsPopover.isShown {
+            notificationsPopover.performClose(nil)
+        }
+    }
+
     private func makeNotificationsPopover() -> NSPopover {
         let popover = NSPopover()
         popover.behavior = .semitransient
@@ -496,7 +503,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     let onDismiss: () -> Void
-    @FocusState private var focusedNotificationId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -536,8 +542,7 @@ private struct NotificationsPopoverView: View {
                                 notification: notification,
                                 tabTitle: tabTitle(for: notification.tabId),
                                 onOpen: { open(notification) },
-                                onClear: { notificationStore.remove(id: notification.id) },
-                                focusedNotificationId: $focusedNotificationId
+                                onClear: { notificationStore.remove(id: notification.id) }
                             )
                         }
                     }
@@ -547,40 +552,22 @@ private struct NotificationsPopoverView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
-            setInitialFocus()
-        }
-    }
-
-    private func setInitialFocus() {
-        guard let firstId = notificationStore.notifications.first?.id else {
-            focusedNotificationId = nil
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusedNotificationId = firstId
-        }
     }
 
     private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId })?.title
+        AppDelegate.shared?.tabTitle(for: tabId)
     }
 
     private func open(_ notification: TerminalNotification) {
-        AppDelegate.shared?.tabManager?.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
-        markReadIfFocused(notification)
-        onDismiss()
-    }
-
-    private func markReadIfFocused(_ notification: TerminalNotification) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard let tabManager = AppDelegate.shared?.tabManager else { return }
-            guard tabManager.selectedTabId == notification.tabId else { return }
-            if let surfaceId = notification.surfaceId {
-                guard tabManager.focusedSurfaceId(for: notification.tabId) == surfaceId else { return }
-            }
-            notificationStore.markRead(id: notification.id)
+        // SwiftUI action closures are not guaranteed to run on the main actor.
+        // Ensure window focus + tab selection happens on the main thread.
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.openNotification(
+                tabId: notification.tabId,
+                surfaceId: notification.surfaceId,
+                notificationId: notification.id
+            )
+            onDismiss()
         }
     }
 }
@@ -590,7 +577,6 @@ private struct NotificationPopoverRow: View {
     let tabTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
-    let focusedNotificationId: FocusState<UUID?>.Binding
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -637,9 +623,10 @@ private struct NotificationPopoverRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .focusable()
-            .focused(focusedNotificationId, equals: notification.id)
-            .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
+            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // XCUITest's `.click()` is not always reliable for SwiftUI `Button`s hosted in an `NSPopover`.
+            // Provide an explicit accessibility action so AXPress always routes to `onOpen`.
+            .accessibilityAction { onOpen() }
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
@@ -652,18 +639,6 @@ private struct NotificationPopoverRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
-    }
-}
-
-private struct DefaultActionModifier: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.keyboardShortcut(.defaultAction)
-        } else {
-            content
-        }
     }
 }
 
@@ -736,9 +711,8 @@ final class UpdateTitlebarAccessoryController {
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
-    private var stateCancellable: AnyCancellable?
-    private var lastIsIdle: Bool?
-    private let updateIdentifier = NSUserInterfaceItemIdentifier("cmux.updateAccessory")
+    private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
+    private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
 #if DEBUG
     private let devIdentifier = NSUserInterfaceItemIdentifier("cmux.devAccessory")
@@ -760,7 +734,7 @@ final class UpdateTitlebarAccessoryController {
         didStart = true
         attachToExistingWindows()
         installObservers()
-        installStateObserver()
+        scheduleStartupWindowScans()
     }
 
     func attach(to window: NSWindow) {
@@ -786,6 +760,9 @@ final class UpdateTitlebarAccessoryController {
             guard let window = notification.object as? NSWindow else { return }
             self?.attachIfNeeded(to: window)
         })
+
+        // We intentionally do not rely on "window became visible" notifications here:
+        // AppKit does not provide a stable cross-SDK API for this. Startup scans handle this case.
     }
 
     private func attachToExistingWindows() {
@@ -794,12 +771,51 @@ final class UpdateTitlebarAccessoryController {
         }
     }
 
+    private func scheduleStartupWindowScans() {
+        // We want to be robust to SwiftUI/AppKit timing and to XCTest automation. Scanning
+        // NSApp.windows briefly at startup is cheap and ensures accessories are attached even
+        // if key/main/visible notifications are missed.
+        let delays: [TimeInterval] = [0.05, 0.15, 0.3, 0.6, 1.0, 2.0, 3.0]
+        for delay in delays {
+            let item = DispatchWorkItem { [weak self] in
+                self?.attachToExistingWindows()
+#if DEBUG
+                let env = ProcessInfo.processInfo.environment
+                if env["CMUX_UI_TEST_MODE"] == "1" {
+                    let ids = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
+                    let delayText = String(format: "%.2f", delay)
+                    UpdateLogStore.shared.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
+                }
+#endif
+            }
+            startupScanWorkItems.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        }
+    }
+
     private func attachIfNeeded(to window: NSWindow) {
-        guard let updateViewModel else { return }
         guard !attachedWindows.contains(window) else { return }
-        guard window.styleMask.contains(.titled) else { return }
-        guard isMainTerminalWindow(window) else { return }
         guard !isSettingsWindow(window) else { return }
+
+        // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
+        // after didBecomeKey/didBecomeMain notifications. Retry briefly to avoid missing
+        // attaching accessories (notably in UI tests).
+        if !isMainTerminalWindow(window) {
+            let key = ObjectIdentifier(window)
+            let attempts = pendingAttachRetries[key, default: 0]
+            if attempts < 40 {
+                pendingAttachRetries[key] = attempts + 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
+                    guard let self, let window else { return }
+                    self.attachIfNeeded(to: window)
+                }
+            } else {
+                pendingAttachRetries.removeValue(forKey: key)
+            }
+            return
+        }
+
+        pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
@@ -820,14 +836,15 @@ final class UpdateTitlebarAccessoryController {
         }
 #endif
 
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == updateIdentifier }) {
-            let accessory = UpdateAccessoryViewController(model: updateViewModel)
-            accessory.layoutAttribute = .right
-            accessory.view.identifier = updateIdentifier
-            window.addTitlebarAccessoryViewController(accessory)
-        }
-
         attachedWindows.add(window)
+
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if env["CMUX_UI_TEST_MODE"] == "1" {
+            let ident = window.identifier?.rawValue ?? "<nil>"
+            UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
+        }
+#endif
     }
 
     private func isSettingsWindow(_ window: NSWindow) -> Bool {
@@ -838,48 +855,35 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
-        window.identifier?.rawValue == "cmux.main"
-    }
-
-    private func installStateObserver() {
-        guard let updateViewModel else { return }
-        stateCancellable = Publishers.CombineLatest(updateViewModel.$state, updateViewModel.$overrideState)
-            .map { state, override in
-                override ?? state
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard let self else { return }
-                let isIdle = state.isIdle
-                if let lastIsIdle, lastIsIdle == isIdle {
-                    return
-                }
-                self.lastIsIdle = isIdle
-                self.refreshAccessories(isIdle: isIdle)
-            }
-    }
-
-    private func refreshAccessories(isIdle: Bool) {
-        guard let updateViewModel else { return }
-
-        for window in attachedWindows.allObjects {
-            if let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0.view.identifier == updateIdentifier }) {
-                window.removeTitlebarAccessoryViewController(at: index)
-            }
-
-            guard !isIdle else { continue }
-
-            let accessory = UpdateAccessoryViewController(model: updateViewModel)
-            accessory.layoutAttribute = .right
-            accessory.view.identifier = updateIdentifier
-            window.addTitlebarAccessoryViewController(accessory)
-        }
+        guard let raw = window.identifier?.rawValue else { return false }
+        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
     }
 
     func toggleNotificationsPopover(animated: Bool = true) {
-        for controller in controlsControllers.allObjects {
-            controller.toggleNotificationsPopover(animated: animated)
+        let controllers = controlsControllers.allObjects
+        guard !controllers.isEmpty else { return }
+
+        let target: TitlebarControlsAccessoryViewController? = {
+            if let keyWindow = NSApp.keyWindow,
+               let match = controllers.first(where: { $0.view.window === keyWindow }) {
+                return match
+            }
+            if let keyMain = NSApp.windows.first(where: { $0.isKeyWindow && isMainTerminalWindow($0) }),
+               let match = controllers.first(where: { $0.view.window === keyMain }) {
+                return match
+            }
+            // If any popover is shown, treat it as the active target so keyboard shortcut closes it.
+            if let shown = controllers.first(where: { $0.popoverIsShownForTesting }) {
+                return shown
+            }
+            return controllers.first
+        }()
+
+        for controller in controllers {
+            if controller !== target {
+                controller.dismissNotificationsPopover()
+            }
         }
+        target?.toggleNotificationsPopover(animated: animated)
     }
 }

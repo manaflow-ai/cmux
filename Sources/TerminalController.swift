@@ -19,6 +19,12 @@ class TerminalController {
 
     private init() {}
 
+    /// Update which window's TabManager receives socket commands.
+    /// This is used when the user switches between multiple terminal windows.
+    func setActiveTabManager(_ tabManager: TabManager?) {
+        self.tabManager = tabManager
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -144,7 +150,15 @@ class TerminalController {
     }
 
     private func processCommand(_ command: String) -> String {
-        let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "ERROR: Empty command" }
+
+        // v2 protocol: newline-delimited JSON.
+        if trimmed.hasPrefix("{") {
+            return processV2Command(trimmed)
+        }
+
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard !parts.isEmpty else { return "ERROR: Empty command" }
 
         let cmd = parts[0].lowercased()
@@ -156,6 +170,24 @@ class TerminalController {
         switch cmd {
         case "ping":
             return "PONG"
+
+        case "list_windows":
+            return listWindows()
+
+        case "current_window":
+            return currentWindow()
+
+        case "focus_window":
+            return focusWindow(args)
+
+        case "new_window":
+            return newWindow()
+
+        case "close_window":
+            return closeWindow(args)
+
+        case "move_workspace_to_window":
+            return moveWorkspaceToWindow(args)
 
         case "list_workspaces":
             return listWorkspaces()
@@ -333,6 +365,1870 @@ class TerminalController {
         }
     }
 
+    // MARK: - V2 JSON Socket Protocol
+
+    private func processV2Command(_ jsonLine: String) -> String {
+        // v1 access-mode gating applies to v2 as well. We can't know which v2 method maps
+        // to which v1 command without parsing, so parse first and then apply allow-list.
+
+        guard let data = jsonLine.data(using: .utf8) else {
+            return v2Encode(["ok": false, "error": ["code": "invalid_utf8", "message": "Invalid UTF-8"]])
+        }
+
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            return v2Encode(["ok": false, "error": ["code": "parse_error", "message": "Invalid JSON"]])
+        }
+
+        guard let dict = object as? [String: Any] else {
+            return v2Encode(["ok": false, "error": ["code": "invalid_request", "message": "Expected JSON object"]])
+        }
+
+        let id: Any? = dict["id"]
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let params = dict["params"] as? [String: Any] ?? [:]
+
+        guard !method.isEmpty else {
+            return v2Error(id: id, code: "invalid_request", message: "Missing method")
+        }
+
+        // Apply access-mode restrictions.
+        if !isV2MethodAllowed(method) {
+            return v2Error(id: id, code: "forbidden", message: "Command disabled by socket access mode")
+        }
+
+        switch method {
+        case "system.ping":
+            return v2Ok(id: id, result: ["pong": true])
+        case "system.capabilities":
+            return v2Ok(id: id, result: v2Capabilities())
+
+        case "system.identify":
+            return v2Ok(id: id, result: v2Identify(params: params))
+
+        // Windows
+        case "window.list":
+            return v2Result(id: id, self.v2WindowList(params: params))
+        case "window.current":
+            return v2Result(id: id, self.v2WindowCurrent(params: params))
+        case "window.focus":
+            return v2Result(id: id, self.v2WindowFocus(params: params))
+        case "window.create":
+            return v2Result(id: id, self.v2WindowCreate(params: params))
+        case "window.close":
+            return v2Result(id: id, self.v2WindowClose(params: params))
+
+        // Workspaces
+        case "workspace.list":
+            return v2Result(id: id, self.v2WorkspaceList(params: params))
+        case "workspace.create":
+            return v2Result(id: id, self.v2WorkspaceCreate(params: params))
+        case "workspace.select":
+            return v2Result(id: id, self.v2WorkspaceSelect(params: params))
+        case "workspace.current":
+            return v2Result(id: id, self.v2WorkspaceCurrent(params: params))
+        case "workspace.close":
+            return v2Result(id: id, self.v2WorkspaceClose(params: params))
+        case "workspace.move_to_window":
+            return v2Result(id: id, self.v2WorkspaceMoveToWindow(params: params))
+
+        // Surfaces / input
+        case "surface.list":
+            return v2Result(id: id, self.v2SurfaceList(params: params))
+        case "surface.focus":
+            return v2Result(id: id, self.v2SurfaceFocus(params: params))
+        case "surface.split":
+            return v2Result(id: id, self.v2SurfaceSplit(params: params))
+        case "surface.create":
+            return v2Result(id: id, self.v2SurfaceCreate(params: params))
+        case "surface.close":
+            return v2Result(id: id, self.v2SurfaceClose(params: params))
+        case "surface.drag_to_split":
+            return v2Result(id: id, self.v2SurfaceDragToSplit(params: params))
+        case "surface.refresh":
+            return v2Result(id: id, self.v2SurfaceRefresh(params: params))
+        case "surface.health":
+            return v2Result(id: id, self.v2SurfaceHealth(params: params))
+        case "surface.send_text":
+            return v2Result(id: id, self.v2SurfaceSendText(params: params))
+        case "surface.send_key":
+            return v2Result(id: id, self.v2SurfaceSendKey(params: params))
+        case "surface.trigger_flash":
+            return v2Result(id: id, self.v2SurfaceTriggerFlash(params: params))
+
+        // Panes
+        case "pane.list":
+            return v2Result(id: id, self.v2PaneList(params: params))
+        case "pane.focus":
+            return v2Result(id: id, self.v2PaneFocus(params: params))
+        case "pane.surfaces":
+            return v2Result(id: id, self.v2PaneSurfaces(params: params))
+        case "pane.create":
+            return v2Result(id: id, self.v2PaneCreate(params: params))
+
+        // Notifications
+        case "notification.create":
+            return v2Result(id: id, self.v2NotificationCreate(params: params))
+        case "notification.create_for_surface":
+            return v2Result(id: id, self.v2NotificationCreateForSurface(params: params))
+        case "notification.create_for_target":
+            return v2Result(id: id, self.v2NotificationCreateForTarget(params: params))
+        case "notification.list":
+            return v2Ok(id: id, result: self.v2NotificationList())
+        case "notification.clear":
+            return v2Result(id: id, self.v2NotificationClear())
+
+        // App focus
+        case "app.focus_override.set":
+            return v2Result(id: id, self.v2AppFocusOverride(params: params))
+        case "app.simulate_active":
+            return v2Result(id: id, self.v2AppSimulateActive())
+
+        // Browser
+        case "browser.open_split":
+            return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
+        case "browser.navigate":
+            return v2Result(id: id, self.v2BrowserNavigate(params: params))
+        case "browser.back":
+            return v2Result(id: id, self.v2BrowserBack(params: params))
+        case "browser.forward":
+            return v2Result(id: id, self.v2BrowserForward(params: params))
+        case "browser.reload":
+            return v2Result(id: id, self.v2BrowserReload(params: params))
+        case "browser.url.get":
+            return v2Result(id: id, self.v2BrowserGetURL(params: params))
+        case "browser.focus_webview":
+            return v2Result(id: id, self.v2BrowserFocusWebView(params: params))
+        case "browser.is_webview_focused":
+            return v2Result(id: id, self.v2BrowserIsWebViewFocused(params: params))
+
+#if DEBUG
+        // Debug / test-only
+        case "debug.shortcut.set":
+            return v2Result(id: id, self.v2DebugShortcutSet(params: params))
+        case "debug.shortcut.simulate":
+            return v2Result(id: id, self.v2DebugShortcutSimulate(params: params))
+        case "debug.type":
+            return v2Result(id: id, self.v2DebugType(params: params))
+        case "debug.app.activate":
+            return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.terminal.is_focused":
+            return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+        case "debug.terminal.read_text":
+            return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
+        case "debug.terminal.render_stats":
+            return v2Result(id: id, self.v2DebugRenderStats(params: params))
+        case "debug.layout":
+            return v2Result(id: id, self.v2DebugLayout())
+        case "debug.bonsplit_underflow.count":
+            return v2Result(id: id, self.v2DebugBonsplitUnderflowCount())
+        case "debug.bonsplit_underflow.reset":
+            return v2Result(id: id, self.v2DebugResetBonsplitUnderflowCount())
+        case "debug.empty_panel.count":
+            return v2Result(id: id, self.v2DebugEmptyPanelCount())
+        case "debug.empty_panel.reset":
+            return v2Result(id: id, self.v2DebugResetEmptyPanelCount())
+        case "debug.notification.focus":
+            return v2Result(id: id, self.v2DebugFocusNotification(params: params))
+        case "debug.flash.count":
+            return v2Result(id: id, self.v2DebugFlashCount(params: params))
+        case "debug.flash.reset":
+            return v2Result(id: id, self.v2DebugResetFlashCounts())
+        case "debug.panel_snapshot":
+            return v2Result(id: id, self.v2DebugPanelSnapshot(params: params))
+        case "debug.panel_snapshot.reset":
+            return v2Result(id: id, self.v2DebugPanelSnapshotReset(params: params))
+        case "debug.window.screenshot":
+            return v2Result(id: id, self.v2DebugScreenshot(params: params))
+#endif
+
+        default:
+            return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+        }
+    }
+
+    private func isV2MethodAllowed(_ method: String) -> Bool {
+        switch accessMode {
+        case .full:
+            return true
+        case .notifications:
+            let allowed: Set<String> = [
+                "system.ping",
+                "system.capabilities",
+                "system.identify",
+                "notification.create",
+                "notification.create_for_surface",
+                "notification.create_for_target",
+                "notification.list",
+                "notification.clear",
+                "app.focus_override.set",
+                "app.simulate_active"
+            ]
+            return allowed.contains(method)
+        case .off:
+            return false
+        }
+    }
+
+    private func v2Capabilities() -> [String: Any] {
+        var methods: [String] = [
+            "system.ping",
+            "system.capabilities",
+            "system.identify",
+            "window.list",
+            "window.current",
+            "window.focus",
+            "window.create",
+            "window.close",
+            "workspace.list",
+            "workspace.create",
+            "workspace.select",
+            "workspace.current",
+            "workspace.close",
+            "workspace.move_to_window",
+            "surface.list",
+            "surface.focus",
+            "surface.split",
+            "surface.create",
+            "surface.close",
+            "surface.drag_to_split",
+            "surface.refresh",
+            "surface.health",
+            "surface.send_text",
+            "surface.send_key",
+            "surface.trigger_flash",
+            "pane.list",
+            "pane.focus",
+            "pane.surfaces",
+            "pane.create",
+            "notification.create",
+            "notification.create_for_surface",
+            "notification.create_for_target",
+            "notification.list",
+            "notification.clear",
+            "app.focus_override.set",
+            "app.simulate_active",
+            "browser.open_split",
+            "browser.navigate",
+            "browser.back",
+            "browser.forward",
+            "browser.reload",
+            "browser.url.get",
+            "browser.focus_webview",
+            "browser.is_webview_focused",
+        ]
+#if DEBUG
+        methods.append(contentsOf: [
+            "debug.shortcut.set",
+            "debug.shortcut.simulate",
+            "debug.type",
+            "debug.app.activate",
+            "debug.terminal.is_focused",
+            "debug.terminal.read_text",
+            "debug.terminal.render_stats",
+            "debug.layout",
+            "debug.bonsplit_underflow.count",
+            "debug.bonsplit_underflow.reset",
+            "debug.empty_panel.count",
+            "debug.empty_panel.reset",
+            "debug.notification.focus",
+            "debug.flash.count",
+            "debug.flash.reset",
+            "debug.panel_snapshot",
+            "debug.panel_snapshot.reset",
+            "debug.window.screenshot",
+        ])
+#endif
+
+        return [
+            "protocol": "cmuxterm-socket",
+            "version": 2,
+            "socket_path": socketPath,
+            "access_mode": accessMode.rawValue,
+            "methods": methods.sorted()
+        ]
+    }
+
+    private func v2Identify(params: [String: Any]) -> [String: Any] {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return [
+                "socket_path": socketPath,
+                "focused": NSNull()
+            ]
+        }
+
+        var focused: [String: Any] = [:]
+        v2MainSync {
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            if let wsId = tabManager.selectedTabId,
+               let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                focused["window_id"] = v2OrNull(windowId?.uuidString)
+                focused["workspace_id"] = wsId.uuidString
+                focused["pane_id"] = v2OrNull(ws.bonsplitController.focusedPaneId?.id.uuidString)
+                focused["surface_id"] = v2OrNull(ws.focusedPanelId?.uuidString)
+            } else {
+                focused["window_id"] = v2OrNull(windowId?.uuidString)
+            }
+        }
+
+        // Optionally validate a caller-provided location (useful for agents calling from inside a surface).
+        var caller: [String: Any]? = nil
+        if let callerObj = params["caller"] as? [String: Any] {
+            caller = callerObj
+        }
+
+        var resolvedCaller: [String: Any]? = nil
+        if let caller,
+           let wsStr = caller["workspace_id"] as? String,
+           let wsId = UUID(uuidString: wsStr) {
+            let surfaceStr = caller["surface_id"] as? String
+            let surfaceId = surfaceStr.flatMap { UUID(uuidString: $0) }
+            v2MainSync {
+                let callerTabManager = AppDelegate.shared?.tabManagerFor(tabId: wsId) ?? tabManager
+                if let ws = callerTabManager.tabs.first(where: { $0.id == wsId }) {
+                    var payload: [String: Any] = ["workspace_id": wsId.uuidString]
+                    payload["window_id"] = v2OrNull(v2ResolveWindowId(tabManager: callerTabManager)?.uuidString)
+                    if let surfaceId, ws.panels[surfaceId] != nil {
+                        payload["surface_id"] = surfaceId.uuidString
+                        payload["surface_type"] = v2OrNull(ws.panels[surfaceId]?.panelType.rawValue)
+                    } else {
+                        payload["surface_id"] = NSNull()
+                        payload["surface_type"] = NSNull()
+                    }
+                    resolvedCaller = payload
+                }
+            }
+        }
+
+        return [
+            "socket_path": socketPath,
+            "focused": focused.isEmpty ? NSNull() : focused,
+            "caller": v2OrNull(resolvedCaller)
+        ]
+    }
+
+    // MARK: - V2 Helpers (encoding + result plumbing)
+
+    private func v2OrNull(_ value: Any?) -> Any {
+        // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
+        if let value { return value }
+        return NSNull()
+    }
+
+    private func v2MainSync<T>(_ body: () -> T) -> T {
+        if Thread.isMainThread {
+            return body()
+        }
+        return DispatchQueue.main.sync(execute: body)
+    }
+
+    private func v2Ok(id: Any?, result: Any) -> String {
+        return v2Encode([
+            "id": v2OrNull(id),
+            "ok": true,
+            "result": result
+        ])
+    }
+
+    private func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
+        var err: [String: Any] = ["code": code, "message": message]
+        if let data {
+            err["data"] = data
+        }
+        return v2Encode([
+            "id": v2OrNull(id),
+            "ok": false,
+            "error": err
+        ])
+    }
+
+    private enum V2CallResult {
+        case ok(Any)
+        case err(code: String, message: String, data: Any?)
+    }
+
+    private func v2Result(id: Any?, _ res: V2CallResult) -> String {
+        switch res {
+        case .ok(let payload):
+            return v2Ok(id: id, result: payload)
+        case .err(let code, let message, let data):
+            return v2Error(id: id, code: code, message: message, data: data)
+        }
+    }
+
+    private func v2Encode(_ object: Any) -> String {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: []),
+              var s = String(data: data, encoding: .utf8) else {
+            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+        }
+
+        // Ensure single-line responses for the line-oriented socket protocol.
+        s = s.replacingOccurrences(of: "\n", with: "\\n")
+        return s
+    }
+
+    // MARK: - V2 Param Parsing
+
+    private func v2String(_ params: [String: Any], _ key: String) -> String? {
+        guard let raw = params[key] as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
+        guard let s = v2String(params, key) else { return nil }
+        return UUID(uuidString: s)
+    }
+
+    private func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
+        if let b = params[key] as? Bool { return b }
+        if let n = params[key] as? NSNumber { return n.boolValue }
+        if let s = params[key] as? String {
+            switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            case "0", "false", "no", "off":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func v2Int(_ params: [String: Any], _ key: String) -> Int? {
+        if let i = params[key] as? Int { return i }
+        if let n = params[key] as? NSNumber { return n.intValue }
+        if let s = params[key] as? String { return Int(s) }
+        return nil
+    }
+
+    private func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
+        guard let s = v2String(params, key) else { return nil }
+        return PanelType(rawValue: s.lowercased())
+    }
+
+    // MARK: - V2 Context Resolution
+
+    private func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
+        // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id,
+        // and finally to the active window's TabManager.
+        if let windowId = v2UUID(params, "window_id") {
+            return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
+        }
+        if let wsId = v2UUID(params, "workspace_id") {
+            if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
+                return tm
+            }
+        }
+        if let surfaceId = v2UUID(params, "surface_id") {
+            if let tm = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager }) {
+                return tm
+            }
+        }
+        return tabManager
+    }
+
+    private func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
+        guard let tabManager else { return nil }
+        return v2MainSync { AppDelegate.shared?.windowId(for: tabManager) }
+    }
+
+    // MARK: - V2 Window Methods
+
+    private func v2WindowList(params _: [String: Any]) -> V2CallResult {
+        let windows = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []
+        let payload: [[String: Any]] = windows.enumerated().map { index, item in
+            return [
+                "id": item.windowId.uuidString,
+                "index": index,
+                "key": item.isKeyWindow,
+                "visible": item.isVisible,
+                "workspace_count": item.workspaceCount,
+                "selected_workspace_id": v2OrNull(item.selectedWorkspaceId?.uuidString)
+            ]
+        }
+        return .ok(["windows": payload])
+    }
+
+    private func v2WindowCurrent(params _: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else {
+            return .err(code: "not_found", message: "No active window", data: nil)
+        }
+        return .ok(["window_id": windowId.uuidString])
+    }
+
+    private func v2WindowFocus(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let ok = v2MainSync { AppDelegate.shared?.focusMainWindow(windowId: windowId) ?? false }
+        if ok {
+            if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+                setActiveTabManager(tm)
+            }
+            return .ok(["window_id": windowId.uuidString])
+        }
+        return .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+    }
+
+    private func v2WindowCreate(params _: [String: Any]) -> V2CallResult {
+        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
+            return .err(code: "internal_error", message: "Failed to create window", data: nil)
+        }
+        // The new window should become key, but setActiveTabManager defensively.
+        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return .ok(["window_id": windowId.uuidString])
+    }
+
+    private func v2WindowClose(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        return ok
+            ? .ok(["window_id": windowId.uuidString])
+            : .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+    }
+
+    // MARK: - V2 Workspace Methods
+
+    private func v2WorkspaceList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var workspaces: [[String: Any]] = []
+        v2MainSync {
+            workspaces = tabManager.tabs.enumerated().map { index, ws in
+                return [
+                    "id": ws.id.uuidString,
+                    "index": index,
+                    "title": ws.title,
+                    "selected": ws.id == tabManager.selectedTabId,
+                    "pinned": ws.isPinned
+                ]
+            }
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok(["window_id": v2OrNull(windowId?.uuidString), "workspaces": workspaces])
+    }
+
+    private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var newId: String?
+        v2MainSync {
+            let ws = tabManager.addWorkspace()
+            newId = ws.id.uuidString
+        }
+
+        guard let newId else {
+            return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok(["window_id": v2OrNull(windowId?.uuidString), "workspace_id": newId])
+    }
+
+    private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+
+        var success = false
+        v2MainSync {
+            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                // If this workspace belongs to another window, bring it forward so focus is visible.
+                if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                    setActiveTabManager(tabManager)
+                }
+                tabManager.selectWorkspace(ws)
+                success = true
+            }
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return success
+            ? .ok(["window_id": v2OrNull(windowId?.uuidString), "workspace_id": wsId.uuidString])
+            : .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+    }
+
+    private func v2WorkspaceCurrent(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var wsId: String?
+        v2MainSync {
+            wsId = tabManager.selectedTabId?.uuidString
+        }
+        guard let wsId else {
+            return .err(code: "not_found", message: "No workspace selected", data: nil)
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok(["window_id": v2OrNull(windowId?.uuidString), "workspace_id": wsId])
+    }
+
+    private func v2WorkspaceClose(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+
+        var found = false
+        v2MainSync {
+            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                tabManager.closeWorkspace(ws)
+                found = true
+            }
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return found
+            ? .ok(["window_id": v2OrNull(windowId?.uuidString), "workspace_id": wsId.uuidString])
+            : .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+    }
+
+    private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let focus = v2Bool(params, "focus") ?? true
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
+        v2MainSync {
+            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+                return
+            }
+            guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+                result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+                return
+            }
+            guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+                return
+            }
+
+            dstTM.attachWorkspace(ws, select: focus)
+            if focus {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(dstTM)
+            }
+            result = .ok([
+                "workspace_id": wsId.uuidString,
+                "window_id": windowId.uuidString
+            ])
+        }
+        return result
+    }
+
+    // MARK: - V2 Surface Methods
+
+    private func v2ResolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
+        if let wsId = v2UUID(params, "workspace_id") {
+            return tabManager.tabs.first(where: { $0.id == wsId })
+        }
+        if let surfaceId = v2UUID(params, "surface_id") {
+            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+        }
+        guard let wsId = tabManager.selectedTabId else { return nil }
+        return tabManager.tabs.first(where: { $0.id == wsId })
+    }
+
+    private func v2SurfaceList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+
+            // Map panel_id -> pane_id and index/selection within that pane.
+            var paneByPanelId: [UUID: String] = [:]
+            var indexInPaneByPanelId: [UUID: Int] = [:]
+            var selectedInPaneByPanelId: [UUID: Bool] = [:]
+            for paneId in ws.bonsplitController.allPaneIds {
+                let tabs = ws.bonsplitController.tabs(inPane: paneId)
+                let selected = ws.bonsplitController.selectedTab(inPane: paneId)
+                for (idx, tab) in tabs.enumerated() {
+                    guard let panelId = ws.panelIdFromSurfaceId(tab.id) else { continue }
+                    paneByPanelId[panelId] = paneId.id.uuidString
+                    indexInPaneByPanelId[panelId] = idx
+                    selectedInPaneByPanelId[panelId] = (tab.id == selected?.id)
+                }
+            }
+
+            let focusedSurfaceId = ws.focusedPanelId
+            let panels = orderedPanels(in: ws)
+            let surfaces: [[String: Any]] = panels.enumerated().map { index, panel in
+                var item: [String: Any] = [
+                    "id": panel.id.uuidString,
+                    "index": index,
+                    "type": panel.panelType.rawValue,
+                    "title": panel.displayTitle,
+                    "focused": panel.id == focusedSurfaceId
+                ]
+                item["pane_id"] = v2OrNull(paneByPanelId[panel.id])
+                item["index_in_pane"] = v2OrNull(indexInPaneByPanelId[panel.id])
+                item["selected_in_pane"] = v2OrNull(selectedInPaneByPanelId[panel.id])
+                return item
+            }
+
+            payload = [
+                "workspace_id": ws.id.uuidString,
+                "surfaces": surfaces
+            ]
+        }
+
+        guard let payload else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        var out = payload
+        out["window_id"] = v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString)
+        return .ok(out)
+    }
+
+    private func v2SurfaceFocus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+
+            // Make sure the workspace is selected so focus effects apply to the visible UI.
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+
+            guard ws.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            ws.focusPanel(surfaceId)
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2SurfaceSplit(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let directionStr = v2String(params, "direction"),
+              let direction = parseSplitDirection(directionStr) else {
+            return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+
+            let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let targetSurfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard ws.panels[targetSurfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": targetSurfaceId.uuidString])
+                return
+            }
+
+            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction) {
+                result = .ok([
+                    "workspace_id": ws.id.uuidString,
+                    "surface_id": newId.uuidString
+                ])
+            } else {
+                result = .err(code: "internal_error", message: "Failed to create split", data: nil)
+            }
+        }
+        return result
+    }
+
+    private func v2SurfaceCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let panelType = v2PanelType(params, "type") ?? .terminal
+        let urlStr = v2String(params, "url")
+        let url = urlStr.flatMap { URL(string: $0) }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+
+            let paneUUID = v2UUID(params, "pane_id")
+            let paneId: PaneID? = {
+                if let paneUUID {
+                    return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
+                }
+                return ws.bonsplitController.focusedPaneId
+            }()
+
+            guard let paneId else {
+                result = .err(code: "not_found", message: "Pane not found", data: nil)
+                return
+            }
+
+            let newPanelId: UUID?
+            if panelType == .browser {
+                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: true)?.id
+            } else {
+                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: true)?.id
+            }
+
+            guard let newPanelId else {
+                result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
+                return
+            }
+
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "pane_id": paneId.id.uuidString,
+                "surface_id": newPanelId.uuidString,
+                "type": panelType.rawValue
+            ])
+        }
+        return result
+    }
+
+    private func v2SurfaceClose(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to close surface", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+
+            guard ws.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            if ws.panels.count <= 1 {
+                result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+                return
+            }
+
+            // Socket API must be non-interactive: bypass close-confirmation gating.
+            ws.closePanel(surfaceId, force: true)
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2SurfaceDragToSplit(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let directionStr = v2String(params, "direction"),
+              let direction = parseSplitDirection(directionStr) else {
+            return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
+        }
+
+        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+        let insertFirst = (direction == .left || direction == .up)
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to move surface", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard let bonsplitTabId = ws.surfaceIdFromPanelId(surfaceId) else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard let newPaneId = ws.bonsplitController.splitPane(
+                orientation: orientation,
+                movingTab: bonsplitTabId,
+                insertFirst: insertFirst
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to split pane", data: nil)
+                return
+            }
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "surface_id": surfaceId.uuidString,
+                "pane_id": newPaneId.id.uuidString
+            ])
+        }
+        return result
+    }
+
+    private func v2SurfaceRefresh(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .ok(["refreshed": 0])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            var refreshedCount = 0
+            for panel in ws.panels.values {
+                if let terminalPanel = panel as? TerminalPanel {
+                    terminalPanel.surface.forceRefresh()
+                    refreshedCount += 1
+                }
+            }
+            result = .ok(["workspace_id": ws.id.uuidString, "refreshed": refreshedCount])
+        }
+        return result
+    }
+
+    private func v2SurfaceHealth(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let panels = orderedPanels(in: ws)
+            let items: [[String: Any]] = panels.enumerated().map { index, panel in
+                var inWindow: Any = NSNull()
+                if let tp = panel as? TerminalPanel {
+                    inWindow = tp.surface.isViewInWindow
+                } else if let bp = panel as? BrowserPanel {
+                    inWindow = bp.webView.window != nil
+                }
+                return [
+                    "index": index,
+                    "id": panel.id.uuidString,
+                    "type": panel.panelType.rawValue,
+                    "in_window": inWindow
+                ]
+            }
+            payload = [
+                "workspace_id": ws.id.uuidString,
+                "surfaces": items,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString)
+            ]
+        }
+
+        guard let payload else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    private func v2SurfaceSendText(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let text = params["text"] as? String else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to send text", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
+                result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            for char in text {
+                if char.unicodeScalars.count == 1,
+                   let scalar = char.unicodeScalars.first,
+                   handleControlScalar(scalar, surface: surface) {
+                    continue
+                }
+                sendTextEvent(surface: surface, text: String(char))
+            }
+            // Ensure we present a new frame after injecting input so snapshot-based tests (and
+            // socket-driven agents) can observe the updated terminal without requiring a focus
+            // change to trigger a draw.
+            terminalPanel.surface.forceRefresh()
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2SurfaceSendKey(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing key", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to send key", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
+                result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard sendNamedKey(surface, keyName: key) else {
+                result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
+                return
+            }
+            terminalPanel.surface.forceRefresh()
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to trigger flash", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            // Ensure the flash is visible in the active UI.
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard ws.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            ws.triggerFocusFlash(panelId: surfaceId)
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    // MARK: - V2 Pane Methods
+
+    private func v2PaneList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+
+            let focusedPaneId = ws.bonsplitController.focusedPaneId
+            let panes: [[String: Any]] = ws.bonsplitController.allPaneIds.enumerated().map { index, paneId in
+                let tabs = ws.bonsplitController.tabs(inPane: paneId)
+                let surfaceIds: [String] = tabs.compactMap { ws.panelIdFromSurfaceId($0.id)?.uuidString }
+                let selectedTab = ws.bonsplitController.selectedTab(inPane: paneId)
+                let selectedSurfaceId = selectedTab.flatMap { ws.panelIdFromSurfaceId($0.id)?.uuidString }
+                return [
+                    "id": paneId.id.uuidString,
+                    "index": index,
+                    "focused": paneId == focusedPaneId,
+                    "surface_ids": surfaceIds,
+                    "selected_surface_id": v2OrNull(selectedSurfaceId),
+                    "surface_count": surfaceIds.count
+                ]
+            }
+
+            payload = [
+                "workspace_id": ws.id.uuidString,
+                "panes": panes,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString)
+            ]
+        }
+
+        guard let payload else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    private func v2PaneFocus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let paneUUID = v2UUID(params, "pane_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid pane_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID }) else {
+                result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
+                return
+            }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+            ws.cancelTabSelectionConvergence()
+            ws.bonsplitController.focusPane(paneId)
+            result = .ok(["workspace_id": ws.id.uuidString, "pane_id": paneId.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2PaneSurfaces(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+
+            let paneUUID = v2UUID(params, "pane_id")
+            let paneId: PaneID? = {
+                if let paneUUID {
+                    return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
+                }
+                return ws.bonsplitController.focusedPaneId
+            }()
+            guard let paneId else { return }
+
+            let selectedTab = ws.bonsplitController.selectedTab(inPane: paneId)
+            let tabs = ws.bonsplitController.tabs(inPane: paneId)
+
+            let surfaces: [[String: Any]] = tabs.enumerated().map { index, tab in
+                let panelId = ws.panelIdFromSurfaceId(tab.id)
+                let panel = panelId.flatMap { ws.panels[$0] }
+                return [
+                    "id": v2OrNull(panelId?.uuidString),
+                    "index": index,
+                    "title": tab.title,
+                    "type": v2OrNull(panel?.panelType.rawValue),
+                    "selected": tab.id == selectedTab?.id
+                ]
+            }
+
+            payload = [
+                "workspace_id": ws.id.uuidString,
+                "pane_id": paneId.id.uuidString,
+                "surfaces": surfaces,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString)
+            ]
+        }
+
+        guard let payload else {
+            return .err(code: "not_found", message: "Pane or workspace not found", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    private func v2PaneCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let directionStr = v2String(params, "direction"),
+              let direction = parseSplitDirection(directionStr) else {
+            return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
+        }
+
+        let panelType = v2PanelType(params, "type") ?? .terminal
+        let urlStr = v2String(params, "url")
+        let url = urlStr.flatMap { URL(string: $0) }
+
+        let orientation = direction.orientation
+        let insertFirst = direction.insertFirst
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create pane", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+            guard let focusedPanelId = ws.focusedPanelId else {
+                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
+            }
+
+            let newPanelId: UUID?
+            if panelType == .browser {
+                newPanelId = ws.newBrowserSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst, url: url)?.id
+            } else {
+                newPanelId = ws.newTerminalSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst)?.id
+            }
+
+            guard let newPanelId else {
+                result = .err(code: "internal_error", message: "Failed to create pane", data: nil)
+                return
+            }
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "surface_id": newPanelId.uuidString,
+                "type": panelType.rawValue
+            ])
+        }
+        return result
+    }
+
+    // MARK: - V2 Notification Methods
+
+    private func v2NotificationCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let title = (params["title"] as? String) ?? "Notification"
+        let subtitle = (params["subtitle"] as? String) ?? ""
+        let body = (params["body"] as? String) ?? ""
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = ws.focusedPanelId
+            TerminalNotificationStore.shared.addNotification(
+                tabId: ws.id,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": v2OrNull(surfaceId?.uuidString)])
+        }
+        return result
+    }
+
+    private func v2NotificationCreateForSurface(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        let title = (params["title"] as? String) ?? "Notification"
+        let subtitle = (params["subtitle"] as? String) ?? ""
+        let body = (params["body"] as? String) ?? ""
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard ws.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            TerminalNotificationStore.shared.addNotification(
+                tabId: ws.id,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2NotificationCreateForTarget(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        let title = (params["title"] as? String) ?? "Notification"
+        let subtitle = (params["subtitle"] as? String) ?? ""
+        let body = (params["body"] as? String) ?? ""
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
+        v2MainSync {
+            guard let ws = tabManager.tabs.first(where: { $0.id == wsId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+                return
+            }
+            guard ws.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            TerminalNotificationStore.shared.addNotification(
+                tabId: ws.id,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2NotificationList() -> [String: Any] {
+        var items: [[String: Any]] = []
+        DispatchQueue.main.sync {
+            items = TerminalNotificationStore.shared.notifications.map { n in
+                return [
+                    "id": n.id.uuidString,
+                    "workspace_id": n.tabId.uuidString,
+                    "surface_id": v2OrNull(n.surfaceId?.uuidString),
+                    "is_read": n.isRead,
+                    "title": n.title,
+                    "subtitle": n.subtitle,
+                    "body": n.body
+                ]
+            }
+        }
+        return ["notifications": items]
+    }
+
+    private func v2NotificationClear() -> V2CallResult {
+        DispatchQueue.main.sync {
+            TerminalNotificationStore.shared.clearAll()
+        }
+        return .ok([:])
+    }
+
+    // MARK: - V2 App Focus Methods
+
+    private func v2AppFocusOverride(params: [String: Any]) -> V2CallResult {
+        // Accept either:
+        // - state: "active" | "inactive" | "clear"
+        // - focused: true/false/null
+        if let state = v2String(params, "state")?.lowercased() {
+            switch state {
+            case "active":
+                AppFocusState.overrideIsFocused = true
+            case "inactive":
+                AppFocusState.overrideIsFocused = false
+            case "clear", "none":
+                AppFocusState.overrideIsFocused = nil
+            default:
+                return .err(code: "invalid_params", message: "Invalid state (active|inactive|clear)", data: ["state": state])
+            }
+        } else if params.keys.contains("focused") {
+            if let focused = v2Bool(params, "focused") {
+                AppFocusState.overrideIsFocused = focused
+            } else {
+                AppFocusState.overrideIsFocused = nil
+            }
+        } else {
+            return .err(code: "invalid_params", message: "Missing state or focused", data: nil)
+        }
+
+        let overrideVal: Any = v2OrNull(AppFocusState.overrideIsFocused.map { $0 as Any })
+        return .ok(["override": overrideVal])
+    }
+
+    private func v2AppSimulateActive() -> V2CallResult {
+        v2MainSync {
+            AppDelegate.shared?.applicationDidBecomeActive(
+                Notification(name: NSApplication.didBecomeActiveNotification)
+            )
+        }
+        return .ok([:])
+    }
+
+    // MARK: - V2 Browser Methods
+
+    private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let urlStr = v2String(params, "url")
+        let url = urlStr.flatMap { URL(string: $0) }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            guard let focusedPanelId = ws.focusedPanelId else {
+                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+            if let browserPanelId = ws.newBrowserSplit(from: focusedPanelId, orientation: .horizontal, url: url)?.id {
+                result = .ok(["workspace_id": ws.id.uuidString, "surface_id": browserPanelId.uuidString])
+            } else {
+                result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
+            }
+        }
+        return result
+    }
+
+    private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let url = v2String(params, "url") else {
+            return .err(code: "invalid_params", message: "Missing url", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+            browserPanel.navigateSmart(url)
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2BrowserBack(params: [String: Any]) -> V2CallResult {
+        return v2BrowserNavSimple(params: params, action: "back")
+    }
+
+    private func v2BrowserForward(params: [String: Any]) -> V2CallResult {
+        return v2BrowserNavSimple(params: params, action: "forward")
+    }
+
+    private func v2BrowserReload(params: [String: Any]) -> V2CallResult {
+        return v2BrowserNavSimple(params: params, action: "reload")
+    }
+
+    private func v2BrowserNavSimple(params: [String: Any], action: String) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+            switch action {
+            case "back":
+                browserPanel.goBack()
+            case "forward":
+                browserPanel.goForward()
+            case "reload":
+                browserPanel.reload()
+            default:
+                break
+            }
+            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": surfaceId.uuidString])
+        }
+        return result
+    }
+
+    private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "surface_id": surfaceId.uuidString,
+                "url": browserPanel.currentURL?.absoluteString ?? ""
+            ])
+        }
+        return result
+    }
+
+    private func v2BrowserFocusWebView(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != ws.id {
+                tabManager.selectWorkspace(ws)
+            }
+
+            // Prevent omnibar auto-focus from immediately stealing first responder back.
+            browserPanel.suppressOmnibarAutofocus(for: 1.0)
+
+            let webView = browserPanel.webView
+            guard let window = webView.window else {
+                result = .err(code: "invalid_state", message: "WebView is not in a window", data: nil)
+                return
+            }
+            guard !webView.isHiddenOrHasHiddenAncestor else {
+                result = .err(code: "invalid_state", message: "WebView is hidden", data: nil)
+                return
+            }
+
+            window.makeFirstResponder(webView)
+            if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
+                result = .ok(["focused": true])
+            } else {
+                result = .err(code: "internal_error", message: "Focus did not move into web view", data: nil)
+            }
+        }
+        return result
+    }
+
+    private func v2BrowserIsWebViewFocused(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var focused = false
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+            let webView = browserPanel.webView
+            guard let window = webView.window,
+                  let fr = window.firstResponder as? NSView else {
+                focused = false
+                return
+            }
+            focused = fr.isDescendant(of: webView)
+        }
+        return .ok(["focused": focused])
+    }
+
+#if DEBUG
+    // MARK: - V2 Debug / Test-only Methods
+
+    private func v2DebugShortcutSet(params: [String: Any]) -> V2CallResult {
+        guard let name = v2String(params, "name"),
+              let combo = v2String(params, "combo") else {
+            return .err(code: "invalid_params", message: "Missing name/combo", data: nil)
+        }
+        let resp = setShortcut("\(name) \(combo)")
+        return resp == "OK"
+            ? .ok([:])
+            : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugShortcutSimulate(params: [String: Any]) -> V2CallResult {
+        guard let combo = v2String(params, "combo") else {
+            return .err(code: "invalid_params", message: "Missing combo", data: nil)
+        }
+        let resp = simulateShortcut(combo)
+        return resp == "OK"
+            ? .ok([:])
+            : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugType(params: [String: Any]) -> V2CallResult {
+        guard let text = params["text"] as? String else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "No window", data: nil)
+        DispatchQueue.main.sync {
+            guard let window = NSApp.keyWindow
+                ?? NSApp.mainWindow
+                ?? NSApp.windows.first(where: { $0.isVisible })
+                ?? NSApp.windows.first else {
+                result = .err(code: "not_found", message: "No window", data: nil)
+                return
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            guard let fr = window.firstResponder else {
+                result = .err(code: "not_found", message: "No first responder", data: nil)
+                return
+            }
+            if let client = fr as? NSTextInputClient {
+                client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                result = .ok([:])
+                return
+            }
+            (fr as? NSResponder)?.insertText(text)
+            result = .ok([:])
+        }
+        return result
+    }
+
+    private func v2DebugActivateApp() -> V2CallResult {
+        let resp = activateApp()
+        return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugIsTerminalFocused(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        let resp = isTerminalFocused(surfaceId)
+        if resp.hasPrefix("ERROR") {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
+    }
+
+    private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
+        let surfaceArg = v2String(params, "surface_id") ?? ""
+        let resp = readTerminalText(surfaceArg)
+        guard resp.hasPrefix("OK ") else {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        let b64 = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return .ok(["base64": b64])
+    }
+
+    private func v2DebugRenderStats(params: [String: Any]) -> V2CallResult {
+        let surfaceArg = v2String(params, "surface_id") ?? ""
+        let resp = renderStats(surfaceArg)
+        guard resp.hasPrefix("OK ") else {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        let jsonStr = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = jsonStr.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: []) else {
+            return .err(code: "internal_error", message: "render_stats JSON decode failed", data: ["payload": String(jsonStr.prefix(200))])
+        }
+        return .ok(["stats": obj])
+    }
+
+    private func v2DebugLayout() -> V2CallResult {
+        let resp = layoutDebug()
+        guard resp.hasPrefix("OK ") else {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        let jsonStr = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = jsonStr.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: []) else {
+            return .err(code: "internal_error", message: "layout_debug JSON decode failed", data: ["payload": String(jsonStr.prefix(200))])
+        }
+        return .ok(["layout": obj])
+    }
+
+    private func v2DebugBonsplitUnderflowCount() -> V2CallResult {
+        let resp = bonsplitUnderflowCount()
+        guard resp.hasPrefix("OK ") else { return .err(code: "internal_error", message: resp, data: nil) }
+        let n = Int(resp.split(separator: " ").last ?? "0") ?? 0
+        return .ok(["count": n])
+    }
+
+    private func v2DebugResetBonsplitUnderflowCount() -> V2CallResult {
+        let resp = resetBonsplitUnderflowCount()
+        return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugEmptyPanelCount() -> V2CallResult {
+        let resp = emptyPanelCount()
+        guard resp.hasPrefix("OK ") else { return .err(code: "internal_error", message: resp, data: nil) }
+        let n = Int(resp.split(separator: " ").last ?? "0") ?? 0
+        return .ok(["count": n])
+    }
+
+    private func v2DebugResetEmptyPanelCount() -> V2CallResult {
+        let resp = resetEmptyPanelCount()
+        return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugFocusNotification(params: [String: Any]) -> V2CallResult {
+        guard let wsId = v2String(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+        let surfaceId = v2String(params, "surface_id")
+        let args = surfaceId != nil ? "\(wsId) \(surfaceId!)" : wsId
+        let resp = focusFromNotification(args)
+        return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugFlashCount(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        let resp = flashCount(surfaceId)
+        guard resp.hasPrefix("OK ") else { return .err(code: "internal_error", message: resp, data: nil) }
+        let n = Int(resp.split(separator: " ").last ?? "0") ?? 0
+        return .ok(["count": n])
+    }
+
+    private func v2DebugResetFlashCounts() -> V2CallResult {
+        let resp = resetFlashCounts()
+        return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugPanelSnapshot(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        let label = v2String(params, "label") ?? ""
+        let args = label.isEmpty ? surfaceId : "\(surfaceId) \(label)"
+        let resp = panelSnapshot(args)
+        guard resp.hasPrefix("OK ") else { return .err(code: "internal_error", message: resp, data: nil) }
+        let payload = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = payload.split(separator: " ", maxSplits: 4).map(String.init)
+        guard parts.count == 5 else {
+            return .err(code: "internal_error", message: "panel_snapshot parse failed", data: ["payload": payload])
+        }
+        return .ok([
+            "surface_id": parts[0],
+            "changed_pixels": Int(parts[1]) ?? -1,
+            "width": Int(parts[2]) ?? 0,
+            "height": Int(parts[3]) ?? 0,
+            "path": parts[4]
+        ])
+    }
+
+    private func v2DebugPanelSnapshotReset(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        let resp = panelSnapshotReset(surfaceId)
+        return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugScreenshot(params: [String: Any]) -> V2CallResult {
+        let label = v2String(params, "label") ?? ""
+        let resp = captureScreenshot(label)
+        guard resp.hasPrefix("OK ") else {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        let payload = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return .err(code: "internal_error", message: "screenshot parse failed", data: ["payload": payload])
+        }
+        return .ok([
+            "screenshot_id": parts[0],
+            "path": parts[1]
+        ])
+    }
+#endif
+
     private func helpText() -> String {
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
@@ -496,15 +2392,22 @@ class TerminalController {
 	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
 	                isARepeat: false,
 	                keyCode: parsed.keyCode
-            ) else {
-                result = "ERROR: NSEvent.keyEvent returned nil"
-                return
-            }
-            NSApp.sendEvent(event)
-            result = "OK"
-        }
-        return result
-    }
+	            ) else {
+	                result = "ERROR: NSEvent.keyEvent returned nil"
+	                return
+	            }
+	            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
+	            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
+	            // normal responder chain for plain typing.
+	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: event) {
+	                result = "OK"
+	                return
+	            }
+	            NSApp.sendEvent(event)
+	            result = "OK"
+	        }
+	        return result
+	    }
 
     private func activateApp() -> String {
         DispatchQueue.main.sync {
@@ -585,6 +2488,17 @@ class TerminalController {
         return out
     }
 
+    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var r = start
+        var hops = 0
+        while let cur = r, hops < 64 {
+            if cur === target { return true }
+            r = cur.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
     private func isTerminalFocused(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -604,14 +2518,7 @@ class TerminalController {
                 result = "false"
                 return
             }
-
-            guard let window = terminalPanel.hostedView.window,
-                  let fr = window.firstResponder as? NSView else {
-                result = "false"
-                return
-            }
-
-            result = fr.isDescendant(of: terminalPanel.hostedView) ? "true" : "false"
+            result = terminalPanel.hostedView.isSurfaceViewFirstResponder() ? "true" : "false"
         }
         return result
     }
@@ -937,6 +2844,77 @@ class TerminalController {
         case .off:
             return false
         }
+    }
+
+    private func listWindows() -> String {
+        let summaries = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []
+        guard !summaries.isEmpty else { return "No windows" }
+
+        let lines = summaries.enumerated().map { idx, item in
+            let selected = item.isKeyWindow ? "*" : " "
+            let selectedWs = item.selectedWorkspaceId?.uuidString ?? "none"
+            return "\(selected) \(idx): \(item.windowId.uuidString) selected_workspace=\(selectedWs) workspaces=\(item.workspaceCount)"
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func currentWindow() -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return "ERROR: No active window" }
+        return windowId.uuidString
+    }
+
+    private func focusWindow(_ arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
+
+        let ok = v2MainSync { AppDelegate.shared?.focusMainWindow(windowId: windowId) ?? false }
+        guard ok else { return "ERROR: Window not found" }
+
+        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return "OK"
+    }
+
+    private func newWindow() -> String {
+        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
+            return "ERROR: Failed to create window"
+        }
+        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return "OK \(windowId.uuidString)"
+    }
+
+    private func closeWindow(_ arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
+        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        return ok ? "OK" : "ERROR: Window not found"
+    }
+
+    private func moveWorkspaceToWindow(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage move_workspace_to_window <workspace_id> <window_id>" }
+        guard let wsId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid workspace id" }
+        guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
+
+        var ok = false
+        v2MainSync {
+            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
+                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
+                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
+                ok = false
+                return
+            }
+            dstTM.attachWorkspace(ws, select: true)
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            setActiveTabManager(dstTM)
+            ok = true
+        }
+
+        return ok ? "OK" : "ERROR: Move failed"
     }
 
     private func listWorkspaces() -> String {
@@ -1383,28 +3361,20 @@ class TerminalController {
             }
 
             guard let panelId = resolveSurfaceId(from: panelArg, tab: tab),
-                  let terminalPanel = tab.terminalPanel(for: panelId),
-                  let window = terminalPanel.hostedView.window else {
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
 
-            // Prefer the view's frame as laid out by its superview.
+            // Capture the terminal's IOSurface directly, avoiding Screen Recording permissions.
             let view = terminalPanel.hostedView
-            let rectInWindow: CGRect = if let superview = view.superview {
-                superview.convert(view.frame, to: nil)
-            } else {
-                view.convert(view.bounds, to: nil)
+            var cgImage = view.debugCopyIOSurfaceCGImage()
+            if cgImage == nil {
+                // If the surface is mid-attach we may not have contents yet. Nudge a draw and retry once.
+                terminalPanel.surface.forceRefresh()
+                cgImage = view.debugCopyIOSurfaceCGImage()
             }
-            let rectInScreen = window.convertToScreen(rectInWindow)
-            let windowNumber = CGWindowID(window.windowNumber)
-
-            guard let cgImage = CGWindowListCreateImage(
-                rectInScreen,
-                .optionIncludingWindow,
-                windowNumber,
-                [.boundsIgnoreFraming, .nominalResolution]
-            ) else {
+            guard let cgImage else {
                 result = "ERROR: Failed to capture panel image"
                 return
             }
@@ -1823,6 +3793,10 @@ class TerminalController {
 
     private func resolveTerminalSurface(from arg: String, tabManager: TabManager, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
         guard let terminalPanel = resolveTerminalPanel(from: arg, tabManager: tabManager) else { return nil }
+        return waitForTerminalSurface(terminalPanel, waitUpTo: timeout)
+    }
+
+    private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
         if let surface = terminalPanel.surface.surface { return surface }
 
         // This can be transient during bonsplit tree restructuring when the SwiftUI
@@ -2306,6 +4280,9 @@ class TerminalController {
                 return
             }
 
+            // Prevent omnibar auto-focus from immediately stealing first responder back.
+            browserPanel.suppressOmnibarAutofocus(for: 1.0)
+
             let webView = browserPanel.webView
             guard let window = webView.window else {
                 result = "ERROR: WebView is not in a window"
@@ -2317,7 +4294,7 @@ class TerminalController {
             }
 
             window.makeFirstResponder(webView)
-            if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
+            if Self.responderChainContains(window.firstResponder, target: webView) {
                 result = "OK"
             } else {
                 result = "ERROR: Focus did not move into web view"
@@ -2346,11 +4323,7 @@ class TerminalController {
                 result = "false"
                 return
             }
-            guard let fr = window.firstResponder as? NSView else {
-                result = "false"
-                return
-            }
-            result = fr.isDescendant(of: webView) ? "true" : "false"
+            result = Self.responderChainContains(window.firstResponder, target: webView) ? "true" : "false"
         }
         return result
     }
@@ -2466,19 +4439,21 @@ class TerminalController {
 	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let tabArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tabArg.isEmpty else { return "ERROR: Usage: focus_bonsplit_tab <tab_id|panel_id>" }
+        guard !tabArg.isEmpty else { return "ERROR: Usage: focus_surface_by_panel <panel_id>" }
 
-        var result = "ERROR: Tab not found"
+        var result = "ERROR: Panel not found"
         DispatchQueue.main.sync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
             }
 
-            // Try to find by panel ID (which maps to our internal panel)
+            // Focus by panel UUID (our stable surface handle). This must also move AppKit
+            // first responder into the terminal view to ensure typing routes correctly.
             if let panelUUID = UUID(uuidString: tabArg),
-               let bonsplitTabId = tab.surfaceIdFromPanelId(panelUUID) {
-                tab.bonsplitController.selectTab(bonsplitTabId)
+               tab.panels[panelUUID] != nil,
+               tab.surfaceIdFromPanelId(panelUUID) != nil {
+                tabManager.focusSurface(tabId: tab.id, surfaceId: panelUUID)
                 result = "OK"
             }
         }
@@ -2666,7 +4641,8 @@ class TerminalController {
                 return
             }
 
-            tab.closePanel(targetSurfaceId)
+            // Socket commands must be non-interactive: bypass close-confirmation gating.
+            tab.closePanel(targetSurfaceId, force: true)
             result = "OK"
         }
         return result
@@ -2723,9 +4699,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url)?.id
+                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: true)?.id
             } else {
-                newPanelId = tab.newTerminalSurface(inPane: targetPaneId)?.id
+                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: true)?.id
             }
 
             if let id = newPanelId {

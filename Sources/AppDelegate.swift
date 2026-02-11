@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Bonsplit
 import CoreServices
 import UserNotifications
@@ -9,10 +10,56 @@ import WebKit
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
 
+    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
+        // On some macOS/Xcode setups, the app-under-test process doesn't get
+        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
+        // can reliably skip heavyweight startup work and bring up a window.
+        if env["XCTestConfigurationFilePath"] != nil { return true }
+        if env["XCTestBundlePath"] != nil { return true }
+        if env["XCTestSessionIdentifier"] != nil { return true }
+        if env["XCInjectBundle"] != nil { return true }
+        if env["XCInjectBundleInto"] != nil { return true }
+        if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
+        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
+        return false
+    }
+
+    private final class MainWindowContext {
+        let windowId: UUID
+        let tabManager: TabManager
+        let sidebarState: SidebarState
+        let sidebarSelectionState: SidebarSelectionState
+        weak var window: NSWindow?
+
+        init(
+            windowId: UUID,
+            tabManager: TabManager,
+            sidebarState: SidebarState,
+            sidebarSelectionState: SidebarSelectionState,
+            window: NSWindow?
+        ) {
+            self.windowId = windowId
+            self.tabManager = tabManager
+            self.sidebarState = sidebarState
+            self.sidebarSelectionState = sidebarSelectionState
+            self.window = window
+        }
+    }
+
+    private final class MainWindowController: NSWindowController, NSWindowDelegate {
+        var onClose: (() -> Void)?
+
+        func windowWillClose(_ notification: Notification) {
+            onClose?()
+        }
+    }
+
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    weak var sidebarSelectionState: SidebarSelectionState?
     private var workspaceObserver: NSObjectProtocol?
+    private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -25,9 +72,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
+    private var jumpUnreadFocusObserver: NSObjectProtocol?
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
+    private var didSetupMultiWindowNotificationsUITest = false
 #endif
+
+    private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    private var mainWindowControllers: [MainWindowController] = []
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -39,6 +91,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let env = ProcessInfo.processInfo.environment
+        let isRunningUnderXCTest = isRunningUnderXCTest(env)
+
+#if DEBUG
+        // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
+        // key-equivalent routing flaky. Force defaults for deterministic tests.
+        if isRunningUnderXCTest {
+            KeyboardShortcutSettings.resetAll()
+        }
+#endif
+
+#if DEBUG
+        writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.writeUITestDiagnosticsIfNeeded(stage: "after1s")
+        }
+#endif
+
         SentrySDK.start { options in
             options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
             #if DEBUG
@@ -51,34 +121,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options.sendDefaultPii = true
         }
 
-        registerLaunchServicesBundle()
-        enforceSingleInstance()
+        if !isRunningUnderXCTest {
+            PostHogAnalytics.shared.startIfNeeded()
+        }
+
+        // UI tests frequently time out waiting for the main window if we do heavyweight
+        // LaunchServices registration / single-instance enforcement synchronously at startup.
+        // Skip these during XCTest (the app-under-test) so the window can appear quickly.
+        if !isRunningUnderXCTest {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.registerLaunchServicesBundle()
+                self.enforceSingleInstance()
+                self.observeDuplicateLaunches()
+            }
+        }
         NSWindow.allowsAutomaticWindowTabbing = false
         disableNativeTabbingShortcut()
         ensureApplicationIcon()
-        observeDuplicateLaunches()
-        configureUserNotifications()
-        updateController.startUpdater()
+        if !isRunningUnderXCTest {
+            configureUserNotifications()
+            // Sparkle updater is started lazily on first manual check. This avoids any
+            // first-launch permission prompts and keeps cmuxterm aligned with the update pill UI.
+        }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
+        installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
         installShortcutMonitor()
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
+        if env["CMUX_UI_TEST_MODE"] == "1" {
+            let trigger = env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] ?? "<nil>"
+            let feed = env["CMUX_UI_TEST_FEED_URL"] ?? "<nil>"
+            UpdateLogStore.shared.append("ui test env: trigger=\(trigger) feed=\(feed)")
+        }
+        if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
+            UpdateLogStore.shared.append("ui test trigger update check detected")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
+                let windowIds = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
+                UpdateLogStore.shared.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
                 if UpdateTestSupport.performMockFeedCheckIfNeeded(on: self.updateController.viewModel) {
                     return
                 }
                 self.updateController.checkForUpdatesWhenReady()
             }
         }
+
+        // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
+        // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
+        if isRunningUnderXCTest {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self else { return }
+                if NSApp.windows.isEmpty {
+                    self.openNewMainWindow(nil)
+                }
+                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
+            }
+        }
 #endif
     }
 
+#if DEBUG
+    private func writeUITestDiagnosticsIfNeeded(stage: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
+
+        var payload = loadUITestDiagnostics(at: path)
+        let isRunningUnderXCTest = isRunningUnderXCTest(env)
+
+        let windows = NSApp.windows
+        let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
+        let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
+
+        payload["stage"] = stage
+        payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
+        payload["bundleId"] = Bundle.main.bundleIdentifier ?? ""
+        payload["isRunningUnderXCTest"] = isRunningUnderXCTest ? "1" : "0"
+        payload["windowsCount"] = String(windows.count)
+        payload["windowIdentifiers"] = ids
+        payload["windowVisibleFlags"] = vis
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadUITestDiagnostics(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+#endif
+
     func applicationDidBecomeActive(_ notification: Notification) {
+        let env = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(env) {
+            PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
+        }
+
         guard let tabManager, let notificationStore else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
@@ -92,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        PostHogAnalytics.shared.flush()
         notificationStore?.clearAll()
     }
 
@@ -102,7 +248,179 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
+        setupMultiWindowNotificationsUITestIfNeeded()
+
+        // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
+        // The automation socket is a core testing primitive, so ensure it's started here when
+        // we detect XCTest, even if the main view lifecycle is flaky.
+        let env = ProcessInfo.processInfo.environment
+        if isRunningUnderXCTest(env) {
+            let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+                ?? SocketControlSettings.defaultMode.rawValue
+            let userMode = SocketControlMode(rawValue: raw) ?? SocketControlSettings.defaultMode
+            let mode = SocketControlSettings.effectiveMode(userMode: userMode)
+            if mode != .off {
+                TerminalController.shared.start(
+                    tabManager: tabManager,
+                    socketPath: SocketControlSettings.socketPath(),
+                    accessMode: mode
+                )
+            }
+        }
 #endif
+    }
+
+    /// Register a terminal window with the AppDelegate so menu commands and socket control
+    /// can target whichever window is currently active.
+    func registerMainWindow(
+        _ window: NSWindow,
+        windowId: UUID,
+        tabManager: TabManager,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState
+    ) {
+        let key = ObjectIdentifier(window)
+        if let existing = mainWindowContexts[key] {
+            existing.window = window
+        } else {
+            mainWindowContexts[key] = MainWindowContext(
+                windowId: windowId,
+                tabManager: tabManager,
+                sidebarState: sidebarState,
+                sidebarSelectionState: sidebarSelectionState,
+                window: window
+            )
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] note in
+                guard let self, let closing = note.object as? NSWindow else { return }
+                self.unregisterMainWindow(closing)
+            }
+        }
+
+        if window.isKeyWindow {
+            setActiveMainWindow(window)
+        }
+    }
+
+    struct MainWindowSummary {
+        let windowId: UUID
+        let isKeyWindow: Bool
+        let isVisible: Bool
+        let workspaceCount: Int
+        let selectedWorkspaceId: UUID?
+    }
+
+    func listMainWindowSummaries() -> [MainWindowSummary] {
+        let contexts = Array(mainWindowContexts.values)
+        return contexts.map { ctx in
+            let window = ctx.window ?? windowForMainWindowId(ctx.windowId)
+            return MainWindowSummary(
+                windowId: ctx.windowId,
+                isKeyWindow: window?.isKeyWindow ?? false,
+                isVisible: window?.isVisible ?? false,
+                workspaceCount: ctx.tabManager.tabs.count,
+                selectedWorkspaceId: ctx.tabManager.selectedTabId
+            )
+        }
+    }
+
+    func tabManagerFor(windowId: UUID) -> TabManager? {
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
+    }
+
+    func windowId(for tabManager: TabManager) -> UUID? {
+        mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId
+    }
+
+    func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
+        for ctx in mainWindowContexts.values {
+            for ws in ctx.tabManager.tabs {
+                if ws.panels[surfaceId] != nil {
+                    return (ctx.windowId, ws.id, ctx.tabManager)
+                }
+            }
+        }
+        return nil
+    }
+
+    func focusMainWindow(windowId: UUID) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        bringToFront(window)
+        return true
+    }
+
+    func closeMainWindow(windowId: UUID) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        window.performClose(nil)
+        return true
+    }
+
+    private func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
+        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+           let window = ctx.window {
+            return window
+        }
+        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
+    }
+
+    @objc func openNewMainWindow(_ sender: Any?) {
+        _ = createMainWindow()
+    }
+
+    @discardableResult
+    func createMainWindow() -> UUID {
+        let windowId = UUID()
+        let tabManager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+        let notificationStore = TerminalNotificationStore.shared
+
+        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(sidebarState)
+            .environmentObject(sidebarSelectionState)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = ""
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
+        window.center()
+        window.contentView = NSHostingView(rootView: root)
+
+        // Apply shared window styling.
+        attachUpdateAccessory(to: window)
+        applyWindowDecorations(to: window)
+
+        // Keep a strong reference so the window isn't deallocated.
+        let controller = MainWindowController(window: window)
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.mainWindowControllers.removeAll(where: { $0 === controller })
+        }
+        window.delegate = controller
+        mainWindowControllers.append(controller)
+
+        registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState
+        )
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return windowId
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -203,36 +521,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didSetupJumpUnreadUITest = true
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" else { return }
-        guard let tabManager, let notificationStore else { return }
+        guard let notificationStore else { return }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self else { return }
-            let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
-            let tab = tabManager.addTab()
-            guard let initialPanelId = tab.focusedPanelId else { return }
+            Task { @MainActor in
+                // In UI tests, the initial SwiftUI `WindowGroup` window can lag behind launch. Wait for a
+                // registered main terminal window context so notifications can be routed back correctly.
+                let deadline = Date().addingTimeInterval(8.0)
+                @MainActor func waitForContext(_ completion: @escaping (MainWindowContext) -> Void) {
+                    if let context = self.mainWindowContexts.values.first,
+                       context.window != nil {
+                        completion(context)
+                        return
+                    }
+                    guard Date() < deadline else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        Task { @MainActor in
+                            waitForContext(completion)
+                        }
+                    }
+                }
 
-            _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialPanelId, direction: .right)
-            guard let targetPanelId = tab.focusedPanelId else { return }
-            // Find another panel that's not the currently focused one
-            let otherPanelId = tab.panels.keys.first(where: { $0 != targetPanelId })
-            if let otherPanelId {
-                tab.focusPanel(otherPanelId)
+                waitForContext { context in
+                    let tabManager = context.tabManager
+                    let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
+                    let tab = tabManager.addTab()
+                    guard let initialPanelId = tab.focusedPanelId else { return }
+
+                    _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialPanelId, direction: .right)
+                    guard let targetPanelId = tab.focusedPanelId else { return }
+                    // Find another panel that's not the currently focused one
+                    let otherPanelId = tab.panels.keys.first(where: { $0 != targetPanelId })
+                    if let otherPanelId {
+                        tab.focusPanel(otherPanelId)
+                    }
+
+                    // Avoid flakiness in the VM where focus can lag selection by a tick, which would
+                    // cause notification suppression to incorrectly drop this UI-test notification.
+                    let prevOverride = AppFocusState.overrideIsFocused
+                    AppFocusState.overrideIsFocused = false
+                    notificationStore.addNotification(
+                        tabId: tab.id,
+                        surfaceId: targetPanelId,
+                        title: "JumpToUnread",
+                        subtitle: "",
+                        body: ""
+                    )
+                    AppFocusState.overrideIsFocused = prevOverride
+
+                    self.writeJumpUnreadTestData([
+                        "expectedTabId": tab.id.uuidString,
+                        "expectedSurfaceId": targetPanelId.uuidString
+                    ])
+
+                    tabManager.selectTab(at: initialIndex)
+                }
             }
-
-            notificationStore.addNotification(
-                tabId: tab.id,
-                surfaceId: targetPanelId,
-                title: "JumpToUnread",
-                subtitle: "",
-                body: ""
-            )
-
-            self.writeJumpUnreadTestData([
-                "expectedTabId": tab.id.uuidString,
-                "expectedSurfaceId": targetPanelId.uuidString
-            ])
-
-            tabManager.selectTab(at: initialIndex)
         }
     }
 
@@ -247,6 +592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         guard let path = env["CMUX_UI_TEST_JUMP_UNREAD_PATH"], !path.isEmpty else { return }
         jumpUnreadFocusExpectation = (tabId: tabId, surfaceId: surfaceId)
+        installJumpUnreadFocusObserverIfNeeded()
     }
 
     func recordJumpUnreadFocusIfExpected(tabId: UUID, surfaceId: UUID) {
@@ -254,6 +600,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard expectation.tabId == tabId && expectation.surfaceId == surfaceId else { return }
         jumpUnreadFocusExpectation = nil
         recordJumpToUnreadFocus(tabId: tabId, surfaceId: surfaceId)
+        if let jumpUnreadFocusObserver {
+            NotificationCenter.default.removeObserver(jumpUnreadFocusObserver)
+            self.jumpUnreadFocusObserver = nil
+        }
+    }
+
+    private func installJumpUnreadFocusObserverIfNeeded() {
+        guard jumpUnreadFocusObserver == nil else { return }
+        jumpUnreadFocusObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
+            self.recordJumpUnreadFocusIfExpected(tabId: tabId, surfaceId: surfaceId)
+        }
     }
 
     private func writeJumpUnreadTestData(_ updates: [String: String]) {
@@ -299,8 +663,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         installGotoSplitUITestFocusObserversIfNeeded()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self, let tabManager = self.tabManager else { return }
+        // On the VM, launching/initializing multiple windows can occasionally take longer than a
+        // few seconds; keep the deadline generous so the test doesn't flake.
+        let deadline = Date().addingTimeInterval(20.0)
+        func hasMainTerminalWindow() -> Bool {
+            NSApp.windows.contains { window in
+                guard let raw = window.identifier?.rawValue else { return false }
+                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+            }
+        }
+
+        func runSetupWhenWindowReady() {
+            guard Date() < deadline else {
+                writeGotoSplitTestData(["setupError": "Timed out waiting for main window"])
+                return
+            }
+            guard hasMainTerminalWindow() else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    runSetupWhenWindowReady()
+                }
+                return
+            }
+            guard let tabManager = self.tabManager else { return }
 
             let tab = tabManager.addTab()
             guard let initialPanelId = tab.focusedPanelId else {
@@ -320,6 +704,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             self.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            runSetupWhenWindowReady()
         }
     }
 
@@ -470,6 +859,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         return object
     }
+
+    private func setupMultiWindowNotificationsUITestIfNeeded() {
+        guard !didSetupMultiWindowNotificationsUITest else { return }
+        didSetupMultiWindowNotificationsUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"], !path.isEmpty else { return }
+
+        try? FileManager.default.removeItem(atPath: path)
+
+        let deadline = Date().addingTimeInterval(8.0)
+        func waitForContexts(minCount: Int, _ completion: @escaping () -> Void) {
+            if mainWindowContexts.count >= minCount,
+               mainWindowContexts.values.allSatisfy({ $0.window != nil }) {
+                completion()
+                return
+            }
+            guard Date() < deadline else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                waitForContexts(minCount: minCount, completion)
+            }
+        }
+
+        waitForContexts(minCount: 1) { [weak self] in
+            guard let self else { return }
+            guard let window1 = self.mainWindowContexts.values.first else { return }
+            guard let tabId1 = window1.tabManager.selectedTabId ?? window1.tabManager.tabs.first?.id else { return }
+
+            // Create a second main terminal window.
+            self.openNewMainWindow(nil)
+
+            waitForContexts(minCount: 2) { [weak self] in
+                guard let self else { return }
+                let contexts = Array(self.mainWindowContexts.values)
+                guard let window2 = contexts.first(where: { $0.windowId != window1.windowId }) else { return }
+                guard let tabId2 = window2.tabManager.selectedTabId ?? window2.tabManager.tabs.first?.id else { return }
+                guard let store = self.notificationStore else { return }
+
+                // Ensure the target window is currently showing the Notifications overlay,
+                // so opening a notification must switch it back to the terminal UI.
+                window2.sidebarSelectionState.selection = .notifications
+
+                // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
+                let prevOverride = AppFocusState.overrideIsFocused
+                AppFocusState.overrideIsFocused = false
+                store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
+                AppFocusState.overrideIsFocused = prevOverride
+
+                // Insert after W2 so it becomes "latest unread" (first in list).
+                store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
+
+                let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
+                let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
+
+                self.writeMultiWindowNotificationTestData([
+                    "window1Id": window1.windowId.uuidString,
+                    "window2Id": window2.windowId.uuidString,
+                    "window2InitialSidebarSelection": "notifications",
+                    "tabId1": tabId1.uuidString,
+                    "tabId2": tabId2.uuidString,
+                    "notifId1": notif1?.id.uuidString ?? "",
+                    "notifId2": notif2?.id.uuidString ?? "",
+                    "expectedLatestWindowId": window1.windowId.uuidString,
+                    "expectedLatestTabId": tabId1.uuidString,
+                ], at: path)
+            }
+        }
+    }
+
+    private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
+        var payload = loadMultiWindowNotificationTestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadMultiWindowNotificationTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func recordMultiWindowNotificationFocusIfNeeded(
+        windowId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        sidebarSelection: SidebarSelection
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"], !path.isEmpty else { return }
+        let sidebarSelectionString: String = {
+            switch sidebarSelection {
+            case .tabs: return "tabs"
+            case .notifications: return "notifications"
+            }
+        }()
+        writeMultiWindowNotificationTestData([
+            "focusToken": UUID().uuidString,
+            "focusedWindowId": windowId.uuidString,
+            "focusedTabId": tabId.uuidString,
+            "focusedSurfaceId": surfaceId?.uuidString ?? "",
+            "focusedSidebarSelection": sidebarSelectionString,
+        ], at: path)
+    }
 #endif
 
     func attachUpdateAccessory(to window: NSWindow) {
@@ -486,9 +984,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func jumpToLatestUnread() {
-        guard let notificationStore, let tabManager else { return }
-        guard let notification = notificationStore.notifications.first(where: { !$0.isRead }) else { return }
-        tabManager.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
+        guard let notificationStore else { return }
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData([
+                "jumpUnreadInvoked": "1",
+                "jumpUnreadNotificationCount": String(notificationStore.notifications.count),
+            ])
+        }
+#endif
+        // Prefer the latest unread that we can actually open. In early startup (especially on the VM),
+        // the window-context registry can lag behind model initialization, so fall back to whatever
+        // tab manager currently owns the tab.
+        for notification in notificationStore.notifications where !notification.isRead {
+            if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
+                return
+            }
+        }
     }
 
     private func installShortcutMonitor() {
@@ -623,8 +1135,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
-        guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
+        // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
+        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Don't steal shortcuts from modal dialogs (e.g. close confirmations). This keeps standard
+        // alert key equivalents working and avoids surprising actions (like splitting) while an
+        // alert is up.
+        if let modalPanel = NSApp.windows.first(where: { $0.isVisible && $0 is NSPanel }) {
+            // Special-case: Cmd+D should confirm destructive close on alerts (like macOS "Don't Save").
+            // XCUITest key events often hit the app-level local monitor first, so forward the key
+            // equivalent to the alert panel explicitly.
+            if flags == [.command], chars == "d" {
+                if let root = modalPanel.contentView,
+                   (findStaticText(in: root, equals: "Close workspace?") ||
+                    findStaticText(in: root, equals: "Close tab?")),
+                   let closeButton = findButton(in: root, titled: "Close") {
+                    closeButton.performClick(nil)
+                    return true
+                }
+                return false
+            }
+            return false
+        }
+        if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
+            return false
+        }
 
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
@@ -633,7 +1170,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newTab)) {
-            tabManager?.addTab()
+            // Cmd+N semantics:
+            // - If there are no main windows, create a new window.
+            // - Otherwise, create a new workspace in the active window.
+            if tabManager == nil || mainWindowContexts.isEmpty {
+                openNewMainWindow(nil)
+            } else {
+                tabManager?.addTab()
+            }
             return true
         }
 
@@ -645,7 +1189,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Check Jump to Unread shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .jumpToUnread)) {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadShortcutHandled": "1"])
+            }
+#endif
             jumpToLatestUnread()
+            return true
+        }
+
+        // Flash the currently focused panel so the user can visually confirm focus.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .triggerFlash)) {
+            tabManager?.triggerFocusFlash()
             return true
         }
 
@@ -781,6 +1336,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        return false
+    }
+
+#if DEBUG
+    // Debug/test hook: allow socket-driven shortcut simulation to reuse the same shortcut routing
+    // logic as the local NSEvent monitor, without relying on AppKit event monitor behavior for
+    // synthetic NSEvents.
+    func debugHandleCustomShortcut(event: NSEvent) -> Bool {
+        handleCustomShortcut(event: event)
+    }
+#endif
+
+    private func findButton(in view: NSView, titled title: String) -> NSButton? {
+        if let button = view as? NSButton, button.title == title {
+            return button
+        }
+        for subview in view.subviews {
+            if let found = findButton(in: subview, titled: title) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func findStaticText(in view: NSView, equals text: String) -> Bool {
+        if let field = view as? NSTextField, field.stringValue == text {
+            return true
+        }
+        for subview in view.subviews {
+            if findStaticText(in: subview, equals: text) {
+                return true
+            }
+        }
         return false
     }
 
@@ -959,11 +1547,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func enforceSingleInstance() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
         let currentPid = ProcessInfo.processInfo.processIdentifier
-        let currentURL = Bundle.main.bundleURL.standardizedFileURL
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
-            if let url = app.bundleURL?.standardizedFileURL, url == currentURL { continue }
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
@@ -974,7 +1560,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
         let currentPid = ProcessInfo.processInfo.processIdentifier
-        let currentURL = Bundle.main.bundleURL.standardizedFileURL
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
@@ -984,7 +1569,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
-            if let url = app.bundleURL?.standardizedFileURL, url == currentURL { return }
 
             app.terminate()
             if !app.isTerminated {
@@ -1025,9 +1609,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
+            let notificationId: UUID? = {
+                if let id = UUID(uuidString: response.notification.request.identifier) {
+                    return id
+                }
+                if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
+                   let id = UUID(uuidString: idString) {
+                    return id
+                }
+                return nil
+            }()
             DispatchQueue.main.async {
-                self.tabManager?.focusTabFromNotification(tabId, surfaceId: surfaceId)
-                self.markReadIfFocused(response: response, tabId: tabId, surfaceId: surfaceId)
+                _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
             }
         case UNNotificationDismissActionIdentifier:
             DispatchQueue.main.async {
@@ -1043,28 +1636,332 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func markReadIfFocused(response: UNNotificationResponse, tabId: UUID, surfaceId: UUID?) {
-        let notificationId: UUID? = {
-            if let id = UUID(uuidString: response.notification.request.identifier) {
-                return id
-            }
-            if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
-               let id = UUID(uuidString: idString) {
-                return id
-            }
-            return nil
-        }()
+    private func installMainWindowKeyObserver() {
+        guard windowKeyObserver == nil else { return }
+        windowKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let window = note.object as? NSWindow else { return }
+            self.setActiveMainWindow(window)
+        }
+    }
 
-        guard let notificationId else { return }
+    private func setActiveMainWindow(_ window: NSWindow) {
+        guard isMainTerminalWindow(window) else { return }
+        guard let context = mainWindowContexts[ObjectIdentifier(window)] else { return }
+        tabManager = context.tabManager
+        sidebarState = context.sidebarState
+        sidebarSelectionState = context.sidebarSelectionState
+        TerminalController.shared.setActiveTabManager(context.tabManager)
+    }
 
+    private func unregisterMainWindow(_ window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        guard let removed = mainWindowContexts.removeValue(forKey: key) else { return }
+
+        // Avoid stale notifications that can no longer be opened once the owning window is gone.
+        if let store = notificationStore {
+            for tab in removed.tabManager.tabs {
+                store.clearNotifications(forTabId: tab.id)
+            }
+        }
+
+        if tabManager === removed.tabManager {
+            // Repoint "active" pointers to any remaining main terminal window.
+            let nextContext: MainWindowContext? = {
+                if let keyWindow = NSApp.keyWindow,
+                   isMainTerminalWindow(keyWindow),
+                   let ctx = mainWindowContexts[ObjectIdentifier(keyWindow)] {
+                    return ctx
+                }
+                return mainWindowContexts.values.first
+            }()
+
+            if let nextContext {
+                tabManager = nextContext.tabManager
+                sidebarState = nextContext.sidebarState
+                sidebarSelectionState = nextContext.sidebarSelectionState
+                TerminalController.shared.setActiveTabManager(nextContext.tabManager)
+            } else {
+                tabManager = nil
+                sidebarState = nil
+                sidebarSelectionState = nil
+                TerminalController.shared.setActiveTabManager(nil)
+            }
+        }
+    }
+
+    private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
+        guard let raw = window.identifier?.rawValue else { return false }
+        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func contextContainingTabId(_ tabId: UUID) -> MainWindowContext? {
+        for context in mainWindowContexts.values {
+            if context.tabManager.tabs.contains(where: { $0.id == tabId }) {
+                return context
+            }
+        }
+        return nil
+    }
+
+    /// Returns the `TabManager` that owns `tabId`, if any.
+    func tabManagerFor(tabId: UUID) -> TabManager? {
+        contextContainingTabId(tabId)?.tabManager
+    }
+
+    func closeMainWindowContainingTabId(_ tabId: UUID) {
+        guard let context = contextContainingTabId(tabId) else { return }
+        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
+        window?.performClose(nil)
+    }
+
+    @discardableResult
+    func openNotification(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+#if DEBUG
+        let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
+        if isJumpUnreadUITest {
+            writeJumpUnreadTestData([
+                "jumpUnreadOpenCalled": "1",
+                "jumpUnreadOpenTabId": tabId.uuidString,
+                "jumpUnreadOpenSurfaceId": surfaceId?.uuidString ?? "",
+            ])
+        }
+#endif
+        guard let context = contextContainingTabId(tabId) else {
+#if DEBUG
+            recordMultiWindowNotificationOpenFailureIfNeeded(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                reason: "missing_context"
+            )
+#endif
+#if DEBUG
+            if isJumpUnreadUITest {
+                writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "0", "jumpUnreadOpenUsedFallback": "1"])
+            }
+#endif
+            let ok = openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+#if DEBUG
+            if isJumpUnreadUITest {
+                writeJumpUnreadTestData(["jumpUnreadOpenResult": ok ? "1" : "0"])
+            }
+#endif
+            return ok
+        }
+#if DEBUG
+        if isJumpUnreadUITest {
+            writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "1", "jumpUnreadOpenUsedFallback": "0"])
+        }
+#endif
+        return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    }
+
+    private func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
+        guard let window else {
+#if DEBUG
+            recordMultiWindowNotificationOpenFailureIfNeeded(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                reason: "missing_window expectedIdentifier=\(expectedIdentifier)"
+            )
+#endif
+            return false
+        }
+
+        context.sidebarSelectionState.selection = .tabs
+        bringToFront(window)
+        context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+
+#if DEBUG
+        // UI test support: Jump-to-unread asserts that the correct workspace/panel is focused.
+        // Recording via first-responder can be flaky on the VM, so verify focus via the model.
+        recordJumpUnreadFocusFromModelIfNeeded(
+            tabManager: context.tabManager,
+            tabId: tabId,
+            expectedSurfaceId: surfaceId
+        )
+#endif
+
+        if let notificationId, let store = notificationStore {
+            markReadIfFocused(
+                notificationId: notificationId,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                tabManager: context.tabManager,
+                notificationStore: store
+            )
+        }
+
+#if DEBUG
+        recordMultiWindowNotificationFocusIfNeeded(
+            windowId: context.windowId,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sidebarSelection: context.sidebarSelectionState.selection
+        )
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(["jumpUnreadOpenInContext": "1", "jumpUnreadOpenResult": "1"])
+        }
+#endif
+        return true
+    }
+
+    private func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        // If the owning window context hasn't been registered yet, fall back to the "active" window.
+        guard let tabManager else {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_tabManager"])
+            }
+#endif
+            return false
+        }
+        guard tabManager.tabs.contains(where: { $0.id == tabId }) else {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "tab_not_in_active_manager"])
+            }
+#endif
+            return false
+        }
+        guard let window = (NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })) else {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_window"])
+            }
+#endif
+            return false
+        }
+
+        sidebarSelectionState?.selection = .tabs
+        bringToFront(window)
+        tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+
+#if DEBUG
+        recordJumpUnreadFocusFromModelIfNeeded(
+            tabManager: tabManager,
+            tabId: tabId,
+            expectedSurfaceId: surfaceId
+        )
+#endif
+
+        if let notificationId, let store = notificationStore {
+            markReadIfFocused(
+                notificationId: notificationId,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                tabManager: tabManager,
+                notificationStore: store
+            )
+        }
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(["jumpUnreadOpenInFallback": "1", "jumpUnreadOpenResult": "1"])
+        }
+#endif
+        return true
+    }
+
+#if DEBUG
+    private func recordJumpUnreadFocusFromModelIfNeeded(
+        tabManager: TabManager,
+        tabId: UUID,
+        expectedSurfaceId: UUID?,
+        attempt: Int = 0
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" else { return }
+        guard let expectedSurfaceId else { return }
+
+        // Ensure the expectation is armed even if the view doesn't become first responder.
+        armJumpUnreadFocusRecord(tabId: tabId, surfaceId: expectedSurfaceId)
+
+        let maxAttempts = 40
+        guard attempt < maxAttempts else { return }
+
+        let isSelected = tabManager.selectedTabId == tabId
+        let focused = tabManager.focusedSurfaceId(for: tabId)
+        if isSelected, focused == expectedSurfaceId {
+            recordJumpUnreadFocusIfExpected(tabId: tabId, surfaceId: expectedSurfaceId)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.recordJumpUnreadFocusFromModelIfNeeded(
+                tabManager: tabManager,
+                tabId: tabId,
+                expectedSurfaceId: expectedSurfaceId,
+                attempt: attempt + 1
+            )
+        }
+    }
+#endif
+
+    func tabTitle(for tabId: UUID) -> String? {
+        if let context = contextContainingTabId(tabId) {
+            return context.tabManager.tabs.first(where: { $0.id == tabId })?.title
+        }
+        return tabManager?.tabs.first(where: { $0.id == tabId })?.title
+    }
+
+    private func bringToFront(_ window: NSWindow) {
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+        // Improve reliability across Spaces / when other helper panels are key.
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    }
+
+    private func markReadIfFocused(
+        notificationId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore
+    ) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard let tabManager = self.tabManager else { return }
             guard tabManager.selectedTabId == tabId else { return }
             if let surfaceId {
                 guard tabManager.focusedSurfaceId(for: tabId) == surfaceId else { return }
             }
-            self.notificationStore?.markRead(id: notificationId)
+            notificationStore.markRead(id: notificationId)
         }
     }
+
+#if DEBUG
+    private func recordMultiWindowNotificationOpenFailureIfNeeded(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        reason: String
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"], !path.isEmpty else { return }
+
+        let contextSummaries: [String] = mainWindowContexts.values.map { ctx in
+            let tabIds = ctx.tabManager.tabs.map { $0.id.uuidString }.joined(separator: ",")
+            let hasWindow = (ctx.window != nil) ? "1" : "0"
+            return "windowId=\(ctx.windowId.uuidString) hasWindow=\(hasWindow) tabs=[\(tabIds)]"
+        }
+
+        writeMultiWindowNotificationTestData([
+            "focusToken": UUID().uuidString,
+            "openFailureTabId": tabId.uuidString,
+            "openFailureSurfaceId": surfaceId?.uuidString ?? "",
+            "openFailureNotificationId": notificationId?.uuidString ?? "",
+            "openFailureReason": reason,
+            "openFailureContexts": contextSummaries.joined(separator: "; "),
+        ], at: path)
+    }
+#endif
 
 }

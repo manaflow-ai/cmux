@@ -1,6 +1,15 @@
 {
-  "originHash" : "a7ed9f290ef92b956ffce05027ca8c5580bea9c5124bf5d4fcc15a177655e0e3",
+  "originHash" : "a1df212ee81645b29368e6cc39c83aebbbafb5c592f726afc990bab228304987",
   "pins" : [
+    {
+      "identity" : "posthog-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PostHog/posthog-ios.git",
+      "state" : {
+        "revision" : "5afb749442ecf7798a725ccd30342d94abb5e57f",
+        "version" : "3.41.0"
+      }
+    },
     {
       "identity" : "sentry-cocoa",
       "kind" : "remoteSourceControl",

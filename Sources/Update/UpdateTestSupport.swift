@@ -30,6 +30,7 @@ enum UpdateTestSupport {
         guard let feedURLString = env["CMUX_UI_TEST_FEED_URL"],
               let feedURL = URL(string: feedURLString) else { return false }
 
+        UpdateLogStore.shared.append("ui test mock feed check: \(feedURLString)")
         UpdateTestURLProtocol.registerIfNeeded()
         DispatchQueue.main.async {
             viewModel.state = .checking(.init(cancel: {}))

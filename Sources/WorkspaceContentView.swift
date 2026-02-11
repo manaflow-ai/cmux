@@ -19,13 +19,25 @@ struct WorkspaceContentView: View {
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
                 let isFocused = isTabActive && workspace.focusedPanelId == panel.id
+                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let isVisibleInUI = isTabActive && isSelectedInPane
                 PanelContentView(
                     panel: panel,
                     isFocused: isFocused,
+                    isSelectedInPane: isSelectedInPane,
+                    isVisibleInUI: isVisibleInUI,
                     isSplit: isSplit,
                     appearance: appearance,
                     notificationStore: notificationStore,
-                    onFocus: { workspace.focusPanel(panel.id) },
+                    onFocus: {
+                        // Only treat terminal focus events as authoritative when the pane is already
+                        // focused. This prevents background terminal focus retries (ensureFocus /
+                        // requestFocus) from stealing bonsplit focus back after the user navigates
+                        // to another pane (e.g. a browser WKWebView).
+                        if workspace.bonsplitController.focusedPaneId == paneId {
+                            workspace.focusPanel(panel.id)
+                        }
+                    },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {

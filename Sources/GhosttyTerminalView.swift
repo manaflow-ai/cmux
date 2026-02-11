@@ -7,6 +7,7 @@ import Combine
 import Darwin
 import Sentry
 import Bonsplit
+import IOSurface
 
 private enum GhosttyPasteboardHelper {
     private static let selectionPasteboard = NSPasteboard(
@@ -880,7 +881,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
     /// Whether the terminal surface view is currently attached to a window.
-    var isViewInWindow: Bool { attachedView?.window != nil }
+    ///
+    /// Use the hosted view rather than the inner surface view, since the surface can be
+    /// temporarily unattached (surface not yet created / reparenting) even while the panel
+    /// is already in the window.
+    var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     let tabId: UUID
     private let surfaceContext: ghostty_surface_context_e
@@ -889,9 +894,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     @Published var searchState: SearchState? = nil {
-        didSet {
-            if let searchState {
-                hostedView.cancelFocusRequest()
+	        didSet {
+	            if let searchState {
+	                hostedView.cancelFocusRequest()
                 NSLog("Find: search state created tab=%@ surface=%@", tabId.uuidString, id.uuidString)
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
@@ -929,7 +934,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let view = GhosttyNSView(frame: .zero)
+        // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
+        // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
+        // intermediate frame on the first real resize.
+        let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         // Surface is created when attached to a view
@@ -962,11 +970,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         print("[TerminalSurface] attachToView: \(id) attachedView=\(attachedView != nil) surface=\(surface != nil)")
         #endif
 
-        // If already attached to this view, nothing to do
+        // If already attached to this view, nothing to do.
+        // Still re-assert the display id: during split close tree restructuring, the view can be
+        // removed/re-added (or briefly have window/screen nil) without recreating the surface.
+        // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
+        // or stale, the surface can appear visually frozen until a focus/visibility change.
         if attachedView === view && surface != nil {
             #if DEBUG
             print("[TerminalSurface] attachToView: same view and surface exists, refreshing surface")
             #endif
+            if let screen = view.window?.screen ?? NSScreen.main,
+               let displayID = screen.displayID,
+               displayID != 0,
+               let s = surface {
+                ghostty_surface_set_display_id(s, displayID)
+            }
             // Force a redraw - the Metal layer may be stale after view hierarchy changes
             ghostty_surface_refresh(surface)
             return
@@ -990,6 +1008,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             #if DEBUG
             print("[TerminalSurface] attachToView: after createSurface, surface=\(surface != nil)")
             #endif
+        } else if let screen = view.window?.screen ?? NSScreen.main,
+                  let displayID = screen.displayID,
+                  displayID != 0,
+                  let s = surface {
+            // Surface exists but we're (re)attaching after a view hierarchy move; ensure display id.
+            ghostty_surface_set_display_id(s, displayID)
         }
     }
 
@@ -1122,36 +1146,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         ghostty_surface_set_content_scale(surface, scaleFactors.x, scaleFactors.y)
-        ghostty_surface_set_size(
-            surface,
-            UInt32(view.bounds.width * scaleFactors.x),
-            UInt32(view.bounds.height * scaleFactors.y)
-        )
-        ghostty_surface_refresh(surface)
+        let wpx = UInt32((view.bounds.width * scaleFactors.x).rounded(.toNearestOrAwayFromZero))
+        let hpx = UInt32((view.bounds.height * scaleFactors.y).rounded(.toNearestOrAwayFromZero))
+        if wpx > 0, hpx > 0 {
+            ghostty_surface_set_size(surface, wpx, hpx)
+            ghostty_surface_refresh(surface)
+        }
     }
 
-    func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
-        guard let surface = surface else { return }
-        ghostty_surface_set_content_scale(surface, xScale, yScale)
-        ghostty_surface_set_size(surface, UInt32(width * xScale), UInt32(height * yScale))
-        ghostty_surface_refresh(surface)
-    }
+	    func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
+	        guard let surface = surface else { return }
+
+	        ghostty_surface_set_content_scale(surface, xScale, yScale)
+	        let wpx = UInt32((width * xScale).rounded(.toNearestOrAwayFromZero))
+	        let hpx = UInt32((height * yScale).rounded(.toNearestOrAwayFromZero))
+	        guard wpx > 0, hpx > 0 else { return }
+	        ghostty_surface_set_size(surface, wpx, hpx)
+
+	        // After resizing, explicitly mark the surface dirty at the new size. Ghostty's renderer
+	        // can otherwise treat "no terminal content change" as "no redraw needed", which is
+	        // correct for an unchanged backbuffer but wrong when the underlying IOSurface was
+	        // reallocated and cleared as part of the resize.
+	        ghostty_surface_refresh(surface)
+	    }
 
     /// Force a full size recalculation and Metal layer refresh.
     /// Used after split close operations where the view resizes but the
     /// cached metrics may prevent updateSurfaceSize from running.
-    /// Calls ghostty_surface_draw with sync=true to force a frame even when
-    /// ghostty_surface_set_size is a no-op (same dimensions).
-    func forceRefresh() {
-        let viewState: String
-        if let view = attachedView {
-            let inWindow = view.window != nil
-            let bounds = view.bounds
-            let metalOK = (view.layer as? CAMetalLayer) != nil
-            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK)"
-        } else {
-            viewState = "NO_ATTACHED_VIEW"
-        }
+	    func forceRefresh() {
+	        let viewState: String
+	        if let view = attachedView {
+	            let inWindow = view.window != nil
+	            let bounds = view.bounds
+	            let metalOK = (view.layer as? CAMetalLayer) != nil
+	            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK)"
+	        } else {
+	            viewState = "NO_ATTACHED_VIEW"
+	        }
         #if DEBUG
         let ts = ISO8601DateFormatter().string(from: Date())
         let line = "[\(ts)] forceRefresh: \(id) \(viewState)\n"
@@ -1163,14 +1194,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else {
             FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
         }
-        #endif
-        attachedView?.forceRefreshSurface()
-        if let surface = surface {
-#if DEBUG
-            GhosttySurfaceScrollView.recordSurfaceDraw(id)
-#endif
-            ghostty_surface_draw(surface)
+	        #endif
+        guard let view = attachedView,
+              view.window != nil,
+              view.bounds.width > 0,
+              view.bounds.height > 0 else {
+            return
         }
+
+        view.forceRefreshSurface()
+        ghostty_surface_refresh(surface)
     }
 
     func applyWindowBackgroundIfActive() {
@@ -1180,6 +1213,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func setFocus(_ focused: Bool) {
         guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
+
+        // If we focus a surface while it is being rapidly reparented (closing splits, etc),
+        // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
+        // hasVsync() true but with no callbacks ("stuck-vsync-no-frames"). Reasserting the
+        // display id *after* focusing lets Ghostty restart the display link when needed.
+        if focused {
+            if let view = attachedView,
+               let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+               displayID != 0 {
+                ghostty_surface_set_display_id(surface, displayID)
+            }
+            ghostty_surface_refresh(surface)
+        }
     }
 
     func setOcclusion(_ visible: Bool) {
@@ -1236,7 +1282,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
-    private var surfaceAttached = false
     var scrollbar: GhosttyScrollbar?
     var cellSize: CGSize = .zero
     var desiredFocus: Bool = false
@@ -1249,14 +1294,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
-    private var lastSurfaceSize: CGSize = .zero
-    private var lastContentScale: CGSize = .zero
-    private var lastLayerScale: CGFloat = 0
-    private var hasSurfaceMetrics = false
-    private var needsRefreshAfterWindowChange = false
-    private var desiredOcclusionVisible = true
-    private var lastScrollEventTime: CFTimeInterval = 0
-    private var occlusionObserver: NSObjectProtocol?
+	    private var lastScrollEventTime: CFTimeInterval = 0
+
+        // Kept for compatibility with call sites; no longer drives renderer occlusion.
+        fileprivate var isVisibleInUI: Bool { true }
+        fileprivate func setVisibleInUI(_ visible: Bool) {
+            // Intentionally no-op: we don't manage Ghostty occlusion from SwiftUI opacity.
+            // Rely on libghostty wakeups/visibility and AppKit focus instead.
+            _ = visible
+        }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1269,6 +1315,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
+        // Only enable our instrumented CAMetalLayer in targeted debug/test scenarios.
+        // The lock in GhosttyMetalLayer.nextDrawable() adds overhead we don't want in normal runs.
         installEventMonitor()
         updateTrackingAreas()
     }
@@ -1341,155 +1389,43 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func attachSurface(_ surface: TerminalSurface) {
-        // Only reset attachment state if surface is different
-        let surfaceChanged = terminalSurface?.id != surface.id
         terminalSurface = surface
         tabId = surface.tabId
-        if surfaceChanged {
-            surfaceAttached = false
-            hasSurfaceMetrics = false
-        }
-        attachSurfaceIfNeeded()
+        surface.attachToView(self)
+        updateSurfaceSize()
+        applySurfaceBackground()
     }
 
-    private static var attachRetryCount: [UUID: Int] = [:]
-    private static let debugLogPath = "/tmp/cmux-attach-debug.log"
-
-    private static func debugLog(_ message: String) {
-        #if DEBUG
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] \(message)\n"
-        if let handle = FileHandle(forWritingAtPath: debugLogPath) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
-            handle.closeFile()
-        } else {
-            FileManager.default.createFile(atPath: debugLogPath, contents: line.data(using: .utf8))
-        }
-        #endif
-    }
-
-    private func attachSurfaceIfNeeded() {
-        guard !surfaceAttached else { return }
-        guard let terminalSurface = terminalSurface else { return }
-
-        let surfaceId = terminalSurface.id
-
-        // If we have a window but zero bounds, retry on the next runloop tick (max 10 retries).
-        // This can happen during split creation before layout runs.
-        if window != nil && (bounds.width <= 0 || bounds.height <= 0) {
-            let retries = Self.attachRetryCount[surfaceId, default: 0]
-            if retries < 10 {
-                Self.attachRetryCount[surfaceId] = retries + 1
-                Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) retry \(retries + 1) - zero bounds \(bounds)")
-                DispatchQueue.main.async { [weak self] in
-                    self?.attachSurfaceIfNeeded()
+		    override func viewDidMoveToWindow() {
+		        super.viewDidMoveToWindow()
+                if let windowObserver {
+                    NotificationCenter.default.removeObserver(windowObserver)
+                    self.windowObserver = nil
                 }
-            } else {
-                Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) MAX RETRIES with bounds \(bounds)")
-            }
-            return
-        }
+                guard let window else { return }
 
-        guard bounds.width > 0 && bounds.height > 0 else {
-            Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) SKIPPED - bounds \(bounds)")
-            return
-        }
-        guard window != nil else {
-            Self.debugLog("attachSurfaceIfNeeded: \(surfaceId) SKIPPED - no window")
-            return
-        }
+                windowObserver = NotificationCenter.default.addObserver(
+                    forName: NSWindow.didChangeScreenNotification,
+                    object: window,
+                    queue: .main
+                ) { [weak self] notification in
+                    self?.windowDidChangeScreen(notification)
+                }
 
-        Self.debugLog("attachSurfaceIfNeeded: ATTACHING \(surfaceId) with bounds \(bounds)")
-        Self.attachRetryCount.removeValue(forKey: surfaceId)
-        surfaceAttached = true
-        terminalSurface.attachToView(self)
-        terminalSurface.setOcclusion(desiredOcclusionVisible)
+                if let surface = terminalSurface?.surface,
+                   let displayID = window.screen?.displayID,
+                   displayID != 0 {
+                    ghostty_surface_set_display_id(surface, displayID)
+                }
 
-        // During rapid split/tab creation, focus can be assigned (first responder changes)
-        // before the ghostty surface exists. In that case, `desiredFocus` may still be false
-        // when we attach and create the surface, which can leave the view interactive but not
-        // rendering until focus changes again (alt-tab / pane switch).
-        let responderWantsFocus: Bool = {
-            guard let window, window.isKeyWindow else { return false }
-            guard let fr = window.firstResponder as? NSView else { return false }
-            return fr === self || fr.isDescendant(of: self)
-        }()
-
-        let shouldFocus = desiredFocus || responderWantsFocus
-        desiredFocus = shouldFocus
-        terminalSurface.setFocus(shouldFocus)
-
-        // Ensure the renderer wakes up after attach/focus without forcing a synchronous draw.
-        if shouldFocus, let surface = terminalSurface.surface {
-            ghostty_surface_refresh(surface)
-        }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        let surfaceId = terminalSurface?.id
-        if let windowObserver {
-            NotificationCenter.default.removeObserver(windowObserver)
-            self.windowObserver = nil
-        }
-        if let occlusionObserver {
-            NotificationCenter.default.removeObserver(occlusionObserver)
-            self.occlusionObserver = nil
-        }
-        if window == nil {
-            // View was removed from window - reset attachment and metrics so we re-attach
-            // properly with correct size when added back (e.g., during split close operations)
-            Self.debugLog("viewDidMoveToWindow: \(surfaceId?.uuidString ?? "nil") - REMOVED from window, reset surfaceAttached=\(surfaceAttached)")
-            surfaceAttached = false
-            hasSurfaceMetrics = false
-            desiredOcclusionVisible = false
-            terminalSurface?.setOcclusion(false)
-        }
-        if let window {
-            Self.debugLog("viewDidMoveToWindow: \(surfaceId?.uuidString ?? "nil") - ADDED to window, bounds=\(bounds), surfaceAttached=\(surfaceAttached)")
-            windowObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didChangeScreenNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] notification in
-                self?.windowDidChangeScreen(notification)
-            }
-            occlusionObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didChangeOcclusionStateNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.updateOcclusionState()
-            }
-            updateOcclusionState()
-            // Mark that we need a refresh after window change, even if size is same
-            needsRefreshAfterWindowChange = true
-            attachSurfaceIfNeeded()
-            updateSurfaceSize()
-            applySurfaceBackground()
-            applyWindowBackgroundIfActive()
-            if let surface = terminalSurface?.surface {
-                // After re-addition to window (e.g., split close tree restructuring),
-                // nudge the renderer without forcing a synchronous draw.
-                ghostty_surface_refresh(surface)
-            }
-        }
-    }
+                updateSurfaceSize()
+                applySurfaceBackground()
+                applyWindowBackgroundIfActive()
+		    }
 
     fileprivate func updateOcclusionState() {
-        guard let window else {
-            desiredOcclusionVisible = false
-            terminalSurface?.setOcclusion(false)
-            return
-        }
-
-        // `occlusionState.contains(.visible)` can lag behind when the window is first shown.
-        // If the window is key, treat it as visible so focused terminals don't "freeze"
-        // until the next occlusion notification (alt-tab / pane switch).
-        let visible = window.occlusionState.contains(.visible) || window.isKeyWindow
-        desiredOcclusionVisible = visible
-        terminalSurface?.setOcclusion(visible)
+        // Intentionally no-op: we don't drive libghostty occlusion from AppKit occlusion state.
+        // This avoids transient clears during reparenting and keeps rendering logic minimal.
     }
 
     override func viewDidChangeBackingProperties() {
@@ -1504,62 +1440,50 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        let surfaceId = terminalSurface?.id
-        let oldSize = frame.size
         super.setFrameSize(newSize)
-        if !surfaceAttached && (oldSize.width <= 0 || oldSize.height <= 0) && newSize.width > 0 && newSize.height > 0 {
-            Self.debugLog("setFrameSize: \(surfaceId?.uuidString ?? "nil") - size changed from \(oldSize) to \(newSize), surfaceAttached=\(surfaceAttached)")
-        }
-        attachSurfaceIfNeeded()
-        updateSurfaceSize()
+        updateSurfaceSize(size: newSize)
     }
 
     override func layout() {
         super.layout()
-        attachSurfaceIfNeeded()
         updateSurfaceSize()
     }
 
     override var isOpaque: Bool { false }
 
-    private func updateSurfaceSize() {
-        guard let terminalSurface = terminalSurface else { return }
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-        let layerScale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        let xScale = layerScale
-        let yScale = layerScale
+	    private func updateSurfaceSize(size: CGSize? = nil) {
+	        guard let terminalSurface = terminalSurface else { return }
+	        guard let window else { return }
+	        let size = size ?? bounds.size
+	        guard size.width > 0 && size.height > 0 else { return }
 
-        // Check if we need a forced refresh after window change
-        let forceRefresh = needsRefreshAfterWindowChange
-        needsRefreshAfterWindowChange = false
+            // Match Ghostty's own AppKit view behavior:
+            // derive scale from convertToBacking rather than screen.backingScaleFactor,
+            // and always set size (avoid stale buffers that get compositor-scaled).
+            let fb = convertToBacking(NSRect(origin: .zero, size: size)).size
+            guard fb.width > 0 && fb.height > 0 else { return }
+            let xScale = fb.width / size.width
+            let yScale = fb.height / size.height
 
-        if hasSurfaceMetrics && !forceRefresh {
-            let sameSize = nearlyEqual(lastSurfaceSize.width, bounds.width, epsilon: 0.01)
-                && nearlyEqual(lastSurfaceSize.height, bounds.height, epsilon: 0.01)
-            let sameScale = nearlyEqual(lastContentScale.width, xScale)
-                && nearlyEqual(lastContentScale.height, yScale)
-                && nearlyEqual(lastLayerScale, layerScale)
-            if sameSize && sameScale {
-                return
-            }
-        }
-        lastSurfaceSize = bounds.size
-        lastContentScale = CGSize(width: xScale, height: yScale)
-        lastLayerScale = layerScale
-        hasSurfaceMetrics = true
-        terminalSurface.updateSize(
-            width: bounds.width,
-            height: bounds.height,
-            xScale: xScale,
-            yScale: yScale,
-            layerScale: layerScale
-        )
-    }
+            // Keep layer contentsScale in sync with backingScaleFactor so Core Animation doesn't
+            // do an extra compositor scale pass on our metal-backed contents.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = window.backingScaleFactor
+            CATransaction.commit()
+
+	        terminalSurface.updateSize(
+	            width: size.width,
+	            height: size.height,
+	            xScale: xScale,
+	            yScale: yScale,
+	            layerScale: window.backingScaleFactor
+	        )
+	    }
 
     /// Force a full size recalculation and Metal layer refresh.
     /// Resets cached metrics so updateSurfaceSize() re-runs unconditionally.
     func forceRefreshSurface() {
-        hasSurfaceMetrics = false
         updateSurfaceSize()
     }
 
@@ -1611,8 +1535,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         if result {
             // If we become first responder before the ghostty surface exists (e.g. during
-            // split/tab creation while the view is still attaching), record the desired focus
-            // so attachSurfaceIfNeeded can apply it once the surface is created.
+            // split/tab creation while the surface is still being created), record the desired focus.
             desiredFocus = true
         }
         if result, let surface = surface {
@@ -1629,12 +1552,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
 #endif
             ghostty_surface_set_focus(surface, true)
+
+            // Ghostty only restarts its vsync display link on display-id changes while focused.
+            // During rapid split close / SwiftUI reparenting, the view can reattach to a window
+            // and get its display id set *before* it becomes first responder; in that case, the
+            // renderer can remain stuck until some later screen/focus transition. Reassert the
+            // display id now that we're focused to ensure the renderer is running.
+            if let displayID = window?.screen?.displayID, displayID != 0 {
+                ghostty_surface_set_display_id(surface, displayID)
+            }
+            ghostty_surface_refresh(surface)
         }
         return result
     }
 
     override func resignFirstResponder() -> Bool {
-        return super.resignFirstResponder()
+        let result = super.resignFirstResponder()
+        if result {
+            desiredFocus = false
+        }
+        if result, let surface = surface {
+            let now = CACurrentMediaTime()
+            let deltaMs = (now - lastScrollEventTime) * 1000
+            Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+            ghostty_surface_set_focus(surface, false)
+        }
+        return result
     }
 
     // For NSTextInputClient - accumulates text during key events
@@ -2269,16 +2212,16 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
-    private var windowObservers: [NSObjectProtocol] = []
-    private var isLiveScrolling = false
-    private var lastSentRow: Int?
-    private var isActive = true
-    private var focusWorkItem: DispatchWorkItem?
+	    private var windowObservers: [NSObjectProtocol] = []
+	    private var isLiveScrolling = false
+	    private var lastSentRow: Int?
+	    private var isActive = true
+	    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 #if DEBUG
-    private static var flashCounts: [UUID: Int] = [:]
-    private static var drawCounts: [UUID: Int] = [:]
-    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
-    private static var presentCounts: [UUID: Int] = [:]
+	    private static var flashCounts: [UUID: Int] = [:]
+	    private static var drawCounts: [UUID: Int] = [:]
+	    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
+	    private static var presentCounts: [UUID: Int] = [:]
     private static var lastPresentTimes: [UUID: CFTimeInterval] = [:]
     private static var lastContentsKeys: [UUID: String] = [:]
 
@@ -2309,11 +2252,26 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private static func contentsKey(for layer: CALayer?) -> String {
-        guard let contents = layer?.contents else { return "nil" }
+        guard let modelLayer = layer else { return "nil" }
+        // Prefer the presentation layer to better reflect what the user sees on screen.
+        let layer = modelLayer.presentation() ?? modelLayer
+        guard let contents = layer.contents else { return "nil" }
         // Prefer pointer identity for object/CFType contents.
         if let obj = contents as AnyObject? {
             let ptr = Unmanaged.passUnretained(obj).toOpaque()
-            return "0x" + String(UInt(bitPattern: ptr), radix: 16)
+            var key = "0x" + String(UInt(bitPattern: ptr), radix: 16)
+
+            // For IOSurface-backed terminal layers, the IOSurface object can remain stable while
+            // its contents change. Include the IOSurface seed so "new frame rendered" is visible
+            // to debug/test tooling even when the pointer identity doesn't change.
+            let cf = contents as CFTypeRef
+            if CFGetTypeID(cf) == IOSurfaceGetTypeID() {
+                let surfaceRef = (contents as! IOSurfaceRef)
+                let seed = IOSurfaceGetSeed(surfaceRef)
+                key += ":seed=\(seed)"
+            }
+
+            return key
         }
         return String(describing: contents)
     }
@@ -2464,21 +2422,17 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.surfaceView.updateOcclusionState()
-            self?.updateFocusForWindow()
-            self?.requestFocus()
+            self?.applyFirstResponderIfNeeded()
         })
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.surfaceView.updateOcclusionState()
-            self?.updateFocusForWindow()
+            // No-op: focus is driven by first-responder changes.
+            _ = self
         })
-        surfaceView.updateOcclusionState()
-        updateFocusForWindow()
-        if window.isKeyWindow { requestFocus() }
+        if window.isKeyWindow { applyFirstResponderIfNeeded() }
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -2526,121 +2480,88 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    func setVisibleInUI(_ visible: Bool) {
+        surfaceView.setVisibleInUI(visible)
+        if !visible {
+            // If we were focused, yield first responder.
+            if let window, let fr = window.firstResponder as? NSView,
+               fr === surfaceView || fr.isDescendant(of: surfaceView) {
+                window.makeFirstResponder(nil)
+            }
+        } else {
+            applyFirstResponderIfNeeded()
+        }
+    }
+
     func setActive(_ active: Bool) {
         isActive = active
-        updateFocusForWindow()
         if active {
-            requestFocus()
-        } else {
-            cancelFocusRequest()
+            applyFirstResponderIfNeeded()
+        } else if let window,
+                  let fr = window.firstResponder as? NSView,
+                  fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            window.makeFirstResponder(nil)
         }
     }
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
-        let maxDelay: TimeInterval = 0.5
-        guard (delay ?? 0) < maxDelay else { return }
-
-        let nextDelay: TimeInterval = if let delay {
-            delay * 2
-        } else {
-            0.05
-        }
-
-        let work = DispatchWorkItem { [weak self] in
+        let work = { [weak self] in
             guard let self else { return }
-            guard let window = self.window else {
-                self.moveFocus(from: previous, delay: nextDelay)
-                return
-            }
-
+            guard let window = self.window else { return }
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
             }
-
             window.makeFirstResponder(self.surfaceView)
         }
 
-        let queue = DispatchQueue.main
-        if let delay {
-            queue.asyncAfter(deadline: .now() + delay, execute: work)
+        if let delay, delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { work() }
         } else {
-            queue.async(execute: work)
+            DispatchQueue.main.async { work() }
         }
     }
 
-    func ensureFocus(for tabId: UUID, surfaceId: UUID, attempt: Int = 0) {
-        // Focus can legitimately lag behind selection changes during split/tree updates.
-        // Keep retrying briefly so newly-created/selected tabs don't end up "frozen" until
-        // the user manually toggles focus.
-        let maxAttempts = 20
-        guard attempt < maxAttempts else { return }
-        guard let tabManager = AppDelegate.shared?.tabManager,
-              tabManager.selectedTabId == tabId else { return }
+	    func ensureFocus(for tabId: UUID, surfaceId: UUID) {
+	        // Minimal, deterministic focus: no retries/polling.
+	        guard isActive else { return }
+	        guard surfaceView.terminalSurface?.searchState == nil else { return }
+	        guard let window, window.isKeyWindow else { return }
+	        guard let delegate = AppDelegate.shared,
+	              let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
+	              tabManager.selectedTabId == tabId else { return }
 
-        // Wait until the model reports this surface as focused. Without this retry, a focus
-        // request issued immediately after selectTab/createTab can be dropped permanently.
-        if tabManager.focusedSurfaceId(for: tabId) != surfaceId {
-            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
-            return
-        }
-        if surfaceView.terminalSurface?.searchState != nil {
-            return
-        }
+	        guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+	              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
+	              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
+	                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+	              }) else { return }
+	        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface else { return }
+	        guard tab.bonsplitController.focusedPaneId == paneId else { return }
 
-        guard let window else {
-            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
-            return
-        }
+	        if let fr = window.firstResponder as? NSView,
+	           fr === surfaceView || fr.isDescendant(of: surfaceView) {
+	            return
+	        }
+	        window.makeFirstResponder(surfaceView)
+	    }
 
-        guard window.isKeyWindow else {
-            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
-            return
-        }
+    /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
+    /// This is stricter than checking `hostedView` descendants, since the scroll view can sometimes become
+    /// first responder transiently while focus is being applied.
+    func isSurfaceViewFirstResponder() -> Bool {
+        guard let window, let fr = window.firstResponder as? NSView else { return false }
+        return fr === surfaceView || fr.isDescendant(of: surfaceView)
+    }
 
+    private func applyFirstResponderIfNeeded() {
+        guard isActive else { return }
+        guard surfaceView.terminalSurface?.searchState == nil else { return }
+        guard let window, window.isKeyWindow else { return }
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
             return
         }
-
         window.makeFirstResponder(surfaceView)
-
-        if let fr = window.firstResponder as? NSView,
-           fr === surfaceView || fr.isDescendant(of: surfaceView) {
-            return
-        }
-
-        if window.firstResponder !== surfaceView {
-            scheduleFocusRetry(for: tabId, surfaceId: surfaceId, attempt: attempt)
-        }
-    }
-
-    private func scheduleFocusRetry(for tabId: UUID, surfaceId: UUID, attempt: Int) {
-        let delay = min(0.05 * pow(2.0, Double(attempt)), 0.5)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.ensureFocus(for: tabId, surfaceId: surfaceId, attempt: attempt + 1)
-        }
-    }
-
-    private func updateFocusForWindow() {
-        // `isActive` is derived from SwiftUI/bonsplit focus state and can be transiently false
-        // during split tree updates. If we drop focus while this view is still the window first
-        // responder, Ghostty can appear "frozen" until the user manually changes focus again.
-        let isKey = window?.isKeyWindow ?? false
-        let responderWantsFocus: Bool = {
-            guard isKey, let window else { return false }
-            guard let fr = window.firstResponder as? NSView else { return false }
-            return fr === surfaceView || fr.isDescendant(of: surfaceView)
-        }()
-        let shouldFocus = isKey && (responderWantsFocus || isActive)
-        let wasFocused = surfaceView.desiredFocus
-        surfaceView.desiredFocus = shouldFocus
-        surfaceView.terminalSurface?.setFocus(shouldFocus)
-
-        // Nudge the renderer when focus becomes true without forcing a synchronous draw.
-        if shouldFocus && !wasFocused,
-           let surface = surfaceView.terminalSurface?.surface {
-            ghostty_surface_refresh(surface)
-        }
     }
 
 #if DEBUG
@@ -2698,59 +2619,215 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    private func requestFocus(delay: TimeInterval? = nil) {
-        guard isActive else { return }
-        if surfaceView.terminalSurface?.searchState != nil {
-            return
-        }
-        let maxDelay: TimeInterval = 0.5
-        guard (delay ?? 0) < maxDelay else { return }
+#if DEBUG
+    struct DebugFrameSample {
+        let sampleCount: Int
+        let uniqueQuantized: Int
+        let lumaStdDev: Double
+        let modeFraction: Double
+        let fingerprint: UInt64
+        let iosurfaceWidthPx: Int
+        let iosurfaceHeightPx: Int
+        let expectedWidthPx: Int
+        let expectedHeightPx: Int
+        let layerClass: String
+        let layerContentsKey: String
 
-        let nextDelay: TimeInterval = if let delay {
-            delay * 2
-        } else {
-            0.05
-        }
-
-        cancelFocusRequest()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.isActive else { return }
-            if self.surfaceView.terminalSurface?.searchState != nil {
-                return
-            }
-            guard let window = self.window else {
-                self.requestFocus(delay: nextDelay)
-                return
-            }
-            guard window.isKeyWindow else { return }
-
-            if window.firstResponder === self.surfaceView {
-                return
-            }
-
-            // Do not call `resignFirstResponder()` directly on the current first responder.
-            // Some responders (notably WebKit) assume resign is driven by NSWindow's responder change
-            // machinery and can raise an exception if called out-of-band.
-            window.makeFirstResponder(self.surfaceView)
-
-            if window.firstResponder !== self.surfaceView {
-                self.requestFocus(delay: nextDelay)
-            }
-        }
-
-        let queue = DispatchQueue.main
-        focusWorkItem = work
-        if let delay {
-            queue.asyncAfter(deadline: .now() + delay, execute: work)
-        } else {
-            queue.async(execute: work)
+        var isProbablyBlank: Bool {
+            lumaStdDev < 2.5 && modeFraction > 0.992
         }
     }
 
+    /// Create a CGImage from the terminal's IOSurface-backed layer contents.
+    ///
+    /// This avoids Screen Recording permissions (unlike CGWindowListCreateImage) and is therefore
+    /// suitable for debug socket tests running in headless/VM contexts.
+    func debugCopyIOSurfaceCGImage() -> CGImage? {
+        guard let modelLayer = surfaceView.layer else { return nil }
+        let layer = modelLayer.presentation() ?? modelLayer
+        guard let contents = layer.contents else { return nil }
+
+        let cf = contents as CFTypeRef
+        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else { return nil }
+        let surfaceRef = (contents as! IOSurfaceRef)
+
+        let width = Int(IOSurfaceGetWidth(surfaceRef))
+        let height = Int(IOSurfaceGetHeight(surfaceRef))
+        let bytesPerRow = Int(IOSurfaceGetBytesPerRow(surfaceRef))
+        guard width > 0, height > 0, bytesPerRow > 0 else { return nil }
+
+        IOSurfaceLock(surfaceRef, [], nil)
+        defer { IOSurfaceUnlock(surfaceRef, [], nil) }
+
+        let base = IOSurfaceGetBaseAddress(surfaceRef)
+        let size = bytesPerRow * height
+        let data = Data(bytes: base, count: size)
+
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        )
+
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+
+    /// Sample the IOSurface backing the terminal layer (if any) to detect a transient blank frame
+    /// without using screenshots/screen recording permissions.
+    func debugSampleIOSurface(normalizedCrop: CGRect) -> DebugFrameSample? {
+        guard let modelLayer = surfaceView.layer else { return nil }
+        // Prefer the presentation layer to better match what the user sees on screen.
+        let layer = modelLayer.presentation() ?? modelLayer
+        let layerClass = String(describing: type(of: layer))
+        let contentsKey = Self.contentsKey(for: layer)
+        let expectedBacking = surfaceView.convertToBacking(surfaceView.bounds).size
+        let expectedWidthPx = Int(expectedBacking.width.rounded(.toNearestOrAwayFromZero))
+        let expectedHeightPx = Int(expectedBacking.height.rounded(.toNearestOrAwayFromZero))
+
+        // Ghostty uses a CoreAnimation layer whose `contents` is an IOSurface-backed object.
+        // The concrete layer class is often `IOSurfaceLayer` (private), so avoid referencing it directly.
+        guard let anySurface = layer.contents else {
+            // Treat "no contents" as a blank frame: this is the visual regression we're guarding.
+            return DebugFrameSample(
+                sampleCount: 0,
+                uniqueQuantized: 0,
+                lumaStdDev: 0,
+                modeFraction: 1,
+                fingerprint: 0,
+                iosurfaceWidthPx: 0,
+                iosurfaceHeightPx: 0,
+                expectedWidthPx: expectedWidthPx,
+                expectedHeightPx: expectedHeightPx,
+                layerClass: layerClass,
+                layerContentsKey: contentsKey
+            )
+        }
+
+        // IOSurfaceLayer.contents is usually an IOSurface, but during mitigation we may
+        // temporarily replace contents with a CGImage snapshot to avoid blank flashes.
+        // Treat non-IOSurface contents as "non-blank" and avoid unsafe casts.
+        let cf = anySurface as CFTypeRef
+        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else {
+            var fnv: UInt64 = 1469598103934665603
+            for b in contentsKey.utf8 {
+                fnv ^= UInt64(b)
+                fnv &*= 1099511628211
+            }
+            return DebugFrameSample(
+                sampleCount: 1,
+                uniqueQuantized: 1,
+                lumaStdDev: 999,
+                modeFraction: 0,
+                fingerprint: fnv,
+                iosurfaceWidthPx: 0,
+                iosurfaceHeightPx: 0,
+                expectedWidthPx: expectedWidthPx,
+                expectedHeightPx: expectedHeightPx,
+                layerClass: layerClass,
+                layerContentsKey: contentsKey
+            )
+        }
+
+        let surfaceRef = (anySurface as! IOSurfaceRef)
+
+        let width = Int(IOSurfaceGetWidth(surfaceRef))
+        let height = Int(IOSurfaceGetHeight(surfaceRef))
+        if width <= 0 || height <= 0 { return nil }
+
+        let cropPx = CGRect(
+            x: max(0, min(CGFloat(width - 1), normalizedCrop.origin.x * CGFloat(width))),
+            y: max(0, min(CGFloat(height - 1), normalizedCrop.origin.y * CGFloat(height))),
+            width: max(1, min(CGFloat(width), normalizedCrop.width * CGFloat(width))),
+            height: max(1, min(CGFloat(height), normalizedCrop.height * CGFloat(height)))
+        ).integral
+
+        let x0 = Int(cropPx.minX)
+        let y0 = Int(cropPx.minY)
+        let x1 = Int(min(CGFloat(width), cropPx.maxX))
+        let y1 = Int(min(CGFloat(height), cropPx.maxY))
+        if x1 <= x0 || y1 <= y0 { return nil }
+
+        IOSurfaceLock(surfaceRef, [], nil)
+        defer { IOSurfaceUnlock(surfaceRef, [], nil) }
+
+        let base = IOSurfaceGetBaseAddress(surfaceRef)
+        let bytesPerRow = IOSurfaceGetBytesPerRow(surfaceRef)
+        if bytesPerRow <= 0 { return nil }
+
+        // Assume 4 bytes/pixel BGRA (common for IOSurfaceLayer contents).
+        let bytesPerPixel = 4
+        let step = 6
+
+        var hist = [UInt16: Int]()
+        hist.reserveCapacity(256)
+
+        var lumas = [Double]()
+        lumas.reserveCapacity(((x1 - x0) / step) * ((y1 - y0) / step))
+
+        var count = 0
+        var fnv: UInt64 = 1469598103934665603
+
+        for y in stride(from: y0, to: y1, by: step) {
+            let row = base.advanced(by: y * bytesPerRow)
+            for x in stride(from: x0, to: x1, by: step) {
+                let p = row.advanced(by: x * bytesPerPixel)
+                let b = Double(p.load(fromByteOffset: 0, as: UInt8.self))
+                let g = Double(p.load(fromByteOffset: 1, as: UInt8.self))
+                let r = Double(p.load(fromByteOffset: 2, as: UInt8.self))
+                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                lumas.append(luma)
+
+                let rq = UInt16(UInt8(r) >> 4)
+                let gq = UInt16(UInt8(g) >> 4)
+                let bq = UInt16(UInt8(b) >> 4)
+                let key = (rq << 8) | (gq << 4) | bq
+                hist[key, default: 0] += 1
+                count += 1
+
+                let lq = UInt8(max(0, min(63, Int(luma / 4.0))))
+                fnv ^= UInt64(lq)
+                fnv &*= 1099511628211
+            }
+        }
+
+        guard count > 0 else { return nil }
+        let mean = lumas.reduce(0.0, +) / Double(lumas.count)
+        let variance = lumas.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lumas.count)
+        let stddev = sqrt(variance)
+
+        let modeCount = hist.values.max() ?? 0
+        let modeFrac = Double(modeCount) / Double(count)
+
+        return DebugFrameSample(
+            sampleCount: count,
+            uniqueQuantized: hist.count,
+            lumaStdDev: stddev,
+            modeFraction: modeFrac,
+            fingerprint: fnv,
+            iosurfaceWidthPx: width,
+            iosurfaceHeightPx: height,
+            expectedWidthPx: expectedWidthPx,
+            expectedHeightPx: expectedHeightPx,
+            layerClass: layerClass,
+            layerContentsKey: contentsKey
+        )
+    }
+#endif
+
     func cancelFocusRequest() {
-        focusWorkItem?.cancel()
-        focusWorkItem = nil
+        // Intentionally no-op (no retry loops).
     }
 
     private func synchronizeSurfaceView() {
@@ -2920,6 +2997,8 @@ extension GhosttyNSView: NSTextInputClient {
 struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
+    var isVisibleInUI: Bool = true
+    var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
@@ -2942,6 +3021,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var attachGeneration: Int = 0
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
+        var desiredIsVisibleInUI: Bool = true
     }
 
     func makeCoordinator() -> Coordinator {
@@ -2955,34 +3035,56 @@ struct GhosttyTerminalView: NSViewRepresentable {
     }
 
     private static func attachHostedView(_ hostedView: GhosttySurfaceScrollView, to host: NSView, coordinator: Coordinator) {
-        hostedView.removeFromSuperview()
-        host.subviews.forEach { $0.removeFromSuperview() }
-        host.addSubview(hostedView)
+        // Avoid implicit animations during reparenting and constraint updates. Even a single
+        // CoreAnimation scale/bounds animation can produce a 1-frame "blank" or stretched
+        // compositor frame when the IOSurface-backed layer is resized or moved.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            ctx.allowsImplicitAnimation = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
 
-        hostedView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.deactivate(coordinator.constraints)
-        coordinator.constraints = [
-            hostedView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            hostedView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            hostedView.topAnchor.constraint(equalTo: host.topAnchor),
-            hostedView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-        ]
-        NSLayoutConstraint.activate(coordinator.constraints)
-        hostedView.needsLayout = true
-        hostedView.layoutSubtreeIfNeeded()
+            // Remove any stale content views in the host, but avoid unnecessarily removing
+            // the hosted terminal view if it is already attached.
+            for v in host.subviews where v !== hostedView {
+                v.removeFromSuperview()
+            }
 
-        // Re-apply active state after re-parenting so focus requests run with a valid window.
+            if hostedView.superview !== host {
+                hostedView.removeFromSuperview()
+                host.addSubview(hostedView)
+            }
+
+            hostedView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.deactivate(coordinator.constraints)
+            coordinator.constraints = [
+                hostedView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                hostedView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+                hostedView.topAnchor.constraint(equalTo: host.topAnchor),
+                hostedView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+            ]
+            NSLayoutConstraint.activate(coordinator.constraints)
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+        }
+
+        // Re-apply visible/active state after re-parenting so focus/occlusion requests run with
+        // a valid window.
         // Without this, a focus attempt issued while the hosted view is off-window can time out,
         // leaving the visible terminal unfocused (keys appear to go to the wrong surface).
+        hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
         hostedView.setActive(coordinator.desiredIsActive)
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
         context.coordinator.desiredIsActive = isActive
+        context.coordinator.desiredIsVisibleInUI = isVisibleInUI
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
+        hostedView.setVisibleInUI(isVisibleInUI)
         hostedView.setActive(isActive)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
@@ -3035,6 +3137,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
             }
         }
 
-        nsView.subviews.forEach { $0.removeFromSuperview() }
+        // Avoid proactively detaching the hosted terminal view during SwiftUI structural updates.
+        // When bonsplit rearranges panes, SwiftUI can dismantle the "old" container before the
+        // "new" container has re-parented the hosted view; removing it here creates a visible
+        // transient blank (and can strand the view off-window if the re-attach is missed).
+        let hasHostedTerminal = nsView.subviews.contains(where: { $0 is GhosttySurfaceScrollView })
+        if !hasHostedTerminal {
+            nsView.subviews.forEach { $0.removeFromSuperview() }
+        }
     }
 }

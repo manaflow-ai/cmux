@@ -28,6 +28,13 @@ final class TerminalPanel: Panel, ObservableObject {
         }
     }
 
+    /// Bump this token to force SwiftUI to call `updateNSView` on `GhosttyTerminalView`,
+    /// which re-attaches the hosted view after bonsplit close/reparent operations.
+    ///
+    /// Without this, certain pane-close sequences can leave terminal views detached
+    /// (hostedView.window == nil) until the user switches workspaces.
+    @Published var viewReattachToken: UInt64 = 0
+
     private var cancellables = Set<AnyCancellable>()
 
     var displayTitle: String {
@@ -99,12 +106,23 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func unfocus() {
         surface.setFocus(false)
+        // Cancel any pending focus work items so an inactive terminal can't steal first responder
+        // back from another surface (notably WKWebView) during rapid focus changes in tests.
+        //
+        // Also flip the hosted view's active state immediately: SwiftUI focus propagation can lag
+        // by a runloop tick, and `requestFocus` retries that are already executing can otherwise
+        // schedule new work items that fire after we navigate away.
+        hostedView.setActive(false)
     }
 
     func close() {
         // The surface will be cleaned up by its deinit
         // Just unfocus before closing
         unfocus()
+    }
+
+    func requestViewReattach() {
+        viewReattachToken &+= 1
     }
 
     // MARK: - Terminal-specific methods

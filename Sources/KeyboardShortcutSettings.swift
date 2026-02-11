@@ -9,6 +9,7 @@ enum KeyboardShortcutSettings {
         case newTab
         case showNotifications
         case jumpToUnread
+        case triggerFlash
 
         // Navigation
         case nextSurface
@@ -36,6 +37,7 @@ enum KeyboardShortcutSettings {
             case .newTab: return "New Tab"
             case .showNotifications: return "Show Notifications"
             case .jumpToUnread: return "Jump to Latest Unread"
+            case .triggerFlash: return "Flash Focused Panel"
             case .nextSurface: return "Next Surface"
             case .prevSurface: return "Previous Surface"
             case .nextSidebarTab: return "Next Workspace"
@@ -57,6 +59,7 @@ enum KeyboardShortcutSettings {
             case .newTab: return "shortcut.newTab"
             case .showNotifications: return "shortcut.showNotifications"
             case .jumpToUnread: return "shortcut.jumpToUnread"
+            case .triggerFlash: return "shortcut.triggerFlash"
             case .nextSidebarTab: return "shortcut.nextSidebarTab"
             case .prevSidebarTab: return "shortcut.prevSidebarTab"
             case .focusLeft: return "shortcut.focusLeft"
@@ -82,6 +85,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+            case .triggerFlash:
+                // Unused by existing app shortcuts, and avoids clobbering Cmd+L (browser omnibar).
+                return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:

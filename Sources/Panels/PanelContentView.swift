@@ -5,6 +5,8 @@ import Foundation
 struct PanelContentView: View {
     let panel: any Panel
     let isFocused: Bool
+    let isSelectedInPane: Bool
+    let isVisibleInUI: Bool
     let isSplit: Bool
     let appearance: PanelAppearance
     let notificationStore: TerminalNotificationStore
@@ -18,6 +20,7 @@ struct PanelContentView: View {
                 TerminalPanelView(
                     panel: terminalPanel,
                     isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
                     isSplit: isSplit,
                     appearance: appearance,
                     notificationStore: notificationStore,
@@ -29,7 +32,8 @@ struct PanelContentView: View {
             if let browserPanel = panel as? BrowserPanel {
                 BrowserPanelView(
                     panel: browserPanel,
-                    isFocused: isFocused
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
                 )
             }
         }

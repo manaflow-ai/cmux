@@ -143,22 +143,23 @@ final class SidebarState: ObservableObject {
 
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
+    let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
+    @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @State private var sidebarWidth: CGFloat = 200
     @State private var sidebarMinX: CGFloat = 0
     @State private var isResizerHovering = false
     @State private var isResizerDragging = false
     private let sidebarHandleWidth: CGFloat = 6
-    @State private var sidebarSelection: SidebarSelection = .tabs
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
-            selection: $sidebarSelection,
+            selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         )
@@ -219,8 +220,9 @@ struct ContentView: View {
         }
     }
 
-    /// Space at top of content area for titlebar
-    private let titlebarPadding: CGFloat = 28
+    /// Space at top of content area for the titlebar. This must be at least the actual titlebar
+    /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
+    @State private var titlebarPadding: CGFloat = 32
 
     private var terminalContent: some View {
         ZStack {
@@ -232,18 +234,17 @@ struct ContentView: View {
                         .allowsHitTesting(isActive)
                 }
             }
-            .opacity(sidebarSelection == .tabs ? 1 : 0)
-            .allowsHitTesting(sidebarSelection == .tabs)
+            .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
+            .allowsHitTesting(sidebarSelectionState.selection == .tabs)
 
-            NotificationsPage(selection: $sidebarSelection)
-                .opacity(sidebarSelection == .notifications ? 1 : 0)
-                .allowsHitTesting(sidebarSelection == .notifications)
+            NotificationsPage(selection: $sidebarSelectionState.selection)
+                .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .notifications)
         }
         .padding(.top, titlebarPadding)
         .overlay(alignment: .top) {
-            // Titlebar with background - only over terminal content, not sidebar
+            // Titlebar overlay is only over terminal content, not the sidebar.
             customTitlebar
-                .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
         }
     }
 
@@ -255,31 +256,46 @@ struct ContentView: View {
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
 
     @State private var titlebarLeadingInset: CGFloat = 12
+    private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
 
     private var customTitlebar: some View {
-        HStack(spacing: 8) {
-            // Draggable folder icon + focused command name
-            if let directory = focusedDirectory {
-                DraggableFolderIcon(directory: directory)
+        ZStack {
+            // Enable window dragging from the titlebar strip without making the entire content
+            // view draggable (which breaks drag gestures like tab reordering).
+            WindowDragHandleView()
+
+            TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
+
+            HStack(spacing: 8) {
+                // Draggable folder icon + focused command name
+                if let directory = focusedDirectory {
+                    DraggableFolderIcon(directory: directory)
+                }
+
+                Text(titlebarText)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+
+                Spacer()
+
+#if DEBUG
+                UpdatePill(model: updateViewModel)
+                    .padding(.trailing, 8)
+#endif
             }
-
-            Text(titlebarText)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-
-            Spacer()
+            .frame(height: 28)
+            .padding(.top, 2)
+            .padding(.leading, sidebarState.isVisible ? 12 : titlebarLeadingInset)
+            .padding(.trailing, 8)
         }
-        .frame(height: 28)
+        .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
-        .padding(.top, 2)
-        .padding(.leading, sidebarState.isVisible ? 12 : titlebarLeadingInset)
-        .padding(.trailing, 8)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             NSApp.keyWindow?.zoom(nil)
         }
-        .background(TitlebarLeadingInsetReader(inset: $titlebarLeadingInset))
+        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
     }
 
     private func updateTitlebarText() {
@@ -358,7 +374,7 @@ struct ContentView: View {
             updateTitlebarText()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
-            sidebarSelection = .tabs
+            sidebarSelectionState.selection = .tabs
             updateTitlebarText()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
@@ -389,11 +405,29 @@ struct ContentView: View {
         .onChange(of: bgGlassTintOpacity) { _ in
             updateWindowGlassTint()
         }
-        .ignoresSafeArea()
-        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
-            window.identifier = NSUserInterfaceItemIdentifier("cmux.main")
-            window.titlebarAppearsTransparent = true
-            window.styleMask.insert(.fullSizeContentView)
+	        .ignoresSafeArea()
+	        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
+	            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+	            window.titlebarAppearsTransparent = true
+	            // Do not make the entire background draggable; it interferes with drag gestures
+	            // like sidebar tab reordering in multi-window mode.
+	            window.isMovableByWindowBackground = false
+	            window.styleMask.insert(.fullSizeContentView)
+
+                // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+                // get interpreted as window drags.
+                let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+                let nextPadding = max(28, min(72, computedTitlebarHeight))
+                if abs(titlebarPadding - nextPadding) > 0.5 {
+                    DispatchQueue.main.async {
+                        titlebarPadding = nextPadding
+                    }
+                }
+#if DEBUG
+	            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+	                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
+	            }
+#endif
             // For behindWindow blur to work, window must be non-opaque with transparent content view
             if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled {
                 window.isOpaque = false
@@ -416,17 +450,24 @@ struct ContentView: View {
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
+            AppDelegate.shared?.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: tabManager,
+                sidebarState: sidebarState,
+                sidebarSelectionState: sidebarSelectionState
+            )
         })
     }
 
     private func addTab() {
         tabManager.addTab()
-        sidebarSelection = .tabs
+        sidebarSelectionState.selection = .tabs
     }
 
     private func updateWindowGlassTint() {
-        // Find main window by identifier (keyWindow might be the debug panel)
-        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" }) else { return }
+        // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
     }
@@ -556,13 +597,13 @@ struct TabItemView: View {
 
                 Spacer()
 
-                Button(action: { tabManager.closeTab(tab) }) {
+                Button(action: { tabManager.closeWorkspaceWithConfirmation(tab) }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Close Tab (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
+                .help("Close Workspace (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
                 .frame(width: 16, height: 16)
                 .opacity((isHovering && tabManager.tabs.count > 1) ? 1 : 0)
                 .allowsHitTesting(isHovering && tabManager.tabs.count > 1)
@@ -593,6 +634,11 @@ struct TabItemView: View {
         )
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
+        .overlay {
+            MiddleClickCapture {
+                tabManager.closeWorkspaceWithConfirmation(tab)
+            }
+        }
         .onTapGesture {
             updateSelection()
         }
@@ -719,7 +765,7 @@ struct TabItemView: View {
         }
         for id in idsToClose {
             if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                tabManager.closeTab(tab)
+                tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
         selectedTabIds.subtract(idsToClose)
@@ -831,6 +877,43 @@ struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+}
+
+private struct MiddleClickCapture: NSViewRepresentable {
+    let onMiddleClick: () -> Void
+
+    func makeNSView(context: Context) -> MiddleClickCaptureView {
+        let view = MiddleClickCaptureView()
+        view.onMiddleClick = onMiddleClick
+        return view
+    }
+
+    func updateNSView(_ nsView: MiddleClickCaptureView, context: Context) {
+        nsView.onMiddleClick = onMiddleClick
+    }
+}
+
+private final class MiddleClickCaptureView: NSView {
+    var onMiddleClick: (() -> Void)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Only intercept middle-click so left-click selection and right-click context menus
+        // continue to hit-test through to SwiftUI/AppKit normally.
+        guard let event = NSApp.currentEvent,
+              event.type == .otherMouseDown,
+              event.buttonNumber == 2 else {
+            return nil
+        }
+        return self
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        onMiddleClick?()
     }
 }
 

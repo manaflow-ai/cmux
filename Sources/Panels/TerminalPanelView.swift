@@ -5,6 +5,7 @@ import Foundation
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     let isFocused: Bool
+    let isVisibleInUI: Bool
     let isSplit: Bool
     let appearance: PanelAppearance
     let notificationStore: TerminalNotificationStore
@@ -16,9 +17,14 @@ struct TerminalPanelView: View {
             GhosttyTerminalView(
                 terminalSurface: panel.surface,
                 isActive: isFocused,
+                isVisibleInUI: isVisibleInUI,
+                reattachToken: panel.viewReattachToken,
                 onFocus: { _ in onFocus() },
                 onTriggerFlash: onTriggerFlash
             )
+            // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
+            // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
+            .id(panel.id)
             .background(Color.clear)
 
             // Unfocused overlay

@@ -10,6 +10,7 @@ class UpdateController {
     private var installCancellable: AnyCancellable?
     private var noUpdateDismissCancellable: AnyCancellable?
     private var noUpdateDismissWorkItem: DispatchWorkItem?
+    private var didStartUpdater: Bool = false
 
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -21,6 +22,14 @@ class UpdateController {
     }
 
     init() {
+        // Default to manual update checks. This also prevents Sparkle from prompting at startup.
+        let defaults = UserDefaults.standard
+        defaults.register(defaults: [
+            "SUEnableAutomaticChecks": false,
+            "SUSendProfileInfo": false,
+            "SUAutomaticallyUpdate": false,
+        ])
+
         let hostBundle = Bundle.main
         self.userDriver = UpdateDriver(viewModel: .init(), hostBundle: hostBundle)
         self.updater = SPUUpdater(
@@ -39,16 +48,38 @@ class UpdateController {
     }
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
-    func startUpdater() {
+    func startUpdaterIfNeeded() {
+        guard !didStartUpdater else { return }
         ensureSparkleInstallationCache()
+#if DEBUG
+        // UI tests need to exercise Sparkle's permission request deterministically.
+        // Clearing these defaults causes Sparkle to re-request permission on next start.
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_RESET_SPARKLE_PERMISSION"] == "1" {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: "SUEnableAutomaticChecks")
+            defaults.removeObject(forKey: "SUSendProfileInfo")
+            defaults.removeObject(forKey: "SUAutomaticallyUpdate")
+            defaults.synchronize()
+            UpdateLogStore.shared.append("reset sparkle permission defaults (ui test)")
+        }
+#endif
         do {
+            // cmuxterm never enables automatic update checks; we rely on the in-app update pill.
+            // Sparkle reads these from defaults, but set them explicitly before starting.
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: "SUEnableAutomaticChecks")
+            defaults.set(false, forKey: "SUSendProfileInfo")
+            defaults.set(false, forKey: "SUAutomaticallyUpdate")
+
             try updater.start()
+            didStartUpdater = true
         } catch {
             userDriver.viewModel.state = .error(.init(
                 error: error,
                 retry: { [weak self] in
                     self?.userDriver.viewModel.state = .idle
-                    self?.startUpdater()
+                    self?.didStartUpdater = false
+                    self?.startUpdaterIfNeeded()
                 },
                 dismiss: { [weak self] in
                     self?.userDriver.viewModel.state = .idle
@@ -75,6 +106,7 @@ class UpdateController {
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
         UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
+        startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         if viewModel.state == .idle {
             updater.checkForUpdates()
@@ -91,6 +123,7 @@ class UpdateController {
 
     /// Check for updates once the updater is ready (used by UI tests).
     func checkForUpdatesWhenReady(retries: Int = 10) {
+        startUpdaterIfNeeded()
         let canCheck = updater.canCheckForUpdates
         UpdateLogStore.shared.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
@@ -109,7 +142,8 @@ class UpdateController {
     /// Validate the check for updates menu item.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(checkForUpdates) {
-            return updater.canCheckForUpdates
+            // Always allow user-initiated checks; we start Sparkle lazily on first use.
+            return true
         }
         return true
     }

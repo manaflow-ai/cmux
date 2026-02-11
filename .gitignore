@@ -39,3 +39,7 @@ node_modules/
 # Test outputs
 tests/visual_output/
 tests/visual_report.html
+
+# Local scratch (screenshots, etc.)
+tmp/
+tmp-*/

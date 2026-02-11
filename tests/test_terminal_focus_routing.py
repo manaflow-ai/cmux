@@ -76,6 +76,10 @@ def main() -> int:
         # Isolate from any user workspace state.
         c.new_workspace()
         time.sleep(0.2)
+        # Focus-sensitive assertions require the main window to be key.
+        # When launched via SSH, `open` does not always activate the app.
+        c.activate_app()
+        time.sleep(0.2)
 
         # Create a bunch of terminals to stress layout/focus code paths.
         for _ in range(12):
@@ -95,11 +99,13 @@ def main() -> int:
         time.sleep(0.25)
 
         # Focus left then right, verifying both first responder and input routing.
+        c.activate_app()
         c.focus_surface_by_panel(left_id)
         time.sleep(0.15)
         _wait_for_terminal_focus(c, left_id)
         _assert_routed_to_surface(c, left_id)
 
+        c.activate_app()
         c.focus_surface_by_panel(right_id)
         time.sleep(0.15)
         _wait_for_terminal_focus(c, right_id)
