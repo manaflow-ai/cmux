@@ -92,7 +92,7 @@ jobs:
           # Resolve a usable vm host. Prefer explicit env, then ssh config, then a known default.
           cfg_host=""
           if command -v ssh >/dev/null 2>&1; then
-            cfg_host="$(ssh -G cmux-vm 2>/dev/null | awk '$1 == \"hostname\" { print $2; exit }' || true)"
+            cfg_host="$(ssh -G cmux-vm 2>/dev/null | awk '$1 == "hostname" { print $2; exit }' || true)"
           fi
           candidate_hosts=()
           if [ -n "${CMUX_VM_HOST:-}" ]; then
@@ -116,7 +116,11 @@ jobs:
           if [ -z "$vm_host" ]; then
             echo "ERROR: Could not reach the UI-test VM via SSH; UI tests are required."
             echo "Tried:"
-            printf '  - %s@%s\n' "$vm_user" "${candidate_hosts[@]}"
+            for h in "${candidate_hosts[@]}"; do
+              echo "  - $vm_user@$h"
+            done
+            echo "ssh -G cmux-vm:"
+            ssh -G cmux-vm 2>/dev/null | head -40 || true
             echo "Name resolution:"
             dscacheutil -q host -a name cmux-vm || true
             echo "Network probe:"
