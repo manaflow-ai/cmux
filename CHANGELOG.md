@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [1.27.0] - 2026-02-11
+
+### Fixed
+- Muted traffic lights and toolbar items on macOS 14 (Sonoma) caused by `clipsToBounds` default change
+- Toolbar buttons (sidebar, notifications, new tab) disappearing after toggling sidebar with Cmd+B
+- Update check pill not appearing in titlebar on macOS 14 (Sonoma)
+
 ## [1.26.0] - 2026-02-11
 
 ### Fixed

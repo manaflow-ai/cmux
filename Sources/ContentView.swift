@@ -68,6 +68,14 @@ enum WindowGlassEffect {
         blurView.autoresizingMask = [.width, .height]
         blurView.layer?.zPosition = -1000
 
+        // macOS 14 (Sonoma) changed clipsToBounds default from YES to NO.
+        // Explicitly restore clipping to prevent blur/tint from rendering
+        // beyond contentView bounds and interfering with titlebar compositing.
+        if #available(macOS 14, *) {
+            blurView.clipsToBounds = true
+            contentView.clipsToBounds = true
+        }
+
         contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
 
         // Tint overlay on top of blur, still behind content
@@ -77,6 +85,9 @@ enum WindowGlassEffect {
             tintOverlay.wantsLayer = true
             tintOverlay.layer?.backgroundColor = color.cgColor
             tintOverlay.layer?.zPosition = -999
+            if #available(macOS 14, *) {
+                tintOverlay.clipsToBounds = true
+            }
             contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
             objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
         }
@@ -114,10 +125,12 @@ enum WindowGlassEffect {
 }
 
 final class SidebarState: ObservableObject {
+    static let didToggleNotification = Notification.Name("SidebarStateDidToggle")
     @Published var isVisible: Bool = true
 
     func toggle() {
         isVisible.toggle()
+        NotificationCenter.default.post(name: Self.didToggleNotification, object: nil)
     }
 }
 
