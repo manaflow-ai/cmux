@@ -267,6 +267,12 @@ class TerminalController {
         case "reset_sidebar":
             return resetSidebar(args)
 
+        case "read_screen":
+            return readScreen()
+
+        case "window_debug":
+            return windowDebug()
+
         case "help":
             return helpText()
 
@@ -312,6 +318,7 @@ class TerminalController {
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump all sidebar metadata
           reset_sidebar [--tab=X] - Clear all sidebar metadata
+          read_screen             - Read visible terminal text from focused surface
           help                    - Show this help
         """
 #if DEBUG
@@ -974,6 +981,116 @@ class TerminalController {
             success = true
         }
         return success ? "OK" : "ERROR: Failed to send input"
+    }
+
+    private func readScreen() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "ERROR: No focused surface"
+        DispatchQueue.main.sync {
+            guard let selectedId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+                result = "ERROR: No selected tab"
+                return
+            }
+            // Try focused surface first, fall back to first leaf in split tree
+            let termSurface = tab.focusedSurface ?? tab.splitTree.root?.leaves().first
+            guard let termSurface else {
+                result = "ERROR: No terminal surface (focusedSurfaceId=\(tab.focusedSurfaceId?.uuidString ?? "nil"), root=\(tab.splitTree.root == nil ? "nil" : "exists"), leaves=\(tab.splitTree.root?.leaves().count ?? 0))"
+                return
+            }
+            guard let surface = termSurface.surface else {
+                result = "ERROR: ghostty_surface is nil (surface id=\(termSurface.id), app=\(GhosttyApp.shared.app == nil ? "nil" : "exists"))"
+                return
+            }
+
+            var text = ghostty_text_s()
+            let sel = ghostty_selection_s(
+                top_left: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT,
+                    coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                    x: 0,
+                    y: 0),
+                bottom_right: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT,
+                    coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                    x: 0,
+                    y: 0),
+                rectangle: false)
+            guard ghostty_surface_read_text(surface, sel, &text) else {
+                result = ""
+                return
+            }
+            defer { ghostty_surface_free_text(surface, &text) }
+            result = String(cString: text.text)
+        }
+        return result
+    }
+
+    private func windowDebug() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var lines: [String] = []
+        DispatchQueue.main.sync {
+            guard let selectedId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+                lines.append("ERROR: No selected tab")
+                return
+            }
+
+            // Window properties
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" }) {
+                lines.append("window.windowNumber=\(window.windowNumber)")
+                lines.append("window.isOpaque=\(window.isOpaque)")
+                lines.append("window.backgroundColor=\(window.backgroundColor)")
+                lines.append("window.alphaValue=\(window.alphaValue)")
+                lines.append("window.isVisible=\(window.isVisible)")
+                lines.append("window.frame=\(window.frame)")
+                if let cv = window.contentView {
+                    lines.append("contentView.frame=\(cv.frame)")
+                    lines.append("contentView.isHidden=\(cv.isHidden)")
+                    lines.append("contentView.alphaValue=\(cv.alphaValue)")
+                    lines.append("contentView.subviews.count=\(cv.subviews.count)")
+                    if let layer = cv.layer {
+                        lines.append("contentView.layer.isOpaque=\(layer.isOpaque)")
+                        lines.append("contentView.layer.opacity=\(layer.opacity)")
+                        lines.append("contentView.layer.backgroundColor=\(String(describing: layer.backgroundColor))")
+                    }
+                    for (i, sub) in cv.subviews.enumerated() {
+                        lines.append("  subview[\(i)]=\(type(of: sub)) frame=\(sub.frame) hidden=\(sub.isHidden) alpha=\(sub.alphaValue)")
+                        if let layer = sub.layer {
+                            lines.append("    layer.isOpaque=\(layer.isOpaque) opacity=\(layer.opacity) bg=\(String(describing: layer.backgroundColor))")
+                        }
+                    }
+                }
+            } else {
+                lines.append("ERROR: No main window found")
+            }
+
+            // Surface properties
+            if let surface = tab.focusedSurface {
+                let hosted = surface.hostedView
+                lines.append("hostedView.frame=\(hosted.frame)")
+                lines.append("hostedView.isHidden=\(hosted.isHidden)")
+                lines.append("hostedView.alphaValue=\(hosted.alphaValue)")
+                lines.append("hostedView.superview=\(String(describing: type(of: hosted.superview as Any)))")
+                lines.append("hostedView.window=\(hosted.window != nil ? "yes" : "nil")")
+                if let layer = hosted.layer {
+                    lines.append("hostedView.layer.isOpaque=\(layer.isOpaque)")
+                    lines.append("hostedView.layer.opacity=\(layer.opacity)")
+                }
+            } else {
+                lines.append("surface=nil")
+            }
+
+            // App-level
+            lines.append("defaultBackgroundColor=\(GhosttyApp.shared.defaultBackgroundColor)")
+            lines.append("defaultBackgroundOpacity=\(GhosttyApp.shared.defaultBackgroundOpacity)")
+            let blendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "behindWindow"
+            lines.append("sidebarBlendMode=\(blendMode)")
+            lines.append("WindowGlassEffect.isAvailable=\(WindowGlassEffect.isAvailable)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func sendInputToSurface(_ args: String) -> String {

@@ -52,6 +52,12 @@ cd cmuxd && zig build -Doptimize=ReleaseFast
 ./scripts/reloadp.sh
 ```
 
+`reloads` = kill and launch the Release app as "cmux STAGING" (isolated from production cmux):
+
+```bash
+./scripts/reloads.sh
+```
+
 `reload2` = reload both Debug and Release:
 
 ```bash
