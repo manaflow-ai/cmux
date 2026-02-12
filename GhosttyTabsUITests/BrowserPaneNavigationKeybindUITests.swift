@@ -166,6 +166,207 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCmdLOpensBrowserWhenTerminalFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "terminalPaneId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        guard let originalBrowserPanelId = setup["browserPanelId"] else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in goto_split setup data")
+            return
+        }
+
+        // Move focus to the terminal pane first.
+        app.typeKey("h", modifierFlags: [.command, .control])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["lastMoveDirection"] == "left" && data["focusedPaneId"] == expectedTerminalPaneId
+            },
+            "Expected Cmd+Ctrl+H to move focus to left pane (terminal)"
+        )
+
+        // Cmd+L should open a browser in the focused pane, then focus omnibar.
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["webViewFocusedAfterAddressBarFocus"] == "false" else { return false }
+                guard let focusedAddressPanelId = data["webViewFocusedAfterAddressBarFocusPanelId"] else { return false }
+                return focusedAddressPanelId != originalBrowserPanelId
+            },
+            "Expected Cmd+L on terminal focus to open a new browser and focus omnibar"
+        )
+    }
+
+    func testCmdDSplitsRightWhenWebViewFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["webViewFocused", "initialPaneCount"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(initialPaneCount, 2, "Expected at least two panes before split. data=\(setup)")
+
+        app.typeKey("d", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfter = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfter == initialPaneCount + 1
+            },
+            "Expected Cmd+D to split right while WKWebView is first responder"
+        )
+    }
+
+    func testCmdShiftDSplitsDownWhenWebViewFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["webViewFocused", "initialPaneCount"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(initialPaneCount, 2, "Expected at least two panes before split. data=\(setup)")
+
+        app.typeKey("d", modifierFlags: [.command, .shift])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["lastSplitDirection"] == "down" else { return false }
+                guard let paneCountAfter = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfter == initialPaneCount + 1
+            },
+            "Expected Cmd+Shift+D to split down while WKWebView is first responder"
+        )
+    }
+
+    func testCmdDSplitsRightWhenOmnibarFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["webViewFocused", "initialPaneCount"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(initialPaneCount, 2, "Expected at least two panes before split. data=\(setup)")
+
+        // Focus browser omnibar (WebKit no longer first responder).
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false"
+            },
+            "Expected Cmd+L to focus omnibar before split"
+        )
+
+        app.typeKey("d", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfter = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfter == initialPaneCount + 1
+            },
+            "Expected Cmd+D to split right while omnibar is first responder"
+        )
+    }
+
+    func testCmdShiftDSplitsDownWhenOmnibarFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["webViewFocused", "initialPaneCount"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(initialPaneCount, 2, "Expected at least two panes before split. data=\(setup)")
+
+        // Focus browser omnibar (WebKit no longer first responder).
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false"
+            },
+            "Expected Cmd+L to focus omnibar before split"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["lastSplitDirection"] == "down" else { return false }
+                guard let paneCountAfter = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfter == initialPaneCount + 1
+            },
+            "Expected Cmd+Shift+D to split down while omnibar is first responder"
+        )
+    }
+
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

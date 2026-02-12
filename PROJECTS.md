@@ -3,8 +3,15 @@
 Cross-project tracking (features, bugs, backlog) for cmuxterm.
 
 ## Done
+- 2026-02-12: Menu bar extra now includes a `Quit cmuxterm` action, and menu bar badge tuning defaults were updated to the latest shared payload values (with backward-compatible support for legacy `menubarDebugTextRectXAdjust`).
+- 2026-02-12: Added a Debug menu window for menu bar extra tuning (preview unread count override, live badge position/size controls, and one-click copy payload for sharing exact values).
+- 2026-02-12: Expanded menu bar extra debug controls with separate 2-digit X/Y positioning so single-digit and two-digit badge text can be tuned independently.
+- 2026-02-12: Refined menu bar extra UX: inserted a separator between inline notification rows and action items, and adjusted the unread count glyph in the status icon (bigger, higher, slightly left) while keeping the white cmux icon and fixed-width layout.
+- 2026-02-12: Menu bar extra now shows a dev-only build hint line (`Build Tag: <tag>` for tagged reloads, `Build: DEV (untagged)` otherwise) so parallel `cmuxterm DEV` instances are distinguishable from the menu.
+- 2026-02-12: Added a right-side menu bar extra with a dynamic unread badge on the icon plus quick actions for notifications (show/jump/mark-read/clear), check for updates, and preferences.
 - 2026-02-12: Added unread notification count badges on the app icon (Dock/Cmd+Tab) with a new Settings toggle to disable it; added unit regression coverage for badge labeling and default preference behavior.
 - 2026-02-12: Fixed browser-pane split shortcuts so `Cmd+D` and `Cmd+Shift+D` work from both `WKWebView` and the browser omnibar by adding menu-backed split commands wired to effective shortcut settings and shared split handling in `AppDelegate`. Added VM UI regression coverage in `BrowserPaneNavigationKeybindUITests` for both focus states.
+- 2026-02-12: Updated `Cmd+L` behavior to be context-aware: when focused panel is browser it focuses omnibar (existing behavior), and when focused panel is terminal/non-browser it opens a browser in the focused pane then focuses omnibar. Added VM UI regression coverage (`testCmdLOpensBrowserWhenTerminalFocused`).
 - 2026-02-08: Stabilized nested splits (no more "existing split disappears" during nested L/R splits) and added regression tests.
 - 2026-02-08: Fixed "frozen" terminal panes/tabs (input not visible until Enter/unfocus) and added visual typing + HTML report tooling.
 - 2026-02-08: Removed bonsplit tab content crossfade + selection animation to reduce flashes/blanking during pane/tab changes.
@@ -44,3 +51,5 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - Keyboard shortcuts: expand VM XCUITest coverage for focus + shortcuts (once Automation Mode is reliably enabled in the VM).
 - Socket API: tighten/standardize semantics around split insertion side (left/right/up/down) and pane selection (UUID vs index) across CLI/docs/server.
 - CLI: add an `it2`-compatible CLI shim (same subcommands/flags where feasible) that maps to cmuxterm's socket API and ships in `Contents/Resources/bin`.
+- Browser automation parity: implement `docs/agent-browser-port-spec.md` (agent-browser command mapping, `cmuxterm browser` surface targeting, move/reorder invariants, and v1 shim strategy).
+- Tests: port the agent-browser coverage matrix into `tests_v2/` while keeping both v1 and v2 suites passing.

@@ -11,6 +11,24 @@ final class CmuxWebView: WKWebView {
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
             return true
         }
+
+        // Handle app-level shortcuts that are not menu-backed (for example split commands).
+        // Without this, WebKit can consume Cmd-based shortcuts before the app monitor sees them.
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+            return true
+        }
+
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
+        // Route them through the same app-level shortcut handler as a fallback.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+            return
+        }
+
+        super.keyDown(with: event)
     }
 }

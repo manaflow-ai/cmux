@@ -5,6 +5,8 @@ import CoreServices
 import UserNotifications
 import Sentry
 import WebKit
+import Combine
+import ObjectiveC.runtime
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
@@ -69,6 +71,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
+    private var menuBarExtraController: MenuBarExtraController?
+    private static let didInstallWindowKeyEquivalentSwizzle: Void = {
+        let targetClass: AnyClass = NSWindow.self
+        let originalSelector = #selector(NSWindow.performKeyEquivalent(with:))
+        let swizzledSelector = #selector(NSWindow.cmuxterm_performKeyEquivalent(with:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
+
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
@@ -76,6 +90,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+
+    private func childExitKeyboardProbePath() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"],
+              !path.isEmpty else {
+            return nil
+        }
+        return path
+    }
+
+    private func childExitKeyboardProbeHex(_ value: String?) -> String {
+        guard let value else { return "" }
+        return value.unicodeScalars
+            .map { String(format: "%04X", $0.value) }
+            .joined(separator: ",")
+    }
+
+    private func writeChildExitKeyboardProbe(_ updates: [String: String], increments: [String: Int] = [:]) {
+        guard let path = childExitKeyboardProbePath() else { return }
+        var payload: [String: String] = {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+                return [:]
+            }
+            return object
+        }()
+        for (key, by) in increments {
+            let current = Int(payload[key] ?? "") ?? 0
+            payload[key] = String(current + by)
+        }
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
 #endif
 
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
@@ -141,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureApplicationIcon()
         if !isRunningUnderXCTest {
             configureUserNotifications()
+            setupMenuBarExtra()
             // Sparkle updater is started lazily on first manual check. This avoids any
             // first-launch permission prompts and keeps cmuxterm aligned with the update pill UI.
         }
@@ -149,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
+        installWindowKeyEquivalentSwizzle()
         installShortcutMonitor()
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -346,6 +399,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    func locateGhosttySurface(_ surface: ghostty_surface_t?) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
+        guard let surface else { return nil }
+        for ctx in mainWindowContexts.values {
+            for ws in ctx.tabManager.tabs {
+                for (panelId, panel) in ws.panels {
+                    guard let terminal = panel as? TerminalPanel else { continue }
+                    if terminal.surface.surface == surface {
+                        return (ctx.windowId, ws.id, panelId, ctx.tabManager)
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         bringToFront(window)
@@ -426,6 +494,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func checkForUpdates(_ sender: Any?) {
         updateViewModel.overrideState = nil
         updateController.checkForUpdates()
+    }
+
+    private func setupMenuBarExtra() {
+        let store = TerminalNotificationStore.shared
+        menuBarExtraController = MenuBarExtraController(
+            notificationStore: store,
+            onShowNotifications: { [weak self] in
+                self?.showNotificationsPopoverFromMenuBar()
+            },
+            onOpenNotification: { [weak self] notification in
+                _ = self?.openNotification(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId,
+                    notificationId: notification.id
+                )
+            },
+            onJumpToLatestUnread: { [weak self] in
+                self?.jumpToLatestUnread()
+            },
+            onCheckForUpdates: { [weak self] in
+                self?.checkForUpdates(nil)
+            },
+            onOpenPreferences: { [weak self] in
+                self?.openPreferencesWindow()
+            },
+            onQuitApp: {
+                NSApp.terminate(nil)
+            }
+        )
+    }
+
+    @objc func openPreferencesWindow() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func refreshMenuBarExtraForDebug() {
+        menuBarExtraController?.refreshForDebugControls()
+    }
+
+    func showNotificationsPopoverFromMenuBar() {
+        let context: MainWindowContext? = {
+            if let keyWindow = NSApp.keyWindow,
+               isMainTerminalWindow(keyWindow),
+               let keyContext = mainWindowContexts[ObjectIdentifier(keyWindow)] {
+                return keyContext
+            }
+            if let first = mainWindowContexts.values.first {
+                return first
+            }
+            let windowId = createMainWindow()
+            return mainWindowContexts.values.first(where: { $0.windowId == windowId })
+        }()
+
+        if let context,
+           let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+            bringToFront(window)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.titlebarAccessoryController.showNotificationsPopover(animated: false)
+        }
     }
 
     #if DEBUG
@@ -742,6 +873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "browserPanelId": browserPanelId.uuidString,
                 "browserPaneId": browserPaneId.description,
                 "terminalPaneId": terminalPaneId.description,
+                "initialPaneCount": String(tab.bonsplitController.allPaneIds.count),
                 "focusedPaneId": tab.bonsplitController.focusedPaneId?.description ?? "",
                 "ghosttyGotoSplitLeftShortcut": ghosttyGotoSplitLeftShortcut?.displayString ?? "",
                 "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
@@ -813,7 +945,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let tabManager, let tab = tabManager.selectedWorkspace,
                   let panel = tab.browserPanel(for: panelId) else { return }
             let focused = self.isWebViewFocused(panel)
-            self.writeGotoSplitTestData([key: focused ? "true" : "false"])
+            self.writeGotoSplitTestData([
+                key: focused ? "true" : "false",
+                "\(key)PanelId": panelId.uuidString
+            ])
         }
     }
 
@@ -838,6 +973,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         writeGotoSplitTestData([
             "lastMoveDirection": directionValue,
             "focusedPaneId": focusedPaneId.description
+        ])
+    }
+
+    private func recordGotoSplitSplitIfNeeded(direction: SplitDirection) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
+        guard let workspace = tabManager?.selectedWorkspace else { return }
+
+        let directionValue: String
+        switch direction {
+        case .left:
+            directionValue = "left"
+        case .right:
+            directionValue = "right"
+        case .up:
+            directionValue = "up"
+        case .down:
+            directionValue = "down"
+        }
+
+        writeGotoSplitTestData([
+            "lastSplitDirection": directionValue,
+            "paneCountAfterSplit": String(workspace.bonsplitController.allPaneIds.count),
+            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
         ])
     }
 
@@ -1003,6 +1162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func installWindowKeyEquivalentSwizzle() {
+        _ = Self.didInstallWindowKeyEquivalentSwizzle
+    }
+
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -1139,6 +1302,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let hasControl = flags.contains(.control)
+        let hasCommand = flags.contains(.command)
+        let hasOption = flags.contains(.option)
+        let isControlOnly = hasControl && !hasCommand && !hasOption
+        let controlDChar = chars == "d" || event.characters == "\u{04}"
+        let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
+#if DEBUG
+        if isControlD {
+            writeChildExitKeyboardProbe(
+                [
+                    "probeAppShortcutCharsHex": childExitKeyboardProbeHex(event.characters),
+                    "probeAppShortcutCharsIgnoringHex": childExitKeyboardProbeHex(event.charactersIgnoringModifiers),
+                    "probeAppShortcutKeyCode": String(event.keyCode),
+                    "probeAppShortcutModsRaw": String(event.modifierFlags.rawValue),
+                ],
+                increments: ["probeAppShortcutCtrlDSeenCount": 1]
+            )
+        }
+#endif
 
         // Don't steal shortcuts from modal dialogs (e.g. close confirmations). This keeps standard
         // alert key equivalents working and avoids surprising actions (like splitting) while an
@@ -1160,6 +1342,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
+            return false
+        }
+
+        // Keep keyboard routing deterministic after split close/reparent transitions:
+        // before processing shortcuts, converge first responder with the focused terminal panel.
+        if isControlD {
+            tabManager?.reconcileFocusedPanelFromFirstResponderForKeyboard()
+            #if DEBUG
+            writeChildExitKeyboardProbe([:], increments: ["probeAppShortcutCtrlDPassedCount": 1])
+            #endif
+            // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
         }
 
@@ -1297,12 +1490,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Split actions: Cmd+D / Cmd+Shift+D
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
-            tabManager?.createSplit(direction: .right)
+            _ = performSplitShortcut(direction: .right)
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
-            tabManager?.createSplit(direction: .down)
+            _ = performSplitShortcut(direction: .down)
             return true
         }
 
@@ -1334,9 +1527,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
                 return true
             }
+
+            tabManager?.openBrowser()
+            if let focusedPanel = tabManager?.focusedBrowserPanel {
+                NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
+                return true
+            }
         }
 
         return false
+    }
+
+    @discardableResult
+    func performSplitShortcut(direction: SplitDirection) -> Bool {
+        tabManager?.createSplit(direction: direction)
+#if DEBUG
+        recordGotoSplitSplitIfNeeded(direction: direction)
+#endif
+        return true
+    }
+
+    /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts
+    /// through the same app-level shortcut handler used by the local key monitor.
+    @discardableResult
+    func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
+        handleCustomShortcut(event: event)
     }
 
 #if DEBUG
@@ -1964,4 +2179,540 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+}
+
+@MainActor
+final class MenuBarExtraController: NSObject, NSMenuDelegate {
+    private let statusItem: NSStatusItem
+    private let menu = NSMenu(title: "cmuxterm")
+    private let notificationStore: TerminalNotificationStore
+    private let onShowNotifications: () -> Void
+    private let onOpenNotification: (TerminalNotification) -> Void
+    private let onJumpToLatestUnread: () -> Void
+    private let onCheckForUpdates: () -> Void
+    private let onOpenPreferences: () -> Void
+    private let onQuitApp: () -> Void
+    private var notificationsCancellable: AnyCancellable?
+    private let buildHintTitle: String?
+
+    private let stateHintItem = NSMenuItem(title: "No unread notifications", action: nil, keyEquivalent: "")
+    private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let notificationListSeparator = NSMenuItem.separator()
+    private let notificationSectionSeparator = NSMenuItem.separator()
+    private let showNotificationsItem = NSMenuItem(title: "Show Notifications", action: nil, keyEquivalent: "")
+    private let jumpToUnreadItem = NSMenuItem(title: "Jump to Latest Unread", action: nil, keyEquivalent: "")
+    private let markAllReadItem = NSMenuItem(title: "Mark All Read", action: nil, keyEquivalent: "")
+    private let clearAllItem = NSMenuItem(title: "Clear All", action: nil, keyEquivalent: "")
+    private let checkForUpdatesItem = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
+    private let preferencesItem = NSMenuItem(title: "Preferences…", action: nil, keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: "Quit cmux", action: nil, keyEquivalent: "")
+
+    private var notificationItems: [NSMenuItem] = []
+    private let maxInlineNotificationItems = 6
+
+    init(
+        notificationStore: TerminalNotificationStore,
+        onShowNotifications: @escaping () -> Void,
+        onOpenNotification: @escaping (TerminalNotification) -> Void,
+        onJumpToLatestUnread: @escaping () -> Void,
+        onCheckForUpdates: @escaping () -> Void,
+        onOpenPreferences: @escaping () -> Void,
+        onQuitApp: @escaping () -> Void
+    ) {
+        self.notificationStore = notificationStore
+        self.onShowNotifications = onShowNotifications
+        self.onOpenNotification = onOpenNotification
+        self.onJumpToLatestUnread = onJumpToLatestUnread
+        self.onCheckForUpdates = onCheckForUpdates
+        self.onOpenPreferences = onOpenPreferences
+        self.onQuitApp = onQuitApp
+        self.buildHintTitle = MenuBarBuildHintFormatter.menuTitle()
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        super.init()
+
+        buildMenu()
+        statusItem.menu = menu
+        if let button = statusItem.button {
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+            button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
+            button.toolTip = "cmuxterm"
+        }
+
+        notificationsCancellable = notificationStore.$notifications
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshUI()
+            }
+
+        refreshUI()
+    }
+
+    private func buildMenu() {
+        menu.autoenablesItems = false
+        menu.delegate = self
+
+        stateHintItem.isEnabled = false
+        menu.addItem(stateHintItem)
+        if let buildHintTitle {
+            buildHintItem.title = buildHintTitle
+            buildHintItem.isEnabled = false
+            menu.addItem(buildHintItem)
+        }
+
+        menu.addItem(notificationListSeparator)
+        notificationSectionSeparator.isHidden = true
+        menu.addItem(notificationSectionSeparator)
+
+        showNotificationsItem.target = self
+        showNotificationsItem.action = #selector(showNotificationsAction)
+        menu.addItem(showNotificationsItem)
+
+        jumpToUnreadItem.target = self
+        jumpToUnreadItem.action = #selector(jumpToUnreadAction)
+        menu.addItem(jumpToUnreadItem)
+
+        markAllReadItem.target = self
+        markAllReadItem.action = #selector(markAllReadAction)
+        menu.addItem(markAllReadItem)
+
+        clearAllItem.target = self
+        clearAllItem.action = #selector(clearAllAction)
+        menu.addItem(clearAllItem)
+
+        menu.addItem(.separator())
+
+        checkForUpdatesItem.target = self
+        checkForUpdatesItem.action = #selector(checkForUpdatesAction)
+        menu.addItem(checkForUpdatesItem)
+
+        preferencesItem.target = self
+        preferencesItem.action = #selector(preferencesAction)
+        menu.addItem(preferencesItem)
+
+        menu.addItem(.separator())
+
+        quitItem.target = self
+        quitItem.action = #selector(quitAction)
+        menu.addItem(quitItem)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        refreshUI()
+    }
+
+    func refreshForDebugControls() {
+        refreshUI()
+    }
+
+    private func refreshUI() {
+        let notifications = notificationStore.notifications
+        let actualUnreadCount = notifications.reduce(into: 0) { count, item in
+            if !item.isRead {
+                count += 1
+            }
+        }
+
+        let displayedUnreadCount: Int
+#if DEBUG
+        displayedUnreadCount = MenuBarIconDebugSettings.displayedUnreadCount(actualUnreadCount: actualUnreadCount)
+#else
+        displayedUnreadCount = actualUnreadCount
+#endif
+
+        stateHintItem.title = actualUnreadCount == 0
+            ? "No unread notifications"
+            : "\(actualUnreadCount) unread notification\(actualUnreadCount == 1 ? "" : "s")"
+
+        jumpToUnreadItem.isEnabled = actualUnreadCount > 0
+        markAllReadItem.isEnabled = actualUnreadCount > 0
+        clearAllItem.isEnabled = !notifications.isEmpty
+
+        rebuildInlineNotificationItems(notifications: notifications)
+
+        if let button = statusItem.button {
+            button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
+            button.toolTip = displayedUnreadCount == 0
+                ? "cmuxterm"
+                : "cmuxterm: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
+        }
+    }
+
+    private func rebuildInlineNotificationItems(notifications: [TerminalNotification]) {
+        for item in notificationItems {
+            menu.removeItem(item)
+        }
+        notificationItems.removeAll(keepingCapacity: true)
+
+        let recent = Array(notifications.prefix(maxInlineNotificationItems))
+        notificationListSeparator.isHidden = recent.isEmpty
+        notificationSectionSeparator.isHidden = recent.isEmpty
+        guard !recent.isEmpty else { return }
+
+        let insertionIndex = menu.index(of: showNotificationsItem)
+        guard insertionIndex >= 0 else { return }
+
+        for (offset, notification) in recent.enumerated() {
+            let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
+            let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
+            menu.insertItem(item, at: insertionIndex + offset)
+            notificationItems.append(item)
+        }
+    }
+
+    private func makeNotificationItem(notification: TerminalNotification, tabTitle: String?) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: #selector(openNotificationItemAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.attributedTitle = MenuBarNotificationLineFormatter.attributedTitle(notification: notification, tabTitle: tabTitle)
+        item.toolTip = MenuBarNotificationLineFormatter.tooltip(notification: notification, tabTitle: tabTitle)
+        item.representedObject = NotificationMenuItemPayload(notification: notification)
+        return item
+    }
+
+    @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? NotificationMenuItemPayload else { return }
+        onOpenNotification(payload.notification)
+    }
+
+    @objc private func showNotificationsAction() {
+        onShowNotifications()
+    }
+
+    @objc private func jumpToUnreadAction() {
+        onJumpToLatestUnread()
+    }
+
+    @objc private func markAllReadAction() {
+        notificationStore.markAllRead()
+    }
+
+    @objc private func clearAllAction() {
+        notificationStore.clearAll()
+    }
+
+    @objc private func checkForUpdatesAction() {
+        onCheckForUpdates()
+    }
+
+    @objc private func preferencesAction() {
+        onOpenPreferences()
+    }
+
+    @objc private func quitAction() {
+        onQuitApp()
+    }
+}
+
+private final class NotificationMenuItemPayload: NSObject {
+    let notification: TerminalNotification
+
+    init(notification: TerminalNotification) {
+        self.notification = notification
+        super.init()
+    }
+}
+
+enum MenuBarBadgeLabelFormatter {
+    static func badgeText(for unreadCount: Int) -> String? {
+        guard unreadCount > 0 else { return nil }
+        if unreadCount > 9 {
+            return "9+"
+        }
+        return String(unreadCount)
+    }
+}
+
+enum MenuBarNotificationLineFormatter {
+    static func plainTitle(notification: TerminalNotification, tabTitle: String?) -> String {
+        let dot = notification.isRead ? "  " : "● "
+        let timeText = notification.createdAt.formatted(date: .omitted, time: .shortened)
+        var lines: [String] = []
+        lines.append("\(dot)\(notification.title)  \(timeText)")
+
+        let detail = notification.body.isEmpty ? notification.subtitle : notification.body
+        if !detail.isEmpty {
+            lines.append(detail)
+        }
+
+        if let tabTitle, !tabTitle.isEmpty {
+            lines.append(tabTitle)
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    static func attributedTitle(notification: TerminalNotification, tabTitle: String?) -> NSAttributedString {
+        let line1 = NSAttributedString(
+            string: plainTitle(notification: notification, tabTitle: nil).components(separatedBy: "\n").first ?? notification.title,
+            attributes: [
+                .font: NSFont.menuFont(ofSize: NSFont.systemFontSize),
+                .foregroundColor: NSColor.labelColor,
+            ]
+        )
+
+        let result = NSMutableAttributedString(attributedString: line1)
+        let detail = notification.body.isEmpty ? notification.subtitle : notification.body
+        if !detail.isEmpty {
+            result.append(
+                NSAttributedString(
+                    string: "\n\(detail)",
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                    ]
+                )
+            )
+        }
+
+        if let tabTitle, !tabTitle.isEmpty {
+            result.append(
+                NSAttributedString(
+                    string: "\n\(tabTitle)",
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                        .foregroundColor: NSColor.tertiaryLabelColor,
+                    ]
+                )
+            )
+        }
+
+        return result
+    }
+
+    static func tooltip(notification: TerminalNotification, tabTitle: String?) -> String {
+        plainTitle(notification: notification, tabTitle: tabTitle)
+    }
+}
+
+enum MenuBarBuildHintFormatter {
+    static func menuTitle(
+        appName: String = defaultAppName(),
+        isDebugBuild: Bool = _isDebugAssertConfiguration()
+    ) -> String? {
+        guard isDebugBuild else { return nil }
+        let normalized = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "cmuxterm DEV"
+        guard normalized.hasPrefix(prefix) else { return "Build: DEV" }
+
+        let suffix = String(normalized.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if suffix.isEmpty {
+            return "Build: DEV (untagged)"
+        }
+        return "Build Tag: \(suffix)"
+    }
+
+    private static func defaultAppName() -> String {
+        let bundle = Bundle.main
+        if let displayName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+           !displayName.isEmpty {
+            return displayName
+        }
+        if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String, !name.isEmpty {
+            return name
+        }
+        return ProcessInfo.processInfo.processName
+    }
+}
+
+struct MenuBarBadgeRenderConfig {
+    var badgeRect: NSRect
+    var singleDigitFontSize: CGFloat
+    var multiDigitFontSize: CGFloat
+    var singleDigitYOffset: CGFloat
+    var multiDigitYOffset: CGFloat
+    var singleDigitXAdjust: CGFloat
+    var multiDigitXAdjust: CGFloat
+    var textRectWidthAdjust: CGFloat
+}
+
+enum MenuBarIconDebugSettings {
+    static let previewEnabledKey = "menubarDebugPreviewEnabled"
+    static let previewCountKey = "menubarDebugPreviewCount"
+    static let badgeRectXKey = "menubarDebugBadgeRectX"
+    static let badgeRectYKey = "menubarDebugBadgeRectY"
+    static let badgeRectWidthKey = "menubarDebugBadgeRectWidth"
+    static let badgeRectHeightKey = "menubarDebugBadgeRectHeight"
+    static let singleDigitFontSizeKey = "menubarDebugSingleDigitFontSize"
+    static let multiDigitFontSizeKey = "menubarDebugMultiDigitFontSize"
+    static let singleDigitYOffsetKey = "menubarDebugSingleDigitYOffset"
+    static let multiDigitYOffsetKey = "menubarDebugMultiDigitYOffset"
+    static let singleDigitXAdjustKey = "menubarDebugSingleDigitXAdjust"
+    static let legacySingleDigitXAdjustKey = "menubarDebugTextRectXAdjust"
+    static let multiDigitXAdjustKey = "menubarDebugMultiDigitXAdjust"
+    static let textRectWidthAdjustKey = "menubarDebugTextRectWidthAdjust"
+
+    static let defaultBadgeRect = NSRect(x: 5.38, y: 6.43, width: 10.75, height: 11.58)
+    static let defaultSingleDigitFontSize: CGFloat = 6.7
+    static let defaultMultiDigitFontSize: CGFloat = 6.7
+    static let defaultSingleDigitYOffset: CGFloat = 0.6
+    static let defaultMultiDigitYOffset: CGFloat = 0.6
+    static let defaultSingleDigitXAdjust: CGFloat = -1.1
+    static let defaultMultiDigitXAdjust: CGFloat = 2.42
+    static let defaultTextRectWidthAdjust: CGFloat = 1.8
+
+    static func displayedUnreadCount(actualUnreadCount: Int, defaults: UserDefaults = .standard) -> Int {
+        guard defaults.bool(forKey: previewEnabledKey) else { return actualUnreadCount }
+        let value = defaults.integer(forKey: previewCountKey)
+        return max(0, min(value, 99))
+    }
+
+    static func badgeRenderConfig(defaults: UserDefaults = .standard) -> MenuBarBadgeRenderConfig {
+        let x = value(defaults, key: badgeRectXKey, fallback: defaultBadgeRect.origin.x, range: 0...20)
+        let y = value(defaults, key: badgeRectYKey, fallback: defaultBadgeRect.origin.y, range: 0...20)
+        let width = value(defaults, key: badgeRectWidthKey, fallback: defaultBadgeRect.width, range: 4...14)
+        let height = value(defaults, key: badgeRectHeightKey, fallback: defaultBadgeRect.height, range: 4...14)
+        let singleFont = value(defaults, key: singleDigitFontSizeKey, fallback: defaultSingleDigitFontSize, range: 6...14)
+        let multiFont = value(defaults, key: multiDigitFontSizeKey, fallback: defaultMultiDigitFontSize, range: 6...14)
+        let singleY = value(defaults, key: singleDigitYOffsetKey, fallback: defaultSingleDigitYOffset, range: -3...4)
+        let multiY = value(defaults, key: multiDigitYOffsetKey, fallback: defaultMultiDigitYOffset, range: -3...4)
+        let singleX = value(
+            defaults,
+            key: singleDigitXAdjustKey,
+            legacyKey: legacySingleDigitXAdjustKey,
+            fallback: defaultSingleDigitXAdjust,
+            range: -4...4
+        )
+        let multiX = value(defaults, key: multiDigitXAdjustKey, fallback: defaultMultiDigitXAdjust, range: -4...4)
+        let widthAdjust = value(defaults, key: textRectWidthAdjustKey, fallback: defaultTextRectWidthAdjust, range: -3...5)
+
+        return MenuBarBadgeRenderConfig(
+            badgeRect: NSRect(x: x, y: y, width: width, height: height),
+            singleDigitFontSize: singleFont,
+            multiDigitFontSize: multiFont,
+            singleDigitYOffset: singleY,
+            multiDigitYOffset: multiY,
+            singleDigitXAdjust: singleX,
+            multiDigitXAdjust: multiX,
+            textRectWidthAdjust: widthAdjust
+        )
+    }
+
+    static func copyPayload(defaults: UserDefaults = .standard) -> String {
+        let config = badgeRenderConfig(defaults: defaults)
+        let previewEnabled = defaults.bool(forKey: previewEnabledKey)
+        let previewCount = max(0, min(defaults.integer(forKey: previewCountKey), 99))
+        return """
+        menubarDebugPreviewEnabled=\(previewEnabled)
+        menubarDebugPreviewCount=\(previewCount)
+        menubarDebugBadgeRectX=\(String(format: "%.2f", config.badgeRect.origin.x))
+        menubarDebugBadgeRectY=\(String(format: "%.2f", config.badgeRect.origin.y))
+        menubarDebugBadgeRectWidth=\(String(format: "%.2f", config.badgeRect.width))
+        menubarDebugBadgeRectHeight=\(String(format: "%.2f", config.badgeRect.height))
+        menubarDebugSingleDigitFontSize=\(String(format: "%.2f", config.singleDigitFontSize))
+        menubarDebugMultiDigitFontSize=\(String(format: "%.2f", config.multiDigitFontSize))
+        menubarDebugSingleDigitYOffset=\(String(format: "%.2f", config.singleDigitYOffset))
+        menubarDebugMultiDigitYOffset=\(String(format: "%.2f", config.multiDigitYOffset))
+        menubarDebugSingleDigitXAdjust=\(String(format: "%.2f", config.singleDigitXAdjust))
+        menubarDebugMultiDigitXAdjust=\(String(format: "%.2f", config.multiDigitXAdjust))
+        menubarDebugTextRectWidthAdjust=\(String(format: "%.2f", config.textRectWidthAdjust))
+        """
+    }
+
+    private static func value(
+        _ defaults: UserDefaults,
+        key: String,
+        legacyKey: String? = nil,
+        fallback: CGFloat,
+        range: ClosedRange<CGFloat>
+    ) -> CGFloat {
+        if let parsed = parse(defaults.object(forKey: key), fallback: fallback, range: range) {
+            return parsed
+        }
+        if let legacyKey, let parsed = parse(defaults.object(forKey: legacyKey), fallback: fallback, range: range) {
+            return parsed
+        }
+        return fallback
+    }
+
+    private static func parse(
+        _ object: Any?,
+        fallback: CGFloat,
+        range: ClosedRange<CGFloat>
+    ) -> CGFloat? {
+        guard let number = object as? NSNumber else {
+            return nil
+        }
+        let candidate = CGFloat(number.doubleValue)
+        guard candidate.isFinite else { return fallback }
+        return max(range.lowerBound, min(candidate, range.upperBound))
+    }
+}
+
+enum MenuBarIconRenderer {
+
+    static func makeImage(unreadCount: Int) -> NSImage {
+        let badgeText = MenuBarBadgeLabelFormatter.badgeText(for: unreadCount)
+        let config = MenuBarIconDebugSettings.badgeRenderConfig()
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let glyphRect = NSRect(x: 1.2, y: 1.5, width: 11.6, height: 15.0)
+        drawGlyph(in: glyphRect)
+
+        if let text = badgeText {
+            drawBadge(text: text, in: config.badgeRect, config: config)
+        }
+
+        return image
+    }
+
+    private static func drawGlyph(in rect: NSRect) {
+        // Match the canonical cmux center-mark path from Icon Center Image Artwork.svg.
+        let srcMinX: CGFloat = 384.0
+        let srcMinY: CGFloat = 255.0
+        let srcWidth: CGFloat = 369.0
+        let srcHeight: CGFloat = 513.0
+
+        func map(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            let nx = (x - srcMinX) / srcWidth
+            let ny = (y - srcMinY) / srcHeight
+            return NSPoint(
+                x: rect.minX + nx * rect.width,
+                y: rect.minY + (1.0 - ny) * rect.height
+            )
+        }
+
+        let path = NSBezierPath()
+        path.move(to: map(384.0, 255.0))
+        path.line(to: map(753.0, 511.5))
+        path.line(to: map(384.0, 768.0))
+        path.line(to: map(384.0, 654.0))
+        path.line(to: map(582.692, 511.5))
+        path.line(to: map(384.0, 369.0))
+        path.close()
+
+        NSColor.white.setFill()
+        path.fill()
+    }
+
+    private static func drawBadge(text: String, in rect: NSRect, config: MenuBarBadgeRenderConfig) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .foregroundColor: NSColor.systemBlue,
+            .paragraphStyle: paragraph,
+        ]
+        let yOffset: CGFloat = text.count > 1 ? config.multiDigitYOffset : config.singleDigitYOffset
+        let xAdjust: CGFloat = text.count > 1 ? config.multiDigitXAdjust : config.singleDigitXAdjust
+        let textRect = NSRect(
+            x: rect.origin.x + xAdjust,
+            y: rect.origin.y + yOffset,
+            width: rect.width + config.textRectWidthAdjust,
+            height: rect.height
+        )
+        (text as NSString).draw(in: textRect, withAttributes: attrs)
+    }
+}
+
+private extension NSWindow {
+    @objc func cmuxterm_performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+            return true
+        }
+        return cmuxterm_performKeyEquivalent(with: event)
+    }
 }
