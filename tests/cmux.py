@@ -603,6 +603,10 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def read_screen(self) -> str:
+        """Read the visible terminal text from the focused surface."""
+        return self._send_command("read_screen")
+
 
 def main():
     """CLI interface for cmux"""

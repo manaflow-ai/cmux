@@ -44,9 +44,9 @@ enum WindowGlassEffect {
             return
         }
 
-        // Older macOS: insert blur as a background subview instead of replacing contentView.
-        // Replacing contentView on macOS 13-15 breaks traffic light rendering when the
-        // window uses fullSizeContentView + titlebarAppearsTransparent.
+        // Older macOS: insert blur below the contentView in the window's internal view
+        // hierarchy. Adding to contentView directly gets reordered by SwiftUI, causing
+        // the blur view to cover the terminal content.
         let blurView = NSVisualEffectView(frame: bounds)
         blurView.blendingMode = .behindWindow
         blurView.material = .hudWindow
@@ -54,7 +54,11 @@ enum WindowGlassEffect {
         blurView.wantsLayer = true
         blurView.autoresizingMask = [.width, .height]
 
-        contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
+        if let themeFrame = contentView.superview {
+            themeFrame.addSubview(blurView, positioned: .below, relativeTo: contentView)
+        } else {
+            contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
+        }
 
         // Tint overlay on top of blur, still behind content
         if let color = tintColor {
@@ -62,7 +66,11 @@ enum WindowGlassEffect {
             tintOverlay.autoresizingMask = [.width, .height]
             tintOverlay.wantsLayer = true
             tintOverlay.layer?.backgroundColor = color.cgColor
-            contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
+            if let themeFrame = contentView.superview {
+                themeFrame.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
+            } else {
+                contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
+            }
             objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
         }
 
