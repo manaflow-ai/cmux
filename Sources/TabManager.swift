@@ -1244,54 +1244,98 @@ class TabManager: ObservableObject {
                 tab.focusPanel(bottomRight.id)
                 tab.closePanel(bottomRight.id, force: true)
 
-                // Record a single final state snapshot (no polling).
-                let paneIds = tab.bonsplitController.allPaneIds
-                let bonsplitTabCount = tab.bonsplitController.allTabIds.count
-                let panelCount = tab.panels.count
 
-                var missingSelectedTabCount = 0
-                var missingPanelMappingCount = 0
-                var selectedTerminalCount = 0
-                var selectedTerminalAttachedCount = 0
-                var selectedTerminalZeroSizeCount = 0
-                var selectedTerminalSurfaceNilCount = 0
+                // Capture final state after Bonsplit/AppKit/Ghostty geometry reconciliation.
+                // We avoid sleep-based timing and converge over a few main-actor turns.
+                 @MainActor func collectSplitCloseRightState() -> (data: [String: String], settled: Bool) {
+                    let paneIds = tab.bonsplitController.allPaneIds
+                    let bonsplitTabCount = tab.bonsplitController.allTabIds.count
+                    let panelCount = tab.panels.count
 
-                for paneId in paneIds {
-                    guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
-                        missingSelectedTabCount += 1
-                        continue
+                    var missingSelectedTabCount = 0
+                    var missingPanelMappingCount = 0
+                    var selectedTerminalCount = 0
+                    var selectedTerminalAttachedCount = 0
+                    var selectedTerminalZeroSizeCount = 0
+                    var selectedTerminalSurfaceNilCount = 0
+
+                    for paneId in paneIds {
+                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
+                            missingSelectedTabCount += 1
+                            continue
+                        }
+                        guard let panel = tab.panel(for: selected.id) else {
+                            missingPanelMappingCount += 1
+                            continue
+                        }
+                        if let terminal = panel as? TerminalPanel {
+                            selectedTerminalCount += 1
+                            if terminal.hostedView.window != nil {
+                                selectedTerminalAttachedCount += 1
+                            }
+                            let size = terminal.hostedView.bounds.size
+                            if size.width < 5 || size.height < 5 {
+                                selectedTerminalZeroSizeCount += 1
+                            }
+                            if terminal.surface.surface == nil {
+                                selectedTerminalSurfaceNilCount += 1
+                            }
+                        }
                     }
-                    guard let panel = tab.panel(for: selected.id) else {
-                        missingPanelMappingCount += 1
-                        continue
+
+                    let settled =
+                        paneIds.count == 2 &&
+                        missingSelectedTabCount == 0 &&
+                        missingPanelMappingCount == 0 &&
+                        DebugUIEventCounters.emptyPanelAppearCount == 0 &&
+                        selectedTerminalCount == 2 &&
+                        selectedTerminalAttachedCount == 2 &&
+                        selectedTerminalZeroSizeCount == 0 &&
+                        selectedTerminalSurfaceNilCount == 0
+
+                    return (
+                        data: [
+                            "finalPaneCount": String(paneIds.count),
+                            "finalBonsplitTabCount": String(bonsplitTabCount),
+                            "finalPanelCount": String(panelCount),
+                            "missingSelectedTabCount": String(missingSelectedTabCount),
+                            "missingPanelMappingCount": String(missingPanelMappingCount),
+                            "emptyPanelAppearCount": String(DebugUIEventCounters.emptyPanelAppearCount),
+                            "selectedTerminalCount": String(selectedTerminalCount),
+                            "selectedTerminalAttachedCount": String(selectedTerminalAttachedCount),
+                            "selectedTerminalZeroSizeCount": String(selectedTerminalZeroSizeCount),
+                            "selectedTerminalSurfaceNilCount": String(selectedTerminalSurfaceNilCount),
+                        ],
+                        settled: settled
+                    )
+                }
+                 @MainActor func reconcileVisibleTerminalGeometry() {
+                    NSApp.windows.forEach { window in
+                        window.contentView?.layoutSubtreeIfNeeded()
+                        window.contentView?.displayIfNeeded()
                     }
-                    if let terminal = panel as? TerminalPanel {
-                        selectedTerminalCount += 1
-                        if terminal.hostedView.window != nil {
-                            selectedTerminalAttachedCount += 1
+                    for paneId in tab.bonsplitController.allPaneIds {
+                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+                              let terminal = tab.panel(for: selected.id) as? TerminalPanel else {
+                            continue
                         }
-                        let size = terminal.hostedView.bounds.size
-                        if size.width < 5 || size.height < 5 {
-                            selectedTerminalZeroSizeCount += 1
-                        }
-                        if terminal.surface.surface == nil {
-                            selectedTerminalSurfaceNilCount += 1
-                        }
+                        terminal.hostedView.reconcileGeometryNow()
+                        terminal.surface.forceRefresh()
                     }
                 }
 
-                self.writeSplitCloseRightTestData([
-                    "finalPaneCount": String(paneIds.count),
-                    "finalBonsplitTabCount": String(bonsplitTabCount),
-                    "finalPanelCount": String(panelCount),
-                    "missingSelectedTabCount": String(missingSelectedTabCount),
-                    "missingPanelMappingCount": String(missingPanelMappingCount),
-                    "emptyPanelAppearCount": String(DebugUIEventCounters.emptyPanelAppearCount),
-                    "selectedTerminalCount": String(selectedTerminalCount),
-                    "selectedTerminalAttachedCount": String(selectedTerminalAttachedCount),
-                    "selectedTerminalZeroSizeCount": String(selectedTerminalZeroSizeCount),
-                    "selectedTerminalSurfaceNilCount": String(selectedTerminalSurfaceNilCount),
-                ], at: path)
+                var finalState = collectSplitCloseRightState()
+                for attempt in 1...8 {
+                    reconcileVisibleTerminalGeometry()
+                    await Task.yield()
+                    finalState = collectSplitCloseRightState()
+                    var payload = finalState.data
+                    payload["finalAttempt"] = String(attempt)
+                    self.writeSplitCloseRightTestData(payload, at: path)
+                    if finalState.settled {
+                        break
+                    }
+                }
             }
         }
     }
