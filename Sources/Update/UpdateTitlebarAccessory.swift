@@ -33,6 +33,11 @@ final class DevBuildAccessoryViewController: NSTitlebarAccessoryViewController {
         hostingView.autoresizingMask = [.width, .height]
         containerView.addSubview(hostingView)
 
+        if #available(macOS 14, *) {
+            containerView.clipsToBounds = true
+            hostingView.clipsToBounds = true
+        }
+
         scheduleSizeUpdate()
     }
 
@@ -42,11 +47,17 @@ final class DevBuildAccessoryViewController: NSTitlebarAccessoryViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        view.isHidden = false
+        containerView.isHidden = false
+        hostingView.isHidden = false
         scheduleSizeUpdate()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        view.isHidden = false
+        containerView.isHidden = false
+        hostingView.isHidden = false
         scheduleSizeUpdate()
     }
 
@@ -63,6 +74,7 @@ final class DevBuildAccessoryViewController: NSTitlebarAccessoryViewController {
         hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
         let labelSize = hostingView.fittingSize
+        guard labelSize.width > 1 && labelSize.height > 1 else { return }
         let titlebarHeight = view.window.map { window in
             window.frame.height - window.contentLayoutRect.height
         } ?? labelSize.height
@@ -368,6 +380,13 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.autoresizingMask = [.width, .height]
         containerView.addSubview(hostingView)
 
+        // macOS 14 (Sonoma) changed clipsToBounds default to NO, which can cause
+        // titlebar accessory views to render incorrectly or disappear during layout.
+        if #available(macOS 14, *) {
+            containerView.clipsToBounds = true
+            hostingView.clipsToBounds = true
+        }
+
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -391,12 +410,22 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        ensureVisible()
         scheduleSizeUpdate()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        ensureVisible()
         scheduleSizeUpdate()
+    }
+
+    /// Sonoma can hide titlebar accessory views during layout transitions.
+    /// Force visibility on every layout pass.
+    private func ensureVisible() {
+        view.isHidden = false
+        containerView.isHidden = false
+        hostingView.isHidden = false
     }
 
     private func scheduleSizeUpdate() {
@@ -412,6 +441,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
         let contentSize = hostingView.fittingSize
+        // Guard against zero-size frames during layout transitions (Sonoma)
+        guard contentSize.width > 1 && contentSize.height > 1 else { return }
         let titlebarHeight = view.window.map { window in
             window.frame.height - window.contentLayoutRect.height
         } ?? contentSize.height
@@ -673,6 +704,11 @@ final class UpdateAccessoryViewController: NSTitlebarAccessoryViewController {
         hostingView.autoresizingMask = [.width, .height]
         containerView.addSubview(hostingView)
 
+        if #available(macOS 14, *) {
+            containerView.clipsToBounds = true
+            hostingView.clipsToBounds = true
+        }
+
         stateCancellable = model.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -688,12 +724,20 @@ final class UpdateAccessoryViewController: NSTitlebarAccessoryViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        ensureVisible()
         scheduleSizeUpdate()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        ensureVisible()
         scheduleSizeUpdate()
+    }
+
+    private func ensureVisible() {
+        view.isHidden = false
+        containerView.isHidden = false
+        hostingView.isHidden = false
     }
 
     private func scheduleSizeUpdate() {
@@ -709,6 +753,7 @@ final class UpdateAccessoryViewController: NSTitlebarAccessoryViewController {
         hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
         let pillSize = hostingView.fittingSize
+        guard pillSize.width > 1 && pillSize.height > 1 else { return }
         let titlebarHeight = view.window.map { window in
             window.frame.height - window.contentLayoutRect.height
         } ?? pillSize.height
@@ -750,6 +795,7 @@ final class UpdateTitlebarAccessoryController {
         attachToExistingWindows()
         installObservers()
         installStateObserver()
+        installSidebarToggleObserver()
     }
 
     func attach(to window: NSWindow) {
@@ -828,6 +874,52 @@ final class UpdateTitlebarAccessoryController {
 
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
         window.identifier?.rawValue == "cmux.main"
+    }
+
+    /// After sidebar toggle on Sonoma, titlebar accessories can disappear. Re-add if needed.
+    private func installSidebarToggleObserver() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: SidebarState.didToggleNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Delay slightly to let SwiftUI layout settle before revalidating
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self?.revalidateAllAccessories()
+            }
+        })
+    }
+
+    private func revalidateAllAccessories() {
+        guard let updateViewModel else { return }
+        for window in attachedWindows.allObjects {
+            // Re-add controls if they were removed during layout
+            if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
+                let controls = TitlebarControlsAccessoryViewController(
+                    notificationStore: TerminalNotificationStore.shared
+                )
+                controls.layoutAttribute = .left
+                controls.view.identifier = controlsIdentifier
+                window.addTitlebarAccessoryViewController(controls)
+                controlsControllers.add(controls)
+            }
+
+            // Re-add update accessory if it was removed and state is not idle
+            let isIdle = (updateViewModel.overrideState ?? updateViewModel.state).isIdle
+            if !isIdle && !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == updateIdentifier }) {
+                let accessory = UpdateAccessoryViewController(model: updateViewModel)
+                accessory.layoutAttribute = .right
+                accessory.view.identifier = updateIdentifier
+                window.addTitlebarAccessoryViewController(accessory)
+            }
+
+            // Ensure all accessories are visible and properly sized
+            for controller in window.titlebarAccessoryViewControllers {
+                controller.view.isHidden = false
+                controller.view.needsLayout = true
+            }
+        }
     }
 
     private func installStateObserver() {
