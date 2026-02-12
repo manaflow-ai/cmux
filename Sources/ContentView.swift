@@ -2,6 +2,17 @@ import AppKit
 import SwiftUI
 import ObjectiveC
 
+/// NSVisualEffectView that never intercepts mouse events. Used for background
+/// blur inside contentView where SwiftUI may reorder it above interactive content.
+private class PassthroughBlurView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// Plain NSView that never intercepts mouse events. Used for tint overlays.
+private class PassthroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
 enum WindowGlassEffect {
     private static var glassViewKey: UInt8 = 0
@@ -44,33 +55,29 @@ enum WindowGlassEffect {
             return
         }
 
-        // Older macOS: insert blur below the contentView in the window's internal view
-        // hierarchy. Adding to contentView directly gets reordered by SwiftUI, causing
-        // the blur view to cover the terminal content.
-        let blurView = NSVisualEffectView(frame: bounds)
+        // Older macOS: insert blur and tint inside contentView with a deeply
+        // negative zPosition so they always render behind SwiftUI content even
+        // if SwiftUI reorders the subview list. PassthroughBlurView overrides
+        // hitTest to avoid intercepting mouse events when SwiftUI moves it to
+        // a higher subview index.
+        let blurView = PassthroughBlurView(frame: bounds)
         blurView.blendingMode = .behindWindow
         blurView.material = .hudWindow
         blurView.state = .active
         blurView.wantsLayer = true
         blurView.autoresizingMask = [.width, .height]
+        blurView.layer?.zPosition = -1000
 
-        if let themeFrame = contentView.superview {
-            themeFrame.addSubview(blurView, positioned: .below, relativeTo: contentView)
-        } else {
-            contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
-        }
+        contentView.addSubview(blurView, positioned: .below, relativeTo: contentView.subviews.first)
 
         // Tint overlay on top of blur, still behind content
         if let color = tintColor {
-            let tintOverlay = NSView(frame: bounds)
+            let tintOverlay = PassthroughView(frame: bounds)
             tintOverlay.autoresizingMask = [.width, .height]
             tintOverlay.wantsLayer = true
             tintOverlay.layer?.backgroundColor = color.cgColor
-            if let themeFrame = contentView.superview {
-                themeFrame.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
-            } else {
-                contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
-            }
+            tintOverlay.layer?.zPosition = -999
+            contentView.addSubview(tintOverlay, positioned: .above, relativeTo: blurView)
             objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
         }
 
