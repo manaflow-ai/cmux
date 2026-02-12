@@ -3,6 +3,8 @@
 Cross-project tracking (features, bugs, backlog) for cmuxterm.
 
 ## Done
+- 2026-02-12: Added unread notification count badges on the app icon (Dock/Cmd+Tab) with a new Settings toggle to disable it; added unit regression coverage for badge labeling and default preference behavior.
+- 2026-02-12: Fixed browser-pane split shortcuts so `Cmd+D` and `Cmd+Shift+D` work from both `WKWebView` and the browser omnibar by adding menu-backed split commands wired to effective shortcut settings and shared split handling in `AppDelegate`. Added VM UI regression coverage in `BrowserPaneNavigationKeybindUITests` for both focus states.
 - 2026-02-08: Stabilized nested splits (no more "existing split disappears" during nested L/R splits) and added regression tests.
 - 2026-02-08: Fixed "frozen" terminal panes/tabs (input not visible until Enter/unfocus) and added visual typing + HTML report tooling.
 - 2026-02-08: Removed bonsplit tab content crossfade + selection animation to reduce flashes/blanking during pane/tab changes.
@@ -34,6 +36,8 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - 2026-02-10: Added a v2 JSON socket API (handle-based) and migrated the automated test suite to v2 while keeping v1 compatibility. Verified v1 + v2 suites passing on the VM (see `docs/v2-api-migration.md`).
 - 2026-02-11: Extended the socket/CLI to handle multi-window automation: added v2 `window.list/current/focus/create/close`, v2 `workspace.move_to_window`, and included `window_id` in `system.identify` (plus caller validation). Added v1 window commands for the CLI (`list_windows`, etc). Added VM test coverage (`tests_v2/test_windows_api.py`) and verified v1 + v2 suites passing on the VM.
 - 2026-02-11: Fixed split child-exit close semantics and focus indicator drift: exiting (`Ctrl+D`) one side of a split now only closes that pane (never the whole workspace due to transient panel-count state), and terminal first-responder focus now always re-syncs active bonsplit focus so blue focus indicators match actual keyboard focus. Added VM UI regression coverage for child-exit-in-split behavior.
+- 2026-02-11: Exposed v2 agent discovery from the CLI: added `cmuxterm identify` (maps to `system.identify`, supports caller via env/flags) and `cmuxterm capabilities` (maps to `system.capabilities`).
+- 2026-02-11: Expanded CLI split/pane coverage for agent workflows: added `list-panes`, `list-pane-surfaces`, `focus-pane`, `new-pane`, `new-surface`, `close-surface`, `drag-surface-to-split`, `refresh-surfaces`, `surface-health`, `focus-webview`, `is-webview-focused`, and `trigger-flash` (`surface.trigger_flash`).
 
 ## Backlog
 - Browser panels: investigate intermittent crash/relaunch around WKWebView lifecycle and focus notifications.

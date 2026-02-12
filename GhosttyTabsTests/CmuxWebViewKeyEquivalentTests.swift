@@ -198,3 +198,36 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.buffer, "https://example.com/")
     }
 }
+
+@MainActor
+final class NotificationDockBadgeTests: XCTestCase {
+    func testDockBadgeLabelEnabledAndCounted() {
+        XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 1, isEnabled: true), "1")
+        XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 42, isEnabled: true), "42")
+        XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 100, isEnabled: true), "99+")
+    }
+
+    func testDockBadgeLabelHiddenWhenDisabledOrZero() {
+        XCTAssertNil(TerminalNotificationStore.dockBadgeLabel(unreadCount: 0, isEnabled: true))
+        XCTAssertNil(TerminalNotificationStore.dockBadgeLabel(unreadCount: 5, isEnabled: false))
+    }
+
+    func testNotificationBadgePreferenceDefaultsToEnabled() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
+        XCTAssertFalse(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
+        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+    }
+}

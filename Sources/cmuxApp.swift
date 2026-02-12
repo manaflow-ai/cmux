@@ -12,6 +12,8 @@ struct cmuxApp: App {
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -311,6 +313,16 @@ struct cmuxApp: App {
 
                 Divider()
 
+                splitCommandButton(title: "Split Right", shortcut: splitRightMenuShortcut) {
+                    performSplitFromMenu(direction: .right)
+                }
+
+                splitCommandButton(title: "Split Down", shortcut: splitDownMenuShortcut) {
+                    performSplitFromMenu(direction: .down)
+                }
+
+                Divider()
+
                 // Cmd+1 through Cmd+9 for tab selection
                 ForEach(1...9, id: \.self) { number in
                     Button("Tab \(number)") {
@@ -373,6 +385,75 @@ struct cmuxApp: App {
 
     private var currentSocketMode: SocketControlMode {
         SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+    }
+
+    private var splitRightMenuShortcut: StoredShortcut {
+        decodeShortcut(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
+    }
+
+    private var splitDownMenuShortcut: StoredShortcut {
+        decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
+    private func performSplitFromMenu(direction: SplitDirection) {
+        if AppDelegate.shared?.performSplitShortcut(direction: direction) == true {
+            return
+        }
+        tabManager.createSplit(direction: direction)
+    }
+
+    @ViewBuilder
+    private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+        if let key = keyEquivalent(for: shortcut) {
+            Button(title, action: action)
+                .keyboardShortcut(key, modifiers: eventModifiers(for: shortcut))
+        } else {
+            Button(title, action: action)
+        }
+    }
+
+    private func keyEquivalent(for shortcut: StoredShortcut) -> KeyEquivalent? {
+        switch shortcut.key {
+        case "←":
+            return .leftArrow
+        case "→":
+            return .rightArrow
+        case "↑":
+            return .upArrow
+        case "↓":
+            return .downArrow
+        case "\t":
+            return .tab
+        default:
+            let lowered = shortcut.key.lowercased()
+            guard lowered.count == 1, let character = lowered.first else { return nil }
+            return KeyEquivalent(character)
+        }
+    }
+
+    private func eventModifiers(for shortcut: StoredShortcut) -> EventModifiers {
+        var modifiers: EventModifiers = []
+        if shortcut.command {
+            modifiers.insert(.command)
+        }
+        if shortcut.shift {
+            modifiers.insert(.shift)
+        }
+        if shortcut.option {
+            modifiers.insert(.option)
+        }
+        if shortcut.control {
+            modifiers.insert(.control)
+        }
+        return modifiers
     }
 
     private func closePanelOrWindow() {
@@ -947,6 +1028,7 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @State private var shortcutResetToken = UUID()
 
     var body: some View {
@@ -974,6 +1056,16 @@ struct SettingsView: View {
                 .id(shortcutResetToken)
 
                 Text("Click to record a new shortcut.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Divider()
+
+                Text("Notifications")
+                    .font(.headline)
+
+                Toggle("Show unread count on app icon (Dock and Cmd+Tab)", isOn: $notificationDockBadgeEnabled)
+
+                Text("Displays unread notification count as a red badge on the app icon.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
@@ -1045,6 +1137,7 @@ struct SettingsView: View {
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
     }
