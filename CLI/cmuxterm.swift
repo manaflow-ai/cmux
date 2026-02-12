@@ -28,6 +28,27 @@ struct WindowInfo {
     let workspaceCount: Int
 }
 
+struct PaneInfo {
+    let index: Int
+    let id: String
+    let focused: Bool
+    let tabCount: Int
+}
+
+struct PaneSurfaceInfo {
+    let index: Int
+    let title: String
+    let panelId: String
+    let selected: Bool
+}
+
+struct SurfaceHealthInfo {
+    let index: Int
+    let id: String
+    let surfaceType: String
+    let inWindow: Bool?
+}
+
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -131,6 +152,42 @@ final class SocketClient {
         }
         return response
     }
+
+    func sendV2(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params
+        ]
+        guard JSONSerialization.isValidJSONObject(request) else {
+            throw CLIError(message: "Failed to encode v2 request")
+        }
+
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        guard let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 request")
+        }
+
+        let raw = try send(command: requestLine)
+        guard let responseData = raw.data(using: .utf8) else {
+            throw CLIError(message: "Invalid UTF-8 v2 response")
+        }
+        guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
+            throw CLIError(message: "Invalid v2 response")
+        }
+
+        if let ok = response["ok"] as? Bool, ok {
+            return (response["result"] as? [String: Any]) ?? [:]
+        }
+
+        if let error = response["error"] as? [String: Any] {
+            let code = (error["code"] as? String) ?? "error"
+            let message = (error["message"] as? String) ?? "Unknown v2 error"
+            throw CLIError(message: "\(code): \(message)")
+        }
+
+        throw CLIError(message: "v2 request failed")
+    }
 }
 
 struct CMUXCLI {
@@ -196,6 +253,29 @@ struct CMUXCLI {
         case "ping":
             let response = try client.send(command: "ping")
             print(response)
+
+        case "capabilities":
+            let response = try client.sendV2(method: "system.capabilities")
+            print(jsonString(response))
+
+        case "identify":
+            var params: [String: Any] = [:]
+            let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
+            if includeCaller {
+                let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+                if workspaceArg != nil || surfaceArg != nil {
+                    let workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
+                    var caller: [String: Any] = ["workspace_id": workspaceId]
+                    if surfaceArg != nil {
+                        let surfaceId = try resolveSurfaceId(surfaceArg, workspaceId: workspaceId, client: client)
+                        caller["surface_id"] = surfaceId
+                    }
+                    params["caller"] = caller
+                }
+            }
+            let response = try client.sendV2(method: "system.identify", params: params)
+            print(jsonString(response))
 
         case "list-windows":
             let response = try client.send(command: "list_windows")
@@ -280,6 +360,147 @@ struct CMUXCLI {
             let cmd = panelArg != nil ? "new_split \(direction) \(panelArg!)" : "new_split \(direction)"
             let response = try client.send(command: cmd)
             print(response)
+
+        case "list-panes":
+            let response = try client.send(command: "list_panes")
+            if jsonOutput {
+                let panes = parsePanes(response)
+                let payload = panes.map { [
+                    "index": $0.index,
+                    "id": $0.id,
+                    "focused": $0.focused,
+                    "tab_count": $0.tabCount
+                ] }
+                print(jsonString(payload))
+            } else {
+                print(response)
+            }
+
+        case "list-pane-surfaces":
+            let pane = optionValue(commandArgs, name: "--pane")
+            let cmd = pane != nil ? "list_pane_surfaces --pane=\(pane!)" : "list_pane_surfaces"
+            let response = try client.send(command: cmd)
+            if jsonOutput {
+                let surfaces = parsePaneSurfaces(response)
+                let payload = surfaces.map { [
+                    "index": $0.index,
+                    "title": $0.title,
+                    "id": $0.panelId,
+                    "selected": $0.selected
+                ] }
+                print(jsonString(payload))
+            } else {
+                print(response)
+            }
+
+        case "focus-pane":
+            guard let pane = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
+                throw CLIError(message: "focus-pane requires --pane <id|index>")
+            }
+            let response = try client.send(command: "focus_pane \(pane)")
+            print(response)
+
+        case "new-pane":
+            let type = optionValue(commandArgs, name: "--type")
+            let direction = optionValue(commandArgs, name: "--direction")
+            let url = optionValue(commandArgs, name: "--url")
+            var args: [String] = []
+            if let type { args.append("--type=\(type)") }
+            if let direction { args.append("--direction=\(direction)") }
+            if let url { args.append("--url=\(url)") }
+            let cmd = args.isEmpty ? "new_pane" : "new_pane \(args.joined(separator: " "))"
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "new-surface":
+            let type = optionValue(commandArgs, name: "--type")
+            let pane = optionValue(commandArgs, name: "--pane")
+            let url = optionValue(commandArgs, name: "--url")
+            var args: [String] = []
+            if let type { args.append("--type=\(type)") }
+            if let pane { args.append("--pane=\(pane)") }
+            if let url { args.append("--url=\(url)") }
+            let cmd = args.isEmpty ? "new_surface" : "new_surface \(args.joined(separator: " "))"
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "close-surface":
+            let surface = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
+            let cmd = surface != nil ? "close_surface \(surface!)" : "close_surface"
+            let response = try client.send(command: cmd)
+            print(response)
+
+        case "drag-surface-to-split":
+            let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
+            let (panelArg, rem1) = parseOption(rem0, name: "--panel")
+            let surface = surfaceArg ?? panelArg
+            guard let surface else {
+                throw CLIError(message: "drag-surface-to-split requires --surface <id|index>")
+            }
+            guard let direction = rem1.first else {
+                throw CLIError(message: "drag-surface-to-split requires a direction")
+            }
+            let response = try client.send(command: "drag_surface_to_split \(surface) \(direction)")
+            print(response)
+
+        case "refresh-surfaces":
+            let response = try client.send(command: "refresh_surfaces")
+            print(response)
+
+        case "surface-health":
+            let workspace = optionValue(commandArgs, name: "--workspace")
+            let cmd = workspace != nil ? "surface_health \(workspace!)" : "surface_health"
+            let response = try client.send(command: cmd)
+            if jsonOutput {
+                let rows = parseSurfaceHealth(response)
+                let payload = rows.map { row -> [String: Any] in
+                    var item: [String: Any] = [
+                        "index": row.index,
+                        "id": row.id,
+                        "type": row.surfaceType,
+                    ]
+                    item["in_window"] = row.inWindow ?? NSNull()
+                    return item
+                }
+                print(jsonString(payload))
+            } else {
+                print(response)
+            }
+
+        case "trigger-flash":
+            let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            var params: [String: Any] = [:]
+            var workspaceId: String?
+            if workspaceArg != nil || surfaceArg != nil {
+                workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
+                if let workspaceId {
+                    params["workspace_id"] = workspaceId
+                }
+            }
+            if let surfaceArg {
+                let ws: String
+                if let workspaceId {
+                    ws = workspaceId
+                } else {
+                    ws = try resolveWorkspaceId(nil, client: client)
+                }
+                let surfaceId = try resolveSurfaceId(surfaceArg, workspaceId: ws, client: client)
+                params["workspace_id"] = ws
+                params["surface_id"] = surfaceId
+            }
+            let payload = try client.sendV2(method: "surface.trigger_flash", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else if let sid = payload["surface_id"] as? String {
+                if let ws = payload["workspace_id"] as? String {
+                    print("OK \(sid) \(ws)")
+                } else {
+                    print("OK \(sid)")
+                }
+            } else {
+                print("OK")
+            }
 
         case "list-panels":
             let (workspaceArg, _) = parseOption(commandArgs, name: "--workspace")
@@ -452,6 +673,24 @@ struct CMUXCLI {
             let response = try client.send(command: "get_url \(panel)")
             print(response)
 
+        case "focus-webview":
+            guard let panel = optionValue(commandArgs, name: "--panel") ?? optionValue(commandArgs, name: "--surface") else {
+                throw CLIError(message: "focus-webview requires --panel or --surface")
+            }
+            let response = try client.send(command: "focus_webview \(panel)")
+            print(response)
+
+        case "is-webview-focused":
+            guard let panel = optionValue(commandArgs, name: "--panel") ?? optionValue(commandArgs, name: "--surface") else {
+                throw CLIError(message: "is-webview-focused requires --panel or --surface")
+            }
+            let response = try client.send(command: "is_webview_focused \(panel)")
+            if jsonOutput {
+                print(jsonString(["focused": response.lowercased() == "true"]))
+            } else {
+                print(response)
+            }
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -526,6 +765,103 @@ struct CMUXCLI {
                     selectedWorkspaceId: selectedWorkspaceId,
                     workspaceCount: workspaceCount
                 )
+            }
+    }
+
+    private func parsePanes(_ response: String) -> [PaneInfo] {
+        guard response != "No panes" else { return [] }
+        return response
+            .split(separator: "\n")
+            .compactMap { line in
+                let raw = String(line)
+                let focused = raw.hasPrefix("*")
+                let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: "* "))
+                let parts = cleaned.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+                guard parts.count >= 2 else { return nil }
+
+                let indexText = parts[0].replacingOccurrences(of: ":", with: "")
+                guard let index = Int(indexText) else { return nil }
+                let id = String(parts[1])
+
+                var tabCount = 0
+                if parts.count >= 3 {
+                    let trailing = String(parts[2])
+                    if let open = trailing.firstIndex(of: "["),
+                       let close = trailing.firstIndex(of: "]"),
+                       open < close {
+                        let inside = trailing[trailing.index(after: open)..<close]
+                        let number = inside.replacingOccurrences(of: "tabs", with: "")
+                            .trimmingCharacters(in: .whitespaces)
+                        tabCount = Int(number) ?? 0
+                    }
+                }
+
+                return PaneInfo(index: index, id: id, focused: focused, tabCount: tabCount)
+            }
+    }
+
+    private func parsePaneSurfaces(_ response: String) -> [PaneSurfaceInfo] {
+        guard response != "No tabs in pane" else { return [] }
+        return response
+            .split(separator: "\n")
+            .compactMap { line in
+                let raw = String(line)
+                let selected = raw.hasPrefix("*")
+                let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: "* "))
+
+                guard let firstSpace = cleaned.firstIndex(of: " ") else { return nil }
+                let indexToken = cleaned[..<firstSpace]
+                let indexText = indexToken.replacingOccurrences(of: ":", with: "")
+                guard let index = Int(indexText) else { return nil }
+
+                let remainder = cleaned[cleaned.index(after: firstSpace)...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let panelRange = remainder.range(of: "[panel:"),
+                      let endBracket = remainder[panelRange.upperBound...].firstIndex(of: "]") else { return nil }
+
+                let title = remainder[..<panelRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+                let panelId = remainder[panelRange.upperBound..<endBracket]
+
+                return PaneSurfaceInfo(
+                    index: index,
+                    title: title,
+                    panelId: String(panelId),
+                    selected: selected
+                )
+            }
+    }
+
+    private func parseSurfaceHealth(_ response: String) -> [SurfaceHealthInfo] {
+        guard response != "No surfaces" else { return [] }
+        return response
+            .split(separator: "\n")
+            .compactMap { line in
+                let raw = String(line)
+                let parts = raw.split(separator: " ").map(String.init)
+                guard parts.count >= 4 else { return nil }
+
+                let indexText = parts[0].replacingOccurrences(of: ":", with: "")
+                guard let index = Int(indexText) else { return nil }
+                let id = parts[1]
+
+                var surfaceType = ""
+                var inWindow: Bool?
+                for token in parts.dropFirst(2) {
+                    if token.hasPrefix("type=") {
+                        surfaceType = token.replacingOccurrences(of: "type=", with: "")
+                    } else if token.hasPrefix("in_window=") {
+                        let value = token.replacingOccurrences(of: "in_window=", with: "")
+                        if value == "true" {
+                            inWindow = true
+                        } else if value == "false" {
+                            inWindow = false
+                        } else {
+                            inWindow = nil
+                        }
+                    }
+                }
+
+                return SurfaceHealthInfo(index: index, id: id, surfaceType: surfaceType, inWindow: inWindow)
             }
     }
 
@@ -629,6 +965,10 @@ struct CMUXCLI {
         return args[index + 1]
     }
 
+    private func hasFlag(_ args: [String], name: String) -> Bool {
+        args.contains(name)
+    }
+
     private func remainingArgs(_ args: [String], removing tokens: [String]) -> [String] {
         var remaining = args
         for token in tokens {
@@ -669,6 +1009,8 @@ struct CMUXCLI {
 
         Commands:
           ping
+          capabilities
+          identify [--workspace <id|index>] [--surface <id|index>] [--no-caller]
           list-windows
           current-window
           new-window
@@ -678,6 +1020,16 @@ struct CMUXCLI {
           list-workspaces
           new-workspace
           new-split <left|right|up|down> [--panel <id|index>]
+          list-panes
+          list-pane-surfaces [--pane <id|index>]
+          focus-pane --pane <id|index>
+          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--url <url>]
+          new-surface [--type <terminal|browser>] [--pane <id|index>] [--url <url>]
+          close-surface [--surface <id|index>]
+          drag-surface-to-split --surface <id|index> <left|right|up|down>
+          refresh-surfaces
+          surface-health [--workspace <id|index>]
+          trigger-flash [--workspace <id|index>] [--surface <id|index>]
           list-panels [--workspace <id|index>]
           focus-panel --panel <id|index>
           close-workspace --workspace <id|index>
@@ -698,6 +1050,8 @@ struct CMUXCLI {
           browser-forward --panel <id>
           browser-reload --panel <id>
           get-url --panel <id>
+          focus-webview --panel <id|index>
+          is-webview-focused --panel <id|index>
           help
 
         Environment:

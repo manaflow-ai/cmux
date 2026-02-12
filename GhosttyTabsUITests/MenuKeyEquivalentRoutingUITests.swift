@@ -358,6 +358,156 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         )
     }
 
+    func testReproBlankAfterClosingRightSplitsTopFirstWithGap() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_ITERATIONS"] = "14"
+        // Reproduce manual close cadence: close top-right, observe one frame, then close bottom-right.
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_CLOSE_DELAY_MS"] = "120"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_BURST_FRAMES"] = "40"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATTERN"] = "close_right_lrtd"
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
+
+        let doneDeadline = Date().addingTimeInterval(90.0)
+        while Date() < doneDeadline {
+            if let data = loadData(), data["visualDone"] == "1" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+        }
+
+        guard let data = loadData() else {
+            XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
+            return
+        }
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Test setup failed: \(setupError)")
+            return
+        }
+
+        let lastIter = Int(data["visualLastIteration"] ?? "") ?? 0
+        XCTAssertGreaterThan(lastIter, 0, "Expected at least one visual iteration. data=\(data)")
+
+        let blankSeen = (data["blankFrameSeen"] ?? "") == "1"
+        let sizeMismatchSeen = (data["sizeMismatchSeen"] ?? "") == "1"
+        let trace = data["timelineTrace"] ?? ""
+
+        XCTAssertFalse(
+            blankSeen,
+            "Transient blank frame detected. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
+        )
+        XCTAssertFalse(
+            sizeMismatchSeen,
+            "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
+        )
+    }
+
+    func testReproBlankAfterClosingRightSplitsBottomFirstViaShortcuts() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_ITERATIONS"] = "12"
+        // Keep a short but non-zero delay so we sample the transient frame after BR closes
+        // and before TR closes (the user-visible stretched-text repro window).
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_CLOSE_DELAY_MS"] = "120"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_BURST_FRAMES"] = "40"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATTERN"] = "close_right_lrtd_bottom_first"
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
+
+        let doneDeadline = Date().addingTimeInterval(90.0)
+        while Date() < doneDeadline {
+            if let data = loadData(), data["visualDone"] == "1" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+        }
+
+        guard let data = loadData() else {
+            XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
+            return
+        }
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Test setup failed: \(setupError)")
+            return
+        }
+
+        let lastIter = Int(data["visualLastIteration"] ?? "") ?? 0
+        XCTAssertGreaterThan(lastIter, 0, "Expected at least one visual iteration. data=\(data)")
+
+        let blankSeen = (data["blankFrameSeen"] ?? "") == "1"
+        let sizeMismatchSeen = (data["sizeMismatchSeen"] ?? "") == "1"
+        let trace = data["timelineTrace"] ?? ""
+
+        XCTAssertFalse(
+            blankSeen,
+            "Transient blank frame detected. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
+        )
+        XCTAssertFalse(
+            sizeMismatchSeen,
+            "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
+        )
+    }
+
+    func testReproBlankAfterClosingRightSplitsWithoutFocusingRightPanes() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_ITERATIONS"] = "16"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_CLOSE_DELAY_MS"] = "0"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_BURST_FRAMES"] = "36"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATTERN"] = "close_right_lrtd_unfocused"
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
+
+        let doneDeadline = Date().addingTimeInterval(90.0)
+        while Date() < doneDeadline {
+            if let data = loadData(), data["visualDone"] == "1" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+        }
+
+        guard let data = loadData() else {
+            XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
+            return
+        }
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Test setup failed: \(setupError)")
+            return
+        }
+
+        let lastIter = Int(data["visualLastIteration"] ?? "") ?? 0
+        XCTAssertGreaterThan(lastIter, 0, "Expected at least one visual iteration. data=\(data)")
+
+        let blankSeen = (data["blankFrameSeen"] ?? "") == "1"
+        let sizeMismatchSeen = (data["sizeMismatchSeen"] ?? "") == "1"
+        let trace = data["timelineTrace"] ?? ""
+
+        XCTAssertFalse(
+            blankSeen,
+            "Transient blank frame detected. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
+        )
+        XCTAssertFalse(
+            sizeMismatchSeen,
+            "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
+        )
+    }
+
     // MARK: - Screenshot-Based Blank Detection
 
     private struct CropStats {

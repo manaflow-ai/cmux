@@ -859,31 +859,52 @@ final class UpdateTitlebarAccessoryController {
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
     }
 
+    private func preferredNotificationsController(
+        from controllers: [TitlebarControlsAccessoryViewController],
+        preferShownPopover: Bool
+    ) -> TitlebarControlsAccessoryViewController? {
+        if let keyWindow = NSApp.keyWindow,
+           let match = controllers.first(where: { $0.view.window === keyWindow }) {
+            return match
+        }
+        if let keyMain = NSApp.windows.first(where: { $0.isKeyWindow && isMainTerminalWindow($0) }),
+           let match = controllers.first(where: { $0.view.window === keyMain }) {
+            return match
+        }
+        if preferShownPopover,
+           let shown = controllers.first(where: { $0.popoverIsShownForTesting }) {
+            return shown
+        }
+        return controllers.first
+    }
+
     func toggleNotificationsPopover(animated: Bool = true) {
         let controllers = controlsControllers.allObjects
         guard !controllers.isEmpty else { return }
 
-        let target: TitlebarControlsAccessoryViewController? = {
-            if let keyWindow = NSApp.keyWindow,
-               let match = controllers.first(where: { $0.view.window === keyWindow }) {
-                return match
-            }
-            if let keyMain = NSApp.windows.first(where: { $0.isKeyWindow && isMainTerminalWindow($0) }),
-               let match = controllers.first(where: { $0.view.window === keyMain }) {
-                return match
-            }
-            // If any popover is shown, treat it as the active target so keyboard shortcut closes it.
-            if let shown = controllers.first(where: { $0.popoverIsShownForTesting }) {
-                return shown
-            }
-            return controllers.first
-        }()
-
+        let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
         for controller in controllers {
             if controller !== target {
                 controller.dismissNotificationsPopover()
             }
         }
         target?.toggleNotificationsPopover(animated: animated)
+    }
+
+    func showNotificationsPopover(animated: Bool = true) {
+        let controllers = controlsControllers.allObjects
+        guard !controllers.isEmpty else { return }
+
+        let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
+        for controller in controllers {
+            if controller !== target {
+                controller.dismissNotificationsPopover()
+            }
+        }
+        guard let target else { return }
+        if target.popoverIsShownForTesting {
+            return
+        }
+        target.toggleNotificationsPopover(animated: animated)
     }
 }

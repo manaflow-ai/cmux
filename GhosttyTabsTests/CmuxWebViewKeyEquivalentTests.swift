@@ -88,6 +88,44 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 }
 
+final class FinderServicePathResolverTests: XCTestCase {
+    func testOrderedUniqueDirectoriesUsesParentForFilesAndDedupes() {
+        let input: [URL] = [
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/project", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/project/README.md", isDirectory: false),
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/../cmuxterm-services/project", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/other", isDirectory: true),
+        ]
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: input)
+        XCTAssertEqual(
+            directories,
+            [
+                "/tmp/cmuxterm-services/project",
+                "/tmp/cmuxterm-services/other",
+            ]
+        )
+    }
+
+    func testOrderedUniqueDirectoriesPreservesFirstSeenOrder() {
+        let input: [URL] = [
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/b", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/a/file.txt", isDirectory: false),
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/a", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmuxterm-services/b/file.txt", isDirectory: false),
+        ]
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: input)
+        XCTAssertEqual(
+            directories,
+            [
+                "/tmp/cmuxterm-services/b",
+                "/tmp/cmuxterm-services/a",
+            ]
+        )
+    }
+}
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))
@@ -229,5 +267,136 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+    }
+}
+
+
+final class MenuBarBadgeLabelFormatterTests: XCTestCase {
+    func testBadgeLabelFormatting() {
+        XCTAssertNil(MenuBarBadgeLabelFormatter.badgeText(for: 0))
+        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 1), "1")
+        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 9), "9")
+        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 10), "9+")
+        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 47), "9+")
+    }
+}
+
+final class MenuBarBuildHintFormatterTests: XCTestCase {
+    func testReleaseBuildShowsNoHint() {
+        XCTAssertNil(MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV menubar-extra", isDebugBuild: false))
+    }
+
+    func testDebugBuildWithTagShowsTag() {
+        XCTAssertEqual(
+            MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV menubar-extra", isDebugBuild: true),
+            "Build Tag: menubar-extra"
+        )
+    }
+
+    func testDebugBuildWithoutTagShowsUntagged() {
+        XCTAssertEqual(
+            MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV", isDebugBuild: true),
+            "Build: DEV (untagged)"
+        )
+    }
+}
+
+final class MenuBarNotificationLineFormatterTests: XCTestCase {
+    func testPlainTitleContainsUnreadDotBodyAndTab() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Build finished",
+            subtitle: "",
+            body: "All checks passed",
+            createdAt: Date(timeIntervalSince1970: 0),
+            isRead: false
+        )
+
+        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: "workspace-1")
+        XCTAssertTrue(line.hasPrefix("● Build finished"))
+        XCTAssertTrue(line.contains("All checks passed"))
+        XCTAssertTrue(line.contains("workspace-1"))
+    }
+
+    func testPlainTitleFallsBackToSubtitleWhenBodyEmpty() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Deploy",
+            subtitle: "staging",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 0),
+            isRead: true
+        )
+
+        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: nil)
+        XCTAssertTrue(line.hasPrefix("  Deploy"))
+        XCTAssertTrue(line.contains("staging"))
+    }
+}
+
+
+final class MenuBarIconDebugSettingsTests: XCTestCase {
+    func testDisplayedUnreadCountUsesPreviewOverrideWhenEnabled() {
+        let suiteName = "MenuBarIconDebugSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: MenuBarIconDebugSettings.previewEnabledKey)
+        defaults.set(7, forKey: MenuBarIconDebugSettings.previewCountKey)
+
+        XCTAssertEqual(MenuBarIconDebugSettings.displayedUnreadCount(actualUnreadCount: 2, defaults: defaults), 7)
+    }
+
+    func testBadgeRenderConfigClampsInvalidValues() {
+        let suiteName = "MenuBarIconDebugSettingsTests.Clamp.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(-100, forKey: MenuBarIconDebugSettings.badgeRectXKey)
+        defaults.set(200, forKey: MenuBarIconDebugSettings.badgeRectYKey)
+        defaults.set(-100, forKey: MenuBarIconDebugSettings.singleDigitFontSizeKey)
+        defaults.set(100, forKey: MenuBarIconDebugSettings.multiDigitXAdjustKey)
+
+        let config = MenuBarIconDebugSettings.badgeRenderConfig(defaults: defaults)
+        XCTAssertEqual(config.badgeRect.origin.x, 0, accuracy: 0.001)
+        XCTAssertEqual(config.badgeRect.origin.y, 20, accuracy: 0.001)
+        XCTAssertEqual(config.singleDigitFontSize, 6, accuracy: 0.001)
+        XCTAssertEqual(config.multiDigitXAdjust, 4, accuracy: 0.001)
+    }
+
+    func testBadgeRenderConfigUsesLegacySingleDigitXAdjustWhenNewKeyMissing() {
+        let suiteName = "MenuBarIconDebugSettingsTests.LegacyX.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(2.5, forKey: MenuBarIconDebugSettings.legacySingleDigitXAdjustKey)
+
+        let config = MenuBarIconDebugSettings.badgeRenderConfig(defaults: defaults)
+        XCTAssertEqual(config.singleDigitXAdjust, 2.5, accuracy: 0.001)
+    }
+}
+
+@MainActor
+
+final class MenuBarIconRendererTests: XCTestCase {
+    func testImageWidthDoesNotShiftWhenBadgeAppears() {
+        let noBadge = MenuBarIconRenderer.makeImage(unreadCount: 0)
+        let withBadge = MenuBarIconRenderer.makeImage(unreadCount: 2)
+
+        XCTAssertEqual(noBadge.size.width, 18, accuracy: 0.001)
+        XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
     }
 }

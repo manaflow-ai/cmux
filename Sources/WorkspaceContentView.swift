@@ -34,6 +34,7 @@ struct WorkspaceContentView: View {
                         // active workspace. This prevents divergence between the blue focused-tab
                         // indicator and where keyboard input/flash-focus actually lands.
                         guard isTabActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
                         workspace.focusPanel(panel.id)
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }

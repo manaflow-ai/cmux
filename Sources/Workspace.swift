@@ -25,17 +25,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
 
-    // When closing multiple tabs quickly (e.g. collapsing a 2x2 into a 1x2), bonsplit + SwiftUI
-    // can transiently reparent views. In rare cases Ghostty's renderer doesn't get a redraw after
-    // the final layout settles, leaving a pane visually blank/frozen until the user changes focus.
-    // Debounce a post-close refresh to nudge all remaining terminal surfaces.
-    // Legacy: retained for backward compatibility with in-flight changes, but no longer used.
-    // Intentionally no post-close refresh/polling work items. See didCloseTab.
-
-    // When many tabs are created/selected in quick succession, multiple in-flight selection
-    // retries can pile up on the main queue. Track a single generation so newer selection
-    // requests cancel older retries (including across panes) early.
-    private var applyTabSelectionGeneration: UInt64 = 0
+    // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
+    // layout/size synchronization.
 
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
@@ -160,6 +151,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    private var isApplyingTabSelection = false
+    private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
+    private var isReconcilingFocusState = false
+    private var focusReconcileScheduled = false
+    private var geometryReconcileScheduled = false
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
@@ -250,14 +246,21 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false
     ) -> TerminalPanel? {
-        guard let sourcePanel = terminalPanel(for: panelId) else { return nil }
-
-        // Get inherited config from source terminal
-        let inheritedConfig: ghostty_surface_config_s? = if let existing = sourcePanel.surface.surface {
-            ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-        } else {
-            nil
-        }
+        // Get inherited config from the source terminal when possible.
+        // If the split is initiated from a non-terminal panel (for example browser),
+        // fall back to any terminal in the workspace.
+        let inheritedConfig: ghostty_surface_config_s? = {
+            if let sourceTerminal = terminalPanel(for: panelId),
+               let existing = sourceTerminal.surface.surface {
+                return ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+            }
+            if let fallbackSurface = panels.values
+                .compactMap({ ($0 as? TerminalPanel)?.surface.surface })
+                .first {
+                return ghostty_surface_inherited_config(fallbackSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+            }
+            return nil
+        }()
 
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -353,7 +356,6 @@ final class Workspace: Identifiable, ObservableObject {
             // Use the same focus path as socket-driven focus changes so we reliably transfer
             // AppKit first responder between terminal surfaces after heavy split/tab churn.
             focusPanel(newPanel.id)
-            applyTabSelectionEventually(tabId: newTabId, inPane: paneId)
         }
         return newPanel
     }
@@ -458,7 +460,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
             browserPanel.focus()
-            applyTabSelectionEventually(tabId: newTabId, inPane: paneId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
         }
 
         // Subscribe to browser title/loading/favicon changes to update the bonsplit tab.
@@ -484,34 +486,41 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
-    /// Close a panel
-    func closePanel(_ panelId: UUID, force: Bool = false) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-
-        if force {
-            forceCloseTabIds.insert(tabId)
+    /// Close a panel.
+    /// Returns true when a bonsplit tab close request was issued.
+    
+    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+        if let tabId = surfaceIdFromPanelId(panelId) {
+            if force {
+                forceCloseTabIds.insert(tabId)
+            }
+            // Close the tab in bonsplit (this triggers delegate callback)
+            return bonsplitController.closeTab(tabId)
         }
 
-        // Close the tab in bonsplit (this triggers delegate callback)
-        bonsplitController.closeTab(tabId)
+        // Mapping can transiently drift during split-tree mutations. If the target panel is
+        // currently focused, close whichever tab bonsplit marks selected in that focused pane.
+        guard focusedPanelId == panelId,
+              let focusedPane = bonsplitController.focusedPaneId,
+              let selected = bonsplitController.selectedTab(inPane: focusedPane) else {
+            return false
+        }
+
+        if force {
+            forceCloseTabIds.insert(selected.id)
+        }
+        return bonsplitController.closeTab(selected.id)
     }
 
     // MARK: - Focus Management
 
-    // Cancel any in-flight selection convergence loops. This is important when the user (or socket)
-    // explicitly changes focus: older retries must not steal focus back in a later runloop tick.
-    func cancelTabSelectionConvergence() {
-        applyTabSelectionGeneration &+= 1
-    }
-
     func focusPanel(_ panelId: UUID) {
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString ?? "nil"
-        FocusLogStore.shared.append("Workspace.focusPanel panelId=\\(panelId.uuidString) focusedPane=\\(pane)")
+        FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-
-        cancelTabSelectionConvergence()
+        let currentlyFocusedPanelId = focusedPanelId
 
         // Capture the currently focused terminal view so we can explicitly move AppKit first
         // responder when focusing another terminal (helps avoid "highlighted but typing goes to
@@ -524,15 +533,25 @@ final class Workspace: Identifiable, ObservableObject {
         let targetPaneId = bonsplitController.allPaneIds.first(where: { paneId in
             bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
         })
-        if let targetPaneId {
+        let selectionAlreadyConverged: Bool = {
+            guard let targetPaneId else { return false }
+            return bonsplitController.focusedPaneId == targetPaneId &&
+                bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
+        }()
+
+        if let targetPaneId, !selectionAlreadyConverged {
             bonsplitController.focusPane(targetPaneId)
         }
 
-        bonsplitController.selectTab(tabId)
+        if !selectionAlreadyConverged {
+            bonsplitController.selectTab(tabId)
+        }
 
         // Also focus the underlying panel
         if let panel = panels[panelId] {
-            panel.focus()
+            if currentlyFocusedPanelId != panelId || !selectionAlreadyConverged {
+                panel.focus()
+            }
 
             if let terminalPanel = panel as? TerminalPanel {
                 // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
@@ -542,61 +561,24 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
-
-        // bonsplit selection/focus can lag or "snap back" under heavy churn. Converge on the
-        // intended focus target so the surface becomes interactive deterministically.
         if let targetPaneId {
-            applyTabSelectionEventually(tabId: tabId, inPane: targetPaneId)
-        } else {
-            // If the tab isn't discoverable in a pane yet, retry once on the next tick.
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard let paneId = self.bonsplitController.allPaneIds.first(where: { paneId in
-                    self.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
-                }) else { return }
-                self.applyTabSelectionEventually(tabId: tabId, inPane: paneId)
-            }
+            applyTabSelection(tabId: tabId, inPane: targetPaneId)
         }
     }
 
     func moveFocus(direction: NavigationDirection) {
-        // Cancel any in-flight selection convergence loops so they can't steal focus back
-        // after explicit user-driven (or socket-driven) navigation.
-        cancelTabSelectionConvergence()
-
-        // Unfocus the currently-focused panel immediately so any in-flight terminal focus retries
-        // are canceled before we navigate away. Otherwise, `ensureFocus` can briefly succeed and
-        // steal bonsplit focus back to the old pane after navigation (notably in VM tests).
+        // Unfocus the currently-focused panel before navigating.
         if let prevPanelId = focusedPanelId, let prev = panels[prevPanelId] {
             prev.unfocus()
         }
 
-        let previousPaneId = bonsplitController.focusedPaneId
         bonsplitController.navigateFocus(direction: direction)
 
-        // Wait for bonsplit to publish the new focused pane before applying selection side-effects.
-        // (navigateFocus can update focus on a later runloop tick.)
-        scheduleApplyFocusedSelection(afterPaneFocusChangeFrom: previousPaneId)
-    }
-
-    private func scheduleApplyFocusedSelection(afterPaneFocusChangeFrom previousPaneId: PaneID?, attempt: Int = 0) {
-        let maxAttempts = 80 // ~1.6s worst-case at 20ms ticks
-        guard attempt < maxAttempts else { return }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
-            guard let self else { return }
-
-            let paneId = self.bonsplitController.focusedPaneId
-            // If focus hasn't changed yet, keep waiting.
-            if paneId == previousPaneId {
-                self.scheduleApplyFocusedSelection(afterPaneFocusChangeFrom: previousPaneId, attempt: attempt + 1)
-                return
-            }
-
-            guard let paneId, let tabId = self.bonsplitController.selectedTab(inPane: paneId)?.id else { return }
-            self.applyTabSelection(tabId: tabId, inPane: paneId)
-            // Keep converging briefly to survive bonsplit/SwiftUI "snap back" under churn.
-            self.applyTabSelectionEventually(tabId: tabId, inPane: paneId)
+        // Always reconcile selection/focus after navigation so AppKit first-responder and
+        // bonsplit's focused pane stay aligned, even through split tree mutations.
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
         }
     }
 
@@ -604,31 +586,26 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the next surface in the currently focused pane
     func selectNextSurface() {
-        cancelTabSelectionConvergence()
         bonsplitController.selectNextTab()
 
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
-            applyTabSelectionEventually(tabId: tabId, inPane: paneId)
         }
     }
 
     /// Select the previous surface in the currently focused pane
     func selectPreviousSurface() {
-        cancelTabSelectionConvergence()
         bonsplitController.selectPreviousTab()
 
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
-            applyTabSelectionEventually(tabId: tabId, inPane: paneId)
         }
     }
 
     /// Select a surface by index in the currently focused pane
     func selectSurface(at index: Int) {
-        cancelTabSelectionConvergence()
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
         let tabs = bonsplitController.tabs(inPane: focusedPaneId)
         guard index >= 0 && index < tabs.count else { return }
@@ -636,13 +613,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let tabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
             applyTabSelection(tabId: tabId, inPane: focusedPaneId)
-            applyTabSelectionEventually(tabId: tabId, inPane: focusedPaneId)
         }
     }
 
     /// Select the last surface in the currently focused pane
     func selectLastSurface() {
-        cancelTabSelectionConvergence()
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
         let tabs = bonsplitController.tabs(inPane: focusedPaneId)
         guard let last = tabs.last else { return }
@@ -650,7 +625,6 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let tabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
             applyTabSelection(tabId: tabId, inPane: focusedPaneId)
-            applyTabSelectionEventually(tabId: tabId, inPane: focusedPaneId)
         }
     }
 
@@ -728,6 +702,85 @@ final class Workspace: Identifiable, ObservableObject {
         }
         return false
     }
+
+    private func reconcileFocusState() {
+        guard !isReconcilingFocusState else { return }
+        isReconcilingFocusState = true
+        defer { isReconcilingFocusState = false }
+
+        // Source of truth: bonsplit focused pane + selected tab.
+        // AppKit first responder must converge to this model state, not the other way around.
+        var targetPanelId: UUID?
+
+        if let focusedPane = bonsplitController.focusedPaneId,
+           let focusedTab = bonsplitController.selectedTab(inPane: focusedPane),
+           let mappedPanelId = panelIdFromSurfaceId(focusedTab.id),
+           panels[mappedPanelId] != nil {
+            targetPanelId = mappedPanelId
+        } else {
+            for pane in bonsplitController.allPaneIds {
+                guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
+                      let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
+                      panels[mappedPanelId] != nil else { continue }
+                bonsplitController.focusPane(pane)
+                bonsplitController.selectTab(selectedTab.id)
+                targetPanelId = mappedPanelId
+                break
+            }
+        }
+
+        if targetPanelId == nil, let fallbackPanelId = panels.keys.first {
+            targetPanelId = fallbackPanelId
+            if let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
+               let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
+                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
+               }) {
+                bonsplitController.focusPane(fallbackPane)
+                bonsplitController.selectTab(fallbackTabId)
+            }
+        }
+
+        guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
+
+        for (panelId, panel) in panels where panelId != targetPanelId {
+            panel.unfocus()
+        }
+
+        targetPanel.focus()
+        if let terminalPanel = targetPanel as? TerminalPanel {
+            terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
+        }
+    }
+
+    /// Reconcile focus/first-responder convergence.
+    /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
+    private func scheduleFocusReconcile() {
+        guard !focusReconcileScheduled else { return }
+        focusReconcileScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.focusReconcileScheduled = false
+            self.reconcileFocusState()
+        }
+    }
+
+    /// Reconcile remaining terminal view geometries after split topology changes.
+    /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
+    private func scheduleTerminalGeometryReconcile() {
+        guard !geometryReconcileScheduled else { return }
+        geometryReconcileScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.geometryReconcileScheduled = false
+
+            for panel in self.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                terminalPanel.hostedView.reconcileGeometryNow()
+                terminalPanel.surface.forceRefresh()
+            }
+        }
+    }
+
 }
 
 // MARK: - BonsplitDelegate
@@ -757,14 +810,51 @@ extension Workspace: BonsplitDelegate {
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
     private func applyTabSelection(tabId: TabID, inPane pane: PaneID) {
-        // Avoid racing with later user-driven selection changes.
-        guard bonsplitController.focusedPaneId == pane,
-              bonsplitController.selectedTab(inPane: pane)?.id == tabId else {
+        pendingTabSelection = (tabId: tabId, pane: pane)
+        guard !isApplyingTabSelection else { return }
+        isApplyingTabSelection = true
+        defer {
+            isApplyingTabSelection = false
+            pendingTabSelection = nil
+        }
+
+        var iterations = 0
+        while let request = pendingTabSelection {
+            pendingTabSelection = nil
+            iterations += 1
+            if iterations > 8 { break }
+            applyTabSelectionNow(tabId: request.tabId, inPane: request.pane)
+        }
+    }
+
+    private func applyTabSelectionNow(tabId: TabID, inPane pane: PaneID) {
+        if bonsplitController.allPaneIds.contains(pane) {
+            if bonsplitController.focusedPaneId != pane {
+                bonsplitController.focusPane(pane)
+            }
+            if bonsplitController.tabs(inPane: pane).contains(where: { $0.id == tabId }),
+               bonsplitController.selectedTab(inPane: pane)?.id != tabId {
+                bonsplitController.selectTab(tabId)
+            }
+        }
+
+        let focusedPane: PaneID
+        let selectedTabId: TabID
+        if let currentPane = bonsplitController.focusedPaneId,
+           let currentTabId = bonsplitController.selectedTab(inPane: currentPane)?.id {
+            focusedPane = currentPane
+            selectedTabId = currentTabId
+        } else if bonsplitController.tabs(inPane: pane).contains(where: { $0.id == tabId }) {
+            focusedPane = pane
+            selectedTabId = tabId
+            bonsplitController.focusPane(focusedPane)
+            bonsplitController.selectTab(selectedTabId)
+        } else {
             return
         }
 
         // Focus the selected panel
-        guard let panelId = panelIdFromSurfaceId(tabId),
+        guard let panelId = panelIdFromSurfaceId(selectedTabId),
               let panel = panels[panelId] else {
             return
         }
@@ -775,6 +865,12 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
+
+        // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
+        // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
+        }
 
         // Update current directory if this is a terminal
         if let dir = panelDirectories[panelId] {
@@ -790,61 +886,6 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
-    }
-
-    private func applyTabSelectionEventually(
-        tabId: TabID,
-        inPane pane: PaneID,
-        attempt: Int = 0,
-        generation: UInt64? = nil,
-        stableCount: Int = 0
-    ) {
-        let maxAttempts = 150
-        guard attempt < maxAttempts else { return }
-
-        let gen: UInt64 = {
-            if let generation { return generation }
-            applyTabSelectionGeneration &+= 1
-            return applyTabSelectionGeneration
-        }()
-        guard applyTabSelectionGeneration == gen else { return }
-
-        // Nudge bonsplit state towards the desired selection: in some programmatic paths
-        // (createTab/selectTab), selection can lag (or a too-early select can be ignored
-        // before the view tree finishes updating). Re-apply focus+selection until it sticks.
-        if bonsplitController.focusedPaneId != pane {
-            bonsplitController.focusPane(pane)
-        }
-        if bonsplitController.selectedTab(inPane: pane)?.id != tabId {
-            bonsplitController.selectTab(tabId)
-        }
-
-        let isSelectedAndFocused = bonsplitController.focusedPaneId == pane
-            && bonsplitController.selectedTab(inPane: pane)?.id == tabId
-
-        // Selection can "snap back" after we momentarily observe the correct tab (SwiftUI tree
-        // commit ordering). Require a consecutive-stability window before stopping retries.
-        if isSelectedAndFocused {
-            // Only apply side-effects once per stability window; subsequent checks only verify
-            // that focus+selection remain stable long enough.
-            if stableCount == 0 {
-                applyTabSelection(tabId: tabId, inPane: pane)
-            }
-
-            // 25 * 0.02s ~= 500ms of stable focus+selection. This is intentionally conservative
-            // to survive late SwiftUI "snap back" under heavy split/tab churn.
-            if stableCount >= 25 { return }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
-            self?.applyTabSelectionEventually(
-                tabId: tabId,
-                inPane: pane,
-                attempt: attempt + 1,
-                generation: gen,
-                stableCount: isSelectedAndFocused ? stableCount + 1 : 0
-            )
-        }
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
@@ -922,6 +963,8 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
+            scheduleTerminalGeometryReconcile()
+            scheduleFocusReconcile()
             return
         }
 
@@ -938,22 +981,33 @@ extension Workspace: BonsplitDelegate {
         panelTitles.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
 
-        if let selectTabId {
-            // Defer selection so bonsplit has a chance to fully apply its close mutation first.
-            // This makes selection deterministic (next tab if present, otherwise previous).
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard self.bonsplitController.allPaneIds.contains(pane) else { return }
-                guard self.bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }) else { return }
-                // Avoid stealing focus if the user/test has moved on to another pane.
-                guard self.bonsplitController.focusedPaneId == pane else { return }
-                self.bonsplitController.selectTab(selectTabId)
-                self.applyTabSelectionEventually(tabId: selectTabId, inPane: pane)
+        // Keep the workspace invariant: always retain at least one real panel.
+        // This prevents runtime close callbacks from ever collapsing into a tabless workspace.
+        if panels.isEmpty {
+            let replacement = createReplacementTerminalPanel()
+            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
+               let replacementPane = bonsplitController.allPaneIds.first {
+                bonsplitController.focusPane(replacementPane)
+                bonsplitController.selectTab(replacementTabId)
+                applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
             }
+            scheduleTerminalGeometryReconcile()
+            scheduleFocusReconcile()
+            return
         }
 
-        // Avoid any post-close polling/forced redraw loops. The view hierarchy should remain
-        // stable and always render a tab when tabs exist (bonsplit ensures selection).
+        if let selectTabId,
+           bonsplitController.allPaneIds.contains(pane),
+           bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
+           bonsplitController.focusedPaneId == pane {
+            // Keep selection/focus convergence in the same close transaction to avoid a transient
+            // frame where the pane has no selected content.
+            bonsplitController.selectTab(selectTabId)
+            applyTabSelection(tabId: selectTabId, inPane: pane)
+        }
+
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -965,7 +1019,7 @@ extension Workspace: BonsplitDelegate {
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG
         FocusLogStore.shared.append(
-            "Workspace.didFocusPane paneId=\\(pane.id.uuidString) tabId=\\(tab.id.uuidString) focusedPane=\\(controller.focusedPaneId?.id.uuidString ?? \"nil\")"
+            "Workspace.didFocusPane paneId=\(pane.id.uuidString) tabId=\(tab.id) focusedPane=\(controller.focusedPaneId?.id.uuidString ?? "nil")"
         )
 #endif
         applyTabSelection(tabId: tab.id, inPane: pane)
@@ -975,6 +1029,12 @@ extension Workspace: BonsplitDelegate {
            let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
         }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        _ = paneId
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
@@ -994,7 +1054,10 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
-        guard !isProgrammaticSplit else { return }
+        guard !isProgrammaticSplit else {
+            scheduleTerminalGeometryReconcile()
+            return
+        }
 
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
@@ -1015,6 +1078,7 @@ extension Workspace: BonsplitDelegate {
                     }
                 }
             }
+            scheduleTerminalGeometryReconcile()
             return
         }
 
@@ -1055,7 +1119,15 @@ extension Workspace: BonsplitDelegate {
             if self.bonsplitController.focusedPaneId == newPane {
                 self.bonsplitController.selectTab(newTabId)
             }
+            self.scheduleTerminalGeometryReconcile()
+            self.scheduleFocusReconcile()
         }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        _ = snapshot
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.

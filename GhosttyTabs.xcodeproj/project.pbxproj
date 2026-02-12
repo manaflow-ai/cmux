@@ -389,10 +389,10 @@
 			buildPhases = (
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
-				A5001300A1B2C3D4E5F60719 /* Copy Ghostty Resources */,
 				A5001102 /* Resources */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
+				A5001300A1B2C3D4E5F60719 /* Copy Ghostty Resources */,
 			);
 			buildRules = (
 			);
@@ -673,15 +673,8 @@
 				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "cmuxterm DEV";
-				INFOPLIST_KEY_CFBundleName = "cmuxterm DEV";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = "";
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				INFOPLIST_KEY_SUFeedURL = "https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml";
-				INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_KEY)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -718,15 +711,8 @@
 				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = cmuxterm;
-				INFOPLIST_KEY_CFBundleName = cmuxterm;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = "";
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				INFOPLIST_KEY_SUFeedURL = "https://github.com/manaflow-ai/cmuxterm/releases/latest/download/appcast.xml";
-				INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_KEY)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

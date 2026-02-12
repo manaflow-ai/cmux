@@ -8,6 +8,25 @@ import WebKit
 import Combine
 import ObjectiveC.runtime
 
+enum FinderServicePathResolver {
+    static func orderedUniqueDirectories(from pathURLs: [URL]) -> [String] {
+        var seen: Set<String> = []
+        var directories: [String] = []
+
+        for url in pathURLs {
+            let standardized = url.standardizedFileURL
+            let directoryURL = standardized.hasDirectoryPath ? standardized : standardized.deletingLastPathComponent()
+            let path = directoryURL.path(percentEncoded: false)
+            guard !path.isEmpty else { continue }
+            if seen.insert(path).inserted {
+                directories.append(path)
+            }
+        }
+
+        return directories
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -72,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
+    private static let serviceErrorNoPath = NSString(string: "Could not load any folder path from the clipboard.")
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.performKeyEquivalent(with:))
@@ -203,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installGhosttyConfigObserver()
         installWindowKeyEquivalentSwizzle()
         installShortcutMonitor()
+        NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -439,10 +460,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow()
     }
 
+    @objc func openWindow(
+        _ pasteboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        openFromServicePasteboard(pasteboard, target: .window, error: error)
+    }
+
+    @objc func openTab(
+        _ pasteboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        openFromServicePasteboard(pasteboard, target: .workspace, error: error)
+    }
+
+    private enum ServiceOpenTarget {
+        case window
+        case workspace
+    }
+
+    private func openFromServicePasteboard(
+        _ pasteboard: NSPasteboard,
+        target: ServiceOpenTarget,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        let pathURLs = servicePathURLs(from: pasteboard)
+        guard !pathURLs.isEmpty else {
+            error.pointee = Self.serviceErrorNoPath
+            return
+        }
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: pathURLs)
+        guard !directories.isEmpty else {
+            error.pointee = Self.serviceErrorNoPath
+            return
+        }
+
+        for directory in directories {
+            switch target {
+            case .window:
+                _ = createMainWindow(initialWorkingDirectory: directory)
+            case .workspace:
+                openWorkspaceFromService(workingDirectory: directory)
+            }
+        }
+    }
+
+    private func servicePathURLs(from pasteboard: NSPasteboard) -> [URL] {
+        if let pathURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !pathURLs.isEmpty {
+            return pathURLs
+        }
+
+        let filenamesType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
+        if let paths = pasteboard.propertyList(forType: filenamesType) as? [String] {
+            let urls = paths.map { URL(fileURLWithPath: $0) }
+            if !urls.isEmpty {
+                return urls
+            }
+        }
+
+        if let raw = pasteboard.string(forType: .string), !raw.isEmpty {
+            return raw
+                .split(whereSeparator: \.isNewline)
+                .map { line in
+                    let text = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let fileURL = URL(string: text), fileURL.isFileURL {
+                        return fileURL
+                    }
+                    return URL(fileURLWithPath: text)
+                }
+        }
+
+        return []
+    }
+
+    private func openWorkspaceFromService(workingDirectory: String) {
+        if let context = preferredMainWindowContextForServiceWorkspace(),
+           let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+            bringToFront(window)
+            _ = context.tabManager.addWorkspace(workingDirectory: workingDirectory)
+            return
+        }
+        _ = createMainWindow(initialWorkingDirectory: workingDirectory)
+    }
+
+    private func preferredMainWindowContextForServiceWorkspace() -> MainWindowContext? {
+        if let keyWindow = NSApp.keyWindow,
+           isMainTerminalWindow(keyWindow),
+           let context = mainWindowContexts[ObjectIdentifier(keyWindow)] {
+            return context
+        }
+
+        if let mainWindow = NSApp.mainWindow,
+           isMainTerminalWindow(mainWindow),
+           let context = mainWindowContexts[ObjectIdentifier(mainWindow)] {
+            return context
+        }
+
+        return mainWindowContexts.values.first
+    }
+
     @discardableResult
-    func createMainWindow() -> UUID {
+    func createMainWindow(initialWorkingDirectory: String? = nil) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager()
+        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
         let sidebarState = SidebarState()
         let sidebarSelectionState = SidebarSelectionState()
         let notificationStore = TerminalNotificationStore.shared

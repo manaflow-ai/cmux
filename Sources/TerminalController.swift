@@ -1567,7 +1567,6 @@ class TerminalController {
             if tabManager.selectedTabId != ws.id {
                 tabManager.selectWorkspace(ws)
             }
-            ws.cancelTabSelectionConvergence()
             ws.bonsplitController.focusPane(paneId)
             result = .ok(["workspace_id": ws.id.uuidString, "pane_id": paneId.id.uuidString])
         }

@@ -182,6 +182,20 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func markAllRead() {
+        var idsToClear: [String] = []
+        for index in notifications.indices {
+            if !notifications[index].isRead {
+                notifications[index].isRead = true
+                idsToClear.append(notifications[index].id.uuidString)
+            }
+        }
+        if !idsToClear.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+        }
+    }
+
     func remove(id: UUID) {
         notifications.removeAll { $0.id == id }
         center.removeDeliveredNotifications(withIdentifiers: [id.uuidString])
