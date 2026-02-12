@@ -107,7 +107,7 @@ jobs:
           if [ -n "${CMUX_VM_HOST:-}" ]; then
             vm_candidates+=("$CMUX_VM_HOST")
           else
-            vm_candidates+=("cmux-vm" "cmux-vm.local" "192.168.64.73")
+            vm_candidates+=("cmux-vm" "cmux-vm.local" "192.168.64.73" "cmux-macmini" "cmux-macmini.local")
           fi
 
           vm_host=""
