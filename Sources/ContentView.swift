@@ -1,6 +1,21 @@
 import AppKit
 import SwiftUI
 import ObjectiveC
+import UniformTypeIdentifiers
+
+struct ShortcutHintPillBackground: View {
+    var emphasis: Double = 1.0
+
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.30 * emphasis), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.22 * emphasis), radius: 2, x: 0, y: 1)
+    }
+}
 
 /// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
 enum WindowGlassEffect {
@@ -159,6 +174,7 @@ struct ContentView: View {
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
+            updateViewModel: updateViewModel,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -280,8 +296,10 @@ struct ContentView: View {
                 Spacer()
 
 #if DEBUG
-                UpdatePill(model: updateViewModel)
-                    .padding(.trailing, 8)
+                if !sidebarState.isVisible {
+                    UpdatePill(model: updateViewModel)
+                        .padding(.trailing, 8)
+                }
 #endif
             }
             .frame(height: 28)
@@ -474,51 +492,268 @@ struct ContentView: View {
 }
 
 struct VerticalTabsSidebar: View {
+    @ObservedObject var updateViewModel: UpdateViewModel
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
+    @StateObject private var commandKeyMonitor = SidebarCommandKeyMonitor()
+    @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State private var draggedTabId: UUID?
+    @State private var dropIndicator: SidebarDropIndicator?
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
+    private let tabRowSpacing: CGFloat = 2
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Space for traffic lights
-                    Spacer()
-                        .frame(height: trafficLightPadding)
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Space for traffic lights
+                        Spacer()
+                            .frame(height: trafficLightPadding)
 
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                            TabItemView(
-                                tab: tab,
-                                index: index,
-                                selection: $selection,
-                                selectedTabIds: $selectedTabIds,
-                                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-                            )
+                        LazyVStack(spacing: tabRowSpacing) {
+                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                                TabItemView(
+                                    tab: tab,
+                                    index: index,
+                                    rowSpacing: tabRowSpacing,
+                                    selection: $selection,
+                                    selectedTabIds: $selectedTabIds,
+                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                    showsCommandShortcutHints: commandKeyMonitor.isCommandPressed,
+                                    dragAutoScrollController: dragAutoScrollController,
+                                    draggedTabId: $draggedTabId,
+                                    dropIndicator: $dropIndicator
+                                )
+                            }
                         }
-                    }
-                    .padding(.vertical, 8)
+                        .padding(.vertical, 8)
 
-                    SidebarEmptyArea(
-                        selection: $selection,
-                        selectedTabIds: $selectedTabIds,
-                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        SidebarEmptyArea(
+                            rowSpacing: tabRowSpacing,
+                            selection: $selection,
+                            selectedTabIds: $selectedTabIds,
+                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                            dragAutoScrollController: dragAutoScrollController,
+                            draggedTabId: $draggedTabId,
+                            dropIndicator: $dropIndicator
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .frame(minHeight: proxy.size.height, alignment: .top)
                 }
-                .frame(minHeight: proxy.size.height, alignment: .top)
+                .background(
+                    SidebarScrollViewResolver { scrollView in
+                        dragAutoScrollController.attach(scrollView: scrollView)
+                    }
+                    .frame(width: 0, height: 0)
+                )
+                .overlay(alignment: .top) {
+                    SidebarTopScrim(height: trafficLightPadding + 20)
+                        .allowsHitTesting(false)
+                }
+                .background(Color.clear)
+                .modifier(ClearScrollBackground())
+#if DEBUG
+                SidebarDevFooter(updateViewModel: updateViewModel)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+#endif
             }
-            .background(Color.clear)
-            .modifier(ClearScrollBackground())
             .accessibilityIdentifier("Sidebar")
         }
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
+        .onAppear {
+            commandKeyMonitor.start()
+            draggedTabId = nil
+            dropIndicator = nil
+        }
+        .onDisappear {
+            commandKeyMonitor.stop()
+            dragAutoScrollController.stop()
+            draggedTabId = nil
+            dropIndicator = nil
+        }
+        .onChange(of: draggedTabId) { newDraggedTabId in
+            guard newDraggedTabId == nil else { return }
+            dragAutoScrollController.stop()
+            dropIndicator = nil
+        }
     }
+}
+
+enum SidebarCommandHintPolicy {
+    static let intentionalHoldDelay: TimeInterval = 0.30
+
+    static func shouldShowHints(for modifierFlags: NSEvent.ModifierFlags) -> Bool {
+        modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command]
+    }
+}
+
+enum ShortcutHintDebugSettings {
+    static let sidebarHintXKey = "shortcutHintSidebarXOffset"
+    static let sidebarHintYKey = "shortcutHintSidebarYOffset"
+    static let titlebarHintXKey = "shortcutHintTitlebarXOffset"
+    static let titlebarHintYKey = "shortcutHintTitlebarYOffset"
+    static let paneHintXKey = "shortcutHintPaneTabXOffset"
+    static let paneHintYKey = "shortcutHintPaneTabYOffset"
+    static let alwaysShowHintsKey = "shortcutHintAlwaysShow"
+
+    static let defaultSidebarHintX = 0.0
+    static let defaultSidebarHintY = 0.0
+    static let defaultTitlebarHintX = 4.0
+    static let defaultTitlebarHintY = 0.0
+    static let defaultPaneHintX = 0.0
+    static let defaultPaneHintY = 0.0
+    static let defaultAlwaysShowHints = false
+
+    static let offsetRange: ClosedRange<Double> = -20...20
+
+    static func clamped(_ value: Double) -> Double {
+        min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
+    }
+}
+
+@MainActor
+private final class SidebarCommandKeyMonitor: ObservableObject {
+    @Published private(set) var isCommandPressed = false
+
+    private var flagsMonitor: Any?
+    private var keyDownMonitor: Any?
+    private var resignObserver: NSObjectProtocol?
+    private var pendingShowWorkItem: DispatchWorkItem?
+
+    func start() {
+        guard flagsMonitor == nil else {
+            update(from: NSEvent.modifierFlags)
+            return
+        }
+
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.update(from: event.modifierFlags)
+            return event
+        }
+
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.cancelPendingHintShow(resetVisible: true)
+            return event
+        }
+
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
+        }
+
+        update(from: NSEvent.modifierFlags)
+    }
+
+    func stop() {
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+            self.flagsMonitor = nil
+        }
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+            self.keyDownMonitor = nil
+        }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+            self.resignObserver = nil
+        }
+        cancelPendingHintShow(resetVisible: true)
+    }
+
+    private func update(from modifierFlags: NSEvent.ModifierFlags) {
+        guard SidebarCommandHintPolicy.shouldShowHints(for: modifierFlags) else {
+            cancelPendingHintShow(resetVisible: true)
+            return
+        }
+
+        queueHintShow()
+    }
+
+    private func queueHintShow() {
+        guard !isCommandPressed else { return }
+        guard pendingShowWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingShowWorkItem = nil
+            guard SidebarCommandHintPolicy.shouldShowHints(for: NSEvent.modifierFlags) else { return }
+            self.isCommandPressed = true
+        }
+
+        pendingShowWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarCommandHintPolicy.intentionalHoldDelay, execute: workItem)
+    }
+
+    private func cancelPendingHintShow(resetVisible: Bool) {
+        pendingShowWorkItem?.cancel()
+        pendingShowWorkItem = nil
+        if resetVisible {
+            isCommandPressed = false
+        }
+    }
+}
+
+#if DEBUG
+private struct SidebarDevFooter: View {
+    @ObservedObject var updateViewModel: UpdateViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            UpdatePill(model: updateViewModel)
+            Text("THIS IS A DEV BUILD")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.red)
+        }
+        .padding(.leading, 10)
+        .padding(.bottom, 10)
+    }
+}
+#endif
+
+private struct SidebarTopScrim: View {
+    let height: CGFloat
+
+    var body: some View {
+        SidebarTopBlurEffect()
+            .frame(height: height)
+            .mask(
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.95),
+                        Color.black.opacity(0.75),
+                        Color.black.opacity(0.35),
+                        Color.clear
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+    }
+}
+
+private struct SidebarTopBlurEffect: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .withinWindow
+        view.material = .underWindowBackground
+        view.state = .active
+        view.isEmphasized = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct SidebarFramePreferenceKey: PreferenceKey {
@@ -529,11 +764,51 @@ private struct SidebarFramePreferenceKey: PreferenceKey {
     }
 }
 
+private struct SidebarScrollViewResolver: NSViewRepresentable {
+    let onResolve: (NSScrollView?) -> Void
+
+    func makeNSView(context: Context) -> SidebarScrollViewResolverView {
+        let view = SidebarScrollViewResolverView()
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateNSView(_ nsView: SidebarScrollViewResolverView, context: Context) {
+        nsView.onResolve = onResolve
+        nsView.resolveScrollView()
+    }
+}
+
+private final class SidebarScrollViewResolverView: NSView {
+    var onResolve: ((NSScrollView?) -> Void)?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        resolveScrollView()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        resolveScrollView()
+    }
+
+    func resolveScrollView() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            onResolve?(self.enclosingScrollView)
+        }
+    }
+}
+
 private struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
+    let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    @Binding var draggedTabId: UUID?
+    @Binding var dropIndicator: SidebarDropIndicator?
 
     var body: some View {
         Color.clear
@@ -547,18 +822,55 @@ private struct SidebarEmptyArea: View {
                 }
                 selection = .tabs
             }
+            .onDrop(of: [SidebarTabDragPayload.typeIdentifier], delegate: SidebarTabDropDelegate(
+                targetTabId: nil,
+                tabManager: tabManager,
+                draggedTabId: $draggedTabId,
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                targetRowHeight: nil,
+                dragAutoScrollController: dragAutoScrollController,
+                dropIndicator: $dropIndicator
+            ))
+            .overlay(alignment: .top) {
+                if shouldShowTopDropIndicator {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .padding(.horizontal, 8)
+                        .offset(y: -(rowSpacing / 2))
+                }
+            }
+    }
+
+    private var shouldShowTopDropIndicator: Bool {
+        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        if indicator.tabId == nil {
+            return true
+        }
+        guard indicator.edge == .bottom, let lastTabId = tabManager.tabs.last?.id else { return false }
+        return indicator.tabId == lastTabId
     }
 }
 
-struct TabItemView: View {
+private struct TabItemView: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @ObservedObject var tab: Tab
     let index: Int
+    let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
+    let showsCommandShortcutHints: Bool
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    @Binding var draggedTabId: UUID?
+    @Binding var dropIndicator: SidebarDropIndicator?
     @State private var isHovering = false
+    @State private var rowHeight: CGFloat = 1
+    @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+    @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
 
     var isActive: Bool {
         tabManager.selectedTabId == tab.id
@@ -566,6 +878,39 @@ struct TabItemView: View {
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
+    }
+
+    private var isBeingDragged: Bool {
+        draggedTabId == tab.id
+    }
+
+    private var workspaceShortcutDigit: Int? {
+        WorkspaceShortcutMapper.commandDigitForWorkspace(at: index, workspaceCount: tabManager.tabs.count)
+    }
+
+    private var showCloseButton: Bool {
+        isHovering && tabManager.tabs.count > 1 && !(showsCommandShortcutHints || alwaysShowShortcutHints)
+    }
+
+    private var workspaceShortcutLabel: String? {
+        guard let workspaceShortcutDigit else { return nil }
+        return "⌘\(workspaceShortcutDigit)"
+    }
+
+    private var showsWorkspaceShortcutHint: Bool {
+        (showsCommandShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
+    }
+
+    private var workspaceHintSlotWidth: CGFloat {
+        guard let label = workspaceShortcutLabel else { return 28 }
+        let positiveDebugInset = max(0, CGFloat(ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset))) + 2
+        return max(28, workspaceHintWidth(for: label) + positiveDebugInset)
+    }
+
+    private func workspaceHintWidth(for label: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let textWidth = (label as NSString).size(withAttributes: [.font: font]).width
+        return ceil(textWidth) + 12
     }
 
     var body: some View {
@@ -590,23 +935,44 @@ struct TabItemView: View {
                 }
 
                 Text(tab.title)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .foregroundColor(isActive ? .white : .primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 Spacer()
 
-                Button(action: { tabManager.closeWorkspaceWithConfirmation(tab) }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
+                ZStack(alignment: .trailing) {
+                    Button(action: { tabManager.closeWorkspaceWithConfirmation(tab) }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close Workspace (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
+                    .frame(width: 16, height: 16, alignment: .center)
+                    .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
+                    .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
+
+                    if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                        Text(workspaceShortcutLabel)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(isActive ? .white : .primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(ShortcutHintPillBackground(emphasis: isActive ? 1.0 : 0.9))
+                            .offset(
+                                x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
+                                y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
+                            )
+                            .transition(.opacity)
+                    }
                 }
-                .buttonStyle(.plain)
-                .help("Close Workspace (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
-                .frame(width: 16, height: 16)
-                .opacity((isHovering && tabManager.tabs.count > 1) ? 1 : 0)
-                .allowsHitTesting(isHovering && tabManager.tabs.count > 1)
+                .animation(.easeInOut(duration: 0.14), value: showsCommandShortcutHints || alwaysShowShortcutHints)
+                .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
             }
 
             if let subtitle = latestNotificationText {
@@ -633,17 +999,62 @@ struct TabItemView: View {
                 .fill(backgroundColor)
         )
         .padding(.horizontal, 6)
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        rowHeight = max(proxy.size.height, 1)
+                    }
+                    .onChange(of: proxy.size.height) { newHeight in
+                        rowHeight = max(newHeight, 1)
+                    }
+            }
+        }
         .contentShape(Rectangle())
+        .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
             MiddleClickCapture {
                 tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
+        .overlay(alignment: .top) {
+            if showsCenteredTopDropIndicator {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+                    .padding(.horizontal, 8)
+                    .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
+            }
+        }
+        .onDrag {
+            draggedTabId = tab.id
+            dropIndicator = nil
+            return SidebarTabDragPayload.provider(for: tab.id)
+        }
+        .onDrop(of: [SidebarTabDragPayload.typeIdentifier], delegate: SidebarTabDropDelegate(
+            targetTabId: tab.id,
+            tabManager: tabManager,
+            draggedTabId: $draggedTabId,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            targetRowHeight: rowHeight,
+            dragAutoScrollController: dragAutoScrollController,
+            dropIndicator: $dropIndicator
+        ))
         .onTapGesture {
             updateSelection()
         }
         .onHover { hovering in
             isHovering = hovering
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(accessibilityTitle))
+        .accessibilityHint(Text("Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions."))
+        .accessibilityAction(named: Text("Move Up")) {
+            moveBy(-1)
+        }
+        .accessibilityAction(named: Text("Move Down")) {
+            moveBy(1)
         }
         .contextMenu {
             let targetIds = contextTargetIds()
@@ -669,6 +1080,18 @@ struct TabItemView: View {
                     tabManager.clearCustomTitle(tabId: tab.id)
                 }
             }
+
+            Divider()
+
+            Button("Move Up") {
+                moveBy(-1)
+            }
+            .disabled(index == 0)
+
+            Button("Move Down") {
+                moveBy(1)
+            }
+            .disabled(index >= tabManager.tabs.count - 1)
 
             Divider()
 
@@ -722,6 +1145,35 @@ struct TabItemView: View {
             return Color.accentColor.opacity(0.25)
         }
         return Color.clear
+    }
+
+    private var showsCenteredTopDropIndicator: Bool {
+        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        if indicator.tabId == tab.id && indicator.edge == .top {
+            return true
+        }
+
+        guard indicator.edge == .bottom,
+              let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == tab.id }),
+              currentIndex > 0
+        else {
+            return false
+        }
+        return tabManager.tabs[currentIndex - 1].id == indicator.tabId
+    }
+
+    private var accessibilityTitle: String {
+        "\(tab.title), workspace \(index + 1) of \(tabManager.tabs.count)"
+    }
+
+    private func moveBy(_ delta: Int) {
+        let targetIndex = index + delta
+        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
+        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        selectedTabIds = [tab.id]
+        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
+        tabManager.selectTab(tab)
+        selection = .tabs
     }
 
     private func updateSelection() {
@@ -877,6 +1329,370 @@ struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+}
+
+enum SidebarDropEdge {
+    case top
+    case bottom
+}
+
+struct SidebarDropIndicator {
+    let tabId: UUID?
+    let edge: SidebarDropEdge
+}
+
+enum SidebarDropPlanner {
+    static func indicator(
+        draggedTabId: UUID?,
+        targetTabId: UUID?,
+        tabIds: [UUID],
+        pointerY: CGFloat? = nil,
+        targetHeight: CGFloat? = nil
+    ) -> SidebarDropIndicator? {
+        guard tabIds.count > 1, let draggedTabId else { return nil }
+        guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
+
+        let insertionPosition: Int
+        if let targetTabId {
+            guard let targetTabIndex = tabIds.firstIndex(of: targetTabId) else { return nil }
+            let edge: SidebarDropEdge
+            if let pointerY, let targetHeight {
+                edge = edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+            } else {
+                edge = preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds)
+            }
+            insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
+        } else {
+            insertionPosition = tabIds.count
+        }
+
+        let targetIndex = resolvedTargetIndex(from: fromIndex, insertionPosition: insertionPosition, totalCount: tabIds.count)
+        guard targetIndex != fromIndex else { return nil }
+        return indicatorForInsertionPosition(insertionPosition, tabIds: tabIds)
+    }
+
+    static func targetIndex(
+        draggedTabId: UUID,
+        targetTabId: UUID?,
+        indicator: SidebarDropIndicator?,
+        tabIds: [UUID]
+    ) -> Int? {
+        guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
+
+        let insertionPosition: Int
+        if let indicator, let indicatorInsertion = insertionPositionForIndicator(indicator, tabIds: tabIds) {
+            insertionPosition = indicatorInsertion
+        } else if let targetTabId {
+            guard let targetTabIndex = tabIds.firstIndex(of: targetTabId) else { return nil }
+            let edge = (indicator?.tabId == targetTabId)
+                ? (indicator?.edge ?? preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds))
+                : preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds)
+            insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
+        } else {
+            insertionPosition = tabIds.count
+        }
+
+        return resolvedTargetIndex(from: fromIndex, insertionPosition: insertionPosition, totalCount: tabIds.count)
+    }
+
+    private static func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {
+        let clampedInsertion = max(0, min(insertionPosition, tabIds.count))
+        if clampedInsertion >= tabIds.count {
+            return SidebarDropIndicator(tabId: nil, edge: .bottom)
+        }
+        return SidebarDropIndicator(tabId: tabIds[clampedInsertion], edge: .top)
+    }
+
+    private static func insertionPositionForIndicator(_ indicator: SidebarDropIndicator, tabIds: [UUID]) -> Int? {
+        if let tabId = indicator.tabId {
+            guard let targetTabIndex = tabIds.firstIndex(of: tabId) else { return nil }
+            return indicator.edge == .bottom ? targetTabIndex + 1 : targetTabIndex
+        }
+        return tabIds.count
+    }
+
+    private static func preferredEdge(fromIndex: Int, targetTabId: UUID, tabIds: [UUID]) -> SidebarDropEdge {
+        guard let targetIndex = tabIds.firstIndex(of: targetTabId) else { return .top }
+        return fromIndex < targetIndex ? .bottom : .top
+    }
+
+    static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
+        guard targetHeight > 0 else { return .top }
+        let clampedY = min(max(locationY, 0), targetHeight)
+        return clampedY < (targetHeight / 2) ? .top : .bottom
+    }
+
+    private static func resolvedTargetIndex(from sourceIndex: Int, insertionPosition: Int, totalCount: Int) -> Int {
+        let clampedInsertion = max(0, min(insertionPosition, totalCount))
+        let adjusted = clampedInsertion > sourceIndex ? clampedInsertion - 1 : clampedInsertion
+        return max(0, min(adjusted, max(0, totalCount - 1)))
+    }
+}
+
+enum SidebarAutoScrollDirection: Equatable {
+    case up
+    case down
+}
+
+struct SidebarAutoScrollPlan: Equatable {
+    let direction: SidebarAutoScrollDirection
+    let pointsPerTick: CGFloat
+}
+
+enum SidebarDragAutoScrollPlanner {
+    static let edgeInset: CGFloat = 44
+    static let minStep: CGFloat = 2
+    static let maxStep: CGFloat = 12
+
+    static func plan(
+        distanceToTop: CGFloat,
+        distanceToBottom: CGFloat,
+        edgeInset: CGFloat = SidebarDragAutoScrollPlanner.edgeInset,
+        minStep: CGFloat = SidebarDragAutoScrollPlanner.minStep,
+        maxStep: CGFloat = SidebarDragAutoScrollPlanner.maxStep
+    ) -> SidebarAutoScrollPlan? {
+        guard edgeInset > 0, maxStep >= minStep else { return nil }
+        if distanceToTop <= edgeInset {
+            let normalized = max(0, min(1, (edgeInset - distanceToTop) / edgeInset))
+            let step = minStep + ((maxStep - minStep) * normalized)
+            return SidebarAutoScrollPlan(direction: .up, pointsPerTick: step)
+        }
+        if distanceToBottom <= edgeInset {
+            let normalized = max(0, min(1, (edgeInset - distanceToBottom) / edgeInset))
+            let step = minStep + ((maxStep - minStep) * normalized)
+            return SidebarAutoScrollPlan(direction: .down, pointsPerTick: step)
+        }
+        return nil
+    }
+}
+
+@MainActor
+private final class SidebarDragAutoScrollController: ObservableObject {
+    private weak var scrollView: NSScrollView?
+    private var timer: Timer?
+    private var activePlan: SidebarAutoScrollPlan?
+
+    func attach(scrollView: NSScrollView?) {
+        self.scrollView = scrollView
+    }
+
+    func updateFromDragLocation() {
+        guard let scrollView else {
+            stop()
+            return
+        }
+        guard let plan = plan(for: scrollView) else {
+            stop()
+            return
+        }
+        activePlan = plan
+        startTimerIfNeeded()
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        activePlan = nil
+    }
+
+    private func startTimerIfNeeded() {
+        guard timer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.tick()
+            }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+
+    private func tick() {
+        guard NSEvent.pressedMouseButtons != 0 else {
+            stop()
+            return
+        }
+        guard let scrollView else {
+            stop()
+            return
+        }
+
+        // AppKit drag/drop autoscroll guidance recommends autoscroll(with:)
+        // when periodic drag updates are available; use it first.
+        if applyNativeAutoscroll(to: scrollView) {
+            activePlan = plan(for: scrollView)
+            if activePlan == nil {
+                stop()
+            }
+            return
+        }
+
+        activePlan = self.plan(for: scrollView)
+        guard let plan = activePlan else {
+            stop()
+            return
+        }
+        _ = apply(plan: plan, to: scrollView)
+    }
+
+    private func applyNativeAutoscroll(to scrollView: NSScrollView) -> Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            break
+        default:
+            return false
+        }
+
+        let clipView = scrollView.contentView
+        let didScroll = clipView.autoscroll(with: event)
+        if didScroll {
+            scrollView.reflectScrolledClipView(clipView)
+        }
+        return didScroll
+    }
+
+    private func distancesToEdges(mousePoint: CGPoint, viewportHeight: CGFloat, isFlipped: Bool) -> (top: CGFloat, bottom: CGFloat) {
+        if isFlipped {
+            return (top: mousePoint.y, bottom: viewportHeight - mousePoint.y)
+        }
+        return (top: viewportHeight - mousePoint.y, bottom: mousePoint.y)
+    }
+
+    private func planForMousePoint(_ mousePoint: CGPoint, in clipView: NSClipView) -> SidebarAutoScrollPlan? {
+        let viewportHeight = clipView.bounds.height
+        guard viewportHeight > 0 else { return nil }
+
+        let distances = distancesToEdges(mousePoint: mousePoint, viewportHeight: viewportHeight, isFlipped: clipView.isFlipped)
+        return SidebarDragAutoScrollPlanner.plan(distanceToTop: distances.top, distanceToBottom: distances.bottom)
+    }
+
+    private func mousePoint(in clipView: NSClipView) -> CGPoint {
+        let mouseInWindow = clipView.window?.convertPoint(fromScreen: NSEvent.mouseLocation) ?? .zero
+        return clipView.convert(mouseInWindow, from: nil)
+    }
+
+    private func currentPlan(for scrollView: NSScrollView) -> SidebarAutoScrollPlan? {
+        let clipView = scrollView.contentView
+        let mouse = mousePoint(in: clipView)
+        return planForMousePoint(mouse, in: clipView)
+    }
+
+    private func plan(for scrollView: NSScrollView) -> SidebarAutoScrollPlan? {
+        currentPlan(for: scrollView)
+    }
+
+    private func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
+        guard let documentView = scrollView.documentView else { return false }
+        let clipView = scrollView.contentView
+        let maxOriginY = max(0, documentView.bounds.height - clipView.bounds.height)
+        guard maxOriginY > 0 else { return false }
+
+        let directionMultiplier: CGFloat = (plan.direction == .down) ? 1 : -1
+        let flippedMultiplier: CGFloat = documentView.isFlipped ? 1 : -1
+        let delta = directionMultiplier * flippedMultiplier * plan.pointsPerTick
+        let currentY = clipView.bounds.origin.y
+        let targetY = min(max(currentY + delta, 0), maxOriginY)
+        guard abs(targetY - currentY) > 0.01 else { return false }
+
+        clipView.scroll(to: CGPoint(x: clipView.bounds.origin.x, y: targetY))
+        scrollView.reflectScrolledClipView(clipView)
+        return true
+    }
+}
+
+private enum SidebarTabDragPayload {
+    static let typeIdentifier = UTType.plainText.identifier
+    private static let prefix = "cmuxterm.sidebar-tab."
+
+    static func provider(for tabId: UUID) -> NSItemProvider {
+        NSItemProvider(object: "\(prefix)\(tabId.uuidString)" as NSString)
+    }
+}
+
+private struct SidebarTabDropDelegate: DropDelegate {
+    let targetTabId: UUID?
+    let tabManager: TabManager
+    @Binding var draggedTabId: UUID?
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    let targetRowHeight: CGFloat?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    @Binding var dropIndicator: SidebarDropIndicator?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]) && draggedTabId != nil
+    }
+
+    func dropEntered(info: DropInfo) {
+        dragAutoScrollController.updateFromDragLocation()
+        updateDropIndicator(for: info)
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropIndicator?.tabId == targetTabId {
+            dropIndicator = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        dragAutoScrollController.updateFromDragLocation()
+        updateDropIndicator(for: info)
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer {
+            draggedTabId = nil
+            dropIndicator = nil
+            dragAutoScrollController.stop()
+        }
+        guard let draggedTabId else { return false }
+        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else { return false }
+        let tabIds = tabManager.tabs.map(\.id)
+        guard let targetIndex = SidebarDropPlanner.targetIndex(
+            draggedTabId: draggedTabId,
+            targetTabId: targetTabId,
+            indicator: dropIndicator,
+            tabIds: tabIds
+        ) else {
+            return false
+        }
+
+        guard fromIndex != targetIndex else {
+            syncSidebarSelection()
+            return true
+        }
+
+        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        if let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+            syncSidebarSelection(preferredSelectedTabId: selectedId)
+        } else {
+            selectedTabIds = []
+            syncSidebarSelection()
+        }
+        return true
+    }
+
+    private func updateDropIndicator(for info: DropInfo) {
+        let tabIds = tabManager.tabs.map(\.id)
+        dropIndicator = SidebarDropPlanner.indicator(
+            draggedTabId: draggedTabId,
+            targetTabId: targetTabId,
+            tabIds: tabIds,
+            pointerY: targetTabId == nil ? nil : info.location.y,
+            targetHeight: targetRowHeight
+        )
+    }
+
+    private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
+        let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
+        if let selectedId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        } else {
+            lastSidebarSelectionIndex = nil
+        }
     }
 }
 

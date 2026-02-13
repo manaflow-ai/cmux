@@ -37,6 +37,11 @@ struct WorkspaceContentView: View {
                         guard workspace.panels[panel.id] != nil else { return }
                         workspace.focusPanel(panel.id)
                     },
+                    onRequestPanelFocus: {
+                        guard isTabActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.focusPanel(panel.id)
+                    },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {

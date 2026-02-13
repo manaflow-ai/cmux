@@ -9,6 +9,77 @@ import Combine
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
 
+enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
+    case top
+    case afterCurrent
+    case end
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .top:
+            return "Top"
+        case .afterCurrent:
+            return "After current"
+        case .end:
+            return "End"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .top:
+            return "Insert new workspaces at the top of the list."
+        case .afterCurrent:
+            return "Insert new workspaces directly after the active workspace."
+        case .end:
+            return "Append new workspaces to the bottom of the list."
+        }
+    }
+}
+
+enum WorkspacePlacementSettings {
+    static let placementKey = "newWorkspacePlacement"
+    static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
+
+    static func current(defaults: UserDefaults = .standard) -> NewWorkspacePlacement {
+        guard let raw = defaults.string(forKey: placementKey),
+              let placement = NewWorkspacePlacement(rawValue: raw) else {
+            return defaultPlacement
+        }
+        return placement
+    }
+
+    static func insertionIndex(
+        placement: NewWorkspacePlacement,
+        selectedIndex: Int?,
+        selectedIsPinned: Bool,
+        pinnedCount: Int,
+        totalCount: Int
+    ) -> Int {
+        let clampedTotalCount = max(0, totalCount)
+        let clampedPinnedCount = max(0, min(pinnedCount, clampedTotalCount))
+
+        switch placement {
+        case .top:
+            // Keep pinned workspaces grouped at the top by inserting ahead of unpinned items.
+            return clampedPinnedCount
+        case .end:
+            return clampedTotalCount
+        case .afterCurrent:
+            guard let selectedIndex, clampedTotalCount > 0 else {
+                return clampedTotalCount
+            }
+            let clampedSelectedIndex = max(0, min(selectedIndex, clampedTotalCount - 1))
+            if selectedIsPinned {
+                return clampedPinnedCount
+            }
+            return min(clampedSelectedIndex + 1, clampedTotalCount)
+        }
+    }
+}
+
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
@@ -318,16 +389,19 @@ class TabManager: ObservableObject {
     }
 
     private func newTabInsertIndex() -> Int {
-        guard let selectedTabId,
-              let index = tabs.firstIndex(where: { $0.id == selectedTabId }) else {
-            return tabs.count
+        let placement = WorkspacePlacementSettings.current()
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        let selectedIndex = selectedTabId.flatMap { tabId in
+            tabs.firstIndex(where: { $0.id == tabId })
         }
-        let selectedTab = tabs[index]
-        if selectedTab.isPinned {
-            let lastPinnedIndex = tabs.lastIndex(where: { $0.isPinned }) ?? -1
-            return min(lastPinnedIndex + 1, tabs.count)
-        }
-        return min(index + 1, tabs.count)
+        let selectedIsPinned = selectedIndex.map { tabs[$0].isPinned } ?? false
+        return WorkspacePlacementSettings.insertionIndex(
+            placement: placement,
+            selectedIndex: selectedIndex,
+            selectedIsPinned: selectedIsPinned,
+            pinnedCount: pinnedCount,
+            totalCount: tabs.count
+        )
     }
 
     private func preferredWorkingDirectoryForNewTab() -> String? {
@@ -362,6 +436,33 @@ class TabManager: ObservableObject {
         let remainingPinned = remainingTabs.filter { $0.isPinned }
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
         tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+    }
+
+    @discardableResult
+    func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        if tabs.count <= 1 { return true }
+
+        let clamped = max(0, min(targetIndex, tabs.count - 1))
+        if currentIndex == clamped { return true }
+
+        let workspace = tabs.remove(at: currentIndex)
+        tabs.insert(workspace, at: clamped)
+        return true
+    }
+
+    @discardableResult
+    func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
+        guard tabs.contains(where: { $0.id == tabId }) else { return false }
+        if let beforeId {
+            guard let idx = tabs.firstIndex(where: { $0.id == beforeId }) else { return false }
+            return reorderWorkspace(tabId: tabId, toIndex: idx)
+        }
+        if let afterId {
+            guard let idx = tabs.firstIndex(where: { $0.id == afterId }) else { return false }
+            return reorderWorkspace(tabId: tabId, toIndex: idx + 1)
+        }
+        return false
     }
 
     func setCustomTitle(tabId: UUID, title: String?) {
@@ -2100,4 +2201,6 @@ extension Notification.Name {
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
+    static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
+    static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
 }

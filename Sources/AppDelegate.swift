@@ -27,6 +27,34 @@ enum FinderServicePathResolver {
     }
 }
 
+enum WorkspaceShortcutMapper {
+    /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
+    /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
+    static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
+        guard workspaceCount > 0 else { return nil }
+        guard (1...9).contains(digit) else { return nil }
+
+        if digit == 9 {
+            return workspaceCount - 1
+        }
+
+        let index = digit - 1
+        return index < workspaceCount ? index : nil
+    }
+
+    /// Returns the primary Cmd+digit badge to display for a workspace row.
+    /// Picks the lowest digit that maps to that row index.
+    static func commandDigitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
+        guard index >= 0 && index < workspaceCount else { return nil }
+        for digit in 1...9 {
+            if workspaceIndex(forCommandDigit: digit, workspaceCount: workspaceCount) == index {
+                return digit
+            }
+        }
+        return nil
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -87,6 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var browserAddressBarFocusedPanelId: UUID?
+    private var browserAddressBarFocusObserver: NSObjectProtocol?
+    private var browserAddressBarBlurObserver: NSObjectProtocol?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -222,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
         installWindowKeyEquivalentSwizzle()
+        installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         NSApp.servicesProvider = self
 #if DEBUG
@@ -240,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if UpdateTestSupport.performMockFeedCheckIfNeeded(on: self.updateController.viewModel) {
                     return
                 }
-                self.updateController.checkForUpdatesWhenReady()
+                self.checkForUpdates(nil)
             }
         }
 
@@ -1446,27 +1478,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        // Don't steal shortcuts from modal dialogs (e.g. close confirmations). This keeps standard
-        // alert key equivalents working and avoids surprising actions (like splitting) while an
-        // alert is up.
-        if let modalPanel = NSApp.windows.first(where: { $0.isVisible && $0 is NSPanel }) {
-            // Special-case: Cmd+D should confirm destructive close on alerts (like macOS "Don't Save").
+        // Don't steal shortcuts from close-confirmation alerts. Keep standard alert key
+        // equivalents working and avoid surprising actions while the confirmation is up.
+        let closeConfirmationPanel = NSApp.windows
+            .compactMap { $0 as? NSPanel }
+            .first { panel in
+                guard panel.isVisible, let root = panel.contentView else { return false }
+                return findStaticText(in: root, equals: "Close workspace?")
+                    || findStaticText(in: root, equals: "Close tab?")
+            }
+        if let closeConfirmationPanel {
+            // Special-case: Cmd+D should confirm destructive close on alerts.
             // XCUITest key events often hit the app-level local monitor first, so forward the key
             // equivalent to the alert panel explicitly.
-            if flags == [.command], chars == "d" {
-                if let root = modalPanel.contentView,
-                   (findStaticText(in: root, equals: "Close workspace?") ||
-                    findStaticText(in: root, equals: "Close tab?")),
-                   let closeButton = findButton(in: root, titled: "Close") {
-                    closeButton.performClick(nil)
-                    return true
-                }
-                return false
+            if flags == [.command], chars == "d",
+               let root = closeConfirmationPanel.contentView,
+               let closeButton = findButton(in: root, titled: "Close") {
+                closeButton.performClick(nil)
+                return true
             }
             return false
         }
+
         if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
             return false
+        }
+
+        // When the notifications popover is open, Escape should dismiss it immediately.
+        if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
+            return true
+        }
+
+        // When the notifications popover is showing an empty state, consume plain typing
+        // so key presses do not leak through into the focused terminal.
+        if flags.isDisjoint(with: [.command, .control, .option]),
+           titlebarAccessoryController.isNotificationsPopoverShown(),
+           (notificationStore?.notifications.isEmpty ?? false) {
+            return true
         }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
@@ -1542,12 +1590,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9
-        if flags == [.command] {
-            if let num = Int(chars), num >= 1 && num <= 9 {
-                tabManager?.selectTab(at: num - 1)
-                return true
-            }
+        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
+        if flags == [.command],
+           let manager = tabManager,
+           let num = Int(chars),
+           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+            manager.selectTab(at: targetIndex)
+            return true
         }
 
         // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
@@ -1648,12 +1697,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Focus browser address bar: Cmd+L
         if flags == [.command] && chars == "l" {
             if let focusedPanel = tabManager?.focusedBrowserPanel {
+                browserAddressBarFocusedPanelId = focusedPanel.id
                 NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
+                return true
+            }
+
+            if let browserAddressBarFocusedPanelId,
+               let tabManager,
+               let workspace = tabManager.selectedWorkspace,
+               let panel = workspace.browserPanel(for: browserAddressBarFocusedPanelId) {
+                workspace.focusPanel(panel.id)
+                NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
                 return true
             }
 
             tabManager?.openBrowser()
             if let focusedPanel = tabManager?.focusedBrowserPanel {
+                browserAddressBarFocusedPanelId = focusedPanel.id
                 NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
                 return true
             }
@@ -1984,6 +2044,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
             self.setActiveMainWindow(window)
+        }
+    }
+
+    private func installBrowserAddressBarFocusObservers() {
+        guard browserAddressBarFocusObserver == nil, browserAddressBarBlurObserver == nil else { return }
+
+        browserAddressBarFocusObserver = NotificationCenter.default.addObserver(
+            forName: .browserDidFocusAddressBar,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let panelId = notification.object as? UUID else { return }
+            self.browserAddressBarFocusedPanelId = panelId
+        }
+
+        browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
+            forName: .browserDidBlurAddressBar,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let panelId = notification.object as? UUID else { return }
+            if self.browserAddressBarFocusedPanelId == panelId {
+                self.browserAddressBarFocusedPanelId = nil
+            }
         }
     }
 
@@ -2430,12 +2516,11 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     private func refreshUI() {
-        let notifications = notificationStore.notifications
-        let actualUnreadCount = notifications.reduce(into: 0) { count, item in
-            if !item.isRead {
-                count += 1
-            }
-        }
+        let snapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notificationStore.notifications,
+            maxInlineNotificationItems: maxInlineNotificationItems
+        )
+        let actualUnreadCount = snapshot.unreadCount
 
         let displayedUnreadCount: Int
 #if DEBUG
@@ -2444,15 +2529,13 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         displayedUnreadCount = actualUnreadCount
 #endif
 
-        stateHintItem.title = actualUnreadCount == 0
-            ? "No unread notifications"
-            : "\(actualUnreadCount) unread notification\(actualUnreadCount == 1 ? "" : "s")"
+        stateHintItem.title = snapshot.stateHintTitle
 
-        jumpToUnreadItem.isEnabled = actualUnreadCount > 0
-        markAllReadItem.isEnabled = actualUnreadCount > 0
-        clearAllItem.isEnabled = !notifications.isEmpty
+        jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
+        markAllReadItem.isEnabled = snapshot.hasUnreadNotifications
+        clearAllItem.isEnabled = snapshot.hasNotifications
 
-        rebuildInlineNotificationItems(notifications: notifications)
+        rebuildInlineNotificationItems(recentNotifications: snapshot.recentNotifications)
 
         if let button = statusItem.button {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
@@ -2462,21 +2545,20 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func rebuildInlineNotificationItems(notifications: [TerminalNotification]) {
+    private func rebuildInlineNotificationItems(recentNotifications: [TerminalNotification]) {
         for item in notificationItems {
             menu.removeItem(item)
         }
         notificationItems.removeAll(keepingCapacity: true)
 
-        let recent = Array(notifications.prefix(maxInlineNotificationItems))
-        notificationListSeparator.isHidden = recent.isEmpty
-        notificationSectionSeparator.isHidden = recent.isEmpty
-        guard !recent.isEmpty else { return }
+        notificationListSeparator.isHidden = recentNotifications.isEmpty
+        notificationSectionSeparator.isHidden = recentNotifications.isEmpty
+        guard !recentNotifications.isEmpty else { return }
 
         let insertionIndex = menu.index(of: showNotificationsItem)
         guard insertionIndex >= 0 else { return }
 
-        for (offset, notification) in recent.enumerated() {
+        for (offset, notification) in recentNotifications.enumerated() {
             let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
             let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
             menu.insertItem(item, at: insertionIndex + offset)
@@ -2536,6 +2618,48 @@ private final class NotificationMenuItemPayload: NSObject {
     }
 }
 
+struct NotificationMenuSnapshot {
+    let unreadCount: Int
+    let hasNotifications: Bool
+    let recentNotifications: [TerminalNotification]
+
+    var hasUnreadNotifications: Bool {
+        unreadCount > 0
+    }
+
+    var stateHintTitle: String {
+        NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: unreadCount)
+    }
+}
+
+enum NotificationMenuSnapshotBuilder {
+    static let defaultInlineNotificationLimit = 6
+
+    static func make(
+        notifications: [TerminalNotification],
+        maxInlineNotificationItems: Int = defaultInlineNotificationLimit
+    ) -> NotificationMenuSnapshot {
+        let unreadCount = notifications.reduce(into: 0) { count, notification in
+            if !notification.isRead {
+                count += 1
+            }
+        }
+
+        let inlineLimit = max(0, maxInlineNotificationItems)
+        return NotificationMenuSnapshot(
+            unreadCount: unreadCount,
+            hasNotifications: !notifications.isEmpty,
+            recentNotifications: Array(notifications.prefix(inlineLimit))
+        )
+    }
+
+    static func stateHintTitle(unreadCount: Int) -> String {
+        unreadCount == 0
+            ? "No unread notifications"
+            : "\(unreadCount) unread notification\(unreadCount == 1 ? "" : "s")"
+    }
+}
+
 enum MenuBarBadgeLabelFormatter {
     static func badgeText(for unreadCount: Int) -> String? {
         guard unreadCount > 0 else { return nil }
@@ -2547,6 +2671,9 @@ enum MenuBarBadgeLabelFormatter {
 }
 
 enum MenuBarNotificationLineFormatter {
+    static let defaultMaxMenuTextWidth: CGFloat = 280
+    static let defaultMaxMenuTextLines = 3
+
     static func plainTitle(notification: TerminalNotification, tabTitle: String?) -> String {
         let dot = notification.isRead ? "  " : "● "
         let timeText = notification.createdAt.formatted(date: .omitted, time: .shortened)
@@ -2565,46 +2692,98 @@ enum MenuBarNotificationLineFormatter {
         return lines.joined(separator: "\n")
     }
 
+    static func menuTitle(
+        notification: TerminalNotification,
+        tabTitle: String?,
+        maxWidth: CGFloat = defaultMaxMenuTextWidth,
+        maxLines: Int = defaultMaxMenuTextLines
+    ) -> String {
+        let base = plainTitle(notification: notification, tabTitle: tabTitle)
+        return wrappedAndTruncated(base, maxWidth: maxWidth, maxLines: maxLines)
+    }
+
     static func attributedTitle(notification: TerminalNotification, tabTitle: String?) -> NSAttributedString {
-        let line1 = NSAttributedString(
-            string: plainTitle(notification: notification, tabTitle: nil).components(separatedBy: "\n").first ?? notification.title,
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        return NSAttributedString(
+            string: menuTitle(notification: notification, tabTitle: tabTitle),
             attributes: [
                 .font: NSFont.menuFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph,
             ]
         )
-
-        let result = NSMutableAttributedString(attributedString: line1)
-        let detail = notification.body.isEmpty ? notification.subtitle : notification.body
-        if !detail.isEmpty {
-            result.append(
-                NSAttributedString(
-                    string: "\n\(detail)",
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                        .foregroundColor: NSColor.secondaryLabelColor,
-                    ]
-                )
-            )
-        }
-
-        if let tabTitle, !tabTitle.isEmpty {
-            result.append(
-                NSAttributedString(
-                    string: "\n\(tabTitle)",
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                        .foregroundColor: NSColor.tertiaryLabelColor,
-                    ]
-                )
-            )
-        }
-
-        return result
     }
 
     static func tooltip(notification: TerminalNotification, tabTitle: String?) -> String {
         plainTitle(notification: notification, tabTitle: tabTitle)
+    }
+
+    private static func wrappedAndTruncated(_ text: String, maxWidth: CGFloat, maxLines: Int) -> String {
+        let width = max(60, maxWidth)
+        let lines = max(1, maxLines)
+        let font = NSFont.menuFont(ofSize: NSFont.systemFontSize)
+        let wrapped = wrappedLines(for: text, maxWidth: width, font: font)
+        guard wrapped.count > lines else { return wrapped.joined(separator: "\n") }
+
+        var clipped = Array(wrapped.prefix(lines))
+        clipped[lines - 1] = truncateLine(clipped[lines - 1], maxWidth: width, font: font)
+        return clipped.joined(separator: "\n")
+    }
+
+    private static func wrappedLines(for text: String, maxWidth: CGFloat, font: NSFont) -> [String] {
+        let storage = NSTextStorage(string: text, attributes: [.font: font])
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: maxWidth, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        container.lineBreakMode = .byWordWrapping
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        _ = layout.glyphRange(for: container)
+
+        let fullText = text as NSString
+        var rows: [String] = []
+        var glyphIndex = 0
+        while glyphIndex < layout.numberOfGlyphs {
+            var glyphRange = NSRange()
+            layout.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &glyphRange)
+            if glyphRange.length == 0 { break }
+
+            let charRange = layout.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            let row = fullText.substring(with: charRange).trimmingCharacters(in: .newlines)
+            rows.append(row)
+            glyphIndex = NSMaxRange(glyphRange)
+        }
+
+        if rows.isEmpty {
+            return [text]
+        }
+        return rows
+    }
+
+    private static func truncateLine(_ line: String, maxWidth: CGFloat, font: NSFont) -> String {
+        let ellipsis = "…"
+        let full = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if full.isEmpty { return ellipsis }
+
+        if measuredWidth(full + ellipsis, font: font) <= maxWidth {
+            return full + ellipsis
+        }
+
+        var chars = Array(full)
+        while !chars.isEmpty {
+            chars.removeLast()
+            let candidateBase = String(chars).trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidate = (candidateBase.isEmpty ? "" : candidateBase) + ellipsis
+            if measuredWidth(candidate, font: font) <= maxWidth {
+                return candidate
+            }
+        }
+        return ellipsis
+    }
+
+    private static func measuredWidth(_ text: String, font: NSFont) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: font]).width
     }
 }
 

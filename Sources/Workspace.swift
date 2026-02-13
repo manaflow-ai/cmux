@@ -157,6 +157,20 @@ final class Workspace: Identifiable, ObservableObject {
     private var focusReconcileScheduled = false
     private var geometryReconcileScheduled = false
 
+    struct DetachedSurfaceTransfer {
+        let panelId: UUID
+        let panel: any Panel
+        let title: String
+        let icon: String?
+        let iconImageData: Data?
+        let isLoading: Bool
+        let directory: String?
+        let cachedTitle: String?
+    }
+
+    private var detachingTabIds: Set<TabID> = []
+    private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
+
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
     }
@@ -165,6 +179,27 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId.first { $0.value == panelId }?.key
     }
 
+
+    private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+        let subscription = Publishers.CombineLatest3(
+            browserPanel.$pageTitle,
+            browserPanel.$isLoading.removeDuplicates(),
+            browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak browserPanel] _, isLoading, favicon in
+            guard let self = self,
+                  let browserPanel = browserPanel,
+                  let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: browserPanel.displayTitle,
+                iconImageData: .some(favicon),
+                isLoading: isLoading
+            )
+        }
+        panelSubscriptions[browserPanel.id] = subscription
+    }
     // MARK: - Panel Access
 
     func panel(for surfaceId: TabID) -> (any Panel)? {
@@ -408,25 +443,7 @@ final class Workspace: Identifiable, ObservableObject {
 	        // deterministic for both user and socket-driven workflows.
 	        focusPanel(browserPanel.id)
 
-	        // Subscribe to browser title/loading/favicon changes to update the bonsplit tab.
-	        let subscription = Publishers.CombineLatest3(
-	            browserPanel.$pageTitle,
-	            browserPanel.$isLoading.removeDuplicates(),
-	            browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, isLoading, favicon in
-            guard let self = self,
-                  let browserPanel = browserPanel,
-                  let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: browserPanel.displayTitle,
-                iconImageData: .some(favicon),
-                isLoading: isLoading
-            )
-        }
-        panelSubscriptions[browserPanel.id] = subscription
+        installBrowserPanelSubscription(browserPanel)
 
         return browserPanel
     }
@@ -463,32 +480,13 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: newTabId, inPane: paneId)
         }
 
-        // Subscribe to browser title/loading/favicon changes to update the bonsplit tab.
-        let subscription = Publishers.CombineLatest3(
-            browserPanel.$pageTitle,
-            browserPanel.$isLoading.removeDuplicates(),
-            browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, isLoading, favicon in
-            guard let self = self,
-                  let browserPanel = browserPanel,
-                  let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: browserPanel.displayTitle,
-                iconImageData: .some(favicon),
-                isLoading: isLoading
-            )
-        }
-        panelSubscriptions[browserPanel.id] = subscription
+        installBrowserPanelSubscription(browserPanel)
 
         return browserPanel
     }
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
-    
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             if force {
@@ -512,6 +510,123 @@ final class Workspace: Identifiable, ObservableObject {
         return bonsplitController.closeTab(selected.id)
     }
 
+    func paneId(forPanelId panelId: UUID) -> PaneID? {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
+        return bonsplitController.allPaneIds.first { paneId in
+            bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
+        }
+    }
+
+    func indexInPane(forPanelId panelId: UUID) -> Int? {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else { return nil }
+        return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
+    }
+
+    @discardableResult
+    func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
+        guard bonsplitController.allPaneIds.contains(paneId) else { return false }
+        guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
+
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(panelId)
+        } else {
+            scheduleFocusReconcile()
+        }
+        scheduleTerminalGeometryReconcile()
+        return true
+    }
+
+    @discardableResult
+    func reorderSurface(panelId: UUID, toIndex index: Int) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
+        guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
+
+        if let paneId = paneId(forPanelId: panelId) {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        } else {
+            scheduleFocusReconcile()
+        }
+        scheduleTerminalGeometryReconcile()
+        return true
+    }
+
+    func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
+        guard panels[panelId] != nil else { return nil }
+
+        detachingTabIds.insert(tabId)
+        forceCloseTabIds.insert(tabId)
+        guard bonsplitController.closeTab(tabId) else {
+            detachingTabIds.remove(tabId)
+            pendingDetachedSurfaces.removeValue(forKey: tabId)
+            forceCloseTabIds.remove(tabId)
+            return nil
+        }
+
+        return pendingDetachedSurfaces.removeValue(forKey: tabId)
+    }
+
+    @discardableResult
+    func attachDetachedSurface(
+        _ detached: DetachedSurfaceTransfer,
+        inPane paneId: PaneID,
+        atIndex index: Int? = nil,
+        focus: Bool = true
+    ) -> UUID? {
+        guard bonsplitController.allPaneIds.contains(paneId) else { return nil }
+        guard panels[detached.panelId] == nil else { return nil }
+
+        panels[detached.panelId] = detached.panel
+        if let terminalPanel = detached.panel as? TerminalPanel {
+            terminalPanel.updateWorkspaceId(id)
+        } else if let browserPanel = detached.panel as? BrowserPanel {
+            browserPanel.updateWorkspaceId(id)
+            installBrowserPanelSubscription(browserPanel)
+        }
+
+        if let directory = detached.directory {
+            panelDirectories[detached.panelId] = directory
+        }
+        if let cachedTitle = detached.cachedTitle {
+            panelTitles[detached.panelId] = cachedTitle
+        }
+
+        guard let newTabId = bonsplitController.createTab(
+            title: detached.title,
+            icon: detached.icon,
+            iconImageData: detached.iconImageData,
+            isDirty: detached.panel.isDirty,
+            isLoading: detached.isLoading,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: detached.panelId)
+            panelDirectories.removeValue(forKey: detached.panelId)
+            panelTitles.removeValue(forKey: detached.panelId)
+            panelSubscriptions.removeValue(forKey: detached.panelId)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = detached.panelId
+        if let index {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: index)
+        }
+
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            detached.panel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            scheduleFocusReconcile()
+        }
+        scheduleTerminalGeometryReconcile()
+
+        return detached.panelId
+    }
     // MARK: - Focus Management
 
     func focusPanel(_ panelId: UUID) {
@@ -972,9 +1087,25 @@ extension Workspace: BonsplitDelegate {
         NSLog("[Workspace] didCloseTab panelId=\(panelId) remainingPanels=\(panels.count - 1) remainingPanes=\(controller.allPaneIds.count)")
         #endif
 
-        if let panel = panels[panelId] {
-            panel.close()
+        let isDetaching = detachingTabIds.remove(tabId) != nil
+        let panel = panels[panelId]
+
+        if isDetaching, let panel {
+            let browserPanel = panel as? BrowserPanel
+            pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
+                panelId: panelId,
+                panel: panel,
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                iconImageData: browserPanel?.faviconPNGData,
+                isLoading: browserPanel?.isLoading ?? false,
+                directory: panelDirectories[panelId],
+                cachedTitle: panelTitles[panelId]
+            )
+        } else {
+            panel?.close()
         }
+
         panels.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
@@ -1012,6 +1143,13 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
         applyTabSelection(tabId: tab.id, inPane: pane)
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        _ = source
+        applyTabSelection(tabId: tab.id, inPane: destination)
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
