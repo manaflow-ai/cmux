@@ -88,6 +88,411 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 }
 
+final class WorkspaceShortcutMapperTests: XCTestCase {
+    func testCommandNineMapsToLastWorkspaceIndex() {
+        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: 9, workspaceCount: 1), 0)
+        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: 9, workspaceCount: 4), 3)
+        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: 9, workspaceCount: 12), 11)
+    }
+
+    func testCommandDigitBadgesUseNineForLastWorkspaceWhenNeeded() {
+        XCTAssertEqual(WorkspaceShortcutMapper.commandDigitForWorkspace(at: 0, workspaceCount: 12), 1)
+        XCTAssertEqual(WorkspaceShortcutMapper.commandDigitForWorkspace(at: 7, workspaceCount: 12), 8)
+        XCTAssertEqual(WorkspaceShortcutMapper.commandDigitForWorkspace(at: 11, workspaceCount: 12), 9)
+        XCTAssertNil(WorkspaceShortcutMapper.commandDigitForWorkspace(at: 8, workspaceCount: 12))
+    }
+}
+
+final class SidebarCommandHintPolicyTests: XCTestCase {
+    func testCommandHintRequiresCommandOnlyModifier() {
+        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
+        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: []))
+        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift]))
+        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option]))
+        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control]))
+    }
+
+    func testCommandHintUsesIntentionalHoldDelay() {
+        XCTAssertGreaterThanOrEqual(SidebarCommandHintPolicy.intentionalHoldDelay, 0.25)
+    }
+}
+
+final class ShortcutHintDebugSettingsTests: XCTestCase {
+    func testClampKeepsValuesWithinSupportedRange() {
+        XCTAssertEqual(ShortcutHintDebugSettings.clamped(0.0), 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.clamped(4.0), 4.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.clamped(-100.0), ShortcutHintDebugSettings.offsetRange.lowerBound)
+        XCTAssertEqual(ShortcutHintDebugSettings.clamped(100.0), ShortcutHintDebugSettings.offsetRange.upperBound)
+    }
+
+    func testDefaultOffsetsMatchCurrentBadgePlacements() {
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
+        XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
+    }
+}
+
+final class ShortcutHintLanePlannerTests: XCTestCase {
+    func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
+        let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
+        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 0, 0])
+    }
+
+    func testAssignLanesStacksOverlappingIntervalsIntoAdditionalLanes() {
+        let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 22...38, 40...56]
+        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 1, 2, 0])
+    }
+}
+
+final class ShortcutHintHorizontalPlannerTests: XCTestCase {
+    func testAssignRightEdgesResolvesOverlapWithMinimumSpacing() {
+        let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 30...46]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+
+        XCTAssertEqual(rightEdges.count, intervals.count)
+
+        let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
+            let width = interval.upperBound - interval.lowerBound
+            return (rightEdge - width)...rightEdge
+        }
+
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[1].lowerBound - adjustedIntervals[0].upperBound, 6)
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[2].lowerBound - adjustedIntervals[1].upperBound, 6)
+    }
+
+    func testAssignRightEdgesKeepsAlreadySeparatedIntervalsInPlace() {
+        let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
+        XCTAssertEqual(rightEdges, [12, 32, 52])
+    }
+}
+
+final class WorkspacePlacementSettingsTests: XCTestCase {
+    func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
+        let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+    }
+
+    func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() {
+        let suiteName = "WorkspacePlacementSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(NewWorkspacePlacement.top.rawValue, forKey: WorkspacePlacementSettings.placementKey)
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .top)
+
+        defaults.set("nope", forKey: WorkspacePlacementSettings.placementKey)
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+    }
+
+    func testInsertionIndexTopInsertsBeforeUnpinned() {
+        let index = WorkspacePlacementSettings.insertionIndex(
+            placement: .top,
+            selectedIndex: 4,
+            selectedIsPinned: false,
+            pinnedCount: 2,
+            totalCount: 7
+        )
+        XCTAssertEqual(index, 2)
+    }
+
+    func testInsertionIndexAfterCurrentHandlesPinnedAndUnpinnedSelection() {
+        let afterUnpinned = WorkspacePlacementSettings.insertionIndex(
+            placement: .afterCurrent,
+            selectedIndex: 3,
+            selectedIsPinned: false,
+            pinnedCount: 2,
+            totalCount: 6
+        )
+        XCTAssertEqual(afterUnpinned, 4)
+
+        let afterPinned = WorkspacePlacementSettings.insertionIndex(
+            placement: .afterCurrent,
+            selectedIndex: 0,
+            selectedIsPinned: true,
+            pinnedCount: 2,
+            totalCount: 6
+        )
+        XCTAssertEqual(afterPinned, 2)
+    }
+
+    func testInsertionIndexEndAndNoSelectionAppend() {
+        let endIndex = WorkspacePlacementSettings.insertionIndex(
+            placement: .end,
+            selectedIndex: 1,
+            selectedIsPinned: false,
+            pinnedCount: 1,
+            totalCount: 5
+        )
+        XCTAssertEqual(endIndex, 5)
+
+        let noSelectionIndex = WorkspacePlacementSettings.insertionIndex(
+            placement: .afterCurrent,
+            selectedIndex: nil,
+            selectedIsPinned: false,
+            pinnedCount: 0,
+            totalCount: 5
+        )
+        XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+final class WorkspaceReorderTests: XCTestCase {
+    @MainActor
+    func testReorderWorkspaceMovesWorkspaceToRequestedIndex() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        manager.selectWorkspace(second)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: second.id, toIndex: 0))
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id, third.id])
+        XCTAssertEqual(manager.selectedTabId, second.id)
+    }
+
+    @MainActor
+    func testReorderWorkspaceClampsOutOfRangeTargetIndex() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: first.id, toIndex: 999))
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id])
+    }
+
+    @MainActor
+    func testReorderWorkspaceReturnsFalseForUnknownWorkspace() {
+        let manager = TabManager()
+        XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
+    }
+}
+
+final class SidebarDropPlannerTests: XCTestCase {
+    func testNoIndicatorForNoOpEdges() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: first,
+                targetTabId: first,
+                tabIds: tabIds
+            )
+        )
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: third,
+                targetTabId: nil,
+                tabIds: tabIds
+            )
+        )
+    }
+
+    func testNoIndicatorWhenOnlyOneTabExists() {
+        let only = UUID()
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: only,
+                targetTabId: nil,
+                tabIds: [only]
+            )
+        )
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: only,
+                targetTabId: only,
+                tabIds: [only]
+            )
+        )
+    }
+
+    func testIndicatorAppearsForRealMoveToEnd() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        let indicator = SidebarDropPlanner.indicator(
+            draggedTabId: second,
+            targetTabId: nil,
+            tabIds: tabIds
+        )
+        XCTAssertEqual(indicator?.tabId, nil)
+        XCTAssertEqual(indicator?.edge, .bottom)
+    }
+
+    func testTargetIndexForMoveToEndFromMiddle() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        let index = SidebarDropPlanner.targetIndex(
+            draggedTabId: second,
+            targetTabId: nil,
+            indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            tabIds: tabIds
+        )
+        XCTAssertEqual(index, 2)
+    }
+
+    func testNoIndicatorForSelfDropInMiddle() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: second,
+                targetTabId: second,
+                tabIds: tabIds
+            )
+        )
+    }
+
+    func testPointerEdgeTopCanSuppressNoOpWhenDraggingFirstOverSecond() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: first,
+                targetTabId: second,
+                tabIds: tabIds,
+                pointerY: 2,
+                targetHeight: 40
+            )
+        )
+    }
+
+    func testPointerEdgeBottomAllowsMoveWhenDraggingFirstOverSecond() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        let indicator = SidebarDropPlanner.indicator(
+            draggedTabId: first,
+            targetTabId: second,
+            tabIds: tabIds,
+            pointerY: 38,
+            targetHeight: 40
+        )
+        XCTAssertEqual(indicator?.tabId, third)
+        XCTAssertEqual(indicator?.edge, .top)
+        XCTAssertEqual(
+            SidebarDropPlanner.targetIndex(
+                draggedTabId: first,
+                targetTabId: second,
+                indicator: indicator,
+                tabIds: tabIds
+            ),
+            1
+        )
+    }
+
+    func testEquivalentBoundaryInputsResolveToSingleCanonicalIndicator() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        let fromBottomOfFirst = SidebarDropPlanner.indicator(
+            draggedTabId: third,
+            targetTabId: first,
+            tabIds: tabIds,
+            pointerY: 38,
+            targetHeight: 40
+        )
+        let fromTopOfSecond = SidebarDropPlanner.indicator(
+            draggedTabId: third,
+            targetTabId: second,
+            tabIds: tabIds,
+            pointerY: 2,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(fromBottomOfFirst?.tabId, second)
+        XCTAssertEqual(fromBottomOfFirst?.edge, .top)
+        XCTAssertEqual(fromTopOfSecond?.tabId, second)
+        XCTAssertEqual(fromTopOfSecond?.edge, .top)
+    }
+
+    func testPointerEdgeBottomSuppressesNoOpWhenDraggingLastOverSecond() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let tabIds = [first, second, third]
+
+        XCTAssertNil(
+            SidebarDropPlanner.indicator(
+                draggedTabId: third,
+                targetTabId: second,
+                tabIds: tabIds,
+                pointerY: 38,
+                targetHeight: 40
+            )
+        )
+    }
+}
+
+final class SidebarDragAutoScrollPlannerTests: XCTestCase {
+    func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
+        let topPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12)
+        XCTAssertEqual(topPlan?.direction, .up)
+        XCTAssertNotNil(topPlan)
+
+        let bottomPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12)
+        XCTAssertEqual(bottomPlan?.direction, .down)
+        XCTAssertNotNil(bottomPlan)
+
+        XCTAssertNil(
+            SidebarDragAutoScrollPlanner.plan(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12)
+        )
+    }
+
+    func testAutoScrollPlanSpeedsUpCloserToEdge() {
+        let nearTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12)
+        let midTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12)
+
+        XCTAssertNotNil(nearTop)
+        XCTAssertNotNil(midTop)
+        XCTAssertGreaterThan(nearTop?.pointsPerTick ?? 0, midTop?.pointsPerTick ?? 0)
+    }
+
+    func testAutoScrollPlanStillTriggersWhenPointerIsPastEdge() {
+        let aboveTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12)
+        XCTAssertEqual(aboveTop?.direction, .up)
+        XCTAssertEqual(aboveTop?.pointsPerTick, 12)
+
+        let belowBottom = SidebarDragAutoScrollPlanner.plan(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12)
+        XCTAssertEqual(belowBottom?.direction, .down)
+        XCTAssertEqual(belowBottom?.pointsPerTick, 12)
+    }
+}
+
 final class FinderServicePathResolverTests: XCTestCase {
     func testOrderedUniqueDirectoriesUsesParentForFilesAndDedupes() {
         let input: [URL] = [
@@ -281,6 +686,40 @@ final class MenuBarBadgeLabelFormatterTests: XCTestCase {
     }
 }
 
+final class NotificationMenuSnapshotBuilderTests: XCTestCase {
+    func testSnapshotCountsUnreadAndLimitsRecentItems() {
+        let notifications = (0..<8).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "N\(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: index.isMultiple(of: 2)
+            )
+        }
+
+        let snapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notifications,
+            maxInlineNotificationItems: 3
+        )
+
+        XCTAssertEqual(snapshot.unreadCount, 4)
+        XCTAssertTrue(snapshot.hasNotifications)
+        XCTAssertTrue(snapshot.hasUnreadNotifications)
+        XCTAssertEqual(snapshot.recentNotifications.count, 3)
+        XCTAssertEqual(snapshot.recentNotifications.map(\.id), Array(notifications.prefix(3)).map(\.id))
+    }
+
+    func testStateHintTitleHandlesSingularPluralAndZero() {
+        XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 0), "No unread notifications")
+        XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 1), "1 unread notification")
+        XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 2), "2 unread notifications")
+    }
+}
+
 final class MenuBarBuildHintFormatterTests: XCTestCase {
     func testReleaseBuildShowsNoHint() {
         XCTAssertNil(MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV menubar-extra", isDebugBuild: false))
@@ -335,6 +774,51 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
         let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: nil)
         XCTAssertTrue(line.hasPrefix("  Deploy"))
         XCTAssertTrue(line.contains("staging"))
+    }
+
+    func testMenuTitleWrapsAndTruncatesToThreeLines() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Extremely long notification title for wrapping behavior validation",
+            subtitle: "",
+            body: Array(repeating: "this body should wrap and eventually truncate", count: 8).joined(separator: " "),
+            createdAt: Date(timeIntervalSince1970: 0),
+            isRead: false
+        )
+
+        let title = MenuBarNotificationLineFormatter.menuTitle(
+            notification: notification,
+            tabTitle: "workspace-with-a-very-long-name",
+            maxWidth: 120,
+            maxLines: 3
+        )
+
+        XCTAssertLessThanOrEqual(title.components(separatedBy: "\n").count, 3)
+        XCTAssertTrue(title.hasSuffix("…"))
+    }
+
+    func testMenuTitlePreservesShortTextWithoutEllipsis() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Done",
+            subtitle: "",
+            body: "All checks passed",
+            createdAt: Date(timeIntervalSince1970: 0),
+            isRead: false
+        )
+
+        let title = MenuBarNotificationLineFormatter.menuTitle(
+            notification: notification,
+            tabTitle: "w1",
+            maxWidth: 320,
+            maxLines: 3
+        )
+
+        XCTAssertFalse(title.hasSuffix("…"))
     }
 }
 

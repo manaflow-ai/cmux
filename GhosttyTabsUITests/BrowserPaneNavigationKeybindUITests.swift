@@ -215,6 +215,61 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testClickingOmnibarFocusesBrowserPane() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "terminalPaneId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        guard let expectedBrowserPanelId = setup["browserPanelId"] else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in goto_split setup data")
+            return
+        }
+
+        // Move focus away from browser to terminal first.
+        app.typeKey("h", modifierFlags: [.command, .control])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["lastMoveDirection"] == "left" && data["focusedPaneId"] == expectedTerminalPaneId
+            },
+            "Expected Cmd+Ctrl+H to move focus to left pane (terminal)"
+        )
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field")
+        omnibar.click()
+
+        // Cmd+L behavior is context-aware:
+        // - If terminal is focused: opens a new browser and focuses that new omnibar.
+        // - If browser is focused: focuses current browser omnibar.
+        // After clicking the omnibar, Cmd+L should stay on the existing browser panel.
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["webViewFocusedAfterAddressBarFocus"] == "false" else { return false }
+                return data["webViewFocusedAfterAddressBarFocusPanelId"] == expectedBrowserPanelId
+            },
+            "Expected omnibar click to focus browser panel so Cmd+L stays on that browser"
+        )
+    }
+
     func testCmdDSplitsRightWhenWebViewFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
