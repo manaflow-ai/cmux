@@ -10,7 +10,10 @@ class UpdateController {
     private var installCancellable: AnyCancellable?
     private var noUpdateDismissCancellable: AnyCancellable?
     private var noUpdateDismissWorkItem: DispatchWorkItem?
+    private var readyCheckWorkItem: DispatchWorkItem?
     private var didStartUpdater: Bool = false
+    private let readyRetryDelay: TimeInterval = 0.25
+    private let readyRetryCount: Int = 20
 
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -45,6 +48,7 @@ class UpdateController {
         installCancellable?.cancel()
         noUpdateDismissCancellable?.cancel()
         noUpdateDismissWorkItem?.cancel()
+        readyCheckWorkItem?.cancel()
     }
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
@@ -106,6 +110,10 @@ class UpdateController {
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
         UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
+        checkForUpdatesWhenReady(retries: readyRetryCount)
+    }
+
+    private func performCheckForUpdates() {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         if viewModel.state == .idle {
@@ -123,20 +131,39 @@ class UpdateController {
 
     /// Check for updates once the updater is ready (used by UI tests).
     func checkForUpdatesWhenReady(retries: Int = 10) {
+        readyCheckWorkItem?.cancel()
+        readyCheckWorkItem = nil
         startUpdaterIfNeeded()
+        ensureSparkleInstallationCache()
         let canCheck = updater.canCheckForUpdates
         UpdateLogStore.shared.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
-            checkForUpdates()
+            performCheckForUpdates()
             return
+        }
+        if viewModel.state.isIdle {
+            viewModel.state = .checking(.init(cancel: {}))
         }
         guard retries > 0 else {
             UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")
+            if case .checking = viewModel.state {
+                viewModel.state = .error(.init(
+                    error: NSError(
+                        domain: "cmuxterm.update",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Updater is still starting. Try again in a moment."]
+                    ),
+                    retry: { [weak self] in self?.checkForUpdates() },
+                    dismiss: { [weak self] in self?.viewModel.state = .idle }
+                ))
+            }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        let workItem = DispatchWorkItem { [weak self] in
             self?.checkForUpdatesWhenReady(retries: retries - 1)
         }
+        readyCheckWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + readyRetryDelay, execute: workItem)
     }
 
     /// Validate the check for updates menu item.

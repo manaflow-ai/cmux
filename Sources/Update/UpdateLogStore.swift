@@ -20,7 +20,6 @@ final class UpdateLogStore {
     }
 
     func append(_ message: String) {
-        #if DEBUG
         let timestamp = formatter.string(from: Date())
         let bundle = Bundle.main.bundleIdentifier ?? "<no.bundle.id>"
         let pid = ProcessInfo.processInfo.processIdentifier
@@ -33,7 +32,6 @@ final class UpdateLogStore {
             }
             appendToFile(line: line)
         }
-        #endif
     }
 
     func snapshot() -> String {
