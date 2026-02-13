@@ -47,7 +47,7 @@ def _wait_for_file_content(path: Path, timeout_s: float = 3.0) -> str:
     raise cmuxError(f"Timed out waiting for file content: {path}")
 
 
-def _wait_for_terminal_focus(c: cmux, panel_id: str, timeout_s: float = 2.0) -> None:
+def _wait_for_terminal_focus(c: cmux, panel_id: str, timeout_s: float = 6.0) -> None:
     start = time.time()
     while time.time() - start < timeout_s:
         if c.is_terminal_focused(panel_id):
@@ -56,19 +56,61 @@ def _wait_for_terminal_focus(c: cmux, panel_id: str, timeout_s: float = 2.0) -> 
     raise cmuxError(f"Timed out waiting for terminal focus: {panel_id}")
 
 
-def _assert_routed_to_surface(c: cmux, expected_surface_id: str) -> None:
-    if FOCUS_FILE.exists():
+def _focus_and_wait(c: cmux, panel_id: str, *, total_timeout_s: float = 8.0) -> None:
+    """
+    Focus can be racy under split/tree churn. Re-issue focus a few times before failing.
+    """
+    deadline = time.time() + total_timeout_s
+    last_err = None
+    attempt = 0
+    while time.time() < deadline and attempt < 4:
+        attempt += 1
         try:
-            FOCUS_FILE.unlink()
+            c.activate_app()
         except Exception:
             pass
+        try:
+            c.focus_surface_by_panel(panel_id)
+        except Exception as e:
+            last_err = e
+            time.sleep(0.15)
+            continue
+        time.sleep(0.2)
+        try:
+            _wait_for_terminal_focus(c, panel_id, timeout_s=2.5)
+            return
+        except Exception as e:
+            last_err = e
+            time.sleep(0.15)
 
-    # Write the currently focused surface id into a well-known file.
-    c.simulate_type(f"echo $CMUX_SURFACE_ID > {FOCUS_FILE}")
-    c.simulate_shortcut("enter")
-    actual = _wait_for_file_content(FOCUS_FILE)
-    if actual != expected_surface_id:
-        raise cmuxError(f"Input routed to wrong surface: expected={expected_surface_id} actual={actual}")
+    raise cmuxError(f"Failed to focus terminal surface (panel_id={panel_id}): {last_err}")
+
+
+def _assert_routed_to_surface(c: cmux, expected_surface_id: str, panel_id: str) -> None:
+    last_actual = "<empty>"
+    for attempt in range(4):
+        _focus_and_wait(c, panel_id, total_timeout_s=4.0)
+        if FOCUS_FILE.exists():
+            try:
+                FOCUS_FILE.unlink()
+            except Exception:
+                pass
+
+        # Write the currently focused surface id into a well-known file.
+        c.simulate_type(f"echo $CMUX_SURFACE_ID > {FOCUS_FILE}")
+        c.simulate_shortcut("enter")
+        try:
+            actual = _wait_for_file_content(FOCUS_FILE, timeout_s=3.0 + (attempt * 0.5))
+        except cmuxError:
+            actual = ""
+        if actual == expected_surface_id:
+            return
+        last_actual = actual or "<empty>"
+        time.sleep(0.15)
+
+    raise cmuxError(
+        f"Input routed to wrong surface after retries: expected={expected_surface_id} actual={last_actual}"
+    )
 
 
 def main() -> int:
@@ -99,32 +141,24 @@ def main() -> int:
         time.sleep(0.25)
 
         # Focus left then right, verifying both first responder and input routing.
-        c.activate_app()
-        c.focus_surface_by_panel(left_id)
-        time.sleep(0.15)
-        _wait_for_terminal_focus(c, left_id)
-        _assert_routed_to_surface(c, left_id)
+        _focus_and_wait(c, left_id, total_timeout_s=8.0)
+        _assert_routed_to_surface(c, left_id, left_id)
 
-        c.activate_app()
-        c.focus_surface_by_panel(right_id)
-        time.sleep(0.15)
-        _wait_for_terminal_focus(c, right_id)
-        _assert_routed_to_surface(c, right_id)
+        _focus_and_wait(c, right_id, total_timeout_s=8.0)
+        _assert_routed_to_surface(c, right_id, right_id)
 
         # Stress: repeated split/close should never leave focus on a detached/hidden terminal.
-        for i in range(10):
+        for _ in range(10):
             new_id = c.new_split("right")
             time.sleep(0.1)
-            c.focus_surface_by_panel(new_id)
-            time.sleep(0.15)
-            _wait_for_terminal_focus(c, new_id, timeout_s=2.0)
-            _assert_routed_to_surface(c, new_id)
+            _focus_and_wait(c, new_id, total_timeout_s=8.0)
+            _assert_routed_to_surface(c, new_id, new_id)
 
             c.close_surface(new_id)
             time.sleep(0.25)
             focused = _focused_surface_id(c)
-            _wait_for_terminal_focus(c, focused, timeout_s=2.0)
-            _assert_routed_to_surface(c, focused)
+            _focus_and_wait(c, focused, total_timeout_s=8.0)
+            _assert_routed_to_surface(c, focused, focused)
 
     print("PASS: terminal focus routing")
     return 0

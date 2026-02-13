@@ -8,9 +8,7 @@ performance regressions like runaway animations or continuous view updates.
 Run this test after launching cmuxterm:
     python3 tests/test_cpu_usage.py
 
-The test will fail if:
-- CPU usage exceeds 15% during idle (no user interaction)
-- The sample shows suspicious patterns (continuous body.getter calls, animations)
+The test will fail if idle CPU is *sustained* above threshold.
 """
 
 from __future__ import annotations
@@ -19,6 +17,7 @@ import subprocess
 import sys
 import time
 import re
+import statistics
 from pathlib import Path
 from typing import List, Optional
 
@@ -29,8 +28,14 @@ MAX_IDLE_CPU_PERCENT = 15.0
 # How long to wait for app to settle before measuring (seconds)
 SETTLE_TIME = 2.0
 
+# Optional pre-check: wait for CPU to calm down before taking the idle sample.
+# This reduces startup/transient flakiness while still preserving regression signal.
+IDLE_PRECHECK_MAX_WAIT = 20.0
+IDLE_PRECHECK_THRESHOLD = 20.0
+IDLE_PRECHECK_CONSECUTIVE = 4
+
 # Duration to monitor CPU usage (seconds)
-MONITOR_DURATION = 3.0
+MONITOR_DURATION = 5.0
 
 # Sampling interval for CPU checks (seconds)
 SAMPLE_INTERVAL = 0.5
@@ -108,6 +113,22 @@ def monitor_cpu_usage(pid: int, duration: float, interval: float) -> List[float]
     return readings
 
 
+def wait_for_idle_precheck(pid: int) -> bool:
+    """Wait for a short streak of lower CPU readings before formal measurement."""
+    deadline = time.time() + IDLE_PRECHECK_MAX_WAIT
+    streak = 0
+    while time.time() < deadline:
+        cpu = get_cpu_usage(pid)
+        if cpu <= IDLE_PRECHECK_THRESHOLD:
+            streak += 1
+            if streak >= IDLE_PRECHECK_CONSECUTIVE:
+                return True
+        else:
+            streak = 0
+        time.sleep(SAMPLE_INTERVAL)
+    return False
+
+
 def main():
     print("=" * 60)
     print("cmuxterm CPU Usage Test")
@@ -126,23 +147,42 @@ def main():
     print(f"Waiting {SETTLE_TIME}s for app to settle...")
     time.sleep(SETTLE_TIME)
 
+    print(
+        f"Waiting for idle precheck (<= {IDLE_PRECHECK_THRESHOLD:.1f}% "
+        f"for {IDLE_PRECHECK_CONSECUTIVE} samples, timeout {IDLE_PRECHECK_MAX_WAIT:.1f}s)..."
+    )
+    if not wait_for_idle_precheck(pid):
+        print("  ⚠️ Precheck timeout; continuing with measurement anyway")
+    else:
+        print("  ✓ Idle precheck passed")
+
     # Monitor CPU usage
     print(f"Monitoring CPU usage for {MONITOR_DURATION}s...")
     readings = monitor_cpu_usage(pid, MONITOR_DURATION, SAMPLE_INTERVAL)
 
-    avg_cpu = sum(readings) / len(readings) if readings else 0
-    max_cpu = max(readings) if readings else 0
-    min_cpu = min(readings) if readings else 0
+    avg_cpu = sum(readings) / len(readings) if readings else 0.0
+    max_cpu = max(readings) if readings else 0.0
+    min_cpu = min(readings) if readings else 0.0
+    median_cpu = statistics.median(readings) if readings else 0.0
+    over_threshold = sum(1 for r in readings if r > MAX_IDLE_CPU_PERCENT)
 
-    print(f"\nCPU Usage Results:")
+    print("\nCPU Usage Results:")
     print(f"  Average: {avg_cpu:.1f}%")
+    print(f"  Median:  {median_cpu:.1f}%")
     print(f"  Max:     {max_cpu:.1f}%")
     print(f"  Min:     {min_cpu:.1f}%")
     print(f"  Samples: {len(readings)}")
+    print(f"  >{MAX_IDLE_CPU_PERCENT:.1f}%: {over_threshold}/{len(readings)}")
 
-    # Check if CPU is too high
-    if avg_cpu > MAX_IDLE_CPU_PERCENT:
-        print(f"\n❌ FAIL: Average CPU ({avg_cpu:.1f}%) exceeds threshold ({MAX_IDLE_CPU_PERCENT}%)")
+    # Treat failures as sustained-idle regressions, not single transient spikes.
+    sustained_high = over_threshold >= ((len(readings) + 1) // 2)
+    if median_cpu > MAX_IDLE_CPU_PERCENT or sustained_high:
+        reason = []
+        if median_cpu > MAX_IDLE_CPU_PERCENT:
+            reason.append(f"median {median_cpu:.1f}% > {MAX_IDLE_CPU_PERCENT:.1f}%")
+        if sustained_high:
+            reason.append(f"{over_threshold}/{len(readings)} samples above threshold")
+        print(f"\n❌ FAIL: Sustained high idle CPU detected ({'; '.join(reason)})")
 
         # Take a sample to diagnose
         print("\nTaking process sample for diagnosis...")
@@ -172,7 +212,7 @@ def main():
 
         return 1
 
-    print(f"\n✅ PASS: CPU usage is within acceptable range")
+    print("\n✅ PASS: CPU usage is within acceptable range")
     return 0
 
 

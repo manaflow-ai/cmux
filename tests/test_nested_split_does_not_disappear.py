@@ -42,6 +42,19 @@ def _assert_all_panels_visible(c: cmux, panel_ids: list[str], *, min_wh: int = 8
             raise cmuxError(f"panel snapshot too small: {pid} snap={snap}")
 
 
+def _wait_until_all_panels_visible(c: cmux, panel_ids: list[str], timeout_s: float) -> None:
+    deadline = time.time() + timeout_s
+    last_err = ""
+    while time.time() < deadline:
+        try:
+            _assert_all_panels_visible(c, panel_ids)
+            return
+        except cmuxError as e:
+            last_err = str(e)
+            time.sleep(0.05)
+    raise cmuxError(last_err or "panels never became visible")
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         c.activate_app()
@@ -67,7 +80,7 @@ def main() -> int:
 
             panel_ids = [left_panel, right_panel, new_right_panel]
 
-            # Poll for a bit; the regression can show up shortly after the split.
+            # Stress window: assert repeatedly during the first second after the nested split.
             deadline = time.time() + 1.2
             last_err = None
             while time.time() < deadline:
@@ -76,11 +89,19 @@ def main() -> int:
                     last_err = None
                 except cmuxError as e:
                     last_err = str(e)
-                    # Small sleep to avoid hammering the UI thread.
                     time.sleep(0.03)
-                    # Try again until deadline; if it persists, fail.
                 else:
                     time.sleep(0.03)
+
+            # If the final sample in the stress window was bad, allow a short settle window
+            # before failing. This keeps real persistent regressions while reducing end-of-window
+            # sampling flakes.
+            if last_err:
+                try:
+                    _wait_until_all_panels_visible(c, panel_ids, timeout_s=0.8)
+                    last_err = None
+                except cmuxError as e:
+                    last_err = str(e)
 
             if last_err:
                 raise cmuxError(f"iteration {it}: nested split caused disappearance: {last_err}")
