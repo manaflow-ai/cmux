@@ -1,17 +1,4 @@
-# cmuxterm agent notes
-
-See `PROJECTS.md` for cross-project tracking (features, bugs, backlog). Update it when completing or adding work items.
-
-"cmuxterm" is always fully lowercase. Never capitalize as "Cmuxterm", "CmuxTerm", "CMUXTERM", etc.
-
-## Parallel agent workflow
-
-This repo is frequently worked on by multiple agents in parallel on the same branch/worktree.
-
-- Scope edits to the smallest necessary file set for the task.
-- Co-exist with unrelated local changes; do not revert/delete others' work.
-- Never run broad cleanup/reset operations that can discard concurrent edits.
-- If you encounter overlapping edits in files you must touch, preserve others' intent and only patch the minimal lines required.
+# cmux agent notes
 
 ## Initial setup
 
@@ -23,13 +10,16 @@ Run the setup script to initialize submodules and build GhosttyKit:
 
 ## Local dev
 
-After making code changes, always run the reload script to launch the Debug app.
-
-Agent rule: always use `--tag` for reloads so we don't kill/relaunch the user's main `cmuxterm DEV` app instance.
-Pick a short descriptive tag per task/bugfix (and reuse it during that task).
+After making code changes, always run the reload script to launch the Debug app:
 
 ```bash
-./scripts/reload.sh --tag <tag>
+./scripts/reload.sh
+```
+
+After you're done with a fix, also reload with a tag so you can verify it in an isolated side-by-side app:
+
+```bash
+./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
 After making code changes, always run the build:
@@ -53,19 +43,25 @@ cd cmuxd && zig build -Doptimize=ReleaseFast
 `reload` = kill and launch the Debug app only:
 
 ```bash
-./scripts/reload.sh --tag <tag>
+./scripts/reload.sh
 ```
 
 `reloadp` = kill and launch the Release app:
 
 ```bash
-./scripts/reloadp.sh --tag <tag>
+./scripts/reloadp.sh
+```
+
+`reloads` = kill and launch the Release app as "cmux STAGING" (isolated from production cmux):
+
+```bash
+./scripts/reloads.sh
 ```
 
 `reload2` = reload both Debug and Release:
 
 ```bash
-./scripts/reload2.sh --tag <tag>
+./scripts/reload2.sh
 ```
 
 For parallel/isolated builds (e.g., testing a feature alongside the main app), use `--tag` with a short descriptive name:
@@ -75,21 +71,6 @@ For parallel/isolated builds (e.g., testing a feature alongside the main app), u
 ```
 
 This creates an isolated app with its own name, bundle ID, socket, and derived data path so it runs side-by-side with the main app. Important: use a non-`/tmp` derived data path if you need xcframework resolution (the script handles this automatically).
-
-### Cleanup tagged DEV apps
-
-Tagged reloads create additional running apps named `cmuxterm DEV <tag>`. After finishing testing, quit/kill them so we don't accumulate lots of `cmuxterm DEV <tag>` processes:
-
-Important: only clean up tags you personally started in this session. Do not quit/kill other tags, and never blanket-kill `cmuxterm DEV`.
-
-```bash
-osascript -e 'tell application "cmuxterm DEV <tag>" to quit' >/dev/null 2>&1 || true
-# Tagged apps keep the on-disk executable name `cmuxterm DEV` (no tag) inside the bundle.
-pkill -f "/cmuxterm DEV <tag>.app/Contents/MacOS/cmuxterm DEV" || true
-rm -f "/tmp/cmuxterm-debug-<tag>.sock" || true
-# Tagged reloads also create per-tag DerivedData in /tmp.
-rm -rf "/tmp/cmuxterm-<tag>" "/private/tmp/cmuxterm-<tag>" || true
-```
 
 ## Pitfalls
 
@@ -108,7 +89,7 @@ ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcode
 Run basic automated tests on the UTM macOS VM (never on the host machine):
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmuxterm DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmuxterm DEV.app" -print -quit) && open "$APP" && for i in {1..40}; do [ -S /tmp/cmuxterm-debug.sock ] || [ -S /tmp/cmuxterm.sock ] && break; sleep 0.5; done && SOCK=/tmp/cmuxterm-debug.sock && [ ! -S "$SOCK" ] && SOCK=/tmp/cmuxterm.sock && export CMUX_SOCKET_PATH="$SOCK" && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
 ## Ghostty submodule workflow
@@ -168,13 +149,13 @@ Manual release steps (if not using the command):
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
-gh run watch --repo manaflow-ai/cmuxterm
+gh run watch --repo manaflow-ai/cmux
 ```
 
 Notes:
 - Requires GitHub secrets: `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
-- The release asset is `cmuxterm-macos.dmg` attached to the tag.
-- README download button points to `releases/latest/download/cmuxterm-macos.dmg`.
+- The release asset is `cmux-macos.dmg` attached to the tag.
+- README download button points to `releases/latest/download/cmux-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
 - Changelog: always update both `CHANGELOG.md` and the docs-site version.

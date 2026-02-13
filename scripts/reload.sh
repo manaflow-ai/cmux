@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="cmuxterm DEV"
+APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
-BASE_APP_NAME="cmuxterm DEV"
+BASE_APP_NAME="cmux DEV"
 DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
@@ -97,13 +97,13 @@ if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
   if [[ "$NAME_SET" -eq 0 ]]; then
-    APP_NAME="cmuxterm DEV ${TAG}"
+    APP_NAME="cmux DEV ${TAG}"
   fi
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
     BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="/tmp/cmuxterm-${TAG_SLUG}"
+    DERIVED_DATA="/tmp/cmux-${TAG_SLUG}"
   fi
 fi
 
@@ -180,9 +180,10 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
     if [[ -n "${TAG_SLUG:-}" ]]; then
-      APP_SUPPORT_DIR="$HOME/Library/Application Support/cmuxterm"
+      APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET="/tmp/cmuxterm-debug-${TAG_SLUG}.sock"
+      CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
@@ -206,9 +207,12 @@ fi
 # Ensure any running instance is fully terminated, regardless of DerivedData path.
 /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
 sleep 0.3
-pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-if [[ "${APP_NAME}" != "${BASE_APP_NAME}" ]]; then
-  pkill -f "/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" || true
+if [[ -z "$TAG" ]]; then
+  # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
+  pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+else
+  # Tag mode: only kill the tagged instance; allow side-by-side with the main app.
+  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
 fi
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
@@ -221,43 +225,45 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
-open "$APP_PATH"
+# Avoid inheriting cmux/ghostty environment variables from the terminal that
+# runs this script (often inside another cmux instance), which can cause
+# socket and resource-path conflicts.
+OPEN_CLEAN_ENV=(
+  env
+  -u CMUX_SOCKET_PATH
+  -u CMUX_TAB_ID
+  -u CMUX_PANEL_ID
+  -u CMUXD_UNIX_PATH
+  -u CMUX_TAG
+  -u CMUX_BUNDLE_ID
+  -u CMUX_SHELL_INTEGRATION
+  -u GHOSTTY_BIN_DIR
+  -u GHOSTTY_RESOURCES_DIR
+  -u GHOSTTY_SHELL_FEATURES
+  # Dev shells (including CI/Codex) often force-disable paging by exporting these.
+  # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
+  -u GIT_PAGER
+  -u GH_PAGER
+  -u TERMINFO
+  -u XDG_DATA_DIRS
+)
+
+if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
+  # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
+  "${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
+else
+  "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
+fi
 osascript -e "tell application id \"${BUNDLE_ID}\" to activate" || true
 
 # Safety: ensure only one instance is running.
 sleep 0.2
 PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
 if [[ "${#PIDS[@]}" -gt 1 ]]; then
-  # macOS `ps` doesn't support GNU `etimes`. Use portable `etime` and parse it.
-  # `etime` formats: [[dd-]hh:]mm:ss
-  age_seconds() {
-    local pid="$1"
-    local etime days hours mins secs a b c
-    etime="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
-    [[ -z "$etime" ]] && return 1
-
-    days=0
-    if [[ "$etime" == *-* ]]; then
-      days="${etime%%-*}"
-      etime="${etime#*-}"
-    fi
-
-    a=""; b=""; c=""
-    IFS=: read -r a b c <<<"$etime"
-    hours=0; mins=0; secs=0
-    if [[ -n "${c:-}" ]]; then
-      hours="$a"; mins="$b"; secs="$c"
-    else
-      mins="$a"; secs="$b"
-    fi
-
-    echo $((10#$days*86400 + 10#$hours*3600 + 10#$mins*60 + 10#$secs))
-  }
-
   NEWEST_PID=""
   NEWEST_AGE=999999
   for PID in "${PIDS[@]}"; do
-    AGE="$(age_seconds "$PID" 2>/dev/null || true)"
+    AGE="$(ps -o etimes= -p "$PID" | tr -d ' ')"
     if [[ -n "$AGE" && "$AGE" -lt "$NEWEST_AGE" ]]; then
       NEWEST_AGE="$AGE"
       NEWEST_PID="$PID"

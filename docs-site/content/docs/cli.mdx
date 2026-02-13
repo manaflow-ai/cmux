@@ -1,19 +1,19 @@
 ---
 title: CLI Reference
-description: Command-line interface for cmuxterm
+description: Command-line interface for cmux
 ---
 
 # CLI Reference
 
-cmuxterm includes a command-line tool for controlling the terminal from scripts and other tools.
+cmux includes a command-line tool for controlling the terminal from scripts and other tools.
 
 ## Installation
 
-The CLI is bundled with cmuxterm. Inside cmuxterm terminals, it's available automatically. For external use:
+The CLI is bundled with cmux. Inside cmux terminals, it's available automatically. For external use:
 
 ```bash
 # Create symlink to CLI
-sudo ln -sf "/Applications/cmuxterm.app/Contents/MacOS/cmuxterm" /usr/local/bin/cmuxterm
+sudo ln -sf "/Applications/cmux.app/Contents/MacOS/cmux" /usr/local/bin/cmux
 ```
 
 ## Global Options
@@ -22,59 +22,61 @@ sudo ln -sf "/Applications/cmuxterm.app/Contents/MacOS/cmuxterm" /usr/local/bin/
 |--------|-------------|
 | `--socket PATH` | Use a custom socket path |
 | `--json` | Output in JSON format |
+| `--tab ID` | Target a specific tab |
+| `--panel ID` | Target a specific panel |
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `CMUX_SOCKET_PATH` | Default socket path |
-| `CMUX_WORKSPACE_ID` | Default workspace ID |
-| `CMUX_SURFACE_ID` | Default surface ID |
+| `CMUX_TAB_ID` | Default tab ID |
+| `CMUX_PANEL_ID` | Default panel ID |
 
 ## Commands
 
-### Workspace Management
+### Tab Management
 
-#### list-workspaces
+#### list-tabs
 
-List all open workspaces.
+List all open tabs.
 
 ```bash
-cmuxterm list-workspaces
-cmuxterm list-workspaces --json
+cmux list-tabs
+cmux list-tabs --json
 ```
 
-#### new-workspace
+#### new-tab
 
-Create a new workspace.
+Create a new tab.
 
 ```bash
-cmuxterm new-workspace
+cmux new-tab
 ```
 
-#### select-workspace
+#### select-tab
 
-Switch to a specific workspace.
+Switch to a specific tab.
 
 ```bash
-cmuxterm select-workspace --workspace <workspace-id>
+cmux select-tab --tab <tab-id>
 ```
 
-#### current-workspace
+#### current-tab
 
-Get the current workspace info.
+Get the current tab info.
 
 ```bash
-cmuxterm current-workspace
-cmuxterm current-workspace --json
+cmux current-tab
+cmux current-tab --json
 ```
 
-#### close-workspace
+#### close-tab
 
-Close a workspace.
+Close a tab.
 
 ```bash
-cmuxterm close-workspace --workspace <workspace-id>
+cmux close-tab --tab <tab-id>
 ```
 
 ### Split Management
@@ -84,19 +86,19 @@ cmuxterm close-workspace --workspace <workspace-id>
 Create a new split pane.
 
 ```bash
-cmuxterm new-split right
-cmuxterm new-split down
-cmuxterm new-split left
-cmuxterm new-split up
+cmux new-split right
+cmux new-split down
+cmux new-split left
+cmux new-split up
 ```
 
 #### list-panels
 
-List panels in the current workspace.
+List panels in the current tab.
 
 ```bash
-cmuxterm list-panels
-cmuxterm list-panels --json
+cmux list-panels
+cmux list-panels --json
 ```
 
 #### focus-panel
@@ -104,7 +106,7 @@ cmuxterm list-panels --json
 Focus a specific panel.
 
 ```bash
-cmuxterm focus-panel --panel <panel-id>
+cmux focus-panel --panel <panel-id>
 ```
 
 ### Input Commands
@@ -114,8 +116,8 @@ cmuxterm focus-panel --panel <panel-id>
 Send text to the terminal.
 
 ```bash
-cmuxterm send "echo hello"
-cmuxterm send "ls -la\n"  # Include newline to execute
+cmux send "echo hello"
+cmux send "ls -la\n"  # Include newline to execute
 ```
 
 #### send-key
@@ -123,9 +125,9 @@ cmuxterm send "ls -la\n"  # Include newline to execute
 Send a key press.
 
 ```bash
-cmuxterm send-key enter
-cmuxterm send-key tab
-cmuxterm send-key escape
+cmux send-key enter
+cmux send-key tab
+cmux send-key escape
 ```
 
 #### send-panel
@@ -133,7 +135,7 @@ cmuxterm send-key escape
 Send text to a specific panel.
 
 ```bash
-cmuxterm send-panel --panel <panel-id> "command"
+cmux send-panel --panel <panel-id> "command"
 ```
 
 #### send-key-panel
@@ -141,7 +143,7 @@ cmuxterm send-panel --panel <panel-id> "command"
 Send a key press to a specific panel.
 
 ```bash
-cmuxterm send-key-panel --panel <panel-id> enter
+cmux send-key-panel --panel <panel-id> enter
 ```
 
 ### Notifications
@@ -151,8 +153,8 @@ cmuxterm send-key-panel --panel <panel-id> enter
 Send a notification.
 
 ```bash
-cmuxterm notify --title "Title" --body "Message body"
-cmuxterm notify --title "Title" --subtitle "Subtitle" --body "Body"
+cmux notify --title "Title" --body "Message body"
+cmux notify --title "Title" --subtitle "Subtitle" --body "Body"
 ```
 
 #### list-notifications
@@ -160,8 +162,8 @@ cmuxterm notify --title "Title" --subtitle "Subtitle" --body "Body"
 List all notifications.
 
 ```bash
-cmuxterm list-notifications
-cmuxterm list-notifications --json
+cmux list-notifications
+cmux list-notifications --json
 ```
 
 #### clear-notifications
@@ -169,17 +171,17 @@ cmuxterm list-notifications --json
 Clear all notifications.
 
 ```bash
-cmuxterm clear-notifications
+cmux clear-notifications
 ```
 
 ### Utility
 
 #### ping
 
-Check if cmuxterm is running and responsive.
+Check if cmux is running and responsive.
 
 ```bash
-cmuxterm ping
+cmux ping
 ```
 
 ## Examples
@@ -190,31 +192,31 @@ cmuxterm ping
 #!/bin/bash
 npm run build
 if [ $? -eq 0 ]; then
-    cmuxterm notify --title "✓ Build Success" --body "Ready to deploy"
+    cmux notify --title "✓ Build Success" --body "Ready to deploy"
 else
-    cmuxterm notify --title "✗ Build Failed" --body "Check the logs"
+    cmux notify --title "✗ Build Failed" --body "Check the logs"
 fi
 ```
 
-### Create Workspace and Run Command
+### Create Tab and Run Command
 
 ```bash
 #!/bin/bash
-# Create a new workspace
-result=$(cmuxterm new-workspace --json)
-workspace_id=$(echo "$result" | jq -r '.id')
+# Create a new tab
+result=$(cmux new-tab --json)
+tab_id=$(echo "$result" | jq -r '.id')
 
-# Select the new workspace
-cmuxterm select-workspace --workspace "$workspace_id"
+# Select the new tab
+cmux select-tab --tab "$tab_id"
 
 # Send a command
-cmuxterm send "npm run dev\n"
+cmux send "npm run dev\n"
 ```
 
-### Monitor Multiple Workspaces
+### Monitor Multiple Tabs
 
 ```bash
 #!/bin/bash
-# List all workspaces and their directories
-cmuxterm list-workspaces --json | jq -r '.[] | "\(.title): \(.id)"'
+# List all tabs and their directories
+cmux list-tabs --json | jq -r '.tabs[] | "\(.title): \(.directory)"'
 ```

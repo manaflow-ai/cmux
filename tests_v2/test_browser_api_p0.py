@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmuxterm-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -109,7 +109,7 @@ def main() -> int:
         b64 = str(shot.get("png_base64") or "")
         _must(len(b64) > 100, f"Expected non-trivial screenshot payload: len={len(b64)}")
 
-    print("PASS: browser.* P0 methods work on cmuxterm webview with ref handles")
+    print("PASS: browser.* P0 methods work on cmux webview with ref handles")
     return 0
 
 

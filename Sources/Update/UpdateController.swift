@@ -3,7 +3,7 @@ import Cocoa
 import Combine
 import SwiftUI
 
-/// Controller for managing Sparkle updates in cmuxterm.
+/// Controller for managing Sparkle updates in cmux.
 class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
@@ -68,7 +68,7 @@ class UpdateController {
         }
 #endif
         do {
-            // cmuxterm never enables automatic update checks; we rely on the in-app update pill.
+            // cmux never enables automatic update checks; we rely on the in-app update pill.
             // Sparkle reads these from defaults, but set them explicitly before starting.
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: "SUEnableAutomaticChecks")
@@ -149,7 +149,7 @@ class UpdateController {
             if case .checking = viewModel.state {
                 viewModel.state = .error(.init(
                     error: NSError(
-                        domain: "cmuxterm.update",
+                        domain: "cmux.update",
                         code: 1,
                         userInfo: [NSLocalizedDescriptionKey: "Updater is still starting. Try again in a moment."]
                     ),

@@ -159,6 +159,7 @@ final class SidebarState: ObservableObject {
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
@@ -264,7 +265,7 @@ struct ContentView: View {
         }
     }
 
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
@@ -273,6 +274,20 @@ struct ContentView: View {
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
+    private var fakeTitlebarBackground: Color {
+        if colorScheme == .light {
+            return Color(nsColor: .windowBackgroundColor)
+        }
+        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
+        let alpha: CGFloat = ghosttyBackground.isLightColor ? 0.94 : 0.86
+        return Color(nsColor: ghosttyBackground.withAlphaComponent(alpha))
+    }
+    private var fakeTitlebarTextColor: Color {
+        colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.78) : .secondary
+    }
+    private var fakeTitlebarSeparatorColor: Color {
+        Color(nsColor: .separatorColor).opacity(colorScheme == .light ? 0.68 : 0.34)
+    }
 
     private var customTitlebar: some View {
         ZStack {
@@ -290,7 +305,7 @@ struct ContentView: View {
 
                 Text(titlebarText)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(fakeTitlebarTextColor)
                     .lineLimit(1)
 
                 Spacer()
@@ -313,7 +328,12 @@ struct ContentView: View {
         .onTapGesture(count: 2) {
             NSApp.keyWindow?.zoom(nil)
         }
-        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        .background(fakeTitlebarBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(fakeTitlebarSeparatorColor)
+                .frame(height: 1)
+        }
     }
 
     private func updateTitlebarText() {
@@ -446,8 +466,12 @@ struct ContentView: View {
 	                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
 	            }
 #endif
-            // For behindWindow blur to work, window must be non-opaque with transparent content view
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue && bgGlassEnabled {
+            // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
+            // or incorrectly tinted SwiftUI content. Keep native window rendering there so
+            // Ghostty theme colors remain authoritative.
+            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
+                && bgGlassEnabled
+                && !WindowGlassEffect.isAvailable {
                 window.isOpaque = false
                 window.backgroundColor = .clear
                 // Configure contentView and all subviews for transparency
@@ -1603,7 +1627,7 @@ private final class SidebarDragAutoScrollController: ObservableObject {
 
 private enum SidebarTabDragPayload {
     static let typeIdentifier = UTType.plainText.identifier
-    private static let prefix = "cmuxterm.sidebar-tab."
+    private static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
         NSItemProvider(object: "\(prefix)\(tabId.uuidString)" as NSString)
@@ -2042,13 +2066,13 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
 }
 
 private struct SidebarBackdrop: View {
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.54
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#101010"
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.18
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.79
+    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
 
     var body: some View {
         let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)

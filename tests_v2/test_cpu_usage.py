@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-CPU usage test for cmuxterm.
+CPU usage test for cmux.
 
-This test monitors cmuxterm's CPU usage during idle periods to catch
+This test monitors cmux's CPU usage during idle periods to catch
 performance regressions like runaway animations or continuous view updates.
 
-Run this test after launching cmuxterm:
+Run this test after launching cmux:
     python3 tests/test_cpu_usage.py
 
 The test will fail if idle CPU is *sustained* above threshold.
@@ -48,17 +48,17 @@ SUSPICIOUS_PATTERNS = [
 ]
 
 
-def get_cmuxterm_pid() -> Optional[int]:
-    """Get the PID of the running cmuxterm process."""
+def get_cmux_pid() -> Optional[int]:
+    """Get the PID of the running cmux process."""
     result = subprocess.run(
-        ["pgrep", "-f", r"cmuxterm\.app/Contents/MacOS/cmuxterm$"],
+        ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         # Try DEV build
         result = subprocess.run(
-            ["pgrep", "-f", r"cmuxterm DEV\.app/Contents/MacOS/cmuxterm"],
+            ["pgrep", "-f", r"cmux DEV\.app/Contents/MacOS/cmux"],
             capture_output=True,
             text=True,
         )
@@ -131,17 +131,17 @@ def wait_for_idle_precheck(pid: int) -> bool:
 
 def main():
     print("=" * 60)
-    print("cmuxterm CPU Usage Test")
+    print("cmux CPU Usage Test")
     print("=" * 60)
 
-    # Find cmuxterm process
-    pid = get_cmuxterm_pid()
+    # Find cmux process
+    pid = get_cmux_pid()
     if pid is None:
-        print("\n❌ SKIP: cmuxterm is not running")
-        print("Start cmuxterm and run this test again.")
+        print("\n❌ SKIP: cmux is not running")
+        print("Start cmux and run this test again.")
         return 0  # Not a failure, just skip
 
-    print(f"\nFound cmuxterm process: PID {pid}")
+    print(f"\nFound cmux process: PID {pid}")
 
     # Wait for app to settle
     print(f"Waiting {SETTLE_TIME}s for app to settle...")
@@ -196,7 +196,7 @@ def main():
                 print(f"  - {issue}")
 
         # Save sample for debugging
-        sample_file = Path("/tmp/cmuxterm_cpu_test_sample.txt")
+        sample_file = Path("/tmp/cmux_cpu_test_sample.txt")
         sample_file.write_text(sample_output)
         print(f"\nFull sample saved to: {sample_file}")
 
@@ -205,7 +205,7 @@ def main():
         lines = sample_output.split("\n")
         relevant_lines = [
             l for l in lines
-            if "cmuxterm" in l and ("body" in l or "Animation" in l or "Timer" in l)
+            if "cmux" in l and ("body" in l or "Animation" in l or "Timer" in l)
         ][:10]
         for line in relevant_lines:
             print(f"  {line.strip()[:100]}")

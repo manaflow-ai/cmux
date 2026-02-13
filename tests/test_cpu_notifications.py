@@ -10,7 +10,7 @@ Tests that CPU usage stays reasonable when:
 Usage:
     python3 tests/test_cpu_notifications.py
 
-Requires cmuxterm to be running with socket control enabled.
+Requires cmux to be running with socket control enabled.
 """
 
 from __future__ import annotations
@@ -39,17 +39,43 @@ SETTLE_TIME = 2.0
 MONITOR_DURATION = 3.0
 
 
-def get_cmuxterm_pid() -> Optional[int]:
-    """Get the PID of the running cmuxterm process."""
+def get_cmux_pid() -> Optional[int]:
+    """Get the PID of the running cmux process."""
+    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    if not socket_path:
+        # Ask cmux.py to resolve default socket path (supports CMUX_TAG and last-socket file).
+        try:
+            socket_path = cmux().socket_path
+        except Exception:
+            socket_path = None
+
+    if socket_path and os.path.exists(socket_path):
+        result = subprocess.run(
+            ["lsof", "-t", socket_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    pid = int(line)
+                except ValueError:
+                    continue
+                if pid != os.getpid():
+                    return pid
+
     result = subprocess.run(
-        ["pgrep", "-f", r"cmuxterm\.app/Contents/MacOS/cmuxterm$"],
+        ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         # Try DEV build
         result = subprocess.run(
-            ["pgrep", "-f", r"cmuxterm DEV\.app/Contents/MacOS/cmuxterm"],
+            ["pgrep", "-f", r"cmux DEV\.app/Contents/MacOS/cmux"],
             capture_output=True,
             text=True,
         )
@@ -141,26 +167,27 @@ def test_cpu_after_popover_close(client: cmux, pid: int) -> tuple[bool, str]:
         time.sleep(0.1)
     time.sleep(0.5)
 
-    # Toggle the popover via our debug socket shortcut simulator (doesn't require Accessibility).
-    # Default: Cmd+Shift+I (Show Notifications).
-    try:
-        client.simulate_shortcut("cmd+shift+i")
-    except Exception:
-        # Keep this test best-effort; if shortcut simulation is unavailable, fall back to osascript.
-        subprocess.run([
-            "osascript", "-e",
-            'tell application "System Events" to keystroke "i" using {command down, shift down}'
-        ], capture_output=True)
+    # Ensure the correct cmux instance is frontmost (tag-safe).
+    bundle_id = cmux.default_bundle_id()
+    subprocess.run(
+        ["osascript", "-e", f'tell application id "{bundle_id}" to activate'],
+        capture_output=True,
+    )
+    time.sleep(0.2)
+
+    # Simulate opening and closing the popover via keyboard shortcut
+    # We can't directly control the popover, but we can toggle it
+    subprocess.run([
+        "osascript", "-e",
+        'tell application "System Events" to keystroke "i" using {command down, shift down}'
+    ], capture_output=True)
     time.sleep(0.5)
 
     # Close it
-    try:
-        client.simulate_shortcut("cmd+shift+i")
-    except Exception:
-        subprocess.run([
-            "osascript", "-e",
-            'tell application "System Events" to keystroke "i" using {command down, shift down}'
-        ], capture_output=True)
+    subprocess.run([
+        "osascript", "-e",
+        'tell application "System Events" to keystroke "i" using {command down, shift down}'
+    ], capture_output=True)
     time.sleep(1.0)
 
     # Monitor CPU - should be low now
@@ -216,31 +243,26 @@ def test_cpu_idle_with_notifications(client: cmux, pid: int) -> tuple[bool, str]
 
 def main():
     print("=" * 60)
-    print("cmuxterm Notification CPU Tests")
+    print("cmux Notification CPU Tests")
     print("=" * 60)
 
-    pid = get_cmuxterm_pid()
+    socket_path = cmux().socket_path
+
+    pid = get_cmux_pid()
     if pid is None:
-        print("\n❌ SKIP: cmuxterm is not running")
+        print("\n❌ SKIP: cmux is not running")
         return 0
 
-    print(f"\nFound cmuxterm process: PID {pid}")
+    print(f"\nFound cmux process: PID {pid}")
 
     # Try to connect to the socket
-    socket_paths = ["/tmp/cmuxterm.sock", "/tmp/cmuxterm-debug.sock"]
-    client = None
-    for socket_path in socket_paths:
-        if os.path.exists(socket_path):
-            try:
-                client = cmux(socket_path)
-                client.connect()
-                print(f"Connected to {socket_path}")
-                break
-            except cmuxError:
-                continue
-
-    if client is None:
-        print(f"\n❌ SKIP: Could not connect to cmuxterm socket")
+    client = cmux(socket_path)
+    try:
+        client.connect()
+        print(f"Connected to {socket_path}")
+    except cmuxError:
+        print("\n❌ SKIP: Could not connect to cmux socket")
+        print("Tip: set CMUX_TAG=<tag> or CMUX_SOCKET_PATH=<path> to target a tagged instance.")
         return 0
 
     results = []

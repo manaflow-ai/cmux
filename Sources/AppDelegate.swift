@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.performKeyEquivalent(with:))
-        let swizzledSelector = #selector(NSWindow.cmuxterm_performKeyEquivalent(with:))
+        let swizzledSelector = #selector(NSWindow.cmux_performKeyEquivalent(with:))
         guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
               let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
             return
@@ -245,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             configureUserNotifications()
             setupMenuBarExtra()
             // Sparkle updater is started lazily on first manual check. This avoids any
-            // first-launch permission prompts and keeps cmuxterm aligned with the update pill UI.
+            // first-launch permission prompts and keeps cmux aligned with the update pill UI.
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
@@ -643,6 +643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: sidebarSelectionState
         )
         window.makeKeyAndOrderFront(nil)
+        setActiveMainWindow(window)
         NSApp.activate(ignoringOtherApps: true)
         return windowId
     }
@@ -2394,7 +2395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let menu = NSMenu(title: "cmuxterm")
+    private let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
     private let onShowNotifications: () -> Void
     private let onOpenNotification: (TerminalNotification) -> Void
@@ -2446,7 +2447,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
             button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
-            button.toolTip = "cmuxterm"
+            button.toolTip = "cmux"
         }
 
         notificationsCancellable = notificationStore.$notifications
@@ -2540,8 +2541,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
             button.toolTip = displayedUnreadCount == 0
-                ? "cmuxterm"
-                : "cmuxterm: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
+                ? "cmux"
+                : "cmux: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
         }
     }
 
@@ -2794,7 +2795,7 @@ enum MenuBarBuildHintFormatter {
     ) -> String? {
         guard isDebugBuild else { return nil }
         let normalized = appName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "cmuxterm DEV"
+        let prefix = "cmux DEV"
         guard normalized.hasPrefix(prefix) else { return "Build: DEV" }
 
         let suffix = String(normalized.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3012,10 +3013,10 @@ enum MenuBarIconRenderer {
 }
 
 private extension NSWindow {
-    @objc func cmuxterm_performKeyEquivalent(with event: NSEvent) -> Bool {
+    @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
             return true
         }
-        return cmuxterm_performKeyEquivalent(with: event)
+        return cmux_performKeyEquivalent(with: event)
     }
 }

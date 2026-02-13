@@ -27,6 +27,7 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.full.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
@@ -91,6 +92,54 @@ struct cmuxApp: App {
         setenv(key, updated, 1)
     }
 
+    private func migrateSidebarAppearanceDefaultsIfNeeded(defaults: UserDefaults) {
+        let migrationKey = "sidebarAppearanceDefaultsVersion"
+        let targetVersion = 1
+        guard defaults.integer(forKey: migrationKey) < targetVersion else { return }
+
+        func normalizeHex(_ value: String) -> String {
+            value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "#", with: "")
+                .uppercased()
+        }
+
+        func approximatelyEqual(_ lhs: Double, _ rhs: Double, tolerance: Double = 0.0001) -> Bool {
+            abs(lhs - rhs) <= tolerance
+        }
+
+        let material = defaults.string(forKey: "sidebarMaterial") ?? SidebarMaterialOption.sidebar.rawValue
+        let blendMode = defaults.string(forKey: "sidebarBlendMode") ?? SidebarBlendModeOption.behindWindow.rawValue
+        let state = defaults.string(forKey: "sidebarState") ?? SidebarStateOption.followWindow.rawValue
+        let tintHex = defaults.string(forKey: "sidebarTintHex") ?? "#101010"
+        let tintOpacity = defaults.object(forKey: "sidebarTintOpacity") as? Double ?? 0.54
+        let blurOpacity = defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? 0.79
+        let cornerRadius = defaults.object(forKey: "sidebarCornerRadius") as? Double ?? 0.0
+
+        let usesLegacyDefaults =
+            material == SidebarMaterialOption.sidebar.rawValue &&
+            blendMode == SidebarBlendModeOption.behindWindow.rawValue &&
+            state == SidebarStateOption.followWindow.rawValue &&
+            normalizeHex(tintHex) == "101010" &&
+            approximatelyEqual(tintOpacity, 0.54) &&
+            approximatelyEqual(blurOpacity, 0.79) &&
+            approximatelyEqual(cornerRadius, 0.0)
+
+        if usesLegacyDefaults {
+            let preset = SidebarPresetOption.nativeSidebar
+            defaults.set(preset.rawValue, forKey: "sidebarPreset")
+            defaults.set(preset.material.rawValue, forKey: "sidebarMaterial")
+            defaults.set(preset.blendMode.rawValue, forKey: "sidebarBlendMode")
+            defaults.set(preset.state.rawValue, forKey: "sidebarState")
+            defaults.set(preset.tintHex, forKey: "sidebarTintHex")
+            defaults.set(preset.tintOpacity, forKey: "sidebarTintOpacity")
+            defaults.set(preset.blurOpacity, forKey: "sidebarBlurOpacity")
+            defaults.set(preset.cornerRadius, forKey: "sidebarCornerRadius")
+        }
+
+        defaults.set(targetVersion, forKey: migrationKey)
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
@@ -129,7 +178,7 @@ struct cmuxApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About cmuxterm") {
+                Button("About cmux") {
                     showAboutPanel()
                 }
                 Button("Ghostty Settings…") {
@@ -563,11 +612,11 @@ private enum DebugWindowConfigSnapshot {
         let sidebarPayload = """
         sidebarPreset=\(stringValue(defaults, key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
         sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
-        sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.behindWindow.rawValue))
+        sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
         sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
-        sidebarBlurOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarBlurOpacity", fallback: 0.79)))
-        sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#101010"))
-        sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.54)))
+        sidebarBlurOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarBlurOpacity", fallback: 1.0)))
+        sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#000000"))
+        sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         shortcutHintSidebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintXKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintX)))
         shortcutHintSidebarYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintYKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintY)))
@@ -862,7 +911,7 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmuxterm")
+    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private let docsURL = URL(string: "https://term.cmux.dev")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
@@ -886,7 +935,7 @@ private struct AboutPanelView: View {
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
-                    Text("cmuxterm")
+                    Text("cmux")
                         .bold()
                         .font(.title)
                     Text("A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS.")
@@ -907,7 +956,7 @@ private struct AboutPanelView: View {
                     }
                     let commitText = commit ?? "—"
                     let commitURL = commit.flatMap { hash in
-                        URL(string: "https://github.com/manaflow-ai/cmuxterm/commit/\(hash)")
+                        URL(string: "https://github.com/manaflow-ai/cmux/commit/\(hash)")
                     }
                     AboutPropertyRow(label: "Commit", text: commitText, url: commitURL)
                 }
@@ -947,13 +996,13 @@ private struct AboutPanelView: View {
 
 private struct SidebarDebugView: View {
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.54
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#101010"
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.18
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.79
+    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX

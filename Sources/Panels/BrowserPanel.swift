@@ -225,7 +225,7 @@ final class BrowserHistoryStore: ObservableObject {
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
-        let bundleId = Bundle.main.bundleIdentifier ?? "cmuxterm"
+        let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
         let dir = appSupport.appendingPathComponent(bundleId, isDirectory: true)
         return dir.appendingPathComponent("browser_history.json", isDirectory: false)
     }

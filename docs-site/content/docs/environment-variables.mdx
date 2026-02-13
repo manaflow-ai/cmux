@@ -1,11 +1,11 @@
 ---
 title: Environment Variables
-description: Environment variables for configuring cmuxterm
+description: Environment variables for configuring cmux
 ---
 
 # Environment Variables
 
-cmuxterm uses environment variables for configuration and integration.
+cmux uses environment variables for configuration and integration.
 
 ## Socket Control
 
@@ -14,10 +14,10 @@ cmuxterm uses environment variables for configuration and integration.
 Override the default socket path.
 
 ```bash
-export CMUX_SOCKET_PATH=/custom/path/cmuxterm.sock
+export CMUX_SOCKET_PATH=/custom/path/cmux.sock
 ```
 
-Default: `/tmp/cmuxterm.sock` (release) or `/tmp/cmuxterm-debug.sock` (debug)
+Default: `/tmp/cmux.sock` (release) or `/tmp/cmux-debug.sock` (debug)
 
 ### CMUX_SOCKET_ENABLE
 
@@ -42,31 +42,31 @@ export CMUX_SOCKET_MODE=off            # Disabled
 
 ## CLI Context
 
-### CMUX_WORKSPACE_ID
+### CMUX_TAB_ID
 
-Default workspace ID for CLI commands.
-
-```bash
-export CMUX_WORKSPACE_ID=abc123
-cmuxterm send "hello"  # Sends to workspace abc123
-```
-
-cmuxterm automatically sets this in each terminal session.
-
-### CMUX_SURFACE_ID
-
-Default surface ID for CLI commands.
+Default tab ID for CLI commands.
 
 ```bash
-export CMUX_SURFACE_ID=xyz789
-cmuxterm send-panel "hello"  # Sends to surface xyz789
+export CMUX_TAB_ID=abc123
+cmux send "hello"  # Sends to tab abc123
 ```
 
-cmuxterm automatically sets this for each split pane.
+cmux automatically sets this in each terminal session.
+
+### CMUX_PANEL_ID
+
+Default panel ID for CLI commands.
+
+```bash
+export CMUX_PANEL_ID=xyz789
+cmux send-panel "hello"  # Sends to panel xyz789
+```
+
+cmux automatically sets this for each split pane.
 
 ## Terminal Environment
 
-cmuxterm sets these variables in terminal sessions:
+cmux sets these variables in terminal sessions:
 
 ### TERM
 
@@ -85,7 +85,7 @@ TERM_PROGRAM=ghostty
 ```
 
 <Callout type="info">
-  cmuxterm sets this to `ghostty` since it's built on Ghostty. Use the socket check to distinguish from regular Ghostty.
+  cmux sets this to `ghostty` since it's built on Ghostty. Use the socket check to distinguish from regular Ghostty.
 </Callout>
 
 ### GHOSTTY_RESOURCES_DIR
@@ -124,25 +124,25 @@ export CMUX_COMMIT=abc1234
 
 ## Detection Script
 
-Check if running inside cmuxterm:
+Check if running inside cmux:
 
 ```bash
 #!/bin/bash
 
-is_cmuxterm() {
-    # Check for cmuxterm socket
-    if [ -S "${CMUX_SOCKET_PATH:-/tmp/cmuxterm.sock}" ]; then
+is_cmux() {
+    # Check for cmux socket
+    if [ -S "${CMUX_SOCKET_PATH:-/tmp/cmux.sock}" ]; then
         return 0
     fi
     return 1
 }
 
-if is_cmuxterm; then
-    echo "Running in cmuxterm"
-    echo "Workspace ID: ${CMUX_WORKSPACE_ID:-unknown}"
-    echo "Surface ID: ${CMUX_SURFACE_ID:-unknown}"
+if is_cmux; then
+    echo "Running in cmux"
+    echo "Tab ID: ${CMUX_TAB_ID:-unknown}"
+    echo "Panel ID: ${CMUX_PANEL_ID:-unknown}"
 else
-    echo "Not in cmuxterm"
+    echo "Not in cmux"
 fi
 ```
 
@@ -151,15 +151,15 @@ fi
 Add to your `~/.bashrc` or `~/.zshrc`:
 
 ```bash
-# cmuxterm integration
-if [ -S "${CMUX_SOCKET_PATH:-/tmp/cmuxterm.sock}" ]; then
-    # We're in cmuxterm
+# cmux integration
+if [ -S "${CMUX_SOCKET_PATH:-/tmp/cmux.sock}" ]; then
+    # We're in cmux
 
     # Function to notify on long commands
     notify_done() {
         "$@"
         local exit_code=$?
-        cmuxterm notify --title "Command Complete" --body "$1"
+        cmux notify --title "Command Complete" --body "$1"
         return $exit_code
     }
 

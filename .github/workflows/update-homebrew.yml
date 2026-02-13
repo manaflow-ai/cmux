@@ -31,31 +31,31 @@ jobs:
         id: sha
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          curl -sL "https://github.com/manaflow-ai/cmuxterm/releases/download/v${VERSION}/cmuxterm-macos.dmg" -o cmuxterm.dmg
-          SHA256=$(shasum -a 256 cmuxterm.dmg | cut -d' ' -f1)
+          curl -sL "https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg" -o cmux.dmg
+          SHA256=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
 
-      - name: Checkout homebrew-cmuxterm
+      - name: Checkout homebrew-cmux
         uses: actions/checkout@v4
         with:
-          repository: manaflow-ai/homebrew-cmuxterm
+          repository: manaflow-ai/homebrew-cmux
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-cmuxterm
+          path: homebrew-cmux
 
       - name: Update cask formula
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
         run: |
-          cat > homebrew-cmuxterm/Casks/cmuxterm.rb << CASKEOF
-          cask "cmuxterm" do
+          cat > homebrew-cmux/Casks/cmux.rb << CASKEOF
+          cask "cmux" do
             version "${VERSION}"
             sha256 "${SHA256}"
 
-            url "https://github.com/manaflow-ai/cmuxterm/releases/download/v#{version}/cmuxterm-macos.dmg"
-            name "cmuxterm"
+            url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
+            name "cmux"
             desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
-            homepage "https://github.com/manaflow-ai/cmuxterm"
+            homepage "https://github.com/manaflow-ai/cmux"
 
             livecheck do
               url :url
@@ -64,29 +64,29 @@ jobs:
 
             depends_on macos: ">= :ventura"
 
-            app "cmuxterm.app"
+            app "cmux.app"
 
             zap trash: [
-              "~/Library/Application Support/cmuxterm",
-              "~/Library/Caches/cmuxterm",
+              "~/Library/Application Support/cmux",
+              "~/Library/Caches/cmux",
               "~/Library/Preferences/ai.manaflow.cmuxterm.plist",
             ]
           end
           CASKEOF
           # Remove leading whitespace from heredoc
-          sed -i 's/^          //' homebrew-cmuxterm/Casks/cmuxterm.rb
+          sed -i 's/^          //' homebrew-cmux/Casks/cmux.rb
 
       - name: Commit and push
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          cd homebrew-cmuxterm
+          cd homebrew-cmux
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/cmuxterm.rb
+          git add Casks/cmux.rb
           if git diff --staged --quiet; then
             echo "No changes - cask already up to date"
           else
-            git commit -m "Update cmuxterm to ${VERSION}"
+            git commit -m "Update cmux to ${VERSION}"
             git push
           fi

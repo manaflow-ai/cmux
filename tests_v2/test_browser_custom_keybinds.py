@@ -9,7 +9,7 @@ Why this exists:
     so matching must use keyCode fallbacks.
 
 Requires:
-  - cmuxterm running
+  - cmux running
   - Debug socket commands enabled (`set_shortcut`, `simulate_shortcut`)
 """
 
@@ -129,7 +129,7 @@ def test_cmd_opt_left_arrow_goto_split_left_from_webview(client: cmux) -> tuple[
 
 
 def main() -> int:
-    print("cmuxterm Browser Custom Keybind Tests")
+    print("cmux Browser Custom Keybind Tests")
     print("=" * 50)
     client = cmux()
     client.connect()

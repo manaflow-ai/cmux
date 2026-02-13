@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Layout/flash regression tests for cmuxterm splits.
+Layout/flash regression tests for cmux splits.
 
 Goals:
   1) Ensure programmatic splits don't transiently render EmptyPanelView (visible flash).
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmuxterm-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 
 
 def _rect_area(r: dict) -> float:

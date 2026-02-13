@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Stability regression test: browser panels should not crash cmuxterm when:
+Stability regression test: browser panels should not crash cmux when:
   1) Creating a browser surface then immediately creating a new terminal surface
   2) Rapidly switching focus between panes when one pane is a loaded browser
 
 This test uses the control socket only (no osascript / Accessibility required).
 
 Requires:
-  - cmuxterm running
+  - cmux running
 """
 
 import os
@@ -155,7 +155,7 @@ def test_focus_panes_with_loaded_browser(client: cmux) -> tuple[bool, str]:
 
 def run_tests() -> int:
     print("=" * 60)
-    print("cmuxterm Browser Panel Stability Test")
+    print("cmux Browser Panel Stability Test")
     print("=" * 60)
     print()
 

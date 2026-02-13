@@ -1,6 +1,6 @@
-# cmuxterm Documentation
+# cmux Documentation
 
-Documentation website for [cmuxterm](https://github.com/manaflow-ai/cmuxterm), built with [Fumadocs](https://fumadocs.vercel.app) and Next.js.
+Documentation website for [cmux](https://github.com/manaflow-ai/cmux), built with [Fumadocs](https://fumadocs.vercel.app) and Next.js.
 
 ## Development
 

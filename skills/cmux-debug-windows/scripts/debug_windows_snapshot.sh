@@ -11,7 +11,7 @@ and print a combined payload. Use --copy to also copy the payload to clipboard.
 Examples:
   debug_windows_snapshot.sh
   debug_windows_snapshot.sh --copy
-  debug_windows_snapshot.sh --domain dev.manaflow.cmuxterm --copy
+  debug_windows_snapshot.sh --domain dev.manaflow.cmux --copy
 USAGE
 }
 
@@ -45,7 +45,7 @@ discover_domain() {
   defaults domains 2>/dev/null \
     | tr ',' '\n' \
     | tr -d ' ' \
-    | grep -E 'cmuxterm' \
+    | grep -E 'cmux' \
     | head -n1 || true
 }
 
@@ -76,7 +76,7 @@ if [[ -z "$domain" ]]; then
 fi
 
 if [[ -z "$domain" ]]; then
-  echo "Could not auto-detect a cmuxterm defaults domain. Pass --domain <bundle-id>." >&2
+  echo "Could not auto-detect a cmux defaults domain. Pass --domain <bundle-id>." >&2
   exit 1
 fi
 

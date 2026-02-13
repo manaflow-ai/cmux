@@ -1,9 +1,52 @@
 ---
 title: Changelog
-description: Release notes and version history for cmuxterm
+description: Release notes and version history for cmux
 ---
 
-All notable changes to cmuxterm are documented here.
+All notable changes to cmux are documented here.
+
+## [1.27.0] - 2026-02-11
+
+### Fixed
+- Muted traffic lights and toolbar items on macOS 14 (Sonoma) caused by `clipsToBounds` default change
+- Toolbar buttons (sidebar, notifications, new tab) disappearing after toggling sidebar with Cmd+B
+- Update check pill not appearing in titlebar on macOS 14 (Sonoma)
+
+## [1.26.0] - 2026-02-11
+
+### Fixed
+- Muted traffic lights and toolbar items in focused window caused by background blur in themeFrame
+- Sidebar showing two different textures near the titlebar on older macOS versions
+
+## [1.25.0] - 2026-02-11
+
+### Fixed
+- Blank terminal on macOS 26 (Tahoe) — two additional code paths were still clearing the window background, bypassing the initial fix
+- Blank terminal on macOS 15 caused by background blur view covering terminal content
+
+## [1.24.0] - 2026-02-09
+
+### Changed
+- Update bundle identifier to `com.cmuxterm.app` for consistency
+
+## [1.23.0] - 2026-02-09
+
+### Changed
+- Rename app to cmux — new app name, socket paths, Homebrew tap, and CLI binary name (bundle ID remains `com.cmuxterm.app` for Sparkle update continuity)
+- Sidebar now shows tab status as text instead of colored dots, with instant git HEAD change detection
+
+### Fixed
+- CLI `set-status` command not properly quoting values or routing `--tab` flag
+
+## [1.22.0] - 2026-02-09
+
+### Fixed
+- Xcode and system environment variables (e.g. DYLD, LANGUAGE) leaking into terminal sessions
+
+## [1.21.0] - 2026-02-09
+
+### Fixed
+- Zsh autosuggestions not working with shared history across terminal panes
 
 ## [1.17.3] - 2025-02-05
 
@@ -76,7 +119,7 @@ All notable changes to cmuxterm are documented here.
 ### Added
 - Sentry SDK for crash reporting
 - Documentation site with Fumadocs
-- Homebrew installation support (`brew install --cask cmuxterm`)
+- Homebrew installation support (`brew install --cask cmux`)
 - Auto-update Homebrew cask on release
 
 ### Fixed
@@ -122,7 +165,7 @@ All notable changes to cmuxterm are documented here.
 ## [1.4.0] - 2025-01-28
 
 ### Added
-- cmuxterm CLI with socket control modes
+- cmux CLI with socket control modes
 - NSPopover-based notifications
 
 ### Fixed
@@ -146,7 +189,7 @@ All notable changes to cmuxterm are documented here.
 - Update UI error details and pill visibility
 
 ### Changed
-- Renamed app to cmuxterm
+- Renamed app to cmux
 - Improved CI UI test stability
 
 ## [1.1.0] - 2025-01-28

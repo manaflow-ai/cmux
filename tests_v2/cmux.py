@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""cmuxterm v2 Python Client
+"""cmux v2 Python Client
 
-A client library for programmatically controlling cmuxterm via the Unix socket.
+A client library for programmatically controlling cmux via the Unix socket.
 
 This client speaks the v2 JSON line protocol (one JSON request/response per line).
 It intentionally mirrors the existing v1 Python client's convenience API so the
@@ -38,7 +38,7 @@ def _default_socket_path() -> str:
     override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
     if override:
         return override
-    candidates = ["/tmp/cmuxterm-debug.sock", "/tmp/cmuxterm.sock"]
+    candidates = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
     for path in candidates:
         if os.path.exists(path):
             return path
@@ -103,7 +103,7 @@ def _unescape_backslash_controls(s: str) -> str:
 
 
 class cmux:
-    """Client for controlling cmuxterm via the v2 JSON Unix socket."""
+    """Client for controlling cmux via the v2 JSON Unix socket."""
 
     DEFAULT_SOCKET_PATH = _default_socket_path()
 
@@ -125,7 +125,7 @@ class cmux:
         while not os.path.exists(self.socket_path):
             if time.time() - start >= 10.0:
                 raise cmuxError(
-                    f"Socket not found at {self.socket_path}. Is cmuxterm running?"
+                    f"Socket not found at {self.socket_path}. Is cmux running?"
                 )
             time.sleep(0.1)
 
@@ -896,7 +896,7 @@ class cmux:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="cmuxterm v2 socket client")
+    parser = argparse.ArgumentParser(description="cmux v2 socket client")
     parser.add_argument("-s", "--socket", default=cmux.DEFAULT_SOCKET_PATH, help="Socket path")
     parser.add_argument("--method", help="v2 method name")
     parser.add_argument("--params", default="{}", help="JSON params")

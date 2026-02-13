@@ -2,10 +2,10 @@ import XCTest
 import AppKit
 import WebKit
 
-#if canImport(cmuxterm_DEV)
-@testable import cmuxterm_DEV
-#elseif canImport(cmuxterm)
-@testable import cmuxterm
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
 #endif
 
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
@@ -496,36 +496,36 @@ final class SidebarDragAutoScrollPlannerTests: XCTestCase {
 final class FinderServicePathResolverTests: XCTestCase {
     func testOrderedUniqueDirectoriesUsesParentForFilesAndDedupes() {
         let input: [URL] = [
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/project", isDirectory: true),
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/project/README.md", isDirectory: false),
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/../cmuxterm-services/project", isDirectory: true),
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/other", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmux-services/project", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmux-services/project/README.md", isDirectory: false),
+            URL(fileURLWithPath: "/tmp/cmux-services/../cmux-services/project", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmux-services/other", isDirectory: true),
         ]
 
         let directories = FinderServicePathResolver.orderedUniqueDirectories(from: input)
         XCTAssertEqual(
             directories,
             [
-                "/tmp/cmuxterm-services/project",
-                "/tmp/cmuxterm-services/other",
+                "/tmp/cmux-services/project",
+                "/tmp/cmux-services/other",
             ]
         )
     }
 
     func testOrderedUniqueDirectoriesPreservesFirstSeenOrder() {
         let input: [URL] = [
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/b", isDirectory: true),
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/a/file.txt", isDirectory: false),
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/a", isDirectory: true),
-            URL(fileURLWithPath: "/tmp/cmuxterm-services/b/file.txt", isDirectory: false),
+            URL(fileURLWithPath: "/tmp/cmux-services/b", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmux-services/a/file.txt", isDirectory: false),
+            URL(fileURLWithPath: "/tmp/cmux-services/a", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/cmux-services/b/file.txt", isDirectory: false),
         ]
 
         let directories = FinderServicePathResolver.orderedUniqueDirectories(from: input)
         XCTAssertEqual(
             directories,
             [
-                "/tmp/cmuxterm-services/b",
-                "/tmp/cmuxterm-services/a",
+                "/tmp/cmux-services/b",
+                "/tmp/cmux-services/a",
             ]
         )
     }
@@ -722,19 +722,19 @@ final class NotificationMenuSnapshotBuilderTests: XCTestCase {
 
 final class MenuBarBuildHintFormatterTests: XCTestCase {
     func testReleaseBuildShowsNoHint() {
-        XCTAssertNil(MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV menubar-extra", isDebugBuild: false))
+        XCTAssertNil(MenuBarBuildHintFormatter.menuTitle(appName: "cmux DEV menubar-extra", isDebugBuild: false))
     }
 
     func testDebugBuildWithTagShowsTag() {
         XCTAssertEqual(
-            MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV menubar-extra", isDebugBuild: true),
+            MenuBarBuildHintFormatter.menuTitle(appName: "cmux DEV menubar-extra", isDebugBuild: true),
             "Build Tag: menubar-extra"
         )
     }
 
     func testDebugBuildWithoutTagShowsUntagged() {
         XCTAssertEqual(
-            MenuBarBuildHintFormatter.menuTitle(appName: "cmuxterm DEV", isDebugBuild: true),
+            MenuBarBuildHintFormatter.menuTitle(appName: "cmux DEV", isDebugBuild: true),
             "Build: DEV (untagged)"
         )
     }

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmuxterm-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -32,15 +32,15 @@ def _find_cli_binary() -> str:
     if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
         return env_cli
 
-    fixed = os.path.expanduser("~/Library/Developer/Xcode/DerivedData/cmuxterm-tests-v2/Build/Products/Debug/cmuxterm")
+    fixed = os.path.expanduser("~/Library/Developer/Xcode/DerivedData/cmux-tests-v2/Build/Products/Debug/cmux")
     if os.path.isfile(fixed) and os.access(fixed, os.X_OK):
         return fixed
 
-    candidates = glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug/cmuxterm"), recursive=True)
-    candidates += glob.glob("/tmp/cmuxterm-*/Build/Products/Debug/cmuxterm")
+    candidates = glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug/cmux"), recursive=True)
+    candidates += glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux")
     candidates = [p for p in candidates if os.path.isfile(p) and os.access(p, os.X_OK)]
     if not candidates:
-        raise cmuxError("Could not locate cmuxterm CLI binary; set CMUXTERM_CLI")
+        raise cmuxError("Could not locate cmux CLI binary; set CMUXTERM_CLI")
     candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     return candidates[0]
 

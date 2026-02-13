@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET") or os.environ.get("CMUX_SOCKET_PATH") or "/tmp/cmuxterm-debug.sock"
+SOCKET_PATH = os.environ.get("CMUX_SOCKET") or os.environ.get("CMUX_SOCKET_PATH") or "/tmp/cmux-debug.sock"
 HTML_REPORT = Path(__file__).parent / "terminal_input_report.html"
 
 
@@ -123,7 +123,7 @@ def _write_report(cases: list[dict]) -> None:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>cmuxterm terminal input render report</title>
+  <title>cmux terminal input render report</title>
   <style>
     :root {{
       --bg: #0b0f14;
@@ -207,7 +207,7 @@ def _write_report(cases: list[dict]) -> None:
   </style>
 </head>
 <body>
-  <h1>cmuxterm terminal input render report</h1>
+  <h1>cmux terminal input render report</h1>
   <div class="meta">generated: {esc(generated)} | socket: {esc(SOCKET_PATH)}</div>
 """
 

@@ -9,6 +9,15 @@ import Sentry
 import Bonsplit
 import IOSurface
 
+#if os(macOS)
+private func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
+    let defaults = UserDefaults.standard
+    let sidebarBlendMode = defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
+    let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? true
+    return sidebarBlendMode == "behindWindow" && bgGlassEnabled && !WindowGlassEffect.isAvailable
+}
+#endif
+
 #if DEBUG
 private func cmuxChildExitProbePath() -> String? {
     let env = ProcessInfo.processInfo.environment
@@ -359,7 +368,7 @@ class GhosttyApp {
             #endif
 
             // If the user config is invalid, prefer a minimal fallback configuration so
-            // cmuxterm still launches with working terminals.
+            // cmux still launches with working terminals.
             ghostty_config_free(primaryConfig)
 
             guard let fallbackConfig = ghostty_config_new() else {
@@ -810,7 +819,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
             // The child (shell) exited. Ghostty will fall back to printing
             // "Process exited. Press any key..." into the terminal unless the host
-            // handles this action. For cmuxterm, the correct behavior is to close
+            // handles this action. For cmux, the correct behavior is to close
             // the panel immediately (no prompt).
 #if DEBUG
             cmuxWriteChildExitProbe(
@@ -886,9 +895,7 @@ class GhosttyApp {
 
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
-        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-        if sidebarBlendMode == "behindWindow" {
+        if cmuxShouldUseTransparentBackgroundWindow() {
             window.backgroundColor = .clear
             window.isOpaque = false
             if backgroundLogEnabled {
@@ -906,10 +913,14 @@ class GhosttyApp {
 
     private func activeMainWindow() -> NSWindow? {
         let keyWindow = NSApp.keyWindow
-        if keyWindow?.identifier?.rawValue == "cmux.main" {
+        if let raw = keyWindow?.identifier?.rawValue,
+           raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
             return keyWindow
         }
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" })
+        return NSApp.windows.first(where: { window in
+            guard let raw = window.identifier?.rawValue else { return false }
+            return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        })
     }
 
     func logBackground(_ message: String) {
@@ -1194,15 +1205,55 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         env["CMUX_SURFACE_ID"] = id.uuidString
         env["CMUX_WORKSPACE_ID"] = tabId.uuidString
+        // Backward-compatible shell integration keys used by existing scripts/tests.
+        env["CMUX_PANEL_ID"] = id.uuidString
+        env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
                 let separator = currentPath.isEmpty ? "" : ":"
                 env["PATH"] = "\(cliBinPath)\(separator)\(currentPath)"
+            }
+        }
+
+        // Shell integration: inject ZDOTDIR wrapper for zsh shells.
+        let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        if shellIntegrationEnabled,
+           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
+            env["CMUX_SHELL_INTEGRATION"] = "1"
+            env["CMUX_SHELL_INTEGRATION_DIR"] = integrationDir
+
+            let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
+                ?? getenv("SHELL").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["SHELL"]
+                ?? "/bin/zsh"
+            let shellName = URL(fileURLWithPath: shell).lastPathComponent
+            if shellName == "zsh" {
+                let candidateZdotdir = (env["ZDOTDIR"]?.isEmpty == false ? env["ZDOTDIR"] : nil)
+                    ?? getenv("ZDOTDIR").map { String(cString: $0) }
+                    ?? (ProcessInfo.processInfo.environment["ZDOTDIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["ZDOTDIR"] : nil)
+
+                if let candidateZdotdir, !candidateZdotdir.isEmpty {
+                    var isGhosttyInjected = false
+                    let ghosttyResources = (env["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? env["GHOSTTY_RESOURCES_DIR"] : nil)
+                        ?? getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
+                        ?? (ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"] : nil)
+                    if let ghosttyResources {
+                        let ghosttyZdotdir = URL(fileURLWithPath: ghosttyResources)
+                            .appendingPathComponent("shell-integration/zsh").path
+                        isGhosttyInjected = (candidateZdotdir == ghosttyZdotdir)
+                    }
+                    if !isGhosttyInjected {
+                        env["CMUX_ZSH_ZDOTDIR"] = candidateZdotdir
+                    }
+                }
+
+                env["ZDOTDIR"] = integrationDir
             }
         }
 
@@ -1502,9 +1553,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        // Check if sidebar uses behindWindow blur - if so, keep window non-opaque
-        let sidebarBlendMode = UserDefaults.standard.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-        if sidebarBlendMode == "behindWindow" {
+        if cmuxShouldUseTransparentBackgroundWindow() {
             window.backgroundColor = .clear
             window.isOpaque = false
         } else {
@@ -2427,7 +2476,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func debugSimulateFileDrop(paths: [String]) -> Bool {
         guard !paths.isEmpty else { return false }
         let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
-        let pbName = NSPasteboard.Name("cmuxterm.debug.drop.\(UUID().uuidString)")
+        let pbName = NSPasteboard.Name("cmux.debug.drop.\(UUID().uuidString)")
         let pasteboard = NSPasteboard(name: pbName)
         pasteboard.clearContents()
         pasteboard.writeObjects(urls)

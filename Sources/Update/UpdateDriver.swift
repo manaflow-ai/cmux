@@ -27,7 +27,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             return
         }
 #endif
-        // Never show Sparkle's permission UI. cmuxterm relies on its in-app update pill instead,
+        // Never show Sparkle's permission UI. cmux relies on its in-app update pill instead,
         // and defaults to manual update checks unless explicitly enabled elsewhere.
         UpdateLogStore.shared.append("auto-deny update permission (no UI)")
         DispatchQueue.main.async {
@@ -48,7 +48,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
-        // cmuxterm uses Sparkle's UI for release notes links instead.
+        // cmux uses Sparkle's UI for release notes links instead.
     }
 
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: any Error) {
@@ -147,7 +147,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateInFocus() {
-        // No-op; cmuxterm never shows Sparkle dialogs.
+        // No-op; cmux never shows Sparkle dialogs.
     }
 
     func dismissUpdateInstallation() {

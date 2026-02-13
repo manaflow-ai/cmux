@@ -10,11 +10,11 @@ import WebKit
 class TerminalController {
     static let shared = TerminalController()
 
-    private nonisolated(unsafe) var socketPath = "/tmp/cmuxterm.sock"
+    private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private var clientHandlers: [Int32: Thread] = [:]
-    private weak var tabManager: TabManager?
+    private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .full
 
     private enum V2HandleKind: String, CaseIterable {
@@ -293,6 +293,51 @@ class TerminalController {
         case "simulate_app_active":
             return simulateAppDidBecomeActive()
 
+        case "set_status":
+            return setStatus(args)
+
+        case "clear_status":
+            return clearStatus(args)
+
+        case "list_status":
+            return listStatus(args)
+
+        case "log":
+            return appendLog(args)
+
+        case "clear_log":
+            return clearLog(args)
+
+        case "list_log":
+            return listLog(args)
+
+        case "set_progress":
+            return setProgress(args)
+
+        case "clear_progress":
+            return clearProgress(args)
+
+        case "report_git_branch":
+            return reportGitBranch(args)
+
+        case "clear_git_branch":
+            return clearGitBranch(args)
+
+        case "report_ports":
+            return reportPorts(args)
+
+        case "clear_ports":
+            return clearPorts(args)
+
+        case "report_pwd":
+            return reportPwd(args)
+
+        case "sidebar_state":
+            return sidebarState(args)
+
+        case "reset_sidebar":
+            return resetSidebar(args)
+
 
 #if DEBUG
         case "set_shortcut":
@@ -315,6 +360,9 @@ class TerminalController {
 
         case "read_terminal_text":
             return readTerminalText(args)
+
+        case "read_screen":
+            return readScreen(args)
 
         case "render_stats":
             return renderStats(args)
@@ -493,6 +541,8 @@ class TerminalController {
         // Surfaces / input
         case "surface.list":
             return v2Result(id: id, self.v2SurfaceList(params: params))
+        case "surface.current":
+            return v2Result(id: id, self.v2SurfaceCurrent(params: params))
         case "surface.focus":
             return v2Result(id: id, self.v2SurfaceFocus(params: params))
         case "surface.split":
@@ -803,6 +853,7 @@ class TerminalController {
             "workspace.move_to_window",
             "workspace.reorder",
             "surface.list",
+            "surface.current",
             "surface.focus",
             "surface.split",
             "surface.create",
@@ -935,7 +986,7 @@ class TerminalController {
 #endif
 
         return [
-            "protocol": "cmuxterm-socket",
+            "protocol": "cmux-socket",
             "version": 2,
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
@@ -1141,6 +1192,10 @@ class TerminalController {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func v2RawString(_ params: [String: Any], _ key: String) -> String? {
+        params[key] as? String
     }
 
     private func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
@@ -1593,6 +1648,41 @@ class TerminalController {
         out["window_ref"] = v2Ref(kind: .window, uuid: windowId)
         return .ok(out)
     }
+
+    private func v2SurfaceCurrent(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+
+            // Focus can be transiently nil during startup/reparenting; fall back to first
+            // ordered panel so callers always get a usable current surface.
+            let surfaceId = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
+            let paneId = surfaceId.flatMap { ws.paneId(forPanelId: $0)?.id }
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+
+            payload = [
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": v2OrNull(paneId?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId),
+                "surface_id": v2OrNull(surfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "surface_type": v2OrNull(surfaceId.flatMap { ws.panels[$0]?.panelType.rawValue })
+            ]
+        }
+
+        guard let payload else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        return .ok(payload)
+    }
+
     private func v2SurfaceFocus(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3639,7 +3729,8 @@ class TerminalController {
     }
 
     private func v2BrowserFill(params: [String: Any]) -> V2CallResult {
-        guard let text = v2String(params, "text") ?? v2String(params, "value") else {
+        // `fill` must allow empty strings so callers can clear existing input values.
+        guard let text = v2RawString(params, "text") ?? v2RawString(params, "value") else {
             return .err(code: "invalid_params", message: "Missing text/value", data: nil)
         }
         return v2BrowserSelectorAction(params: params, actionName: "fill") { selectorLiteral in
@@ -6035,6 +6126,21 @@ class TerminalController {
           clear_notifications             - Clear all notifications
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
+          set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X] - Set a status entry
+          clear_status <key> [--tab=X] - Remove a status entry
+          list_status [--tab=X]   - List all status entries
+          log [--level=X] [--source=X] [--tab=X] -- <message> - Append a log entry
+          clear_log [--tab=X]     - Clear log entries
+          list_log [--limit=N] [--tab=X] - List log entries
+          set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
+          clear_progress [--tab=X] - Clear progress bar
+          report_git_branch <branch> [--status=dirty] [--tab=X] - Report git branch
+          clear_git_branch [--tab=X] - Clear git branch
+          report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
+          report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
+          clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          sidebar_state [--tab=X] - Dump sidebar metadata
+          reset_sidebar [--tab=X] - Clear sidebar metadata
 
         Browser commands:
           open_browser [url]              - Create browser panel with optional URL
@@ -6062,6 +6168,7 @@ class TerminalController {
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
+          read_screen [id|idx]            - Read visible terminal text (plain text, legacy test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
           bonsplit_underflow_count        - Count bonsplit arranged-subview underflow events (test-only)
@@ -6179,7 +6286,22 @@ class TerminalController {
         DispatchQueue.main.sync {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.unhide(nil)
-            if let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first {
+            let hasMainTerminalWindow = NSApp.windows.contains { window in
+                guard let raw = window.identifier?.rawValue else { return false }
+                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+            }
+
+            if !hasMainTerminalWindow {
+                AppDelegate.shared?.openNewMainWindow(nil)
+            }
+
+            if let window = NSApp.mainWindow
+                ?? NSApp.keyWindow
+                ?? NSApp.windows.first(where: { win in
+                    guard let raw = win.identifier?.rawValue else { return false }
+                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                })
+                ?? NSApp.windows.first {
                 window.makeKeyAndOrderFront(nil)
             }
         }
@@ -6378,6 +6500,22 @@ class TerminalController {
             result = "OK \(b64)"
         }
         return result
+    }
+
+    private func readScreen(_ args: String) -> String {
+        let response = readTerminalText(args)
+        guard response.hasPrefix("OK ") else { return response }
+
+        let payload = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if payload.isEmpty {
+            return ""
+        }
+
+        guard let data = Data(base64Encoded: payload),
+              let text = String(data: data, encoding: .utf8) else {
+            return "ERROR: Failed to decode terminal text"
+        }
+        return text
     }
 
     private struct RenderStatsResponse: Codable {
@@ -8351,6 +8489,588 @@ class TerminalController {
             if let id = newPanelId {
                 result = "OK \(id.uuidString)"
             }
+        }
+        return result
+    }
+
+    // MARK: - Option Parsing (sidebar metadata commands)
+
+    private func tokenizeArgs(_ args: String) -> [String] {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var tokens: [String] = []
+        var current = ""
+        var inQuote = false
+        var quoteChar: Character = "\""
+        var cursor = trimmed.startIndex
+
+        while cursor < trimmed.endIndex {
+            let char = trimmed[cursor]
+            if inQuote {
+                if char == quoteChar {
+                    inQuote = false
+                    cursor = trimmed.index(after: cursor)
+                    continue
+                }
+                if char == "\\" {
+                    let nextIndex = trimmed.index(after: cursor)
+                    if nextIndex < trimmed.endIndex {
+                        let next = trimmed[nextIndex]
+                        switch next {
+                        case "n":
+                            current.append("\n")
+                            cursor = trimmed.index(after: nextIndex)
+                            continue
+                        case "r":
+                            current.append("\r")
+                            cursor = trimmed.index(after: nextIndex)
+                            continue
+                        case "t":
+                            current.append("\t")
+                            cursor = trimmed.index(after: nextIndex)
+                            continue
+                        case "\"", "'", "\\":
+                            current.append(next)
+                            cursor = trimmed.index(after: nextIndex)
+                            continue
+                        default:
+                            break
+                        }
+                    }
+                }
+                current.append(char)
+                cursor = trimmed.index(after: cursor)
+                continue
+            }
+
+            if char == "'" || char == "\"" {
+                inQuote = true
+                quoteChar = char
+                cursor = trimmed.index(after: cursor)
+                continue
+            }
+
+            if char.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+                cursor = trimmed.index(after: cursor)
+                continue
+            }
+
+            current.append(char)
+            cursor = trimmed.index(after: cursor)
+        }
+
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
+    }
+
+    private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+        let tokens = tokenizeArgs(args)
+        guard !tokens.isEmpty else { return ([], [:]) }
+
+        var positional: [String] = []
+        var options: [String: String] = [:]
+        var stopParsingOptions = false
+        var i = 0
+        while i < tokens.count {
+            let token = tokens[i]
+            if stopParsingOptions {
+                positional.append(token)
+            } else if token == "--" {
+                stopParsingOptions = true
+            } else if token.hasPrefix("--") {
+                if let eqIndex = token.firstIndex(of: "=") {
+                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
+                    let value = String(token[token.index(after: eqIndex)...])
+                    options[key] = value
+                } else {
+                    let key = String(token.dropFirst(2))
+                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
+                        options[key] = tokens[i + 1]
+                        i += 1
+                    } else {
+                        options[key] = ""
+                    }
+                }
+            } else {
+                positional.append(token)
+            }
+            i += 1
+        }
+        return (positional, options)
+    }
+
+    private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
+        let tokens = tokenizeArgs(args)
+        guard !tokens.isEmpty else { return ([], [:]) }
+
+        var positional: [String] = []
+        var options: [String: String] = [:]
+        var i = 0
+        while i < tokens.count {
+            let token = tokens[i]
+            if token == "--" {
+                i += 1
+                continue
+            }
+            if token.hasPrefix("--") {
+                if let eqIndex = token.firstIndex(of: "=") {
+                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
+                    let value = String(token[token.index(after: eqIndex)...])
+                    options[key] = value
+                } else {
+                    let key = String(token.dropFirst(2))
+                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
+                        options[key] = tokens[i + 1]
+                        i += 1
+                    } else {
+                        options[key] = ""
+                    }
+                }
+            } else {
+                positional.append(token)
+            }
+            i += 1
+        }
+        return (positional, options)
+    }
+
+    private func resolveTabForReport(_ args: String) -> Tab? {
+        guard let tabManager else { return nil }
+        let parsed = parseOptions(args)
+        if let tabArg = parsed.options["tab"], !tabArg.isEmpty {
+            return resolveTab(from: tabArg, tabManager: tabManager)
+        }
+        guard let selectedId = tabManager.selectedTabId else { return nil }
+        return tabManager.tabs.first(where: { $0.id == selectedId })
+    }
+
+    private func setStatus(_ args: String) -> String {
+        guard tabManager != nil else { return "ERROR: TabManager not available" }
+        let parsed = parseOptionsNoStop(args)
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X]"
+        }
+        let key = parsed.positional[0]
+        let value = parsed.positional[1...].joined(separator: " ")
+        let icon = parsed.options["icon"]
+        let color = parsed.options["color"]
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            tab.statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                timestamp: Date())
+        }
+        return result
+    }
+
+    private func clearStatus(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let key = parsed.positional.first, parsed.positional.count == 1 else {
+            return "ERROR: Missing status key — usage: clear_status <key> [--tab=X]"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            if tab.statusEntries.removeValue(forKey: key) == nil {
+                result = "OK (key not found)"
+            }
+        }
+        return result
+    }
+
+    private func listStatus(_ args: String) -> String {
+        var result = ""
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            if tab.statusEntries.isEmpty {
+                result = "No status entries"
+                return
+            }
+            let lines = tab.statusEntries.values.sorted(by: { $0.key < $1.key }).map { entry in
+                var line = "\(entry.key)=\(entry.value)"
+                if let icon = entry.icon { line += " icon=\(icon)" }
+                if let color = entry.color { line += " color=\(color)" }
+                return line
+            }
+            result = lines.joined(separator: "\n")
+        }
+        return result
+    }
+
+    private func appendLog(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard !parsed.positional.isEmpty else {
+            return "ERROR: Missing message — usage: log [--level=X] [--source=X] [--tab=X] -- <message>"
+        }
+        let message = parsed.positional.joined(separator: " ")
+        let levelStr = parsed.options["level"] ?? "info"
+        guard let level = SidebarLogLevel(rawValue: levelStr) else {
+            return "ERROR: Unknown log level '\(levelStr)' — use: info, progress, success, warning, error"
+        }
+        let source = parsed.options["source"]
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            tab.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: Date()))
+            let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
+            let limit = max(1, min(500, configuredLimit))
+            if tab.logEntries.count > limit {
+                tab.logEntries.removeFirst(tab.logEntries.count - limit)
+            }
+        }
+        return result
+    }
+
+    private func clearLog(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            tab.logEntries.removeAll()
+        }
+        return result
+    }
+
+    private func listLog(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        var limit: Int?
+        if let limitStr = parsed.options["limit"] {
+            if limitStr.isEmpty {
+                return "ERROR: Missing limit value — usage: list_log [--limit=N] [--tab=X]"
+            }
+            guard let parsedLimit = Int(limitStr), parsedLimit >= 0 else {
+                return "ERROR: Invalid limit '\(limitStr)' — must be >= 0"
+            }
+            limit = parsedLimit
+        }
+
+        var result = ""
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            if tab.logEntries.isEmpty {
+                result = "No log entries"
+                return
+            }
+            let entries: [SidebarLogEntry]
+            if let limit {
+                entries = Array(tab.logEntries.suffix(limit))
+            } else {
+                entries = tab.logEntries
+            }
+            result = entries.map { entry in
+                var line = "[\(entry.level.rawValue)] \(entry.message)"
+                if let source = entry.source, !source.isEmpty {
+                    line = "[\(source)] \(line)"
+                }
+                return line
+            }.joined(separator: "\n")
+        }
+        return result
+    }
+
+    private func setProgress(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let first = parsed.positional.first else {
+            return "ERROR: Missing progress value — usage: set_progress <0.0-1.0> [--label=X] [--tab=X]"
+        }
+        guard let value = Double(first), value.isFinite else {
+            return "ERROR: Invalid progress value '\(first)' — must be 0.0 to 1.0"
+        }
+        let clamped = min(1.0, max(0.0, value))
+        let label = parsed.options["label"]
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            tab.progress = SidebarProgressState(value: clamped, label: label)
+        }
+        return result
+    }
+
+    private func clearProgress(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            tab.progress = nil
+        }
+        return result
+    }
+
+    private func reportGitBranch(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let branch = parsed.positional.first else {
+            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X]"
+        }
+        let isDirty = parsed.options["status"]?.lowercased() == "dirty"
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            tab.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        }
+        return result
+    }
+
+    private func clearGitBranch(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            tab.gitBranch = nil
+        }
+        return result
+    }
+
+    private func reportPorts(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard !parsed.positional.isEmpty else {
+            return "ERROR: Missing ports — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
+        }
+        var ports: [Int] = []
+        for portStr in parsed.positional {
+            guard let port = Int(portStr), port > 0, port <= 65535 else {
+                return "ERROR: Invalid port '\(portStr)' — must be 1-65535"
+            }
+            ports.append(port)
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.surfaceListeningPorts[surfaceId] = ports
+            tab.recomputeListeningPorts()
+        }
+        return result
+    }
+
+    private func reportPwd(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        let parsed = parseOptions(args)
+        guard !parsed.positional.isEmpty else {
+            return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+        }
+
+        let directory = parsed.positional.joined(separator: " ")
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+        }
+        return result
+    }
+
+    private func clearPorts(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: clear_ports [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let surfaceId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                guard validSurfaceIds.contains(surfaceId) else {
+                    result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                    return
+                }
+                tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
+            } else {
+                tab.surfaceListeningPorts.removeAll()
+            }
+            tab.recomputeListeningPorts()
+        }
+        return result
+    }
+
+    private func sidebarState(_ args: String) -> String {
+        var result = ""
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+
+            var lines: [String] = []
+            lines.append("tab=\(tab.id.uuidString)")
+            lines.append("cwd=\(tab.currentDirectory)")
+
+            if let focused = tab.focusedPanelId,
+               let focusedDir = tab.panelDirectories[focused] {
+                lines.append("focused_cwd=\(focusedDir)")
+                lines.append("focused_panel=\(focused.uuidString)")
+            } else {
+                lines.append("focused_cwd=unknown")
+                lines.append("focused_panel=unknown")
+            }
+
+            if let git = tab.gitBranch {
+                lines.append("git_branch=\(git.branch)\(git.isDirty ? " dirty" : " clean")")
+            } else {
+                lines.append("git_branch=none")
+            }
+
+            if tab.listeningPorts.isEmpty {
+                lines.append("ports=none")
+            } else {
+                lines.append("ports=\(tab.listeningPorts.map(String.init).joined(separator: ","))")
+            }
+
+            if let progress = tab.progress {
+                let label = progress.label ?? ""
+                lines.append("progress=\(String(format: "%.2f", progress.value)) \(label)".trimmingCharacters(in: .whitespaces))
+            } else {
+                lines.append("progress=none")
+            }
+
+            lines.append("status_count=\(tab.statusEntries.count)")
+            for entry in tab.statusEntries.values.sorted(by: { $0.key < $1.key }) {
+                var line = "  \(entry.key)=\(entry.value)"
+                if let icon = entry.icon { line += " icon=\(icon)" }
+                if let color = entry.color { line += " color=\(color)" }
+                lines.append(line)
+            }
+
+            lines.append("log_count=\(tab.logEntries.count)")
+            for entry in tab.logEntries.suffix(5) {
+                lines.append("  [\(entry.level.rawValue)] \(entry.message)")
+            }
+
+            result = lines.joined(separator: "\n")
+        }
+        return result
+    }
+
+    private func resetSidebar(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            tab.statusEntries.removeAll()
+            tab.logEntries.removeAll()
+            tab.progress = nil
+            tab.gitBranch = nil
+            tab.surfaceListeningPorts.removeAll()
+            tab.listeningPorts.removeAll()
         }
         return result
     }

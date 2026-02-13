@@ -14,8 +14,7 @@ final class UpdatePillUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
-        app.launch()
-        app.activate()
+        launchAndActivate(app)
 
         let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
         XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
@@ -36,8 +35,7 @@ final class UpdatePillUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "notFound"
         app.launchEnvironment["CMUX_UI_TEST_TIMING_PATH"] = timingPath.path
-        app.launch()
-        app.activate()
+        launchAndActivate(app)
 
         let pill = pillButton(app: app, expectedLabel: "No Updates Available")
         XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
@@ -93,7 +91,7 @@ final class UpdatePillUITests: XCTestCase {
             mode: "none",
             version: "9.9.9",
             extraEnvironment: [
-                "CMUX_UI_TEST_MOCK_FEED_DELAY_MS": "1200",
+                "CMUX_UI_TEST_MOCK_FEED_DELAY_MS": "7000",
             ]
         )
 
@@ -115,8 +113,7 @@ final class UpdatePillUITests: XCTestCase {
         let app = XCUIApplication()
         // Make Sparkle re-request permission on startup, but we should auto-handle it with no UI.
         app.launchEnvironment["CMUX_UI_TEST_RESET_SPARKLE_PERMISSION"] = "1"
-        app.launch()
-        app.activate()
+        launchAndActivate(app)
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
@@ -133,7 +130,7 @@ final class UpdatePillUITests: XCTestCase {
             mode: "none",
             version: "9.9.9",
             extraEnvironment: [
-                "CMUX_UI_TEST_MOCK_FEED_DELAY_MS": "1200",
+                "CMUX_UI_TEST_MOCK_FEED_DELAY_MS": "7000",
             ]
         )
 
@@ -206,7 +203,7 @@ final class UpdatePillUITests: XCTestCase {
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmuxterm.test/appcast.xml"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = mode
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = version
         app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
@@ -217,9 +214,20 @@ final class UpdatePillUITests: XCTestCase {
         for (key, value) in extraEnvironment {
             app.launchEnvironment[key] = value
         }
-        app.launch()
-        app.activate()
+        launchAndActivate(app)
         return app
+    }
+
+    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+        app.launch()
+        let deadline = Date().addingTimeInterval(activateTimeout)
+        while Date() < deadline, app.state != .runningForeground {
+            app.activate()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if app.state != .runningForeground {
+            app.activate()
+        }
     }
 
     private func loadTimingPayload(from url: URL) -> [String: Double] {

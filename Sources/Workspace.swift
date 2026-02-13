@@ -3,6 +3,39 @@ import SwiftUI
 import Bonsplit
 import Combine
 
+struct SidebarStatusEntry {
+    let key: String
+    let value: String
+    let icon: String?
+    let color: String?
+    let timestamp: Date
+}
+
+enum SidebarLogLevel: String {
+    case info
+    case progress
+    case success
+    case warning
+    case error
+}
+
+struct SidebarLogEntry {
+    let message: String
+    let level: SidebarLogLevel
+    let source: String?
+    let timestamp: Date
+}
+
+struct SidebarProgressState {
+    let value: Double
+    let label: String?
+}
+
+struct SidebarGitBranchState {
+    let branch: String
+    let isDirty: Bool
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -49,6 +82,18 @@ final class Workspace: Identifiable, ObservableObject {
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
+    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
+    @Published var logEntries: [SidebarLogEntry] = []
+    @Published var progress: SidebarProgressState?
+    @Published var gitBranch: SidebarGitBranchState?
+    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published var listeningPorts: [Int] = []
+
+    var focusedSurfaceId: UUID? { focusedPanelId }
+    var surfaceDirectories: [UUID: String] {
+        get { panelDirectories }
+        set { panelDirectories = newValue }
+    }
 
     private var processTitle: String
 
@@ -270,6 +315,18 @@ final class Workspace: Identifiable, ObservableObject {
             self.title = trimmed
             processTitle = trimmed
         }
+    }
+
+    func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
+        panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
+        recomputeListeningPorts()
+    }
+
+    func recomputeListeningPorts() {
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+        listeningPorts = unique.sorted()
     }
 
     // MARK: - Panel Operations
@@ -1284,7 +1341,7 @@ extension Workspace: BonsplitDelegate {
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
         // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"
-        // tab in the source pane to avoid leaving it tabless. In cmuxterm, this is undesirable:
+        // tab in the source pane to avoid leaving it tabless. In cmux, this is undesirable:
         // it creates a pane with no real surfaces and leaves an "Empty" tab in the tab bar.
         //
         // Replace placeholder-only source panes with a real terminal surface, then drop the

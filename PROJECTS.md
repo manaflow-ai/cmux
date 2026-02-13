@@ -1,11 +1,12 @@
 # PROJECTS
 
-Cross-project tracking (features, bugs, backlog) for cmuxterm.
+Cross-project tracking (features, bugs, backlog) for cmux.
 
 ## Done
-- 2026-02-13: Expanded skill docs for end users: added deep-linkable `cmuxterm-browser` references (`authentication.md`, `session-management.md`, `snapshot-refs.md`, `video-recording.md`, `proxy-support.md`) + templates, and added a new `skills/cmuxterm/` core skill for windows/workspaces/panes/surfaces workflows.
+- 2026-02-13: Added `demos/wkwebview-ssh-proxy-cookie-demo/` with a standalone macOS Swift app (two WKWebViews), two Docker backends (`:8080`) running behind separate SSH SOCKS tunnels, and scripts/docs to demonstrate same URL (`shared.test:8080`) routing to different backends plus app-level cookie sync between separate proxy-scoped data stores.
+- 2026-02-13: Expanded skill docs for end users: added deep-linkable `cmux-browser` references (`authentication.md`, `session-management.md`, `snapshot-refs.md`, `video-recording.md`, `proxy-support.md`) + templates, and added a new `skills/cmux/` core skill for windows/workspaces/panes/surfaces workflows.
 - 2026-02-13: Changed CLI ID formatting defaults to refs-first for `--json` output (UUID output now opt-in via `--id-format uuids|both`) and added regression test `tests_v2/test_cli_id_format_defaults.py`.
-- 2026-02-13: Added new repo skill `skills/cmuxterm-browser/` adapted from `vercel-labs/agent-browser` with cmuxterm CLI syntax, wait/snapshot/ref workflow guidance, common automation flows, and command mapping references.
+- 2026-02-13: Added new repo skill `skills/cmux-browser/` adapted from `vercel-labs/agent-browser` with cmux CLI syntax, wait/snapshot/ref workflow guidance, common automation flows, and command mapping references.
 - 2026-02-13: Kept browser favicons in color when a pane/tab bar is unfocused by excluding raster tab icons from inactive saturation in Bonsplit tab rendering. Added regression coverage in `vendor/bonsplit/Tests/BonsplitTests/BonsplitTests.swift`.
 - 2026-02-13: Browser agent-UX follow-up: `browser fill` now accepts empty text for clear operations, legacy `new-pane`/`new-surface` output now prefers short `surface:N` refs, and mutating browser actions gained optional post-action verification snapshots via `snapshot_after` (`--snapshot-after` in CLI). Added regression coverage in `tests_v2/test_browser_api_comprehensive.py` and `tests_v2/test_browser_cli_agent_port.py`.
 - 2026-02-13: Final titlebar hint vertical micro-adjustment: moved `Cmd+B`/`Cmd+I`/`Cmd+N` pills up by 1px for pixel-level alignment.
@@ -25,7 +26,7 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - 2026-02-12: Fixed titlebar shortcut-hint layout shift by keeping all titlebar hint pills on one Y row and resolving collisions horizontally, added accessibility identifiers for titlebar controls/hints, and added VM UI regression coverage (`TitlebarShortcutHintsUITests`) asserting aligned Y + no control-frame shift when hints are always shown.
 - 2026-02-12: Added a top-level macOS menu bar `Notifications` menu (main app menu, not the status-item extra) with parity actions/inline recent notification rows (show, jump latest unread, mark all read, clear all, open row). Extracted shared notification menu snapshot logic so both the main menu and menu bar extra reuse the same unread counting/state text/recent-item selection behavior, and added unit regression coverage.
 - 2026-02-12: Shortcut-hint visibility pass: added collision-aware lane layout for titlebar shortcut pills to prevent overlap, unified stronger blur-backed pill styling across sidebar/titlebar/pane hints, and moved pane `Ctrl/Cmd+1..9` hints into a centered trailing slot aligned with tab close affordances/text. Added unit regression coverage for lane assignment logic.
-- 2026-02-12: Fixed terminal file/image drop regression in cmuxterm by restoring AppKit drag destination handling on `GhosttyNSView` (register drop types + perform drop insertion), and added `tests/test_file_drop_paths.py` e2e regression coverage via debug socket `simulate_file_drop` to verify dropped paths are inserted shell-escaped.
+- 2026-02-12: Fixed terminal file/image drop regression in cmux by restoring AppKit drag destination handling on `GhosttyNSView` (register drop types + perform drop insertion), and added `tests/test_file_drop_paths.py` e2e regression coverage via debug socket `simulate_file_drop` to verify dropped paths are inserted shell-escaped.
 - 2026-02-12: Sidebar drag behavior polish: edge auto-scroll now continues when pointer leaves the scroll area/window vertically during drag, and added a top sidebar blur scrim under traffic lights/titlebar controls to prevent scrolled workspace rows from visually bleeding behind the controls.
 - 2026-02-12: Sidebar drag auto-scroll follow-up: improved edge scrolling when cursor leaves row drop targets by keeping drag-scroll active outside rows, allowing bounded out-of-viewport scrolling, and consulting AppKit `autoscroll(with:)` behavior for drag events.
 - 2026-02-12: Moved titlebar shortcut hints (sidebar/bell/plus) downward so pills render below the icon buttons, with a small style-aware base Y offset plus existing debug offset tuning.
@@ -45,12 +46,12 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - 2026-02-12: Sidebar now shows `Cmd+digit` badges on workspace rows while the Command key is held, and workspace shortcut routing is unified so `Cmd+9` always targets the last workspace (with unit regression coverage for the mapping).
 - 2026-02-12: Moved the update pill/button and `THIS IS A DEV BUILD` indicator from the titlebar into a bottom-left footer inside the sidebar (debug builds), so update/dev status lives with sidebar UI instead of titlebar accessories.
 - 2026-02-12: Sidebar update control now uses the update pill in debug builds (non-idle update states only), and the checking spinner matches the browser tab loading spinner style.
-- 2026-02-12: Added macOS Finder/Services “here” integrations for cmuxterm: `New … Workspace Here` (maps to `openTab`) and `New … Window Here` (maps to `openWindow`), with path dedupe/normalization and explicit working-directory routing for both new windows and new workspaces. Added unit regression tests for service path resolution.
-- 2026-02-12: Menu bar extra now includes a `Quit cmuxterm` action, and menu bar badge tuning defaults were updated to the latest shared payload values (with backward-compatible support for legacy `menubarDebugTextRectXAdjust`).
+- 2026-02-12: Added macOS Finder/Services “here” integrations for cmux: `New … Workspace Here` (maps to `openTab`) and `New … Window Here` (maps to `openWindow`), with path dedupe/normalization and explicit working-directory routing for both new windows and new workspaces. Added unit regression tests for service path resolution.
+- 2026-02-12: Menu bar extra now includes a `Quit cmux` action, and menu bar badge tuning defaults were updated to the latest shared payload values (with backward-compatible support for legacy `menubarDebugTextRectXAdjust`).
 - 2026-02-12: Added a Debug menu window for menu bar extra tuning (preview unread count override, live badge position/size controls, and one-click copy payload for sharing exact values).
 - 2026-02-12: Expanded menu bar extra debug controls with separate 2-digit X/Y positioning so single-digit and two-digit badge text can be tuned independently.
 - 2026-02-12: Refined menu bar extra UX: inserted a separator between inline notification rows and action items, and adjusted the unread count glyph in the status icon (bigger, higher, slightly left) while keeping the white cmux icon and fixed-width layout.
-- 2026-02-12: Menu bar extra now shows a dev-only build hint line (`Build Tag: <tag>` for tagged reloads, `Build: DEV (untagged)` otherwise) so parallel `cmuxterm DEV` instances are distinguishable from the menu.
+- 2026-02-12: Menu bar extra now shows a dev-only build hint line (`Build Tag: <tag>` for tagged reloads, `Build: DEV (untagged)` otherwise) so parallel `cmux DEV` instances are distinguishable from the menu.
 - 2026-02-12: Added a right-side menu bar extra with a dynamic unread badge on the icon plus quick actions for notifications (show/jump/mark-read/clear), check for updates, and preferences.
 - 2026-02-12: Added unread notification count badges on the app icon (Dock/Cmd+Tab) with a new Settings toggle to disable it; added unit regression coverage for badge labeling and default preference behavior.
 - 2026-02-12: Fixed browser-pane split shortcuts so `Cmd+D` and `Cmd+Shift+D` work from both `WKWebView` and the browser omnibar by adding menu-backed split commands wired to effective shortcut settings and shared split handling in `AppDelegate`. Added VM UI regression coverage in `BrowserPaneNavigationKeybindUITests` for both focus states.
@@ -84,18 +85,18 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - 2026-02-10: Browser loading UI: removed omnibar progress indicator and replaced it with a spinning tab icon while the page is loading.
 - 2026-02-10: Browser omnibar: added an explicit state machine (focus/editing/popup) so Escape and click-outside behaviors match Chrome; added regression tests.
 - 2026-02-10: Added a customizable “Flash focused panel” keyboard shortcut (default Cmd+Shift+L) that visually highlights the currently focused terminal or browser panel.
-- 2026-02-10: Added PostHog Swift SDK integration and a stable DAU signal (`cmuxterm_daily_active`, once per UTC day per install).
+- 2026-02-10: Added PostHog Swift SDK integration and a stable DAU signal (`cmux_daily_active`, once per UTC day per install).
 - 2026-02-10: Added a v2 JSON socket API (handle-based) and migrated the automated test suite to v2 while keeping v1 compatibility. Verified v1 + v2 suites passing on the VM (see `docs/v2-api-migration.md`).
 - 2026-02-11: Extended the socket/CLI to handle multi-window automation: added v2 `window.list/current/focus/create/close`, v2 `workspace.move_to_window`, and included `window_id` in `system.identify` (plus caller validation). Added v1 window commands for the CLI (`list_windows`, etc). Added VM test coverage (`tests_v2/test_windows_api.py`) and verified v1 + v2 suites passing on the VM.
 - 2026-02-11: Fixed split child-exit close semantics and focus indicator drift: exiting (`Ctrl+D`) one side of a split now only closes that pane (never the whole workspace due to transient panel-count state), and terminal first-responder focus now always re-syncs active bonsplit focus so blue focus indicators match actual keyboard focus. Added VM UI regression coverage for child-exit-in-split behavior.
-- 2026-02-11: Exposed v2 agent discovery from the CLI: added `cmuxterm identify` (maps to `system.identify`, supports caller via env/flags) and `cmuxterm capabilities` (maps to `system.capabilities`).
+- 2026-02-11: Exposed v2 agent discovery from the CLI: added `cmux identify` (maps to `system.identify`, supports caller via env/flags) and `cmux capabilities` (maps to `system.capabilities`).
 - 2026-02-11: Expanded CLI split/pane coverage for agent workflows: added `list-panes`, `list-pane-surfaces`, `focus-pane`, `new-pane`, `new-surface`, `close-surface`, `drag-surface-to-split`, `refresh-surfaces`, `surface-health`, `focus-webview`, `is-webview-focused`, and `trigger-flash` (`surface.trigger_flash`).
 
 ## Backlog
 - Browser panels: investigate intermittent crash/relaunch around WKWebView lifecycle and focus notifications.
 - Keyboard shortcuts: expand VM XCUITest coverage for focus + shortcuts (once Automation Mode is reliably enabled in the VM).
 - Socket API: tighten/standardize semantics around split insertion side (left/right/up/down) and pane selection (UUID vs index) across CLI/docs/server.
-- CLI: add an `it2`-compatible CLI shim (same subcommands/flags where feasible) that maps to cmuxterm's socket API and ships in `Contents/Resources/bin`.
-- Browser automation parity: implement `docs/agent-browser-port-spec.md` (agent-browser command mapping, `cmuxterm browser` surface targeting, move/reorder invariants, and v1 shim strategy).
+- CLI: add an `it2`-compatible CLI shim (same subcommands/flags where feasible) that maps to cmux's socket API and ships in `Contents/Resources/bin`.
+- Browser automation parity: implement `docs/agent-browser-port-spec.md` (agent-browser command mapping, `cmux browser` surface targeting, move/reorder invariants, and v1 shim strategy).
 - Tests: port the agent-browser coverage matrix into `tests_v2/` while keeping both v1 and v2 suites passing.
 - Planning: agent-browser port spec decisions locked (ID refs, caller-relative placement, cmux-native output, refs-first output defaults).

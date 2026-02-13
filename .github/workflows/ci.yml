@@ -7,8 +7,34 @@ on:
   pull_request:
 
 jobs:
+  web-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun tsc --noEmit
+
   ui-tests:
     runs-on: self-hosted
+    concurrency:
+      group: self-hosted-build
+      cancel-in-progress: false
+    env:
+      # Optional: set these GitHub secrets to point CI at the UTM VM.
+      # If unset, the script falls back to trying `cmux-vm`, `cmux-vm.local`, then `192.168.64.73`.
+      CMUX_VM_HOST: ${{ secrets.CMUX_VM_HOST }}
+      CMUX_VM_USER: ${{ secrets.CMUX_VM_USER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,64 +84,53 @@ jobs:
       - name: Run UI tests
         run: |
           set -euo pipefail
-          log_file="$(mktemp /tmp/cmux-ui-tests.XXXXXX)"
-          console_user="$(stat -f%Su /dev/console)"
-          console_uid=""
-          if [ "$console_user" != "root" ]; then
-            console_uid="$(id -u "$console_user")"
-          fi
-          current_uid="$(id -u)"
+          # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
+          # state is frequently non-interactive on CI and causes false failures.
+          vm_user="${CMUX_VM_USER:-cmux}"
+          ssh_opts=(
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=5
+            -o ConnectionAttempts=1
+            -o NumberOfPasswordPrompts=0
+            -o PreferredAuthentications=publickey
+            -o PubkeyAuthentication=yes
+            -o PasswordAuthentication=no
+            -o KbdInteractiveAuthentication=no
+            -o ChallengeResponseAuthentication=no
+            -o GSSAPIAuthentication=no
+            -o LogLevel=ERROR
+          )
 
-          run_xcodebuild() {
-            if [ "$current_uid" -eq 0 ] && [ -n "$console_uid" ] && [ "$console_uid" != "0" ]; then
-              /bin/launchctl asuser "$console_uid" \
-                xcodebuild \
-                  -project GhosttyTabs.xcodeproj \
-                  -scheme cmux \
-                  -configuration Debug \
-                  -destination 'platform=macOS' \
-                  -only-testing:GhosttyTabsUITests/UpdatePillUITests \
-                test
-            else
-              xcodebuild \
-                -project GhosttyTabs.xcodeproj \
-                -scheme cmux \
-                -configuration Debug \
-                -destination 'platform=macOS' \
-                -only-testing:GhosttyTabsUITests/UpdatePillUITests \
-                test
+          vm_candidates=()
+          if [ -n "${CMUX_VM_HOST:-}" ]; then
+            vm_candidates+=("$CMUX_VM_HOST")
+          else
+            vm_candidates+=("cmux-vm" "cmux-vm.local" "192.168.64.73" "cmux-macmini" "cmux-macmini.local")
+          fi
+
+          vm_host=""
+          for h in "${vm_candidates[@]}"; do
+            if ssh "${ssh_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
+              vm_host="$h"
+              break
             fi
-          }
-
-          if ssh -o BatchMode=yes -o ConnectTimeout=5 cmux-vm 'true' >/dev/null 2>&1; then
-            echo "Running UI tests on cmux-vm..."
-            rsync -a --delete \
-              --exclude build \
-              --exclude .git \
-              --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
-              ./ cmux-vm:/Users/cmux/GhosttyTabs/
-            ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
-            exit 0
+          done
+          if [ -z "$vm_host" ]; then
+            echo "ERROR: Could not SSH into the UI-test VM; UI tests are required."
+            echo "Tried:"
+            for h in "${vm_candidates[@]}"; do
+              echo "  - $vm_user@$h"
+            done
+            echo "Fix: set CMUX_VM_HOST (repo secret or runner env), or add a working 'cmux-vm' Host entry in ~/.ssh/config on the self-hosted runner."
+            exit 1
           fi
 
-          set +e
-          run_xcodebuild 2>&1 | tee "$log_file"
-          status=${PIPESTATUS[0]}
-          set -e
-
-          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode" "$log_file"; then
-            echo "UI automation timed out. Retrying once after a short delay..."
-            sleep 5
-            set +e
-            run_xcodebuild 2>&1 | tee -a "$log_file"
-            status=${PIPESTATUS[0]}
-            set -e
-          fi
-
-          if [ "$status" -ne 0 ] && grep -qE "Failed to initialize for UI testing|Timed out while enabling automation mode" "$log_file"; then
-            echo "UI automation mode is unavailable on this runner. Skipping UI tests."
-            rm -f "$log_file"
-            exit 0
-          fi
-          rm -f "$log_file"
-          exit "$status"
+          echo "Running UI tests on $vm_user@$vm_host..."
+          rsync -e "ssh ${ssh_opts[*]}" -a --delete \
+            --exclude build \
+            --exclude .git \
+            --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
+            ./ "$vm_user@$vm_host":/Users/cmux/GhosttyTabs/
+          ssh "${ssh_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'

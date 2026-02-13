@@ -4,7 +4,7 @@ import AppKit
 final class UpdateLogStore {
     static let shared = UpdateLogStore()
 
-    private let queue = DispatchQueue(label: "cmuxterm.update.log")
+    private let queue = DispatchQueue(label: "cmux.update.log")
     private var entries: [String] = []
     private let maxEntries = 200
     private let logURL: URL
@@ -15,7 +15,7 @@ final class UpdateLogStore {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let logsDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        logURL = logsDir.appendingPathComponent("Logs/cmuxterm-update.log")
+        logURL = logsDir.appendingPathComponent("Logs/cmux-update.log")
         ensureLogFile()
     }
 
@@ -67,7 +67,7 @@ final class UpdateLogStore {
 final class FocusLogStore {
     static let shared = FocusLogStore()
 
-    private let queue = DispatchQueue(label: "cmuxterm.focus.log")
+    private let queue = DispatchQueue(label: "cmux.focus.log")
     private var entries: [String] = []
     private let maxEntries = 400
     private let logURL: URL
@@ -78,7 +78,7 @@ final class FocusLogStore {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let logsDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        logURL = logsDir.appendingPathComponent("Logs/cmuxterm-focus.log")
+        logURL = logsDir.appendingPathComponent("Logs/cmux-focus.log")
         ensureLogFile()
     }
 

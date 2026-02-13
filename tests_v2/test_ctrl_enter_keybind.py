@@ -3,7 +3,7 @@
 Automated test for ctrl+enter keybind using real keystrokes.
 
 Requires:
-  - cmuxterm running
+  - cmux running
   - Accessibility permissions for System Events (osascript)
   - keybind = ctrl+enter=text:\\r (or \\n/\\x0d) configured in Ghostty config
 """
@@ -29,24 +29,24 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
     Infer the app display name from the socket path.
 
     Examples:
-      - /tmp/cmuxterm-debug.sock          -> "cmuxterm DEV"
-      - /tmp/cmuxterm-debug-foo.sock      -> "cmuxterm DEV foo"
-      - /tmp/cmuxterm.sock                -> "cmuxterm"
-      - /tmp/cmuxterm-foo.sock            -> "cmuxterm foo"
+      - /tmp/cmux-debug.sock          -> "cmux DEV"
+      - /tmp/cmux-debug-foo.sock      -> "cmux DEV foo"
+      - /tmp/cmux.sock                -> "cmux"
+      - /tmp/cmux-foo.sock            -> "cmux foo"
     """
     base = Path(socket_path).name
-    if base.startswith("cmuxterm-debug") and base.endswith(".sock"):
-        suffix = base[len("cmuxterm-debug") : -len(".sock")]
+    if base.startswith("cmux-debug") and base.endswith(".sock"):
+        suffix = base[len("cmux-debug") : -len(".sock")]
         if suffix.startswith("-") and suffix[1:]:
-            return f"cmuxterm DEV {suffix[1:]}"
-        return "cmuxterm DEV"
-    if base.startswith("cmuxterm") and base.endswith(".sock"):
-        suffix = base[len("cmuxterm") : -len(".sock")]
+            return f"cmux DEV {suffix[1:]}"
+        return "cmux DEV"
+    if base.startswith("cmux") and base.endswith(".sock"):
+        suffix = base[len("cmux") : -len(".sock")]
         if suffix.startswith("-") and suffix[1:]:
-            return f"cmuxterm {suffix[1:]}"
-        return "cmuxterm"
+            return f"cmux {suffix[1:]}"
+        return "cmux"
     # Fallback: tests usually run against Debug builds.
-    return "cmuxterm DEV"
+    return "cmux DEV"
 
 
 def run_osascript(script: str) -> None:
@@ -143,14 +143,14 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
 
 def run_tests() -> int:
     print("=" * 60)
-    print("cmuxterm Ctrl+Enter Keybind Test")
+    print("cmux Ctrl+Enter Keybind Test")
     print("=" * 60)
     print()
 
     socket_path = cmux.DEFAULT_SOCKET_PATH
     if not os.path.exists(socket_path):
         print(f"Error: Socket not found at {socket_path}")
-        print("Please make sure cmuxterm is running.")
+        print("Please make sure cmux is running.")
         return 1
 
     config_path = find_config_with_keybind()

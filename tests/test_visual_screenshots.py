@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Visual Screenshot Tests for cmuxterm
+Visual Screenshot Tests for cmux
 
 Comprehensive edge-case testing with before/after screenshots for:
   A. Basic splits (baseline)
@@ -33,7 +33,7 @@ from typing import Optional, List, Union
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmuxterm-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 HTML_REPORT = Path(__file__).parent / "visual_report.html"
 
 # Timing constants
@@ -1177,7 +1177,7 @@ def generate_html_report(changes: list[StateChange]) -> None:
     html = '''<!DOCTYPE html>
 <html>
 <head>
-    <title>cmuxterm Visual Test Report</title>
+    <title>cmux Visual Test Report</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1236,7 +1236,7 @@ def generate_html_report(changes: list[StateChange]) -> None:
     </style>
 </head>
 <body>
-    <h1>cmuxterm Visual Test Report</h1>
+    <h1>cmux Visual Test Report</h1>
     <p class="timestamp">Generated: ''' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '''</p>
 
     <div class="summary">
@@ -1419,7 +1419,7 @@ def run_visual_tests():
     ]
 
     print("=" * 60)
-    print(f"cmuxterm Visual Screenshot Tests ({len(test_fns)} scenarios)")
+    print(f"cmux Visual Screenshot Tests ({len(test_fns)} scenarios)")
     print("=" * 60)
     print()
 

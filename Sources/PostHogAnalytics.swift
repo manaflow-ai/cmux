@@ -8,7 +8,7 @@ final class PostHogAnalytics {
     static let shared = PostHogAnalytics()
 
     // The PostHog project API key is intentionally embedded in the app (it's a public key).
-    // Replace with the real key for the cmuxterm PostHog project.
+    // Replace with the real key for the cmux PostHog project.
     private let apiKey = "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
 
     // PostHog Cloud US default (matches other cmux properties).
@@ -71,7 +71,7 @@ final class PostHogAnalytics {
 
         defaults.set(today, forKey: lastActiveDayUTCKey)
 
-        PostHogSDK.shared.capture("cmuxterm_daily_active", properties: [
+        PostHogSDK.shared.capture("cmux_daily_active", properties: [
             "day_utc": today,
             "reason": reason,
         ])
