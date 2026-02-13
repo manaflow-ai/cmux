@@ -4,6 +4,15 @@ See `PROJECTS.md` for cross-project tracking (features, bugs, backlog). Update i
 
 "cmuxterm" is always fully lowercase. Never capitalize as "Cmuxterm", "CmuxTerm", "CMUXTERM", etc.
 
+## Parallel agent workflow
+
+This repo is frequently worked on by multiple agents in parallel on the same branch/worktree.
+
+- Scope edits to the smallest necessary file set for the task.
+- Co-exist with unrelated local changes; do not revert/delete others' work.
+- Never run broad cleanup/reset operations that can discard concurrent edits.
+- If you encounter overlapping edits in files you must touch, preserve others' intent and only patch the minimal lines required.
+
 ## Initial setup
 
 Run the setup script to initialize submodules and build GhosttyKit:

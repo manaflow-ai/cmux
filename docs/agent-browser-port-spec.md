@@ -1,9 +1,9 @@
-# Agent-Browser Port Spec (Planning Only)
+# Agent-Browser Port Spec
 
 Last updated: February 12, 2026  
 Source inventory snapshot: `vercel-labs/agent-browser` @ `03a8cb9`
 
-This document is planning-only. It does not imply implementation is complete.
+This document tracks implemented behavior and remaining parity gaps for the cmuxterm browser port.
 
 ## Goals
 
@@ -12,6 +12,14 @@ This document is planning-only. It does not imply implementation is complete.
 3. Port `agent-browser` command surface (where meaningful for `WKWebView`).
 4. Ensure move/reorder operations preserve `surface_id` identity.
 5. Rebuild/port tests so both v1 and v2 suites pass before deprecating v1.
+
+## Validation Status
+
+As of February 12, 2026:
+1. `./scripts/run-tests-v1.sh` passes on `cmux-vm`.
+2. `./scripts/run-tests-v2.sh` passes on `cmux-vm`.
+3. Browser parity suites passing in v2: `test_browser_api_comprehensive.py`, `test_browser_api_p0.py`, `test_browser_api_extended_families.py`, `test_browser_api_unsupported_matrix.py`, and `test_browser_cli_agent_port.py`.
+4. Visual suite note: `tests/test_visual_screenshots.py` and `tests_v2/test_visual_screenshots.py` both report D12 (`Nested: Close Top of T-shape`) as a known non-blocking VM failure when it reproduces (`VIEW_DETACHED`).
 
 ## Concepts (Canonical Terms)
 
@@ -109,7 +117,7 @@ Recommended extension for browser workflows:
 9. `tab`: default list, plus `new|list|close|<index>`
 10. `window`: `new`
 11. `frame`: `<selector>|main`
-12. `dialog`: docs say `accept|dismiss` (parser currently only handles `accept`)
+12. `dialog`: `accept|dismiss`
 13. `trace`: `start|stop`
 14. `record`: `start|stop|restart`
 15. `state`: `save|load`
@@ -288,74 +296,74 @@ Hard invariant:
 
 ### Phase 0: Contract + Routing
 
-- [ ] Lock method names/payload schemas for all new `browser.*` methods.
-- [ ] Add schema validation for each new method with strict error codes (`invalid_params`, `not_found`, `invalid_state`).
-- [ ] Add `browser` command group in `CLI/cmuxterm.swift` that accepts agent-browser-style command grammar.
-- [ ] Add `--surface` mandatory targeting (with fallback from `system.identify` when explicitly desired).
-- [ ] Add consistent JSON output mode for all browser commands.
-- [ ] Implement short-ref allocator and resolver for `window/pane/workspace/surface` (`window:N`, `workspace:N`, `pane:N`, `surface:N`).
-- [ ] Add `--id-format refs|uuids|both` across relevant CLI commands (`--json` default `both`, plain-text default refs).
-- [ ] Ensure browser placement APIs always return decision-rich metadata (resolved target pane, created splits, resulting handles).
+- [x] Lock method names/payload schemas for all new `browser.*` methods.
+- [x] Add schema validation for each new method with strict error codes (`invalid_params`, `not_found`, `invalid_state`).
+- [x] Add `browser` command group in `CLI/cmuxterm.swift` that accepts agent-browser-style command grammar.
+- [x] Add `--surface` mandatory targeting (with fallback from `system.identify` when explicitly desired).
+- [x] Add consistent JSON output mode for all browser commands.
+- [x] Implement short-ref allocator and resolver for `window/pane/workspace/surface` (`window:N`, `workspace:N`, `pane:N`, `surface:N`).
+- [x] Add `--id-format refs|uuids|both` across relevant CLI commands (`--json` default `both`, plain-text default refs).
+- [x] Ensure browser placement APIs always return decision-rich metadata (resolved target pane, created splits, resulting handles).
 
 ### Phase 1: Core Browser Parity (P0)
 
-- [ ] Implement `browser.snapshot` (with refs).
-- [ ] Implement `browser.eval`.
-- [ ] Implement `browser.wait` variants: selector, timeout, URL pattern, load state, function, text.
-- [ ] Implement click family: `click`, `dblclick`, `hover`, `focus`.
-- [ ] Implement input family: `type`, `fill`, `press`, `keydown`, `keyup`.
-- [ ] Implement checkbox/select family: `check`, `uncheck`, `select`.
-- [ ] Implement scrolling family: `scroll`, `scroll_into_view`.
-- [ ] Implement getters: text/html/value/attr/url/title/count/box/styles.
-- [ ] Implement state checks: visible/enabled/checked.
-- [ ] Implement screenshots (surface/full-page where feasible).
+- [x] Implement `browser.snapshot` (with refs).
+- [x] Implement `browser.eval`.
+- [x] Implement `browser.wait` variants: selector, timeout, URL pattern, load state, function, text.
+- [x] Implement click family: `click`, `dblclick`, `hover`, `focus`.
+- [x] Implement input family: `type`, `fill`, `press`, `keydown`, `keyup`.
+- [x] Implement checkbox/select family: `check`, `uncheck`, `select`.
+- [x] Implement scrolling family: `scroll`, `scroll_into_view`.
+- [x] Implement getters: text/html/value/attr/url/title/count/box/styles.
+- [x] Implement state checks: visible/enabled/checked.
+- [x] Implement screenshots (surface/full-page where feasible).
 
 ### Phase 2: Locator + Session Parity (P1)
 
-- [ ] Implement `browser.find.role`.
-- [ ] Implement `browser.find.text`.
-- [ ] Implement `browser.find.label`.
-- [ ] Implement `browser.find.placeholder`.
-- [ ] Implement `browser.find.alt`.
-- [ ] Implement `browser.find.title`.
-- [ ] Implement `browser.find.testid`.
-- [ ] Implement `browser.find.nth|first|last`.
-- [ ] Implement frame context switching (`frame.select`, `frame.main`).
-- [ ] Implement dialog handling (`accept`, `dismiss`, optional prompt text).
-- [ ] Implement download waiting.
-- [ ] Implement console/error buffers and retrieval.
-- [ ] Implement highlight helper.
-- [ ] Implement browser state save/load format.
+- [x] Implement `browser.find.role`.
+- [x] Implement `browser.find.text`.
+- [x] Implement `browser.find.label`.
+- [x] Implement `browser.find.placeholder`.
+- [x] Implement `browser.find.alt`.
+- [x] Implement `browser.find.title`.
+- [x] Implement `browser.find.testid`.
+- [x] Implement `browser.find.nth|first|last`.
+- [x] Implement frame context switching (`frame.select`, `frame.main`).
+- [x] Implement dialog handling (`accept`, `dismiss`, optional prompt text).
+- [x] Implement download waiting.
+- [x] Implement console/error buffers and retrieval.
+- [x] Implement highlight helper.
+- [x] Implement browser state save/load format.
 
 ### Phase 3: Move/Reorder + Window/Workspace Integration
 
-- [ ] Implement `surface.move` with handle-based destination rules.
-- [ ] Implement `surface.reorder` within pane.
-- [ ] Implement cross-workspace surface moves.
-- [ ] Implement cross-window surface moves.
-- [ ] Implement `workspace.reorder`.
-- [ ] Add CLI commands for tab/surface reordering and moving (`move-surface`, `reorder-surface`, `reorder-workspace`).
-- [ ] Add response payloads that confirm final `window_id/workspace_id/pane_id/surface_id`.
-- [ ] Add explicit invariants tests for `surface_id` stability.
+- [x] Implement `surface.move` with handle-based destination rules.
+- [x] Implement `surface.reorder` within pane.
+- [x] Implement cross-workspace surface moves.
+- [x] Implement cross-window surface moves.
+- [x] Implement `workspace.reorder`.
+- [x] Add CLI commands for tab/surface reordering and moving (`move-surface`, `reorder-surface`, `reorder-workspace`).
+- [x] Add response payloads that confirm final `window_id/workspace_id/pane_id/surface_id`.
+- [x] Add explicit invariants tests for `surface_id` stability.
 
 ### Phase 4: Advanced/Optional Parity (P2)
 
 - [ ] Evaluate feasibility of request interception/mocking in `WKWebView`; implement supported subset.
 - [ ] Add emulation settings that are feasible in `WKWebView`.
 - [ ] Add trace/recording equivalents where practical.
-- [ ] Add script/style injection helpers.
-- [ ] Document unsupported commands with explicit error `not_supported`.
+- [x] Add script/style injection helpers.
+- [x] Document unsupported commands with explicit error `not_supported`.
 
 ### Phase 5: Compatibility + Migration
 
-- [ ] Add v1-to-v2 shim for migrated command families.
-- [ ] Keep existing v1 behavior unchanged while shim is active.
+- [x] Add v1-to-v2 shim for migrated command families.
+- [x] Keep existing v1 behavior unchanged while shim is active.
 - [ ] Document v1/v2 mapping table for all browser/topology commands.
 - [ ] Add deprecation warnings only after parity + test completion.
 
 ### Phase 6: Docs + Examples
 
-- [ ] Update `docs/v2-api-migration.md` with browser parity status.
+- [x] Update `docs/v2-api-migration.md` with browser parity status.
 - [ ] Add dedicated browser automation doc in `docs-site`.
 - [ ] Add examples for LLM workflow: identify -> choose surface -> snapshot -> act -> verify.
 - [ ] Add explicit "surface vs pane vs workspace vs window" section to CLI docs.
@@ -364,25 +372,23 @@ Hard invariant:
 
 ### Port Targets from `agent-browser`
 
-1. `src/protocol.test.ts` -> cmux CLI/browser parser + v2 validation tests.
-2. `src/browser.test.ts` -> `tests_v2/` end-to-end browser automation coverage.
-3. `src/actions.test.ts` -> error-normalization tests for cmux browser action failures.
-4. `test/file-access.test.ts` -> local-file navigation policy tests in `WKWebView`.
-5. `test/launch-options.test.ts` -> adapt only applicable pieces (`headers`, emulation subset, user agent if supported).
-6. `src/daemon.test.ts`, `src/stream-server.test.ts`, `test/serverless.test.ts`, `src/ios-manager.test.ts` -> out-of-scope for direct parity; map only equivalent behavior where relevant.
+1. `src/browser.test.ts` -> ported/adapted into:
+   - `tests_v2/test_browser_api_p0.py`
+   - `tests_v2/test_browser_api_comprehensive.py`
+   - `tests_v2/test_browser_api_unsupported_matrix.py`
+2. `src/actions.test.ts` -> adapted negative coverage in `tests_v2/test_browser_api_comprehensive.py` (`invalid_params`, `not_found`, `timeout`).
+3. `src/protocol.test.ts` -> adapted browser command/shape validation in `tests_v2/test_browser_api_unsupported_matrix.py` and existing `CLI/cmuxterm.swift` command grammar checks.
+4. `test/file-access.test.ts` and `test/launch-options.test.ts` -> partially applicable to `WKWebView`; currently tracked as follow-up parity work (not blocking current browser method coverage).
+5. `src/daemon.test.ts`, `src/stream-server.test.ts`, `test/serverless.test.ts`, `src/ios-manager.test.ts` -> out-of-scope for cmuxterm browser parity (different transport/runtime).
 
-### Proposed cmux Test Suites
+### Implemented cmux Browser Suites
 
-1. `tests_v2/test_browser_agent_core.py`
-2. `tests_v2/test_browser_agent_locators.py`
-3. `tests_v2/test_browser_agent_waits.py`
-4. `tests_v2/test_browser_agent_frames_dialogs.py`
-5. `tests_v2/test_browser_agent_getters_checks.py`
-6. `tests_v2/test_browser_agent_screenshot_eval.py`
-7. `tests_v2/test_browser_agent_move_reorder.py`
-8. `tests_v2/test_browser_agent_self_identify.py`
-9. `tests_v2/test_browser_agent_trigger_flash.py`
-10. `tests_v2/test_browser_agent_v1_shim.py`
+1. `tests_v2/test_browser_api_p0.py`
+2. `tests_v2/test_browser_api_comprehensive.py`
+3. `tests_v2/test_browser_api_unsupported_matrix.py`
+4. `tests_v2/test_browser_goto_split.py`
+5. `tests_v2/test_browser_panel_stability.py`
+6. `tests_v2/test_browser_custom_keybinds.py`
 
 ### Test Design Rules
 
