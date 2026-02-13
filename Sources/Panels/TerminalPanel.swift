@@ -13,7 +13,7 @@ final class TerminalPanel: Panel, ObservableObject {
     let surface: TerminalSurface
 
     /// The workspace ID this panel belongs to
-    let workspaceId: UUID
+    private(set) var workspaceId: UUID
 
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
@@ -105,6 +105,11 @@ final class TerminalPanel: Panel, ObservableObject {
         if !trimmed.isEmpty && directory != trimmed {
             directory = trimmed
         }
+    }
+
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.updateWorkspaceId(newWorkspaceId)
     }
 
     func focus() {

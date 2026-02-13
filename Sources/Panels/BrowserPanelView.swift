@@ -7,6 +7,7 @@ struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let onRequestPanelFocus: () -> Void
     @State private var omnibarState = OmnibarState()
     @FocusState private var addressBarFocused: Bool
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -97,6 +98,9 @@ struct BrowserPanelView: View {
                         .font(.system(size: 12))
                         .focused($addressBarFocused)
                         .accessibilityIdentifier("BrowserOmnibarTextField")
+                        .simultaneousGesture(TapGesture().onEnded {
+                            handleOmnibarTap()
+                        })
                         .onExitCommand {
                             // Chrome-style escape:
                             // - If editing / dropdown is open: revert to current URL, close dropdown, select all.
@@ -252,9 +256,16 @@ struct BrowserPanelView: View {
         .onChange(of: addressBarFocused) { focused in
             let urlString = panel.currentURL?.absoluteString ?? ""
             if focused {
+                NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
+                // Only request panel focus if this pane isn't currently focused. When already
+                // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
+                if !isFocused {
+                    onRequestPanelFocus()
+                }
                 let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
                 applyOmnibarEffects(effects)
             } else {
+                NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
                 if suppressNextFocusLostRevert {
                     suppressNextFocusLostRevert = false
                     let effects = omnibarReduce(state: &omnibarState, event: .focusLostPreserveBuffer(currentURLString: urlString))
@@ -316,6 +327,16 @@ struct BrowserPanelView: View {
         // We can also trigger via JavaScript
         Task {
             try? await panel.evaluateJavaScript("window.webkit?.messageHandlers?.devTools?.postMessage('open')")
+        }
+    }
+
+    private func handleOmnibarTap() {
+        onRequestPanelFocus()
+        guard !addressBarFocused else { return }
+        // `focusPane` converges selection and can transiently move first responder to WebKit.
+        // Reassert omnibar focus on the next runloop for click-to-type behavior.
+        DispatchQueue.main.async {
+            addressBarFocused = true
         }
     }
 

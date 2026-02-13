@@ -337,7 +337,7 @@ final class BrowserPanel: Panel, ObservableObject {
     let panelType: PanelType = .browser
 
     /// The workspace ID this panel belongs to
-    let workspaceId: UUID
+    private(set) var workspaceId: UUID
 
     /// The underlying web view
     let webView: WKWebView
@@ -445,6 +445,10 @@ final class BrowserPanel: Panel, ObservableObject {
         if let url = initialURL {
             navigate(to: url)
         }
+    }
+
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
     }
 
     func triggerFlash() {

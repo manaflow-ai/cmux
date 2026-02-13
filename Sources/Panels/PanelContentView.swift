@@ -11,6 +11,7 @@ struct PanelContentView: View {
     let appearance: PanelAppearance
     let notificationStore: TerminalNotificationStore
     let onFocus: () -> Void
+    let onRequestPanelFocus: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -33,7 +34,8 @@ struct PanelContentView: View {
                 BrowserPanelView(
                     panel: browserPanel,
                     isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI
+                    isVisibleInUI: isVisibleInUI,
+                    onRequestPanelFocus: onRequestPanelFocus
                 )
             }
         }

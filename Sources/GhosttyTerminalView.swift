@@ -976,7 +976,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// is already in the window.
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
-    let tabId: UUID
+    private(set) var tabId: UUID
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -1037,6 +1037,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         hostedView.attachSurface(self)
     }
 
+
+    func updateWorkspaceId(_ newTabId: UUID) {
+        tabId = newTabId
+        attachedView?.tabId = newTabId
+        surfaceView.tabId = newTabId
+    }
     #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
@@ -1417,6 +1423,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
+    private static let dropTypes: Set<NSPasteboard.PasteboardType> = [
+        .string,
+        .fileURL,
+        .URL
+    ]
+    private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         FocusLogStore.shared.append(message)
@@ -1461,6 +1474,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // The lock in GhosttyMetalLayer.nextDrawable() adds overhead we don't want in normal runs.
         installEventMonitor()
         updateTrackingAreas()
+        registerForDraggedTypes(Array(Self.dropTypes))
     }
 
     private func effectiveBackgroundColor() -> NSColor {
@@ -2371,6 +2385,73 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             self?.viewDidChangeBackingProperties()
         }
     }
+
+    private static func escapeDropForShell(_ value: String) -> String {
+        var result = value
+        for char in shellEscapeCharacters {
+            result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
+        }
+        return result
+    }
+
+    private func droppedContent(from pasteboard: NSPasteboard) -> String? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
+            return urls
+                .map { Self.escapeDropForShell($0.path) }
+                .joined(separator: " ")
+        }
+
+        if let rawURL = pasteboard.string(forType: .URL), !rawURL.isEmpty {
+            return Self.escapeDropForShell(rawURL)
+        }
+
+        if let str = pasteboard.string(forType: .string), !str.isEmpty {
+            return str
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+        guard let content = droppedContent(from: pasteboard) else { return false }
+        if let window {
+            window.makeFirstResponder(self)
+        }
+        sendTextToSurface(content)
+        return true
+    }
+
+#if DEBUG
+    @discardableResult
+    fileprivate func debugSimulateFileDrop(paths: [String]) -> Bool {
+        guard !paths.isEmpty else { return false }
+        let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
+        let pbName = NSPasteboard.Name("cmuxterm.debug.drop.\(UUID().uuidString)")
+        let pasteboard = NSPasteboard(name: pbName)
+        pasteboard.clearContents()
+        pasteboard.writeObjects(urls)
+        return insertDroppedPasteboard(pasteboard)
+    }
+
+    fileprivate func debugRegisteredDropTypes() -> [String] {
+        (registeredDraggedTypes ?? []).map(\.rawValue)
+    }
+#endif
+
+    // MARK: NSDraggingDestination
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let types = sender.draggingPasteboard.types else { return [] }
+        if Set(types).isDisjoint(with: Self.dropTypes) {
+            return []
+        }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        insertDroppedPasteboard(sender.draggingPasteboard)
+    }
 }
 
 private extension NSScreen {
@@ -2788,6 +2869,18 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+#if DEBUG
+    @discardableResult
+    func debugSimulateFileDrop(paths: [String]) -> Bool {
+        surfaceView.debugSimulateFileDrop(paths: paths)
+    }
+
+    func debugRegisteredDropTypes() -> [String] {
+        surfaceView.debugRegisteredDropTypes()
+    }
+
+#endif
+
     #if DEBUG
     /// Sends a synthetic Ctrl+D key press directly to the surface view.
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
@@ -2830,30 +2923,58 @@ final class GhosttySurfaceScrollView: NSView {
     }
     #endif
 
-	    func ensureFocus(for tabId: UUID, surfaceId: UUID) {
-	        // Minimal, deterministic focus: no retries/polling.
-	        guard isActive else { return }
-            guard surfaceView.isVisibleInUI else { return }
-	        guard surfaceView.terminalSurface?.searchState == nil else { return }
-	        guard let window, window.isKeyWindow else { return }
-	        guard let delegate = AppDelegate.shared,
-	              let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
-	              tabManager.selectedTabId == tabId else { return }
+    func ensureFocus(for tabId: UUID, surfaceId: UUID, attemptsRemaining: Int = 3) {
+        func retry() {
+            guard attemptsRemaining > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                self?.ensureFocus(for: tabId, surfaceId: surfaceId, attemptsRemaining: attemptsRemaining - 1)
+            }
+        }
 
-	        guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-	              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-	              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-	                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-	              }) else { return }
-	        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface else { return }
-	        guard tab.bonsplitController.focusedPaneId == paneId else { return }
+        guard isActive else { return }
+        guard surfaceView.terminalSurface?.searchState == nil else { return }
+        guard let window else { return }
+        guard surfaceView.isVisibleInUI else {
+            retry()
+            return
+        }
 
-	        if let fr = window.firstResponder as? NSView,
-	           fr === surfaceView || fr.isDescendant(of: surfaceView) {
-	            return
-	        }
-	        window.makeFirstResponder(surfaceView)
-	    }
+        guard let delegate = AppDelegate.shared,
+              let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
+              tabManager.selectedTabId == tabId else {
+            retry()
+            return
+        }
+
+        guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
+              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
+                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+              }) else {
+            retry()
+            return
+        }
+
+        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
+              tab.bonsplitController.focusedPaneId == paneId else {
+            retry()
+            return
+        }
+
+        if let fr = window.firstResponder as? NSView,
+           fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            return
+        }
+
+        if !window.isKeyWindow {
+            window.makeKeyAndOrderFront(nil)
+        }
+        _ = window.makeFirstResponder(surfaceView)
+
+        if !isSurfaceViewFirstResponder() {
+            retry()
+        }
+    }
 
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
     /// This is stricter than checking `hostedView` descendants, since the scroll view can sometimes become
@@ -3217,6 +3338,29 @@ final class GhosttySurfaceScrollView: NSView {
 // MARK: - NSTextInputClient
 
 extension GhosttyNSView: NSTextInputClient {
+    fileprivate func sendTextToSurface(_ chars: String) {
+        guard let surface = surface else { return }
+#if DEBUG
+        cmuxWriteChildExitProbe(
+            [
+                "probeInsertTextCharsHex": cmuxScalarHex(chars),
+                "probeInsertTextSurfaceId": terminalSurface?.id.uuidString ?? "",
+            ],
+            increments: ["probeInsertTextCount": 1]
+        )
+#endif
+        chars.withCString { ptr in
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = GHOSTTY_ACTION_PRESS
+            keyEvent.keycode = 0
+            keyEvent.mods = GHOSTTY_MODS_NONE
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.text = ptr
+            keyEvent.composing = false
+            _ = ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
     func hasMarkedText() -> Bool {
         return markedText.length > 0
     }
@@ -3290,28 +3434,7 @@ extension GhosttyNSView: NSTextInputClient {
         }
 
         // Otherwise send directly to the terminal
-        if let surface = surface {
-#if DEBUG
-            cmuxWriteChildExitProbe(
-                [
-                    "probeInsertTextCharsHex": cmuxScalarHex(chars),
-                    "probeInsertTextSurfaceId": terminalSurface?.id.uuidString ?? "",
-                ],
-                increments: ["probeInsertTextCount": 1]
-            )
-#endif
-            chars.withCString { ptr in
-                var keyEvent = ghostty_input_key_s()
-                keyEvent.action = GHOSTTY_ACTION_PRESS
-                keyEvent.keycode = 0
-                keyEvent.mods = GHOSTTY_MODS_NONE
-                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                keyEvent.text = ptr
-                keyEvent.composing = false
-                _ = ghostty_surface_key(surface, keyEvent)
-            }
-
-        }
+        sendTextToSurface(chars)
     }
 }
 
