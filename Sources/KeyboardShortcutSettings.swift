@@ -82,7 +82,7 @@ enum KeyboardShortcutSettings {
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .showNotifications:
-                return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
             case .triggerFlash:
