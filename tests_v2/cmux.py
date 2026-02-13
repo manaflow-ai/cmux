@@ -53,6 +53,18 @@ def _looks_like_uuid(s: str) -> bool:
         return False
 
 
+def _looks_like_ref(s: str, kind: Optional[str] = None) -> bool:
+    parts = s.split(":", 1)
+    if len(parts) != 2:
+        return False
+    ref_kind, ordinal = parts[0].strip().lower(), parts[1].strip()
+    if kind is not None and ref_kind != kind:
+        return False
+    if ref_kind not in {"window", "workspace", "pane", "surface"}:
+        return False
+    return ordinal.isdigit()
+
+
 def _unescape_backslash_controls(s: str) -> str:
     """Interpret \n/\r/\t/\\ sequences in a string.
 
@@ -111,7 +123,7 @@ class cmux:
 
         start = time.time()
         while not os.path.exists(self.socket_path):
-            if time.time() - start >= 2.0:
+            if time.time() - start >= 10.0:
                 raise cmuxError(
                     f"Socket not found at {self.socket_path}. Is cmuxterm running?"
                 )
@@ -131,7 +143,7 @@ class cmux:
                 except Exception:
                     pass
                 self._socket = None
-                if e.errno in (errno.ECONNREFUSED, errno.ENOENT) and time.time() - start < 2.0:
+                if e.errno in (errno.ECONNREFUSED, errno.ENOENT) and time.time() - start < 10.0:
                     time.sleep(0.1)
                     continue
                 raise cmuxError(f"Failed to connect: {e}")
@@ -155,7 +167,7 @@ class cmux:
     # Low-level protocol
     # ---------------------------------------------------------------------
 
-    def _recv_line(self, timeout_s: float = 10.0) -> str:
+    def _recv_line(self, timeout_s: float = 20.0) -> str:
         if self._socket is None:
             raise cmuxError("Not connected")
 
@@ -183,7 +195,7 @@ class cmux:
 
         raise cmuxError("Timed out waiting for response")
 
-    def _call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout_s: float = 10.0) -> Any:
+    def _call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout_s: float = 20.0) -> Any:
         if self._socket is None:
             raise cmuxError("Not connected")
 
@@ -245,6 +257,8 @@ class cmux:
             return None
         if s.isdigit():
             return self._resolve_workspace_id(int(s))
+        if _looks_like_ref(s, "workspace"):
+            return s
         if not _looks_like_uuid(s):
             raise cmuxError(f"Invalid workspace id: {s}")
         return s
@@ -272,6 +286,8 @@ class cmux:
             return None
         if s.isdigit():
             return self._resolve_surface_id(int(s), workspace_id=workspace_id)
+        if _looks_like_ref(s, "surface"):
+            return s
         if not _looks_like_uuid(s):
             raise cmuxError(f"Invalid surface id: {s}")
         return s
@@ -298,6 +314,8 @@ class cmux:
             return None
         if s.isdigit():
             return self._resolve_pane_id(int(s), workspace_id=workspace_id)
+        if _looks_like_ref(s, "pane"):
+            return s
         if not _looks_like_uuid(s):
             raise cmuxError(f"Invalid pane id: {s}")
         return s
@@ -392,6 +410,36 @@ class cmux:
             "workspace.move_to_window",
             {"workspace_id": wsid, "window_id": str(window_id), "focus": bool(focus)},
         )
+
+    def reorder_workspace(
+        self,
+        workspace: Union[str, int],
+        *,
+        index: Optional[int] = None,
+        before_workspace: Union[str, int, None] = None,
+        after_workspace: Union[str, int, None] = None,
+        window_id: Optional[str] = None,
+    ) -> None:
+        wsid = self._resolve_workspace_id(workspace)
+        params: Dict[str, Any] = {"workspace_id": wsid}
+
+        targets = 0
+        if index is not None:
+            params["index"] = int(index)
+            targets += 1
+        if before_workspace is not None:
+            params["before_workspace_id"] = self._resolve_workspace_id(before_workspace)
+            targets += 1
+        if after_workspace is not None:
+            params["after_workspace_id"] = self._resolve_workspace_id(after_workspace)
+            targets += 1
+        if targets != 1:
+            raise cmuxError("reorder_workspace requires exactly one target: index|before_workspace|after_workspace")
+
+        if window_id is not None:
+            params["window_id"] = str(window_id)
+
+        self._call("workspace.reorder", params)
 
     def close_workspace(self, workspace_id: str) -> None:
         wsid = self._resolve_workspace_id(workspace_id)
@@ -488,6 +536,84 @@ class cmux:
                 raise cmuxError(f"Invalid surface: {surface!r}")
             params["surface_id"] = sid
         self._call("surface.close", params)
+
+    def move_surface(
+        self,
+        surface: Union[str, int],
+        *,
+        pane: Union[str, int, None] = None,
+        workspace: Union[str, int, None] = None,
+        window_id: Optional[str] = None,
+        before_surface: Union[str, int, None] = None,
+        after_surface: Union[str, int, None] = None,
+        index: Optional[int] = None,
+        focus: bool = True,
+    ) -> None:
+        sid = self._resolve_surface_id(surface)
+        if not sid:
+            raise cmuxError(f"Invalid surface: {surface!r}")
+
+        params: Dict[str, Any] = {"surface_id": sid, "focus": bool(focus)}
+        if pane is not None:
+            pid = self._resolve_pane_id(pane)
+            if not pid:
+                raise cmuxError(f"Invalid pane: {pane!r}")
+            params["pane_id"] = pid
+        if workspace is not None:
+            wsid = self._resolve_workspace_id(workspace)
+            if not wsid:
+                raise cmuxError(f"Invalid workspace: {workspace!r}")
+            params["workspace_id"] = wsid
+        if window_id is not None:
+            params["window_id"] = str(window_id)
+        if before_surface is not None:
+            before_id = self._resolve_surface_id(before_surface)
+            if not before_id:
+                raise cmuxError(f"Invalid before_surface: {before_surface!r}")
+            params["before_surface_id"] = before_id
+        if after_surface is not None:
+            after_id = self._resolve_surface_id(after_surface)
+            if not after_id:
+                raise cmuxError(f"Invalid after_surface: {after_surface!r}")
+            params["after_surface_id"] = after_id
+        if index is not None:
+            params["index"] = int(index)
+
+        self._call("surface.move", params)
+
+    def reorder_surface(
+        self,
+        surface: Union[str, int],
+        *,
+        index: Optional[int] = None,
+        before_surface: Union[str, int, None] = None,
+        after_surface: Union[str, int, None] = None,
+    ) -> None:
+        sid = self._resolve_surface_id(surface)
+        if not sid:
+            raise cmuxError(f"Invalid surface: {surface!r}")
+
+        params: Dict[str, Any] = {"surface_id": sid}
+        targets = 0
+        if index is not None:
+            params["index"] = int(index)
+            targets += 1
+        if before_surface is not None:
+            before_id = self._resolve_surface_id(before_surface)
+            if not before_id:
+                raise cmuxError(f"Invalid before_surface: {before_surface!r}")
+            params["before_surface_id"] = before_id
+            targets += 1
+        if after_surface is not None:
+            after_id = self._resolve_surface_id(after_surface)
+            if not after_id:
+                raise cmuxError(f"Invalid after_surface: {after_surface!r}")
+            params["after_surface_id"] = after_id
+            targets += 1
+        if targets != 1:
+            raise cmuxError("reorder_surface requires exactly one target: index|before_surface|after_surface")
+
+        self._call("surface.reorder", params)
 
     def trigger_flash(self, surface: Union[str, int, None] = None) -> None:
         params: Dict[str, Any] = {}

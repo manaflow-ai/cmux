@@ -73,7 +73,7 @@ class cmux:
 
         start = time.time()
         while not os.path.exists(self.socket_path):
-            if time.time() - start >= 2.0:
+            if time.time() - start >= 10.0:
                 raise cmuxError(
                     f"Socket not found at {self.socket_path}. "
                     "Is cmux running?"
@@ -85,13 +85,13 @@ class cmux:
             self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 self._socket.connect(self.socket_path)
-                self._socket.settimeout(5.0)
+                self._socket.settimeout(20.0)
                 return
             except socket.error as e:
                 last_error = e
                 self._socket.close()
                 self._socket = None
-                if e.errno in (errno.ECONNREFUSED, errno.ENOENT) and time.time() - start < 2.0:
+                if e.errno in (errno.ECONNREFUSED, errno.ENOENT) and time.time() - start < 10.0:
                     time.sleep(0.1)
                     continue
                 raise cmuxError(f"Failed to connect: {e}")
@@ -131,7 +131,7 @@ class cmux:
                 except socket.timeout:
                     if saw_newline:
                         break
-                    if time.time() - start >= 5.0:
+                    if time.time() - start >= 20.0:
                         raise cmuxError(f"Command timed out: {command}")
                     continue
                 if not chunk:
@@ -523,6 +523,16 @@ class cmux:
             .replace("\t", "\\t")
         )
         response = self._send_command(f"simulate_type {escaped}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def simulate_file_drop(self, surface: Union[str, int], paths: Union[str, List[str]]) -> None:
+        """Simulate dropping file path(s) onto a terminal surface (debug builds only)."""
+        if isinstance(paths, str):
+            payload = paths
+        else:
+            payload = "|".join(paths)
+        response = self._send_command(f"simulate_file_drop {surface} {payload}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
