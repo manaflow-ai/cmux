@@ -467,7 +467,7 @@ struct CMUXCLI {
             if let url { args.append("--url=\(url)") }
             let cmd = args.isEmpty ? "new_pane" : "new_pane \(args.joined(separator: " "))"
             let response = try client.send(command: cmd)
-            print(response)
+            print(formatLegacySurfaceResponse(response, client: client, idFormat: idFormat))
 
         case "new-surface":
             let type = optionValue(commandArgs, name: "--type")
@@ -479,7 +479,7 @@ struct CMUXCLI {
             if let url { args.append("--url=\(url)") }
             let cmd = args.isEmpty ? "new_surface" : "new_surface \(args.joined(separator: " "))"
             let response = try client.send(command: cmd)
-            print(response)
+            print(formatLegacySurfaceResponse(response, client: client, idFormat: idFormat))
 
         case "close-surface":
             let surface = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
@@ -732,10 +732,11 @@ struct CMUXCLI {
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
+        _ = jsonOutput
         if let parsed = try CLIIDFormat.parse(raw) {
             return parsed
         }
-        return jsonOutput ? .both : .refs
+        return .refs
     }
 
     private func formatIDs(_ object: Any, mode: CLIIDFormat) -> Any {
@@ -957,6 +958,40 @@ struct CMUXCLI {
         }
     }
 
+    private func formatLegacySurfaceResponse(_ response: String, client: SocketClient, idFormat: CLIIDFormat) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("OK ") else { return response }
+
+        let suffix = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isUUID(suffix), idFormat != .uuids else { return response }
+
+        do {
+            let listed = try client.sendV2(method: "surface.list")
+            let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+            guard let row = surfaces.first(where: { ($0["id"] as? String) == suffix }) else {
+                return response
+            }
+
+            let ref = row["ref"] as? String
+            let rendered: String
+            switch idFormat {
+            case .refs:
+                rendered = ref ?? suffix
+            case .uuids:
+                rendered = suffix
+            case .both:
+                if let ref {
+                    rendered = "\(ref) (\(suffix))"
+                } else {
+                    rendered = suffix
+                }
+            }
+            return "OK \(rendered)"
+        } catch {
+            return response
+        }
+    }
+
     private func printV2Payload(
         _ payload: [String: Any],
         jsonOutput: Bool,
@@ -1134,7 +1169,15 @@ struct CMUXCLI {
         }
 
         func output(_ payload: [String: Any], fallback: String) {
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+                return
+            }
+            print(fallback)
+            if let snapshot = payload["post_action_snapshot"] as? String,
+               !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print(snapshot)
+            }
         }
 
         func nonFlagArgs(_ values: [String]) -> [String] {
@@ -1193,7 +1236,9 @@ struct CMUXCLI {
             }
             let payload = try client.sendV2(method: "browser.open_split", params: params)
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
-            output(payload, fallback: "OK surface=\(surfaceText)")
+            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
+            output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
             return
         }
 
@@ -1203,7 +1248,11 @@ struct CMUXCLI {
             guard !url.isEmpty else {
                 throw CLIError(message: "browser \(subcommand) requires a URL")
             }
-            let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
+            var params: [String: Any] = ["surface_id": sid, "url": url]
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
+            }
+            let payload = try client.sendV2(method: "browser.navigate", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -1215,7 +1264,11 @@ struct CMUXCLI {
                 "forward": "browser.forward",
                 "reload": "browser.reload",
             ]
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: ["surface_id": sid])
+            var params: [String: Any] = ["surface_id": sid]
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
+            }
+            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -1251,8 +1304,37 @@ struct CMUXCLI {
 
         if subcommand == "snapshot" {
             let sid = try requireSurface()
-            let payload = try client.sendV2(method: "browser.snapshot", params: ["surface_id": sid])
-            output(payload, fallback: "OK")
+            let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
+            let (depthOpt, _) = parseOption(rem1, name: "--max-depth")
+
+            var params: [String: Any] = ["surface_id": sid]
+            if let selectorOpt {
+                params["selector"] = selectorOpt
+            }
+            if hasFlag(subArgs, name: "--interactive") || hasFlag(subArgs, name: "-i") {
+                params["interactive"] = true
+            }
+            if hasFlag(subArgs, name: "--cursor") {
+                params["cursor"] = true
+            }
+            if hasFlag(subArgs, name: "--compact") {
+                params["compact"] = true
+            }
+            if let depthOpt {
+                guard let depth = Int(depthOpt), depth >= 0 else {
+                    throw CLIError(message: "--max-depth must be a non-negative integer")
+                }
+                params["max_depth"] = depth
+            }
+
+            let payload = try client.sendV2(method: "browser.snapshot", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else if let text = payload["snapshot"] as? String {
+                print(text)
+            } else {
+                print("Empty page")
+            }
             return
         }
 
@@ -1331,7 +1413,11 @@ struct CMUXCLI {
                 "scrollinto": "browser.scroll_into_view",
                 "scroll-into-view": "browser.scroll_into_view",
             ]
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: ["surface_id": sid, "selector": selector])
+            var params: [String: Any] = ["surface_id": sid, "selector": selector]
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
+            }
+            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -1345,19 +1431,26 @@ struct CMUXCLI {
                 throw CLIError(message: "browser \(subcommand) requires a selector")
             }
 
+            let positional = selectorOpt != nil ? rem2 : Array(rem2.dropFirst())
+            let hasExplicitText = textOpt != nil || !positional.isEmpty
             let text: String
             if let textOpt {
                 text = textOpt
             } else {
-                let positional = selectorOpt != nil ? rem2 : Array(rem2.dropFirst())
                 text = positional.joined(separator: " ")
             }
-            guard !text.isEmpty else {
-                throw CLIError(message: "browser \(subcommand) requires text")
+            if subcommand == "type" {
+                guard hasExplicitText, !text.isEmpty else {
+                    throw CLIError(message: "browser type requires text")
+                }
             }
 
             let method = (subcommand == "type") ? "browser.type" : "browser.fill"
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid, "selector": selector, "text": text])
+            var params: [String: Any] = ["surface_id": sid, "selector": selector, "text": text]
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
+            }
+            let payload = try client.sendV2(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -1375,7 +1468,11 @@ struct CMUXCLI {
                 "keydown": "browser.keydown",
                 "keyup": "browser.keyup",
             ]
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: ["surface_id": sid, "key": key])
+            var params: [String: Any] = ["surface_id": sid, "key": key]
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
+            }
+            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -1392,7 +1489,11 @@ struct CMUXCLI {
             guard let value else {
                 throw CLIError(message: "browser select requires a value")
             }
-            let payload = try client.sendV2(method: "browser.select", params: ["surface_id": sid, "selector": selector, "value": value])
+            var params: [String: Any] = ["surface_id": sid, "selector": selector, "value": value]
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
+            }
+            let payload = try client.sendV2(method: "browser.select", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -1421,6 +1522,9 @@ struct CMUXCLI {
                 params["dy"] = dy
             } else if let first = rem3.first, let dy = Int(first) {
                 params["dy"] = dy
+            }
+            if hasFlag(subArgs, name: "--snapshot-after") {
+                params["snapshot_after"] = true
             }
 
             let payload = try client.sendV2(method: "browser.scroll", params: params)
@@ -2385,6 +2489,7 @@ struct CMUXCLI {
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
+          Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Commands:
           ping
@@ -2430,17 +2535,18 @@ struct CMUXCLI {
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split; if surface supplied, behaves like navigate)
           browser open-split [url]
-          browser goto|navigate <url>
-          browser back|forward|reload
+          browser goto|navigate <url> [--snapshot-after]
+          browser back|forward|reload [--snapshot-after]
           browser url|get-url
-          browser snapshot
+          browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
           browser eval <script>
           browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
-          browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector>
-          browser type|fill <selector> <text>
-          browser press|keydown|keyup <key>
-          browser select <selector> <value>
-          browser scroll [--selector <css>] [--dx <n>] [--dy <n>]
+          browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector> [--snapshot-after]
+          browser type <selector> <text> [--snapshot-after]
+          browser fill <selector> [text] [--snapshot-after]   (empty text clears input)
+          browser press|keydown|keyup <key> [--snapshot-after]
+          browser select <selector> <value> [--snapshot-after]
+          browser scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
           browser get <url|title|text|html|value|attr|count|box|styles> [...]
           browser is <visible|enabled|checked> <selector>
           browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...

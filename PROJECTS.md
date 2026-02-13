@@ -3,6 +3,11 @@
 Cross-project tracking (features, bugs, backlog) for cmuxterm.
 
 ## Done
+- 2026-02-13: Expanded skill docs for end users: added deep-linkable `cmuxterm-browser` references (`authentication.md`, `session-management.md`, `snapshot-refs.md`, `video-recording.md`, `proxy-support.md`) + templates, and added a new `skills/cmuxterm/` core skill for windows/workspaces/panes/surfaces workflows.
+- 2026-02-13: Changed CLI ID formatting defaults to refs-first for `--json` output (UUID output now opt-in via `--id-format uuids|both`) and added regression test `tests_v2/test_cli_id_format_defaults.py`.
+- 2026-02-13: Added new repo skill `skills/cmuxterm-browser/` adapted from `vercel-labs/agent-browser` with cmuxterm CLI syntax, wait/snapshot/ref workflow guidance, common automation flows, and command mapping references.
+- 2026-02-13: Kept browser favicons in color when a pane/tab bar is unfocused by excluding raster tab icons from inactive saturation in Bonsplit tab rendering. Added regression coverage in `vendor/bonsplit/Tests/BonsplitTests/BonsplitTests.swift`.
+- 2026-02-13: Browser agent-UX follow-up: `browser fill` now accepts empty text for clear operations, legacy `new-pane`/`new-surface` output now prefers short `surface:N` refs, and mutating browser actions gained optional post-action verification snapshots via `snapshot_after` (`--snapshot-after` in CLI). Added regression coverage in `tests_v2/test_browser_api_comprehensive.py` and `tests_v2/test_browser_cli_agent_port.py`.
 - 2026-02-13: Final titlebar hint vertical micro-adjustment: moved `Cmd+B`/`Cmd+I`/`Cmd+N` pills up by 1px for pixel-level alignment.
 - 2026-02-13: Nudged titlebar shortcut hint pills an additional 4px left and 4px down (`Cmd+B`, `Cmd+I`, `Cmd+N`) for tighter visual alignment.
 - 2026-02-13: Adjusted titlebar command hint pills (`Cmd+B`, `Cmd+I`, `Cmd+N`) to render 4px further left and slightly smaller text for better alignment with controls.
@@ -93,4 +98,4 @@ Cross-project tracking (features, bugs, backlog) for cmuxterm.
 - CLI: add an `it2`-compatible CLI shim (same subcommands/flags where feasible) that maps to cmuxterm's socket API and ships in `Contents/Resources/bin`.
 - Browser automation parity: implement `docs/agent-browser-port-spec.md` (agent-browser command mapping, `cmuxterm browser` surface targeting, move/reorder invariants, and v1 shim strategy).
 - Tests: port the agent-browser coverage matrix into `tests_v2/` while keeping both v1 and v2 suites passing.
-- Planning: agent-browser port spec decisions locked (ID refs, caller-relative placement, cmux-native output, JSON default=both).
+- Planning: agent-browser port spec decisions locked (ID refs, caller-relative placement, cmux-native output, refs-first output defaults).

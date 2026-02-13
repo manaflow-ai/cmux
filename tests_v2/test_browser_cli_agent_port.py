@@ -70,6 +70,27 @@ def _run_cli_json(cli: str, args: list[str], retries: int = 4) -> dict:
     raise cmuxError(f"CLI failed ({' '.join(args)}): {last_merged}")
 
 
+def _run_cli_text(cli: str, args: list[str], retries: int = 3) -> str:
+    last_merged = ""
+    for attempt in range(1, retries + 1):
+        proc = subprocess.run(
+            [cli, "--socket", SOCKET_PATH] + args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return (proc.stdout or "").strip()
+
+        merged = f"{proc.stdout}\n{proc.stderr}".strip()
+        last_merged = merged
+        if "Command timed out" in merged and attempt < retries:
+            time.sleep(0.2)
+            continue
+        raise cmuxError(f"CLI failed ({' '.join(args)}): {merged}")
+
+    raise cmuxError(f"CLI failed ({' '.join(args)}): {last_merged}")
+
 def _run_cli_expect_failure(cli: str, args: list[str], needles: list[str]) -> None:
     proc = subprocess.run(
         [cli, "--socket", SOCKET_PATH, "--json"] + args,
@@ -126,8 +147,11 @@ def main() -> int:
         opened = _run_cli_json(cli, ["browser", "open", page_url])
         surface = str(opened.get("surface_ref") or opened.get("surface_id") or "")
         _must(bool(surface), f"browser open returned no surface handle: {opened}")
+        _must(surface.startswith("surface:"), f"Expected short surface ref from browser open, got: {opened}")
 
         _run_cli_json(cli, ["browser", surface, "wait", "--load-state", "complete", "--timeout-ms", "15000"])
+        snapshot_text = _run_cli_text(cli, ["browser", surface, "snapshot", "--interactive"])
+        _must("ref=e" in snapshot_text, f"Expected snapshot text with refs from CLI: {snapshot_text!r}")
 
         identify = _run_cli_json(cli, ["identify"])
         focused = identify.get("focused") or {}
@@ -164,6 +188,14 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "storage", "local", "set", "alpha", "one"])
         storage_get = _run_cli_json(cli, ["browser", surface, "storage", "local", "get", "alpha"])
         _must(str(storage_get.get("value") or "") == "one", f"Expected storage value via CLI: {storage_get}")
+
+        _run_cli_json(cli, ["browser", surface, "fill", "#name", "--text", "weather"])
+        cleared = _run_cli_json(cli, ["browser", surface, "fill", "#name", "--text", "", "--snapshot-after"])
+        _must(bool(cleared.get("post_action_snapshot")), f"Expected post_action_snapshot from fill --snapshot-after: {cleared}")
+        cleared_val = _run_cli_json(cli, ["browser", surface, "get", "value", "#name"])
+        _must(str(cleared_val.get("value") or "") == "", f"Expected fill with empty text to clear input: {cleared_val}")
+
+        _run_cli_expect_failure(cli, ["browser", surface, "click", "#does-not-exist"], ["not_found", "snapshot"])
         _run_cli_json(cli, ["browser", surface, "storage", "local", "clear", "--key", "alpha"])
 
         tabs_before = _run_cli_json(cli, ["browser", surface, "tab", "list"])
@@ -194,6 +226,9 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "state", "load", state_file])
 
         _run_cli_expect_failure(cli, ["browser", surface, "viewport", "800", "600"], ["not_supported"])
+
+        legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])
+        _must("surface:" in legacy_new, f"Expected new-pane output to prefer short surface refs, got: {legacy_new!r}")
 
     print("PASS: browser CLI parity commands are wired for extended families")
     return 0

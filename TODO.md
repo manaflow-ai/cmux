@@ -13,6 +13,15 @@
   - Full VM runs: `./scripts/run-tests-v1.sh` and `./scripts/run-tests-v2.sh` passing (v2 visual D12 remains reported as a known non-blocking VM failure, matching v1 policy).
 - [x] Fix `cmuxterm browser open|open-split|new` URL parsing so routing flags (`--workspace`, `--window`) are removed before URL construction.
 - [x] Fix `identify --workspace/--surface` caller parsing to honor ref handles (`workspace:N`, `surface:N`) instead of falling back to current/focused IDs.
+- [x] Update `browser.open_split` placement policy: reuse nearest right sibling pane first (nested-aware), only create a new split when caller has no right sibling.
+- [x] Upgrade `browser.snapshot` to agent-browser-style output (`snapshot` tree text + `refs`) and make non-JSON CLI output print snapshot content instead of `OK`.
+- [x] Add richer selector failure diagnostics (`hint`, counts, sample, snapshot excerpt) with bounded retries for transient `not_found` races.
+- [x] Add regression coverage for browser placement policy + snapshot/ref output + diagnostics in v2 tests.
+- [x] Allow `browser fill` with empty text (clear input) in CLI + v2 API flows.
+- [x] Make legacy `new-pane`/`new-surface` CLI output prefer short `surface:N` refs by default.
+- [x] Add optional `--snapshot-after` / `snapshot_after` action feedback to include a fresh post-action browser snapshot.
+- [x] Switch CLI `--json` default ID output to refs-first (UUIDs only via `--id-format uuids|both`) and add regression coverage.
+- [x] Expand end-user skill docs with deep-linkable cmuxterm-browser references/templates plus a new core `skills/cmuxterm/` topology skill.
 
 ## Command Palette
 - [ ] Add cmd+shift+p palette with all commands

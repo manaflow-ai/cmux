@@ -48,6 +48,17 @@ def _expect_error(label: str, fn, code_substr: str) -> None:
         raise cmuxError(f"{label}: expected error containing {code_substr!r}, got: {text}")
     raise cmuxError(f"{label}: expected error containing {code_substr!r}, but call succeeded")
 
+def _expect_error_contains(label: str, fn, *needles: str) -> None:
+    try:
+        fn()
+    except cmuxError as exc:
+        text = str(exc)
+        missing = [needle for needle in needles if needle not in text]
+        if missing:
+            raise cmuxError(f"{label}: missing expected substrings {missing!r} in error: {text}")
+        return
+    raise cmuxError(f"{label}: expected failure, but call succeeded")
+
 
 def _value(res: dict, key: str = "value"):
     return (res or {}).get(key)
@@ -202,6 +213,12 @@ def main() -> int:
         out_text = c._call("browser.get.text", {"surface_id": target, "selector": "#status"}) or {}
         _must(str(_value(out_text)) == "cmux", f"Expected status text to be cmux: {out_text}")
 
+        cleared = c._call("browser.fill", {"surface_id": target, "selector": "#name", "text": "", "snapshot_after": True}) or {}
+        _must(bool(cleared.get("post_action_snapshot")), f"Expected post_action_snapshot from fill(snapshot_after): {cleared}")
+        cleared_value = c._call("browser.get.value", {"surface_id": target, "selector": "#name"}) or {}
+        _must(str(_value(cleared_value)) == "", f"Expected fill with empty text to clear input: {cleared_value}")
+
+        c._call("browser.fill", {"surface_id": target, "selector": "#name", "text": "cmux"})
         c._call("browser.type", {"surface_id": target, "selector": "#name", "text": "-v2"})
         name_val = c._call("browser.get.value", {"surface_id": target, "selector": "#name"}) or {}
         _must(str(_value(name_val)) == "cmux-v2", f"Expected typed suffix in input value: {name_val}")
@@ -302,9 +319,11 @@ def main() -> int:
         _must(len(str((shot or {}).get("png_base64") or "")) > 100, f"Expected screenshot payload: {shot}")
 
         snap = c._call("browser.snapshot", {"surface_id": target}) or {}
-        snapshot = (snap or {}).get("snapshot") or {}
-        _must(isinstance(snapshot, dict), f"Expected snapshot dict: {snap}")
-        _must("cmux-browser-comprehensive-1" in str(snapshot.get("title") or ""), f"Expected snapshot title page1: {snap}")
+        snapshot_text = str((snap or {}).get("snapshot") or "")
+        _must("cmux-browser-comprehensive-1" in snapshot_text, f"Expected snapshot text for page1: {snap}")
+        refs = (snap or {}).get("refs") or {}
+        _must(isinstance(refs, dict), f"Expected snapshot refs dict: {snap}")
+        _must(any(str(key).startswith("e") for key in refs.keys()), f"Expected eN refs from snapshot: {snap}")
 
         c._call("browser.navigate", {"surface_id": target, "url": page2_url})
         _wait_with_fallback(
@@ -363,10 +382,12 @@ def main() -> int:
             lambda: c._call("browser.click", {"surface_id": target}),
             "invalid_params",
         )
-        _expect_error(
+        _expect_error_contains(
             "click missing element",
             lambda: c._call("browser.click", {"surface_id": target, "selector": "#does-not-exist"}),
             "not_found",
+            "snapshot",
+            "hint",
         )
         _expect_error(
             "get.attr missing attr",

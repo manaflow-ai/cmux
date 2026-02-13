@@ -2697,8 +2697,15 @@ class TerminalController {
     private func v2BrowserResolveSelector(_ rawSelector: String, surfaceId: UUID) -> String? {
         let trimmed = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("@e") {
-            guard let entry = v2BrowserElementRefs[trimmed], entry.surfaceId == surfaceId else { return nil }
+
+        let refKey: String? = {
+            if trimmed.hasPrefix("@e") { return trimmed }
+            if trimmed.hasPrefix("e"), Int(trimmed.dropFirst()) != nil { return "@\(trimmed)" }
+            return nil
+        }()
+
+        if let refKey {
+            guard let entry = v2BrowserElementRefs[refKey], entry.surfaceId == surfaceId else { return nil }
             return entry.selector
         }
         return trimmed
@@ -2867,20 +2874,58 @@ class TerminalController {
                 _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(tabManager)
             }
-            guard let focusedPanelId = ws.focusedPanelId else {
-                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
-                return
-            }
             if tabManager.selectedTabId != ws.id {
                 tabManager.selectWorkspace(ws)
             }
-            if let browserPanelId = ws.newBrowserSplit(from: focusedPanelId, orientation: .horizontal, url: url)?.id {
-                let paneUUID = ws.paneId(forPanelId: browserPanelId)?.id
-                let windowId = v2ResolveWindowId(tabManager: tabManager)
-                result = .ok(["window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId), "workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "pane_id": v2OrNull(paneUUID?.uuidString), "pane_ref": v2Ref(kind: .pane, uuid: paneUUID), "surface_id": browserPanelId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: browserPanelId)])
-            } else {
-                result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
+
+            let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let sourceSurfaceId else {
+                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
             }
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(code: "not_found", message: "Source surface not found", data: ["surface_id": sourceSurfaceId.uuidString])
+                return
+            }
+
+            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
+
+            var createdSplit = true
+            var placementStrategy = "split_right"
+            let createdPanel: BrowserPanel?
+            if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
+                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: true)
+                createdSplit = false
+                placementStrategy = "reuse_right_sibling"
+            } else {
+                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url)
+            }
+
+            guard let browserPanelId = createdPanel?.id else {
+                result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
+                return
+            }
+
+            let targetPaneUUID = ws.paneId(forPanelId: browserPanelId)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "surface_id": browserPanelId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: browserPanelId),
+                "source_surface_id": sourceSurfaceId.uuidString,
+                "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+                "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+                "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "created_split": createdSplit,
+                "placement_strategy": placementStrategy
+            ])
         }
         return result
     }
@@ -2901,7 +2946,16 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
             browserPanel.navigateSmart(url)
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            var payload: [String: Any] = [
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ]
+            v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+            result = .ok(payload)
         }
         return result
     }
@@ -2918,6 +2972,176 @@ class TerminalController {
         return v2BrowserNavSimple(params: params, action: "reload")
     }
 
+    private func v2BrowserNotFoundDiagnostics(
+        surfaceId: UUID,
+        browserPanel: BrowserPanel,
+        selector: String
+    ) -> [String: Any] {
+        let selectorLiteral = v2JSONLiteral(selector)
+        let script = """
+        (() => {
+          const __selector = \(selectorLiteral);
+          const __normalize = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
+          const __isVisible = (el) => {
+            try {
+              if (!el) return false;
+              const style = getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              if (!style || !rect) return false;
+              if (rect.width <= 0 || rect.height <= 0) return false;
+              if (style.display === 'none' || style.visibility === 'hidden') return false;
+              if (parseFloat(style.opacity || '1') <= 0.01) return false;
+              return true;
+            } catch (_) {
+              return false;
+            }
+          };
+          const __describe = (el) => {
+            const tag = String(el.tagName || '').toLowerCase();
+            const id = __normalize(el.id || '');
+            const klass = __normalize(el.className || '').split(/\\s+/).filter(Boolean).slice(0, 2).join('.');
+            let out = tag || 'element';
+            if (id) out += '#' + id;
+            if (klass) out += '.' + klass;
+            return out;
+          };
+          try {
+            const __nodes = Array.from(document.querySelectorAll(__selector));
+            const __visible = __nodes.filter(__isVisible);
+            const __sample = __nodes.slice(0, 6).map((el, idx) => ({
+              index: idx,
+              descriptor: __describe(el),
+              role: __normalize(el.getAttribute('role') || ''),
+              visible: __isVisible(el),
+              text: __normalize(el.innerText || el.textContent || '').slice(0, 120)
+            }));
+            const __snapshotExcerpt = __sample.map((row) => {
+              const suffix = row.text ? ` \"${row.text}\"` : '';
+              return `- ${row.descriptor}${suffix}`;
+            }).join('\\n');
+            return {
+              ok: true,
+              selector: __selector,
+              count: __nodes.length,
+              visible_count: __visible.length,
+              sample: __sample,
+              snapshot_excerpt: __snapshotExcerpt,
+              title: __normalize(document.title || ''),
+              url: String(location.href || ''),
+              body_excerpt: document.body ? __normalize(document.body.innerText || '').slice(0, 400) : ''
+            };
+          } catch (err) {
+            return {
+              ok: false,
+              selector: __selector,
+              error: 'invalid_selector',
+              details: String((err && err.message) || err || '')
+            };
+          }
+        })()
+        """
+
+        switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 4.0) {
+        case .failure(let message):
+            return [
+                "selector": selector,
+                "diagnostics_error": message
+            ]
+        case .success(let value):
+            guard let dict = value as? [String: Any] else {
+                return ["selector": selector]
+            }
+            var out: [String: Any] = ["selector": selector]
+            if let count = dict["count"] { out["match_count"] = count }
+            if let visibleCount = dict["visible_count"] { out["visible_match_count"] = visibleCount }
+            if let sample = dict["sample"] { out["sample"] = v2NormalizeJSValue(sample) }
+            if let excerpt = dict["snapshot_excerpt"] { out["snapshot_excerpt"] = excerpt }
+            if let body = dict["body_excerpt"] { out["body_excerpt"] = body }
+            if let title = dict["title"] { out["title"] = title }
+            if let url = dict["url"] { out["url"] = url }
+            if let err = dict["error"] { out["diagnostics_code"] = err }
+            if let details = dict["details"] { out["diagnostics_details"] = details }
+            return out
+        }
+    }
+
+    private func v2BrowserElementNotFoundResult(
+        actionName: String,
+        selector: String,
+        attempts: Int,
+        surfaceId: UUID,
+        browserPanel: BrowserPanel
+    ) -> V2CallResult {
+        var data = v2BrowserNotFoundDiagnostics(surfaceId: surfaceId, browserPanel: browserPanel, selector: selector)
+        data["action"] = actionName
+        data["retry_attempts"] = attempts
+        data["hint"] = "Run 'browser snapshot' to refresh refs, then retry with a more specific selector."
+
+        let count = (data["match_count"] as? Int) ?? (data["match_count"] as? NSNumber)?.intValue ?? 0
+        let visibleCount = (data["visible_match_count"] as? Int) ?? (data["visible_match_count"] as? NSNumber)?.intValue ?? 0
+
+        let message: String
+        if count > 0 && visibleCount == 0 {
+            message = "Element \"\(selector)\" is present but not visible."
+        } else if count > 1 {
+            message = "Selector \"\(selector)\" matched multiple elements."
+        } else {
+            message = "Element \"\(selector)\" not found or not visible. Run 'browser snapshot' to see current page elements."
+        }
+
+        return .err(code: "not_found", message: message, data: data)
+    }
+
+    private func v2BrowserAppendPostSnapshot(
+        params: [String: Any],
+        surfaceId: UUID,
+        payload: inout [String: Any]
+    ) {
+        guard v2Bool(params, "snapshot_after") ?? false else { return }
+
+        var snapshotParams: [String: Any] = [
+            "surface_id": surfaceId.uuidString,
+            "interactive": v2Bool(params, "snapshot_interactive") ?? true,
+            "cursor": v2Bool(params, "snapshot_cursor") ?? false,
+            "compact": v2Bool(params, "snapshot_compact") ?? true,
+            "max_depth": max(0, v2Int(params, "snapshot_max_depth") ?? 10)
+        ]
+        if let selector = v2String(params, "snapshot_selector"),
+           !selector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            snapshotParams["selector"] = selector
+        }
+
+        switch v2BrowserSnapshot(params: snapshotParams) {
+        case .ok(let snapshotAny):
+            guard let snapshot = snapshotAny as? [String: Any] else {
+                payload["post_action_snapshot_error"] = [
+                    "code": "internal_error",
+                    "message": "Invalid snapshot payload"
+                ]
+                return
+            }
+            if let value = snapshot["snapshot"] {
+                payload["post_action_snapshot"] = value
+            }
+            if let value = snapshot["refs"] {
+                payload["post_action_refs"] = value
+            }
+            if let value = snapshot["title"] {
+                payload["post_action_title"] = value
+            }
+            if let value = snapshot["url"] {
+                payload["post_action_url"] = value
+            }
+        case .err(code: let code, message: let message, data: let data):
+            var err: [String: Any] = [
+                "code": code,
+                "message": message,
+            ]
+            err["data"] = v2OrNull(data)
+            payload["post_action_snapshot_error"] = err
+        }
+    }
+
     private func v2BrowserSelectorAction(
         params: [String: Any],
         actionName: String,
@@ -2932,34 +3156,57 @@ class TerminalController {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let script = scriptBuilder(v2JSONLiteral(selector))
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: ["action": actionName])
-            case .success(let value):
-                if let dict = value as? [String: Any],
-                   let ok = dict["ok"] as? Bool,
-                   ok {
-                    var payload: [String: Any] = [
-                        "workspace_id": ws.id.uuidString,
-                        "surface_id": surfaceId.uuidString,
-                        "action": actionName
-                    ]
-                    payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: ws.id)
-                    payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
-                    if let resultValue = dict["value"] {
-                        payload["value"] = v2NormalizeJSValue(resultValue)
+            let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
+
+            for attempt in 1...retryAttempts {
+                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+                case .failure(let message):
+                    return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
+                case .success(let value):
+                    if let dict = value as? [String: Any],
+                       let ok = dict["ok"] as? Bool,
+                       ok {
+                        var payload: [String: Any] = [
+                            "workspace_id": ws.id.uuidString,
+                            "surface_id": surfaceId.uuidString,
+                            "action": actionName,
+                            "attempts": attempt
+                        ]
+                        payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: ws.id)
+                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+                        if let resultValue = dict["value"] {
+                            payload["value"] = v2NormalizeJSValue(resultValue)
+                        }
+                        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                        return .ok(payload)
                     }
-                    return .ok(payload)
-                }
 
-                if let dict = value as? [String: Any],
-                   let errorText = dict["error"] as? String,
-                   errorText == "not_found" {
-                    return .err(code: "not_found", message: "Element not found", data: ["selector": selector])
-                }
+                    let errorText = (value as? [String: Any])?["error"] as? String
+                    if errorText == "not_found", attempt < retryAttempts {
+                        _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.08))
+                        continue
+                    }
+                    if errorText == "not_found" {
+                        return v2BrowserElementNotFoundResult(
+                            actionName: actionName,
+                            selector: selector,
+                            attempts: retryAttempts,
+                            surfaceId: surfaceId,
+                            browserPanel: browserPanel
+                        )
+                    }
 
-                return .err(code: "js_error", message: "Browser action failed", data: ["action": actionName])
+                    return .err(code: "js_error", message: "Browser action failed", data: ["action": actionName, "selector": selector])
+                }
             }
+
+            return v2BrowserElementNotFoundResult(
+                actionName: actionName,
+                selector: selector,
+                attempts: retryAttempts,
+                surfaceId: surfaceId,
+                browserPanel: browserPanel
+            )
         }
     }
 
@@ -2984,31 +3231,282 @@ class TerminalController {
     }
 
     private func v2BrowserSnapshot(params: [String: Any]) -> V2CallResult {
+        let interactiveOnly = v2Bool(params, "interactive") ?? false
+        let includeCursor = v2Bool(params, "cursor") ?? false
+        let compact = v2Bool(params, "compact") ?? false
+        let maxDepth = max(0, v2Int(params, "max_depth") ?? v2Int(params, "maxDepth") ?? 12)
+        let scopeSelector = v2String(params, "selector")
+
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            let interactiveLiteral = interactiveOnly ? "true" : "false"
+            let cursorLiteral = includeCursor ? "true" : "false"
+            let compactLiteral = compact ? "true" : "false"
+            let scopeLiteral = scopeSelector.map(v2JSONLiteral) ?? "null"
+
             let script = """
             (() => {
+              const __interactiveOnly = \(interactiveLiteral);
+              const __includeCursor = \(cursorLiteral);
+              const __compact = \(compactLiteral);
+              const __maxDepth = \(maxDepth);
+              const __scopeSelector = \(scopeLiteral);
+
+              const __normalize = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
+              const __interactiveRoles = new Set(['button','link','textbox','checkbox','radio','combobox','listbox','menuitem','menuitemcheckbox','menuitemradio','option','searchbox','slider','spinbutton','switch','tab','treeitem']);
+              const __contentRoles = new Set(['heading','cell','gridcell','columnheader','rowheader','listitem','article','region','main','navigation']);
+              const __structuralRoles = new Set(['generic','group','list','table','row','rowgroup','grid','treegrid','menu','menubar','toolbar','tablist','tree','directory','document','application','presentation','none']);
+
+              const __isVisible = (el) => {
+                try {
+                  if (!el) return false;
+                  const style = getComputedStyle(el);
+                  const rect = el.getBoundingClientRect();
+                  if (!style || !rect) return false;
+                  if (rect.width <= 0 || rect.height <= 0) return false;
+                  if (style.display === 'none' || style.visibility === 'hidden') return false;
+                  if (parseFloat(style.opacity || '1') <= 0.01) return false;
+                  return true;
+                } catch (_) {
+                  return false;
+                }
+              };
+
+              const __implicitRole = (el) => {
+                const tag = String(el.tagName || '').toLowerCase();
+                if (tag === 'button') return 'button';
+                if (tag === 'a' && el.hasAttribute('href')) return 'link';
+                if (tag === 'input') {
+                  const type = String(el.getAttribute('type') || 'text').toLowerCase();
+                  if (type === 'checkbox') return 'checkbox';
+                  if (type === 'radio') return 'radio';
+                  if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
+                  return 'textbox';
+                }
+                if (tag === 'textarea') return 'textbox';
+                if (tag === 'select') return 'combobox';
+                if (tag === 'summary') return 'button';
+                if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') return 'heading';
+                if (tag === 'li') return 'listitem';
+                return null;
+              };
+
+              const __nameFor = (el) => {
+                const aria = __normalize(el.getAttribute('aria-label') || '');
+                if (aria) return aria;
+                const labelledBy = __normalize(el.getAttribute('aria-labelledby') || '');
+                if (labelledBy) {
+                  const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  if (text) return text;
+                }
+                if (el.tagName && String(el.tagName).toLowerCase() === 'input') {
+                  const placeholder = __normalize(el.getAttribute('placeholder') || '');
+                  if (placeholder) return placeholder;
+                  const value = __normalize(el.value || '');
+                  if (value) return value;
+                }
+                const title = __normalize(el.getAttribute('title') || '');
+                if (title) return title;
+                const text = __normalize(el.innerText || el.textContent || '');
+                if (text) return text.slice(0, 120);
+                return '';
+              };
+
+              const __cssPath = (el) => {
+                if (!el || el.nodeType !== 1) return null;
+                if (el.id) return '#' + CSS.escape(el.id);
+                const parts = [];
+                let cur = el;
+                while (cur && cur.nodeType === 1) {
+                  let part = String(cur.tagName || '').toLowerCase();
+                  if (!part) break;
+                  if (cur.id) {
+                    part += '#' + CSS.escape(cur.id);
+                    parts.unshift(part);
+                    break;
+                  }
+                  const tag = part;
+                  const parent = cur.parentElement;
+                  if (parent) {
+                    const siblings = Array.from(parent.children).filter((n) => String(n.tagName || '').toLowerCase() === tag);
+                    if (siblings.length > 1) {
+                      const index = siblings.indexOf(cur) + 1;
+                      part += `:nth-of-type(${index})`;
+                    }
+                  }
+                  parts.unshift(part);
+                  cur = cur.parentElement;
+                  if (parts.length >= 6) break;
+                }
+                return parts.join(' > ');
+              };
+
+              const __root = (() => {
+                if (__scopeSelector) {
+                  return document.querySelector(__scopeSelector) || document.body || document.documentElement;
+                }
+                return document.body || document.documentElement;
+              })();
+
+              const __entries = [];
+              const __seen = new Set();
+              const __appendEntry = (el, depth, forcedRole) => {
+                if (!__isVisible(el)) return;
+                const explicitRole = __normalize(el.getAttribute('role') || '').toLowerCase();
+                const role = forcedRole || explicitRole || __implicitRole(el) || '';
+                if (!role) return;
+
+                if (__interactiveOnly && !__interactiveRoles.has(role)) return;
+                if (!__interactiveOnly) {
+                  const includeRole = __interactiveRoles.has(role) || __contentRoles.has(role);
+                  if (!includeRole) return;
+                  if (__compact && __structuralRoles.has(role)) {
+                    const name = __nameFor(el);
+                    if (!name) return;
+                  }
+                }
+
+                const selector = __cssPath(el);
+                if (!selector || __seen.has(selector)) return;
+                __seen.add(selector);
+                __entries.push({
+                  selector,
+                  role,
+                  name: __nameFor(el),
+                  depth
+                });
+              };
+
+              const __walk = (node, depth) => {
+                if (!node || depth > __maxDepth || node.nodeType !== 1) return;
+                const el = node;
+                __appendEntry(el, depth, null);
+                for (const child of Array.from(el.children || [])) {
+                  __walk(child, depth + 1);
+                }
+              };
+
+              if (__root) {
+                __walk(__root, 0);
+              }
+
+              if (__includeCursor && __root) {
+                const all = Array.from(__root.querySelectorAll('*'));
+                for (const el of all) {
+                  if (!__isVisible(el)) continue;
+                  const style = getComputedStyle(el);
+                  const hasOnClick = typeof el.onclick === 'function' || el.hasAttribute('onclick');
+                  const hasCursorPointer = style.cursor === 'pointer';
+                  const tabIndex = el.getAttribute('tabindex');
+                  const hasTabIndex = tabIndex != null && String(tabIndex) !== '-1';
+                  if (!hasOnClick && !hasCursorPointer && !hasTabIndex) continue;
+                  __appendEntry(el, 0, 'generic');
+                  if (__entries.length >= 256) break;
+                }
+              }
+
               const body = document.body;
               const root = document.documentElement;
               return {
-                title: document.title || '',
+                title: __normalize(document.title || ''),
                 url: String(location.href || ''),
-                ready_state: document.readyState || '',
-                text: body ? (body.innerText || '') : '',
-                html: root ? (root.outerHTML || '') : ''
+                ready_state: String(document.readyState || ''),
+                text: body ? String(body.innerText || '') : '',
+                html: root ? String(root.outerHTML || '') : '',
+                entries: __entries
               };
             })()
             """
+
             switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
-                return .ok([
+                guard let dict = value as? [String: Any] else {
+                    return .err(code: "js_error", message: "Invalid snapshot payload", data: nil)
+                }
+
+                let title = (dict["title"] as? String) ?? ""
+                let url = (dict["url"] as? String) ?? ""
+                let readyState = (dict["ready_state"] as? String) ?? ""
+                let text = (dict["text"] as? String) ?? ""
+                let html = (dict["html"] as? String) ?? ""
+                let entries = (dict["entries"] as? [[String: Any]]) ?? []
+
+                var refs: [String: [String: Any]] = [:]
+                var treeLines: [String] = []
+                var seenSelectors: Set<String> = []
+
+                for entry in entries {
+                    guard let selector = entry["selector"] as? String,
+                          !selector.isEmpty,
+                          !seenSelectors.contains(selector) else {
+                        continue
+                    }
+                    seenSelectors.insert(selector)
+
+                    let roleRaw = (entry["role"] as? String) ?? "generic"
+                    let role = roleRaw.isEmpty ? "generic" : roleRaw
+                    let name = ((entry["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let depth = max(0, (entry["depth"] as? Int) ?? ((entry["depth"] as? NSNumber)?.intValue ?? 0))
+
+                    let refToken = v2BrowserAllocateElementRef(surfaceId: surfaceId, selector: selector)
+                    let shortRef = refToken.hasPrefix("@") ? String(refToken.dropFirst()) : refToken
+
+                    var refInfo: [String: Any] = ["role": role]
+                    if !name.isEmpty {
+                        refInfo["name"] = name
+                    }
+                    refs[shortRef] = refInfo
+
+                    let indent = String(repeating: "  ", count: depth)
+                    var line = "\(indent)- \(role)"
+                    if !name.isEmpty {
+                        let cleanName = name.replacingOccurrences(of: "\"", with: "'")
+                        line += " \"\(cleanName)\""
+                    }
+                    line += " [ref=\(shortRef)]"
+                    treeLines.append(line)
+                }
+
+                let titleForTree = title.isEmpty ? "page" : title.replacingOccurrences(of: "\"", with: "'")
+                var snapshotLines = ["- document \"\(titleForTree)\""]
+                if !treeLines.isEmpty {
+                    snapshotLines.append(contentsOf: treeLines)
+                } else {
+                    let excerpt = text
+                        .replacingOccurrences(of: "\n", with: " ")
+                        .replacingOccurrences(of: "\t", with: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !excerpt.isEmpty {
+                        let clipped = String(excerpt.prefix(240)).replacingOccurrences(of: "\"", with: "'")
+                        snapshotLines.append("- text \"\(clipped)\"")
+                    } else {
+                        snapshotLines.append("- (empty)")
+                    }
+                }
+                let snapshotText = snapshotLines.joined(separator: "\n")
+
+                var payload: [String: Any] = [
                     "workspace_id": ws.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "surface_id": surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "snapshot": v2NormalizeJSValue(value)
-                ])
+                    "snapshot": snapshotText,
+                    "title": title,
+                    "url": url,
+                    "ready_state": readyState,
+                    "page": [
+                        "title": title,
+                        "url": url,
+                        "ready_state": readyState,
+                        "text": text,
+                        "html": html
+                    ]
+                ]
+                if !refs.isEmpty {
+                    payload["refs"] = refs
+                }
+                return .ok(payload)
             }
         }
     }
@@ -3187,12 +3685,14 @@ class TerminalController {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
-                return .ok([
+                var payload: [String: Any] = [
                     "workspace_id": ws.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "surface_id": surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ])
+                ]
+                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                return .ok(payload)
             }
         }
     }
@@ -3216,12 +3716,14 @@ class TerminalController {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
-                return .ok([
+                var payload: [String: Any] = [
                     "workspace_id": ws.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "surface_id": surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ])
+                ]
+                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                return .ok(payload)
             }
         }
     }
@@ -3245,12 +3747,14 @@ class TerminalController {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
-                return .ok([
+                var payload: [String: Any] = [
                     "workspace_id": ws.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "surface_id": surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ])
+                ]
+                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                return .ok(payload)
             }
         }
     }
@@ -3332,14 +3836,25 @@ class TerminalController {
                    !ok,
                    let errorText = dict["error"] as? String,
                    errorText == "not_found" {
+                    if let selector {
+                        return v2BrowserElementNotFoundResult(
+                            actionName: "scroll",
+                            selector: selector,
+                            attempts: 1,
+                            surfaceId: surfaceId,
+                            browserPanel: browserPanel
+                        )
+                    }
                     return .err(code: "not_found", message: "Element not found", data: ["selector": selector ?? ""])
                 }
-                return .ok([
+                var payload: [String: Any] = [
                     "workspace_id": ws.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "surface_id": surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ])
+                ]
+                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                return .ok(payload)
             }
         }
     }
@@ -3589,7 +4104,16 @@ class TerminalController {
             default:
                 break
             }
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            var payload: [String: Any] = [
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ]
+            v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+            result = .ok(payload)
         }
         return result
     }

@@ -1,6 +1,6 @@
 # Agent-Browser Port Spec
 
-Last updated: February 12, 2026  
+Last updated: February 13, 2026  
 Source inventory snapshot: `vercel-labs/agent-browser` @ `03a8cb9`
 
 This document tracks implemented behavior and remaining parity gaps for the cmuxterm browser port.
@@ -302,7 +302,7 @@ Hard invariant:
 - [x] Add `--surface` mandatory targeting (with fallback from `system.identify` when explicitly desired).
 - [x] Add consistent JSON output mode for all browser commands.
 - [x] Implement short-ref allocator and resolver for `window/pane/workspace/surface` (`window:N`, `workspace:N`, `pane:N`, `surface:N`).
-- [x] Add `--id-format refs|uuids|both` across relevant CLI commands (`--json` default `both`, plain-text default refs).
+- [x] Add `--id-format refs|uuids|both` across relevant CLI commands (`--json` default refs, plain-text default refs).
 - [x] Ensure browser placement APIs always return decision-rich metadata (resolved target pane, created splits, resulting handles).
 
 ### Phase 1: Core Browser Parity (P0)
@@ -413,18 +413,21 @@ Planned verification commands at implementation completion:
 ## Decision Log (Locked - February 12, 2026)
 
 1. `cmuxterm browser tab ...` maps to browser `surface` tabs only (no separate workspace-level tab meaning inside `browser` namespace).
-2. Default browser placement without explicit target is caller-relative: place to the right of caller pane; if unavailable, split down in caller pane.
-3. Deeply nested layouts use local sibling placement around the caller pane and must not reshuffle unrelated panes.
+2. Default browser placement without explicit target is caller-relative: reuse the nearest right sibling pane; if none exists, split right from the caller pane.
+3. Deeply nested layouts use local split ancestry: choose the nearest right sibling leaf in the caller's subtree path and avoid reshuffling unrelated panes.
 4. Network parity target is full parity (not block-only phase).
-5. Output shape is cmuxterm-native (no strict agent-browser JSON compatibility requirement).
+5. Output shape is cmuxterm-native overall, but `browser.snapshot` and selector `not_found` diagnostics intentionally mirror agent-browser semantics for agent usability.
 6. ID model accepts UUIDs and short refs.
 7. Short ref format uses full words and colon: `surface:N`, `pane:N`, `workspace:N`, `window:N`.
 8. Short refs are global per daemon, monotonic, and never reused until daemon restart.
 9. Plain-text CLI output defaults to short refs.
-10. JSON output defaults to both UUIDs and refs.
+10. JSON output defaults to short refs (UUIDs available via `--id-format uuids|both`).
 11. CLI supports `--id-format refs|uuids|both` for output shaping.
 12. Browser create/move commands should expose enough placement/result metadata for agents to make deterministic follow-up decisions.
-13. Reuse behavior should be explicit by target handle (UUID/ref); no implicit reuse policy flag is required.
+13. Reuse behavior is implicit by default (caller-relative right-pane reuse); explicit handles can still force deterministic targeting.
+14. `browser fill` accepts empty text and treats it as a clear operation.
+15. Mutating browser actions can opt into post-action verification snapshots via `snapshot_after` (`--snapshot-after` in CLI), returning `post_action_snapshot` (+ refs/title/url).
+16. Legacy `new-pane`/`new-surface` plain output prefers short `surface:N` refs under default CLI ID formatting.
 
 ## Remaining Open Decisions
 

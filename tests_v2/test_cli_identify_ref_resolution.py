@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
@@ -86,13 +87,13 @@ def main() -> int:
     client = cmux(SOCKET_PATH)
     client.connect()
 
-    created_workspace_id: str | None = None
+    created_workspace_id: Optional[str] = None
     try:
         base_ident = _run_cli_json(cli, ["identify"])
         base_workspaces, _ = _workspace_and_surface_sets(base_ident)
         base_workspace_id = str((base_ident.get("focused") or {}).get("workspace_id") or "")
         base_workspace_ref = str((base_ident.get("focused") or {}).get("workspace_ref") or "")
-        _must(bool(base_workspace_id) and bool(base_workspace_ref), f"identify missing base workspace handles: {base_ident}")
+        _must(bool(base_workspace_ref), f"identify missing base workspace ref: {base_ident}")
 
         created_workspace_id = client.new_workspace()
         _must(bool(created_workspace_id), "workspace.create returned empty workspace id")
@@ -110,11 +111,12 @@ def main() -> int:
         got_ws = str(caller_ws.get("workspace_id") or caller_ws.get("workspace_ref") or "")
         _must(bool(got_ws), f"identify --workspace <ref> returned empty caller workspace: {identify_ws_ref}")
         _must(
-            got_ws in {base_workspace_id, base_workspace_ref},
-            f"identify --workspace <ref> did not resolve target workspace; got={got_ws} expected one of {[base_workspace_id, base_workspace_ref]}",
+            got_ws in {x for x in [base_workspace_id, base_workspace_ref] if x},
+            f"identify --workspace <ref> did not resolve target workspace; got={got_ws} expected one of {[x for x in [base_workspace_id, base_workspace_ref] if x]}",
         )
 
-        list_payload = client._call("surface.list", {"workspace_id": base_workspace_id}) or {}
+        workspace_for_list = base_workspace_id or base_workspace_ref
+        list_payload = client._call("surface.list", {"workspace_id": workspace_for_list}) or {}
         surfaces = list_payload.get("surfaces") or []
         _must(len(surfaces) > 0, f"No surfaces found in target workspace: {list_payload}")
 
@@ -132,7 +134,7 @@ def main() -> int:
         got_surface_both = str(caller_both.get("surface_id") or caller_both.get("surface_ref") or "")
 
         _must(
-            got_ws_both in {base_workspace_id, base_workspace_ref},
+            got_ws_both in {x for x in [base_workspace_id, base_workspace_ref] if x},
             f"identify --workspace/--surface refs resolved wrong workspace; got={got_ws_both} payload={identify_both_refs}",
         )
         _must(

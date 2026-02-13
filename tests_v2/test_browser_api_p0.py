@@ -87,9 +87,11 @@ def main() -> int:
         _must(str(eval_res.get("value", "")) == "cmux", f"Expected eval value 'cmux': {eval_res}")
 
         snap = c._call("browser.snapshot", {"surface_id": target}) or {}
-        snapshot = snap.get("snapshot") or {}
-        _must(isinstance(snapshot, dict), f"Expected snapshot dict: {snap}")
-        _must("cmux-browser-p0" in str(snapshot.get("title", "")), f"Expected snapshot title: {snapshot}")
+        snapshot_text = str(snap.get("snapshot") or "")
+        _must("cmux-browser-p0" in snapshot_text, f"Expected snapshot text to include page title: {snap}")
+        refs = snap.get("refs") or {}
+        _must(isinstance(refs, dict), f"Expected snapshot refs dict: {snap}")
+        _must(any(str(key).startswith("e") for key in refs.keys()), f"Expected eN refs in snapshot: {snap}")
 
         # Focus and focus-state checks can be slightly asynchronous.
         c._call("browser.focus_webview", {"surface_id": target})
