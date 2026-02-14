@@ -12,10 +12,10 @@ TAG=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/reload.sh [options]
+Usage: ./scripts/reload.sh --tag <name> [options]
 
 Options:
-  --tag <name>           Short tag for parallel builds (e.g., feature-xyz-lol).
+  --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
                          Sets app name, bundle id, and derived data path unless overridden.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
@@ -92,6 +92,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "$TAG" ]]; then
+  echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
+  usage
+  exit 1
+fi
 
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"

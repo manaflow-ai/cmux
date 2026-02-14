@@ -27,4 +27,4 @@ ln -sf ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 echo "==> Setup complete!"
 echo ""
 echo "You can now build and run the app:"
-echo "  ./scripts/reload.sh"
+echo "  ./scripts/reload.sh --tag first-run"

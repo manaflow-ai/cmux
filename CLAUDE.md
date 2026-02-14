@@ -10,13 +10,7 @@ Run the setup script to initialize submodules and build GhosttyKit:
 
 ## Local dev
 
-After making code changes, always run the reload script to launch the Debug app:
-
-```bash
-./scripts/reload.sh
-```
-
-After you're done with a fix, also reload with a tag so you can verify it in an isolated side-by-side app:
+After making code changes, always run the reload script with a tag to launch the Debug app:
 
 ```bash
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
@@ -40,10 +34,10 @@ When rebuilding cmuxd for release/bundling, always use ReleaseFast:
 cd cmuxd && zig build -Doptimize=ReleaseFast
 ```
 
-`reload` = kill and launch the Debug app only:
+`reload` = kill and launch the Debug app only (tag required):
 
 ```bash
-./scripts/reload.sh
+./scripts/reload.sh --tag <tag>
 ```
 
 `reloadp` = kill and launch the Release app:
@@ -58,10 +52,10 @@ cd cmuxd && zig build -Doptimize=ReleaseFast
 ./scripts/reloads.sh
 ```
 
-`reload2` = reload both Debug and Release:
+`reload2` = reload both Debug and Release (tag required for Debug reload):
 
 ```bash
-./scripts/reload2.sh
+./scripts/reload2.sh --tag <tag>
 ```
 
 For parallel/isolated builds (e.g., testing a feature alongside the main app), use `--tag` with a short descriptive name:
@@ -71,6 +65,8 @@ For parallel/isolated builds (e.g., testing a feature alongside the main app), u
 ```
 
 This creates an isolated app with its own name, bundle ID, socket, and derived data path so it runs side-by-side with the main app. Important: use a non-`/tmp` derived data path if you need xcframework resolution (the script handles this automatically).
+
+Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
 ## Pitfalls
 
