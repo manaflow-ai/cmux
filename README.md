@@ -24,7 +24,9 @@
 
 ### DMG (recommended)
 
-[![Download for Mac](web/public/download-badge.svg)](https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg)
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+</a>
 
 Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
 
