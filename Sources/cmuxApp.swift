@@ -159,7 +159,7 @@ struct cmuxApp: App {
                     applyAppearance()
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
                         DispatchQueue.main.async {
-                            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                            showSettingsPanel()
                         }
                     }
                 }
@@ -171,12 +171,14 @@ struct cmuxApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
-        Settings {
-            SettingsRootView()
-        }
-        .defaultSize(width: 460, height: 360)
-        .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    showSettingsPanel()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
             CommandGroup(replacing: .appInfo) {
                 Button("About cmux") {
                     showAboutPanel()
@@ -272,6 +274,10 @@ struct cmuxApp: App {
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
+                    }
+
+                    Button("Settings/About Titlebar Debug…") {
+                        SettingsAboutTitlebarDebugWindowController.shared.show()
                     }
 
                     Divider()
@@ -458,6 +464,11 @@ struct cmuxApp: App {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private func showSettingsPanel() {
+        SettingsWindowController.shared.show()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     private func applyAppearance() {
         guard let mode = AppearanceMode(rawValue: appearanceMode) else { return }
         switch mode {
@@ -595,9 +606,460 @@ struct cmuxApp: App {
     }
 
     private func openAllDebugWindows() {
+        SettingsAboutTitlebarDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
+    }
+}
+
+private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
+    case settings
+    case about
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .settings:
+            return "Settings Window"
+        case .about:
+            return "About Window"
+        }
+    }
+
+    var windowIdentifier: String {
+        switch self {
+        case .settings:
+            return "cmux.settings"
+        case .about:
+            return "cmux.about"
+        }
+    }
+
+    var fallbackTitle: String {
+        switch self {
+        case .settings:
+            return "Settings"
+        case .about:
+            return "About cmux"
+        }
+    }
+
+    var minimumSize: NSSize {
+        switch self {
+        case .settings:
+            return NSSize(width: 420, height: 360)
+        case .about:
+            return NSSize(width: 360, height: 520)
+        }
+    }
+}
+
+private enum TitlebarVisibilityOption: String, CaseIterable, Identifiable {
+    case hidden
+    case visible
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .hidden:
+            return "Hidden"
+        case .visible:
+            return "Visible"
+        }
+    }
+
+    var windowValue: NSWindow.TitleVisibility {
+        switch self {
+        case .hidden:
+            return .hidden
+        case .visible:
+            return .visible
+        }
+    }
+}
+
+private enum TitlebarToolbarStyleOption: String, CaseIterable, Identifiable {
+    case automatic
+    case expanded
+    case preference
+    case unified
+    case unifiedCompact
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .automatic:
+            return "Automatic"
+        case .expanded:
+            return "Expanded"
+        case .preference:
+            return "Preference"
+        case .unified:
+            return "Unified"
+        case .unifiedCompact:
+            return "Unified Compact"
+        }
+    }
+
+    var windowValue: NSWindow.ToolbarStyle {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .expanded:
+            return .expanded
+        case .preference:
+            return .preference
+        case .unified:
+            return .unified
+        case .unifiedCompact:
+            return .unifiedCompact
+        }
+    }
+}
+
+private struct SettingsAboutTitlebarDebugOptions: Equatable {
+    var overridesEnabled: Bool
+    var windowTitle: String
+    var titleVisibility: TitlebarVisibilityOption
+    var titlebarAppearsTransparent: Bool
+    var movableByWindowBackground: Bool
+    var titled: Bool
+    var closable: Bool
+    var miniaturizable: Bool
+    var resizable: Bool
+    var fullSizeContentView: Bool
+    var showToolbar: Bool
+    var toolbarStyle: TitlebarToolbarStyleOption
+
+    static func defaults(for kind: SettingsAboutWindowKind) -> SettingsAboutTitlebarDebugOptions {
+        switch kind {
+        case .settings:
+            return SettingsAboutTitlebarDebugOptions(
+                overridesEnabled: false,
+                windowTitle: "Settings",
+                titleVisibility: .hidden,
+                titlebarAppearsTransparent: true,
+                movableByWindowBackground: true,
+                titled: true,
+                closable: true,
+                miniaturizable: true,
+                resizable: true,
+                fullSizeContentView: true,
+                showToolbar: false,
+                toolbarStyle: .unifiedCompact
+            )
+        case .about:
+            return SettingsAboutTitlebarDebugOptions(
+                overridesEnabled: false,
+                windowTitle: "About cmux",
+                titleVisibility: .hidden,
+                titlebarAppearsTransparent: true,
+                movableByWindowBackground: false,
+                titled: true,
+                closable: true,
+                miniaturizable: true,
+                resizable: false,
+                fullSizeContentView: false,
+                showToolbar: false,
+                toolbarStyle: .automatic
+            )
+        }
+    }
+}
+
+@MainActor
+private final class SettingsAboutTitlebarDebugStore: ObservableObject {
+    static let shared = SettingsAboutTitlebarDebugStore()
+
+    @Published var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
+        didSet { applyToOpenWindows(for: .settings) }
+    }
+    @Published var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
+        didSet { applyToOpenWindows(for: .about) }
+    }
+
+    private init() {}
+
+    func options(for kind: SettingsAboutWindowKind) -> SettingsAboutTitlebarDebugOptions {
+        switch kind {
+        case .settings:
+            return settingsOptions
+        case .about:
+            return aboutOptions
+        }
+    }
+
+    func update(_ newValue: SettingsAboutTitlebarDebugOptions, for kind: SettingsAboutWindowKind) {
+        switch kind {
+        case .settings:
+            settingsOptions = newValue
+        case .about:
+            aboutOptions = newValue
+        }
+    }
+
+    func reset(_ kind: SettingsAboutWindowKind) {
+        update(SettingsAboutTitlebarDebugOptions.defaults(for: kind), for: kind)
+    }
+
+    func applyToOpenWindows(for kind: SettingsAboutWindowKind) {
+        for window in NSApp.windows where window.identifier?.rawValue == kind.windowIdentifier {
+            apply(options(for: kind), to: window, for: kind)
+        }
+    }
+
+    func applyToOpenWindows() {
+        applyToOpenWindows(for: .settings)
+        applyToOpenWindows(for: .about)
+    }
+
+    func applyCurrentOptions(to window: NSWindow, for kind: SettingsAboutWindowKind) {
+        apply(options(for: kind), to: window, for: kind)
+    }
+
+    func copyConfigToPasteboard() {
+        let settings = options(for: .settings)
+        let about = options(for: .about)
+        let payload = """
+        # Settings/About Titlebar Debug
+        settings.overridesEnabled=\(settings.overridesEnabled)
+        settings.title=\(settings.windowTitle)
+        settings.titleVisibility=\(settings.titleVisibility.rawValue)
+        settings.titlebarAppearsTransparent=\(settings.titlebarAppearsTransparent)
+        settings.movableByWindowBackground=\(settings.movableByWindowBackground)
+        settings.titled=\(settings.titled)
+        settings.closable=\(settings.closable)
+        settings.miniaturizable=\(settings.miniaturizable)
+        settings.resizable=\(settings.resizable)
+        settings.fullSizeContentView=\(settings.fullSizeContentView)
+        settings.showToolbar=\(settings.showToolbar)
+        settings.toolbarStyle=\(settings.toolbarStyle.rawValue)
+        about.overridesEnabled=\(about.overridesEnabled)
+        about.title=\(about.windowTitle)
+        about.titleVisibility=\(about.titleVisibility.rawValue)
+        about.titlebarAppearsTransparent=\(about.titlebarAppearsTransparent)
+        about.movableByWindowBackground=\(about.movableByWindowBackground)
+        about.titled=\(about.titled)
+        about.closable=\(about.closable)
+        about.miniaturizable=\(about.miniaturizable)
+        about.resizable=\(about.resizable)
+        about.fullSizeContentView=\(about.fullSizeContentView)
+        about.showToolbar=\(about.showToolbar)
+        about.toolbarStyle=\(about.toolbarStyle.rawValue)
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    private func apply(_ options: SettingsAboutTitlebarDebugOptions, to window: NSWindow, for kind: SettingsAboutWindowKind) {
+        let effective = options.overridesEnabled ? options : SettingsAboutTitlebarDebugOptions.defaults(for: kind)
+        let resolvedTitle = effective.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        window.title = resolvedTitle.isEmpty ? kind.fallbackTitle : resolvedTitle
+        window.titleVisibility = effective.titleVisibility.windowValue
+        window.titlebarAppearsTransparent = effective.titlebarAppearsTransparent
+        window.isMovableByWindowBackground = effective.movableByWindowBackground
+        window.toolbarStyle = effective.toolbarStyle.windowValue
+
+        if effective.showToolbar {
+            ensureToolbar(on: window, kind: kind)
+        } else if window.toolbar != nil {
+            window.toolbar = nil
+        }
+
+        var styleMask = window.styleMask
+        setStyleMaskBit(&styleMask, .titled, enabled: effective.titled)
+        setStyleMaskBit(&styleMask, .closable, enabled: effective.closable)
+        setStyleMaskBit(&styleMask, .miniaturizable, enabled: effective.miniaturizable)
+        setStyleMaskBit(&styleMask, .resizable, enabled: effective.resizable)
+        setStyleMaskBit(&styleMask, .fullSizeContentView, enabled: effective.fullSizeContentView)
+        window.styleMask = styleMask
+
+        let maxSize = effective.resizable ? NSSize(width: 8192, height: 8192) : kind.minimumSize
+        window.minSize = kind.minimumSize
+        window.maxSize = maxSize
+        window.contentMinSize = kind.minimumSize
+        window.contentMaxSize = maxSize
+        window.invalidateShadow()
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+    }
+
+    private func ensureToolbar(on window: NSWindow, kind: SettingsAboutWindowKind) {
+        guard window.toolbar == nil else { return }
+        let identifier = NSToolbar.Identifier("cmux.debug.titlebar.\(kind.rawValue)")
+        let toolbar = NSToolbar(identifier: identifier)
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.displayMode = .iconOnly
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+    }
+
+    private func setStyleMaskBit(
+        _ styleMask: inout NSWindow.StyleMask,
+        _ bit: NSWindow.StyleMask,
+        enabled: Bool
+    ) {
+        if enabled {
+            styleMask.insert(bit)
+        } else {
+            styleMask.remove(bit)
+        }
+    }
+}
+
+private final class SettingsAboutTitlebarDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SettingsAboutTitlebarDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 470, height: 690),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Settings/About Titlebar Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.settingsAboutTitlebarDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: SettingsAboutTitlebarDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        SettingsAboutTitlebarDebugStore.shared.applyToOpenWindows()
+    }
+}
+
+private struct SettingsAboutTitlebarDebugView: View {
+    @ObservedObject private var store = SettingsAboutTitlebarDebugStore.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Settings/About Titlebar Debug")
+                    .font(.headline)
+
+                editor(for: .settings)
+                editor(for: .about)
+
+                GroupBox("Actions") {
+                    HStack(spacing: 10) {
+                        Button("Reset All") {
+                            store.reset(.settings)
+                            store.reset(.about)
+                        }
+                        Button("Reapply to Open Windows") {
+                            store.applyToOpenWindows()
+                        }
+                        Button("Copy Config") {
+                            store.copyConfigToPasteboard()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func editor(for kind: SettingsAboutWindowKind) -> some View {
+        let overridesEnabled = binding(for: kind, keyPath: \.overridesEnabled)
+
+        return GroupBox(kind.displayTitle) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Enable Debug Overrides", isOn: overridesEnabled)
+
+                Text("When disabled, cmux uses normal default titlebar behavior for this window.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text("Window Title")
+                        TextField("", text: binding(for: kind, keyPath: \.windowTitle))
+                    }
+
+                    HStack(spacing: 10) {
+                        Picker("Title Visibility", selection: binding(for: kind, keyPath: \.titleVisibility)) {
+                            ForEach(TitlebarVisibilityOption.allCases) { option in
+                                Text(option.displayTitle).tag(option)
+                            }
+                        }
+                        Picker("Toolbar Style", selection: binding(for: kind, keyPath: \.toolbarStyle)) {
+                            ForEach(TitlebarToolbarStyleOption.allCases) { option in
+                                Text(option.displayTitle).tag(option)
+                            }
+                        }
+                    }
+
+                    Toggle("Show Toolbar", isOn: binding(for: kind, keyPath: \.showToolbar))
+                    Toggle("Transparent Titlebar", isOn: binding(for: kind, keyPath: \.titlebarAppearsTransparent))
+                    Toggle("Movable by Window Background", isOn: binding(for: kind, keyPath: \.movableByWindowBackground))
+
+                    Divider()
+
+                    Text("Style Mask")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Toggle("Titled", isOn: binding(for: kind, keyPath: \.titled))
+                    Toggle("Closable", isOn: binding(for: kind, keyPath: \.closable))
+                    Toggle("Miniaturizable", isOn: binding(for: kind, keyPath: \.miniaturizable))
+                    Toggle("Resizable", isOn: binding(for: kind, keyPath: \.resizable))
+                    Toggle("Full Size Content View", isOn: binding(for: kind, keyPath: \.fullSizeContentView))
+
+                    HStack(spacing: 10) {
+                        Button("Reset \(kind == .settings ? "Settings" : "About")") {
+                            store.reset(kind)
+                        }
+                        Button("Apply Now") {
+                            store.applyToOpenWindows(for: kind)
+                        }
+                    }
+                }
+                .disabled(!overridesEnabled.wrappedValue)
+                .opacity(overridesEnabled.wrappedValue ? 1 : 0.75)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func binding<Value>(
+        for kind: SettingsAboutWindowKind,
+        keyPath: WritableKeyPath<SettingsAboutTitlebarDebugOptions, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { store.options(for: kind)[keyPath: keyPath] },
+            set: { newValue in
+                var updated = store.options(for: kind)
+                updated[keyPath: keyPath] = newValue
+                store.update(updated, for: kind)
+            }
+        )
     }
 }
 
@@ -719,6 +1181,9 @@ private struct DebugWindowControlsView: View {
 
                 GroupBox("Open") {
                     VStack(alignment: .leading, spacing: 8) {
+                        Button("Settings/About Titlebar Debug…") {
+                            SettingsAboutTitlebarDebugWindowController.shared.show()
+                        }
                         Button("Sidebar Debug…") {
                             SidebarDebugWindowController.shared.show()
                         }
@@ -729,6 +1194,7 @@ private struct DebugWindowControlsView: View {
                             MenuBarExtraDebugWindowController.shared.show()
                         }
                         Button("Open All Debug Windows") {
+                            SettingsAboutTitlebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
@@ -844,20 +1310,17 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
     static let shared = AboutWindowController()
 
     private init() {
-        let window = NSPanel(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
-            styleMask: [.titled, .closable, .utilityWindow],
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = ""
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         window.center()
         window.contentView = NSHostingView(rootView: AboutPanelView())
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
@@ -869,8 +1332,45 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        guard let window else { return }
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+private final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SettingsWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+        window.center()
+        window.contentView = NSHostingView(rootView: SettingsRootView())
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        guard let window else { return }
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+        if !window.isVisible {
+            window.center()
+        }
+        window.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -912,7 +1412,7 @@ private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let docsURL = URL(string: "https://term.cmux.dev")
+    private let docsURL = URL(string: "https://cmux.dev/docs")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -1633,136 +2133,274 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    private let contentTopInset: CGFloat = 8
+
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    @AppStorage(UpdateChannelSettings.includeNightlyBuildsKey) private var includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
+    @State private var topBlurOpacity: Double = 0
+    @State private var topBlurBaselineOffset: CGFloat?
+    @State private var settingsTitleLeadingInset: CGFloat = 92
+
+    private var selectedWorkspacePlacement: NewWorkspacePlacement {
+        NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedSocketControlMode: SocketControlMode {
+        SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+    }
+
+    private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
+        guard let baseline = topBlurBaselineOffset else { return 0 }
+        let reveal = (baseline - offset) / 24
+        return Double(min(max(reveal, 0), 1))
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Theme")
-                    .font(.headline)
-
-                Picker("", selection: $appearanceMode) {
-                    ForEach(AppearanceMode.visibleCases) { mode in
-                        Text(mode.displayName).tag(mode.rawValue)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-
-                Divider()
-
-                Text("Keyboard Shortcuts")
-                    .font(.headline)
-
-                ForEach(KeyboardShortcutSettings.Action.allCases) { action in
-                    ShortcutSettingRow(action: action)
-                }
-                .id(shortcutResetToken)
-
-                Text("Click to record a new shortcut.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Divider()
-
-                Text("Workspaces")
-                    .font(.headline)
-
-                Picker("", selection: $newWorkspacePlacement) {
-                    ForEach(NewWorkspacePlacement.allCases) { placement in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(placement.displayName)
-                            Text(placement.description)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    SettingsSectionHeader(title: "App")
+                    SettingsCard {
+                        SettingsCardRow("Theme") {
+                            Picker("", selection: $appearanceMode) {
+                                ForEach(AppearanceMode.visibleCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(minWidth: 128)
                         }
-                        .tag(placement.rawValue)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
 
-                Text("Controls where new workspaces are inserted in the sidebar list.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                        SettingsCardDivider()
 
-                Divider()
-
-                Text("Notifications")
-                    .font(.headline)
-
-                Toggle("Show unread count on app icon (Dock and Cmd+Tab)", isOn: $notificationDockBadgeEnabled)
-
-                Text("Displays unread notification count as a red badge on the app icon.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
-
-                Text("Automation")
-                    .font(.headline)
-
-                Picker("", selection: $socketControlMode) {
-                    ForEach(SocketControlMode.allCases) { mode in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(mode.displayName)
-                            Text(mode.description)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        SettingsCardRow(
+                            "New Workspace Placement",
+                            subtitle: selectedWorkspacePlacement.description
+                        ) {
+                            Picker("", selection: $newWorkspacePlacement) {
+                                ForEach(NewWorkspacePlacement.allCases) { placement in
+                                    Text(placement.displayName).tag(placement.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(minWidth: 170)
                         }
-                        .tag(mode.rawValue)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Dock Badge",
+                            subtitle: "Show unread count on app icon (Dock and Cmd+Tab)."
+                        ) {
+                            Toggle("", isOn: $notificationDockBadgeEnabled)
+                                .labelsHidden()
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Updates")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Receive Nightly Builds",
+                            subtitle: includeNightlyBuilds
+                                ? "Using nightly update channel. Builds may be less stable."
+                                : "Using stable update channel."
+                        ) {
+                            Toggle("", isOn: $includeNightlyBuilds)
+                                .labelsHidden()
+                                .accessibilityIdentifier("SettingsIncludeNightlyBuildsToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Nightly builds are published from the latest main branch commit when available.")
+                    }
+
+                    SettingsSectionHeader(title: "Automation")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Socket Control Mode",
+                            subtitle: selectedSocketControlMode.description
+                        ) {
+                            Picker("", selection: $socketControlMode) {
+                                ForEach(SocketControlMode.allCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(minWidth: 170)
+                            .accessibilityIdentifier("AutomationSocketModePicker")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
+                        SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
+                    }
+
+                    SettingsSectionHeader(title: "Browser")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Default Search Engine",
+                            subtitle: "Used by the browser address bar when input is not a URL."
+                        ) {
+                            Picker("", selection: $browserSearchEngine) {
+                                ForEach(BrowserSearchEngine.allCases) { engine in
+                                    Text(engine.displayName).tag(engine.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(minWidth: 150)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow("Show Search Suggestions") {
+                            Toggle("", isOn: $browserSearchSuggestionsEnabled)
+                                .labelsHidden()
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Keyboard Shortcuts")
+                    SettingsCard {
+                        let actions = KeyboardShortcutSettings.Action.allCases
+                        ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                            ShortcutSettingRow(action: action)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                            if index < actions.count - 1 {
+                                SettingsCardDivider()
+                            }
+                        }
+                    }
+                    .id(shortcutResetToken)
+
+                    Text("Click a shortcut value to record a new shortcut.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 2)
+
+                    SettingsSectionHeader(title: "Reset")
+                    SettingsCard {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button("Reset All Settings") {
+                                resetAllSettings()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                 }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .accessibilityIdentifier("AutomationSocketModePicker")
-
-                Text("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Text("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
-
-                Text("Browser")
-                    .font(.headline)
-
-                Picker("Default Search Engine", selection: $browserSearchEngine) {
-                    ForEach(BrowserSearchEngine.allCases) { engine in
-                        Text(engine.displayName).tag(engine.rawValue)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+                .padding(.top, contentTopInset)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: SettingsTopOffsetPreferenceKey.self,
+                            value: proxy.frame(in: .named("SettingsScrollArea")).minY
+                        )
                     }
+                )
+            }
+            .coordinateSpace(name: "SettingsScrollArea")
+            .onPreferenceChange(SettingsTopOffsetPreferenceKey.self) { value in
+                if topBlurBaselineOffset == nil {
+                    topBlurBaselineOffset = value
                 }
-                .pickerStyle(.segmented)
+                topBlurOpacity = blurOpacity(forContentOffset: value)
+            }
 
-                Toggle("Show Search Suggestions", isOn: $browserSearchSuggestionsEnabled)
+            ZStack(alignment: .top) {
+                SettingsTitleLeadingInsetReader(inset: $settingsTitleLeadingInset)
+                    .frame(width: 0, height: 0)
 
-                Text("Used by the browser address bar when input is not a URL.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                AboutVisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
+                    .mask(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.9),
+                                Color.black.opacity(0.64),
+                                Color.black.opacity(0.36),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color(nsColor: .windowBackgroundColor).opacity(0.28),
+                                Color(nsColor: .windowBackgroundColor).opacity(0.12),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .opacity(0.48)
 
-                Divider()
+                AboutVisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
+                    .mask(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.98),
+                                Color.black.opacity(0.78),
+                                Color.black.opacity(0.42),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color(nsColor: .windowBackgroundColor).opacity(0.52),
+                                Color(nsColor: .windowBackgroundColor).opacity(0.22),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .opacity(0.2 + (topBlurOpacity * 0.8))
 
                 HStack {
-                    Spacer()
-                    Button("Reset All Settings") {
-                        resetAllSettings()
-                    }
-                    Spacer()
+                    Text("Settings")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary.opacity(0.92))
+                    Spacer(minLength: 0)
                 }
-                .padding(.top, 8)
+                .padding(.leading, settingsTitleLeadingInset)
+                .padding(.top, 12)
             }
-            .padding(20)
-            .padding(.top, 4)
+                .frame(height: 62)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea(.container, edges: .top)
+                .overlay(
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor).opacity(0.07))
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
+                .allowsHitTesting(false)
         }
-        .frame(minWidth: 420, minHeight: 360)
+        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
     }
 
     private func resetAllSettings() {
@@ -1771,9 +2409,135 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+        includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
+    }
+}
+
+private struct SettingsTopOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
+    @Binding var inset: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+            let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+            let maxX = buttons
+                .compactMap { window.standardWindowButton($0)?.frame.maxX }
+                .max() ?? 78
+            let nextInset = maxX + 14
+            if abs(nextInset - inset) > 0.5 {
+                inset = nextInset
+            }
+        }
+    }
+}
+
+private struct SettingsSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.secondary)
+            .padding(.leading, 2)
+            .padding(.bottom, -2)
+    }
+}
+
+private struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.76))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
+                )
+        )
+    }
+}
+
+private struct SettingsCardRow<Trailing: View>: View {
+    let title: String
+    let subtitle: String?
+    @ViewBuilder let trailing: Trailing
+
+    init(
+        _ title: String,
+        subtitle: String? = nil,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            trailing
+                .layoutPriority(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+    }
+}
+
+private struct SettingsCardDivider: View {
+    var body: some View {
+        Divider()
+            .overlay(Color(nsColor: NSColor.separatorColor).opacity(0.65))
+    }
+}
+
+private struct SettingsCardNote: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
     }
 }
 
@@ -1810,29 +2574,18 @@ private struct SettingsRootView: View {
 
     private func configureSettingsWindow(_ window: NSWindow) {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
-        window.title = ""
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = false
-        window.styleMask.remove(.fullSizeContentView)
-        window.styleMask.insert(.resizable)
-        window.contentMinSize = NSSize(width: 420, height: 360)
-        if window.toolbar == nil {
-            let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.settings.toolbar"))
-            toolbar.displayMode = .iconOnly
-            toolbar.sizeMode = .regular
-            toolbar.allowsUserCustomization = false
-            toolbar.autosavesConfiguration = false
-            toolbar.showsBaselineSeparator = false
-            window.toolbar = toolbar
-            window.toolbarStyle = .unified
-        }
+        applyCurrentSettingsWindowStyle(to: window)
 
         let accessories = window.titlebarAccessoryViewControllers
         for index in accessories.indices.reversed() {
             guard let identifier = accessories[index].view.identifier?.rawValue else { continue }
             guard identifier.hasPrefix("cmux.") else { continue }
             window.removeTitlebarAccessoryViewController(at: index)
-            }
+        }
         AppDelegate.shared?.applyWindowDecorations(to: window)
+    }
+
+    private func applyCurrentSettingsWindowStyle(to window: NSWindow) {
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
     }
 }
