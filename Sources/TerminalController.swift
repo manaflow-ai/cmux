@@ -6758,6 +6758,19 @@ class TerminalController {
     }
 #endif
 
+    #if !DEBUG
+    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var responder = start
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if current === target { return true }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return false
+    }
+    #endif
+
     private func isCommandAllowed(_ command: String) -> Bool {
         switch accessMode {
         case .full:

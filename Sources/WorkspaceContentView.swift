@@ -106,6 +106,11 @@ extension WorkspaceContentView {
             }
         }
     }
+    #else
+    static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
+        _ = tab
+        _ = workspace
+    }
     #endif
 }
 
