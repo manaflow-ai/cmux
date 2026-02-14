@@ -123,3 +123,9 @@ A native macOS app means it launches instantly, uses minimal RAM, and feels righ
 | ⌘ , | Settings |
 | ⌘ ⇧ R | Reload configuration |
 | ⌘ Q | Quit |
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+
+See `LICENSE` for the full text.

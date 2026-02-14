@@ -31,6 +31,7 @@ class UpdateController {
             "SUEnableAutomaticChecks": false,
             "SUSendProfileInfo": false,
             "SUAutomaticallyUpdate": false,
+            UpdateChannelSettings.includeNightlyBuildsKey: UpdateChannelSettings.defaultIncludeNightlyBuilds,
         ])
 
         let hostBundle = Bundle.main

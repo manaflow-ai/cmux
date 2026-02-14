@@ -1,6 +1,7 @@
 {
   "name": "web",
   "version": "0.1.0",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3777",
