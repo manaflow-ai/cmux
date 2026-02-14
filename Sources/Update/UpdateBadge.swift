@@ -3,7 +3,6 @@ import SwiftUI
 /// A badge view that displays the current state of an update operation.
 struct UpdateBadge: View {
     @ObservedObject var model: UpdateViewModel
-    @State private var rotationAngle: Double = 0
 
     var body: some View {
         badgeContent
@@ -25,18 +24,7 @@ struct UpdateBadge: View {
             ProgressRingView(progress: min(1, max(0, extracting.progress)))
 
         case .checking:
-            if let iconName = model.iconName {
-                Image(systemName: iconName)
-                    .rotationEffect(.degrees(rotationAngle))
-                    .onAppear {
-                        withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
-                            rotationAngle = 360
-                        }
-                    }
-                    .onDisappear {
-                        rotationAngle = 0
-                    }
-            }
+            BrowserStyleLoadingSpinner(size: 14, color: model.foregroundColor)
 
         default:
             if let iconName = model.iconName {
@@ -61,5 +49,31 @@ fileprivate struct ProgressRingView: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.easeInOut(duration: 0.2), value: progress)
         }
+    }
+}
+
+fileprivate struct BrowserStyleLoadingSpinner: View {
+    let size: CGFloat
+    let color: Color
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let angle = (t.truncatingRemainder(dividingBy: 0.9) / 0.9) * 360.0
+
+            ZStack {
+                Circle()
+                    .stroke(color.opacity(0.20), lineWidth: ringWidth)
+                Circle()
+                    .trim(from: 0.0, to: 0.28)
+                    .stroke(color, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+                    .rotationEffect(.degrees(angle))
+            }
+            .frame(width: size, height: size)
+        }
+    }
+
+    private var ringWidth: CGFloat {
+        max(1.6, size * 0.14)
     }
 }

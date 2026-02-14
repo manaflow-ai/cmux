@@ -11,16 +11,17 @@ struct UpdatePill: View {
 
     var body: some View {
         let state = model.effectiveState
-        let visible = !state.isIdle
-        pillButton
-            .popover(
-                isPresented: $showPopover,
-                attachmentAnchor: .rect(.bounds),
-                arrowEdge: .top
-            ) {
-                UpdatePopoverView(model: model)
-            }
-            .opacity(visible ? 1 : 0)
+        if !state.isIdle {
+            pillButton
+                .popover(
+                    isPresented: $showPopover,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .top
+                ) {
+                    UpdatePopoverView(model: model)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        }
     }
 
     @ViewBuilder

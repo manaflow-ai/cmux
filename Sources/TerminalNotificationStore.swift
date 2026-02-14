@@ -2,6 +2,18 @@ import AppKit
 import Foundation
 import UserNotifications
 
+enum NotificationBadgeSettings {
+    static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
+    static let defaultDockBadgeEnabled = true
+
+    static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: dockBadgeEnabledKey) == nil {
+            return defaultDockBadgeEnabled
+        }
+        return defaults.bool(forKey: dockBadgeEnabledKey)
+    }
+}
+
 enum AppFocusState {
     static var overrideIsFocused: Bool?
 
@@ -16,7 +28,14 @@ enum AppFocusState {
         if let overrideIsFocused {
             return overrideIsFocused
         }
-        return NSApp.isActive && (NSApp.keyWindow?.isKeyWindow ?? false)
+        guard NSApp.isActive else { return false }
+        guard let keyWindow = NSApp.keyWindow, keyWindow.isKeyWindow else { return false }
+        // Only treat the app as "focused" for notification suppression when a main terminal window
+        // is key. If Settings/About/debug panels are key, we still want notifications to show.
+        if let raw = keyWindow.identifier?.rawValue {
+            return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        }
+        return false
     }
 }
 
@@ -31,19 +50,48 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
 }
 
+@MainActor
 final class TerminalNotificationStore: ObservableObject {
     static let shared = TerminalNotificationStore()
 
-    static let categoryIdentifier = "com.cmux.app.userNotification"
-    static let actionShowIdentifier = "com.cmux.app.userNotification.show"
+    static let categoryIdentifier = "com.cmuxterm.app.userNotification"
+    static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
 
-    @Published private(set) var notifications: [TerminalNotification] = []
+    @Published private(set) var notifications: [TerminalNotification] = [] {
+        didSet {
+            refreshDockBadge()
+        }
+    }
 
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAuthorization = false
     private var hasPromptedForSettings = false
+    private var userDefaultsObserver: NSObjectProtocol?
 
-    private init() {}
+    private init() {
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshDockBadge()
+        }
+        refreshDockBadge()
+    }
+
+    deinit {
+        if let userDefaultsObserver {
+            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
+    }
+
+    static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool) -> String? {
+        guard isEnabled, unreadCount > 0 else { return nil }
+        if unreadCount > 99 {
+            return "99+"
+        }
+        return String(unreadCount)
+    }
 
     var unreadCount: Int {
         notifications.filter { !$0.isRead }.count
@@ -131,6 +179,20 @@ final class TerminalNotificationStore: ObservableObject {
             if notifications[index].tabId == tabId {
                 notifications[index].isRead = false
             }
+        }
+    }
+
+    func markAllRead() {
+        var idsToClear: [String] = []
+        for index in notifications.indices {
+            if !notifications[index].isRead {
+                notifications[index].isRead = true
+                idsToClear.append(notifications[index].id.uuidString)
+            }
+        }
+        if !idsToClear.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequests(withIdentifiers: idsToClear)
         }
     }
 
@@ -252,5 +314,13 @@ final class TerminalNotificationStore: ObservableObject {
                 NSWorkspace.shared.open(url)
             }
         }
+    }
+
+    private func refreshDockBadge() {
+        let label = Self.dockBadgeLabel(
+            unreadCount: unreadCount,
+            isEnabled: NotificationBadgeSettings.isDockBadgeEnabled()
+        )
+        NSApp?.dockTile.badgeLabel = label
     }
 }

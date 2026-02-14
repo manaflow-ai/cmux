@@ -30,6 +30,7 @@ enum UpdateTestSupport {
         guard let feedURLString = env["CMUX_UI_TEST_FEED_URL"],
               let feedURL = URL(string: feedURLString) else { return false }
 
+        UpdateLogStore.shared.append("ui test mock feed check: \(feedURLString)")
         UpdateTestURLProtocol.registerIfNeeded()
         DispatchQueue.main.async {
             viewModel.state = .checking(.init(cancel: {}))
@@ -39,12 +40,22 @@ enum UpdateTestSupport {
             let xml = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             let version = env["CMUX_UI_TEST_UPDATE_VERSION"] ?? "9.9.9"
             let hasItem = xml.contains("<item>")
-            DispatchQueue.main.async {
+            let applyState = {
                 if hasItem {
                     let appcastItem = makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty()
                     viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: { _ in }))
                 } else {
                     viewModel.state = .notFound(.init(acknowledgement: {}))
+                }
+            }
+            DispatchQueue.main.async {
+                let delayMilliseconds = Int(env["CMUX_UI_TEST_MOCK_FEED_DELAY_MS"] ?? "") ?? 0
+                if delayMilliseconds > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delayMilliseconds)) {
+                        applyState()
+                    }
+                } else {
+                    applyState()
                 }
             }
         }

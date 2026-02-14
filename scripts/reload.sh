@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="cmux DEV"
-BUNDLE_ID="com.cmux.app.debug"
+BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
 DERIVED_DATA=""
 NAME_SET=0
@@ -100,7 +100,7 @@ if [[ -n "$TAG" ]]; then
     APP_NAME="cmux DEV ${TAG}"
   fi
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
-    BUNDLE_ID="com.cmux.app.debug.${TAG_ID}"
+    BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="/tmp/cmux-${TAG_SLUG}"

@@ -60,6 +60,7 @@ struct SurfaceSearchOverlay: View {
                     Image(systemName: "chevron.up")
                 }
                 .buttonStyle(SearchButtonStyle())
+                .help("Next match (Return)")
 
                 Button(action: {
                     _ = surface.performBindingAction("navigate_search:previous")
@@ -67,11 +68,13 @@ struct SurfaceSearchOverlay: View {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(SearchButtonStyle())
+                .help("Previous match (Shift+Return)")
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(SearchButtonStyle())
+                .help("Close (Esc)")
             }
             .padding(8)
             .background(.background)

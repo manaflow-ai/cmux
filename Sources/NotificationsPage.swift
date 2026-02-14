@@ -21,9 +21,16 @@ struct NotificationsPage: View {
                                 notification: notification,
                                 tabTitle: tabTitle(for: notification.tabId),
                                 onOpen: {
-                                    tabManager.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
-                                    markReadIfFocused(notification)
-                                    selection = .tabs
+                                    // SwiftUI action closures are not guaranteed to run on the main actor.
+                                    // Ensure window focus + tab selection happens on the main thread.
+                                    DispatchQueue.main.async {
+                                        _ = AppDelegate.shared?.openNotification(
+                                            tabId: notification.tabId,
+                                            surfaceId: notification.surfaceId,
+                                            notificationId: notification.id
+                                        )
+                                        selection = .tabs
+                                    }
                                 },
                                 onClear: {
                                     notificationStore.remove(id: notification.id)
@@ -91,17 +98,7 @@ struct NotificationsPage: View {
     }
 
     private func tabTitle(for tabId: UUID) -> String? {
-        tabManager.tabs.first(where: { $0.id == tabId })?.title
-    }
-
-    private func markReadIfFocused(_ notification: TerminalNotification) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard tabManager.selectedTabId == notification.tabId else { return }
-            if let surfaceId = notification.surfaceId {
-                guard tabManager.focusedSurfaceId(for: notification.tabId) == surfaceId else { return }
-            }
-            notificationStore.markRead(id: notification.id)
-        }
+        AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
     }
 }
 
@@ -157,6 +154,7 @@ private struct NotificationRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("NotificationRow.\(notification.id.uuidString)")
             .focusable()
             .focused(focusedNotificationId, equals: notification.id)
             .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
