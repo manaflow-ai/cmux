@@ -9,6 +9,15 @@ import Combine
 import ObjectiveC.runtime
 
 enum FinderServicePathResolver {
+    private static func canonicalDirectoryPath(_ path: String) -> String {
+        guard path.count > 1 else { return path }
+        var canonical = path
+        while canonical.count > 1 && canonical.hasSuffix("/") {
+            canonical.removeLast()
+        }
+        return canonical
+    }
+
     static func orderedUniqueDirectories(from pathURLs: [URL]) -> [String] {
         var seen: Set<String> = []
         var directories: [String] = []
@@ -16,7 +25,7 @@ enum FinderServicePathResolver {
         for url in pathURLs {
             let standardized = url.standardizedFileURL
             let directoryURL = standardized.hasDirectoryPath ? standardized : standardized.deletingLastPathComponent()
-            let path = directoryURL.path(percentEncoded: false)
+            let path = canonicalDirectoryPath(directoryURL.path(percentEncoded: false))
             guard !path.isEmpty else { continue }
             if seen.insert(path).inserted {
                 directories.append(path)
