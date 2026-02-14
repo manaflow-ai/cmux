@@ -2,6 +2,20 @@
 
 All notable changes to cmux are documented here.
 
+## [1.28.0] - 2026-02-14
+
+### Added
+- Optional nightly update channel in Settings (`Receive Nightly Builds`)
+- Automated nightly build and publish workflow for `main` when new commits are available
+
+### Changed
+- Settings and About windows now use the updated transparent titlebar styling and aligned controls
+- Repository license changed to GNU AGPLv3
+
+### Fixed
+- Terminal panes freezing after repeated split churn
+- Finder service directory resolution now normalizes paths consistently
+
 ## [1.27.0] - 2026-02-11
 
 ### Fixed
