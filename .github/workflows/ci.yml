@@ -30,11 +30,6 @@ jobs:
     concurrency:
       group: self-hosted-build
       cancel-in-progress: false
-    env:
-      # Optional: set these GitHub secrets to point CI at the UTM VM.
-      # If unset, the script falls back to trying `cmux-vm`, `cmux-vm.local`, then `192.168.64.73`.
-      CMUX_VM_HOST: ${{ secrets.CMUX_VM_HOST }}
-      CMUX_VM_USER: ${{ secrets.CMUX_VM_USER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,53 +79,5 @@ jobs:
       - name: Run UI tests
         run: |
           set -euo pipefail
-          # Policy: run macOS UI tests in the UTM VM (never on the host runner). Host GUI
-          # state is frequently non-interactive on CI and causes false failures.
-          vm_user="${CMUX_VM_USER:-cmux}"
-          ssh_opts=(
-            -o BatchMode=yes
-            -o StrictHostKeyChecking=no
-            -o UserKnownHostsFile=/dev/null
-            -o ConnectTimeout=5
-            -o ConnectionAttempts=1
-            -o NumberOfPasswordPrompts=0
-            -o PreferredAuthentications=publickey
-            -o PubkeyAuthentication=yes
-            -o PasswordAuthentication=no
-            -o KbdInteractiveAuthentication=no
-            -o ChallengeResponseAuthentication=no
-            -o GSSAPIAuthentication=no
-            -o LogLevel=ERROR
-          )
-
-          vm_candidates=()
-          if [ -n "${CMUX_VM_HOST:-}" ]; then
-            vm_candidates+=("$CMUX_VM_HOST")
-          else
-            vm_candidates+=("cmux-vm" "cmux-vm.local" "192.168.64.73" "cmux-macmini" "cmux-macmini.local")
-          fi
-
-          vm_host=""
-          for h in "${vm_candidates[@]}"; do
-            if ssh "${ssh_opts[@]}" "$vm_user@$h" 'true' >/dev/null 2>&1; then
-              vm_host="$h"
-              break
-            fi
-          done
-          if [ -z "$vm_host" ]; then
-            echo "ERROR: Could not SSH into the UI-test VM; UI tests are required."
-            echo "Tried:"
-            for h in "${vm_candidates[@]}"; do
-              echo "  - $vm_user@$h"
-            done
-            echo "Fix: set CMUX_VM_HOST (repo secret or runner env), or add a working 'cmux-vm' Host entry in ~/.ssh/config on the self-hosted runner."
-            exit 1
-          fi
-
-          echo "Running UI tests on $vm_user@$vm_host..."
-          rsync -e "ssh ${ssh_opts[*]}" -a --delete \
-            --exclude build \
-            --exclude .git \
-            --exclude "GhosttyTabs.xcodeproj/project.xcworkspace" \
-            ./ "$vm_user@$vm_host":/Users/cmux/GhosttyTabs/
-          ssh "${ssh_opts[@]}" "$vm_user@$vm_host" 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+          # Run directly on the self-hosted macOS runner.
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test
