@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [1.28.2] - 2026-02-14
+
+### Fixed
+- Sparkle updates from `1.27.0` could fail to detect newer releases because release build numbers were behind the latest published appcast build number
+- Release GitHub Action failed on repeat runs when `SUPublicEDKey` / `SUFeedURL` already existed in `Info.plist`
+
 ## [1.28.1] - 2026-02-14
 
 ### Fixed
