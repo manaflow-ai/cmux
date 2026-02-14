@@ -1,6 +1,26 @@
 import Sparkle
 import Cocoa
 
+enum UpdateChannelSettings {
+    static let includeNightlyBuildsKey = "cmux.includeNightlyBuilds"
+    static let defaultIncludeNightlyBuilds = false
+
+    static let stableFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+    static let nightlyFeedURL = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+
+    static func resolvedFeedURLString(
+        infoFeedURL: String?,
+        defaults: UserDefaults = .standard
+    ) -> (url: String, isNightly: Bool, usedFallback: Bool) {
+        let stableURL = (infoFeedURL?.isEmpty == false) ? infoFeedURL! : stableFeedURL
+        let includeNightlyBuilds = defaults.bool(forKey: includeNightlyBuildsKey)
+        if includeNightlyBuilds {
+            return (url: nightlyFeedURL, isNightly: true, usedFallback: false)
+        }
+        return (url: stableURL, isNightly: false, usedFallback: stableURL == stableFeedURL)
+    }
+}
+
 extension UpdateDriver: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
 #if DEBUG
@@ -12,10 +32,10 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
 #endif
         let infoURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let fallback = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-        let feedURLString = (infoURL?.isEmpty == false) ? infoURL! : fallback
-        recordFeedURLString(feedURLString, usedFallback: feedURLString == fallback)
-        return feedURLString
+        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoURL)
+        UpdateLogStore.shared.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
+        recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
+        return resolved.url
     }
 
     /// Called when an update is scheduled to install silently,

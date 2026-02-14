@@ -1,0 +1,300 @@
+name: Nightly macOS build
+
+on:
+  schedule:
+    # 09:30 UTC daily
+    - cron: "30 9 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force a nightly build even if main has no new commits
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+      head_sha: ${{ steps.decide.outputs.head_sha }}
+      short_sha: ${{ steps.decide.outputs.short_sha }}
+    steps:
+      - name: Decide whether a nightly build is needed
+        id: decide
+        uses: actions/github-script@v7
+        env:
+          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
+        with:
+          script: |
+            const forceBuild = process.env.FORCE_BUILD === 'true';
+            const { owner, repo } = context.repo;
+
+            const branch = await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'main',
+            });
+            const headSha = branch.data.commit.sha;
+
+            let nightlySha = null;
+            try {
+              const ref = await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: 'tags/nightly',
+              });
+              if (ref.data.object.type === 'commit') {
+                nightlySha = ref.data.object.sha;
+              } else if (ref.data.object.type === 'tag') {
+                const tagObject = await github.rest.git.getTag({
+                  owner,
+                  repo,
+                  tag_sha: ref.data.object.sha,
+                });
+                nightlySha = tagObject.data.object.sha;
+              }
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            const shouldBuild = forceBuild || nightlySha !== headSha;
+            core.setOutput('should_build', shouldBuild ? 'true' : 'false');
+            core.setOutput('head_sha', headSha);
+            core.setOutput('short_sha', headSha.slice(0, 7));
+            core.summary
+              .addHeading('Nightly build decision')
+              .addTable([
+                [{data: 'main HEAD', header: true}, headSha],
+                [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
+                [{data: 'force build', header: true}, String(forceBuild)],
+                [{data: 'should build', header: true}, String(shouldBuild)],
+              ])
+              .write();
+
+  build-sign-notarize-nightly:
+    needs: decide
+    if: needs.decide.outputs.should_build == 'true'
+    runs-on: self-hosted
+    concurrency:
+      group: self-hosted-build
+      cancel-in-progress: false
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.decide.outputs.head_sha }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Install build deps
+        run: |
+          brew update
+          brew install zig
+          npm install --global create-dmg
+
+      - name: Build GhosttyKit.xcframework
+        run: |
+          cd ghostty
+          zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast
+          cd ..
+          rm -rf GhosttyKit.xcframework
+          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+
+      - name: Clear SPM cache
+        run: |
+          rm -rf ~/Library/Caches/org.swift.swiftpm
+          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+
+      - name: Configure SwiftPM cache
+        run: |
+          set -euo pipefail
+          CACHE_DIR="${RUNNER_TEMP}/swiftpm-cache/${GITHUB_RUN_ID}"
+          rm -rf "$CACHE_DIR"
+          mkdir -p "$CACHE_DIR"
+          echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
+
+      - name: Derive Sparkle public key from private key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
+          echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
+
+      - name: Build app (Release)
+        run: |
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+
+      - name: Inject Sparkle keys and nightly metadata
+        run: |
+          set -euo pipefail
+          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
+
+          /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
+
+          BASE_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST")
+          NIGHTLY_DATE=$(date -u +%Y%m%d)
+          NIGHTLY_BUILD="${BASE_BUILD}.${NIGHTLY_DATE}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
+
+          echo "Nightly build number: ${NIGHTLY_BUILD}"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST"
+
+      - name: Import signing cert
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
+            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
+            exit 1
+          fi
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
+            exit 1
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: Codesign app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
+            exit 1
+          fi
+          APP_PATH="build/Build/Products/Release/cmux.app"
+          CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+          if [ -f "$CLI_PATH" ]; then
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$CLI_PATH"
+          fi
+          /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --deep "$APP_PATH"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Notarize app and dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
+            exit 1
+          fi
+          APP_PATH="build/Build/Products/Release/cmux.app"
+          ZIP_SUBMIT="cmux-nightly-notary.zip"
+          DMG_RELEASE="cmux-macos.dmg"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
+          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
+          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
+          if [ "$APP_STATUS" != "Accepted" ]; then
+            echo "App notarization failed with status: $APP_STATUS" >&2
+            xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
+          rm -f "$ZIP_SUBMIT"
+          create-dmg \
+            --identity="$APPLE_SIGNING_IDENTITY" \
+            "$APP_PATH" \
+            ./
+          mv ./cmux*.dmg "$DMG_RELEASE"
+          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
+          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
+          if [ "$DMG_STATUS" != "Accepted" ]; then
+            echo "DMG notarization failed with status: $DMG_STATUS" >&2
+            xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+          xcrun stapler staple "$DMG_RELEASE"
+          xcrun stapler validate "$DMG_RELEASE"
+
+      - name: Generate Sparkle appcast (nightly)
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg nightly appcast.xml
+
+      - name: Move nightly tag to built commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly "${{ needs.decide.outputs.head_sha }}"
+          git push origin refs/tags/nightly --force
+
+      - name: Publish nightly release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated nightly build for `${{ needs.decide.outputs.short_sha }}`.
+          files: |
+            cmux-macos.dmg
+            appcast.xml
+          overwrite_files: true
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12
+
+  skipped:
+    needs: decide
+    if: needs.decide.outputs.should_build != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: No nightly build needed
+        run: |
+          echo "No changes on main since last nightly tag; skipping build."
