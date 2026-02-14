@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [1.28.1] - 2026-02-14
+
+### Fixed
+- Release build failure caused by debug-only helper symbols referenced in non-debug code paths
+
 ## [1.28.0] - 2026-02-14
 
 ### Added
