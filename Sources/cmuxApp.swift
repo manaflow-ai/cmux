@@ -2134,6 +2134,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
+    private let pickerColumnWidth: CGFloat = 196
 
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -2167,7 +2168,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: "App")
                     SettingsCard {
-                        SettingsCardRow("Theme") {
+                        SettingsCardRow("Theme", controlWidth: pickerColumnWidth) {
                             Picker("", selection: $appearanceMode) {
                                 ForEach(AppearanceMode.visibleCases) { mode in
                                     Text(mode.displayName).tag(mode.rawValue)
@@ -2175,14 +2176,14 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .frame(minWidth: 128)
                         }
 
                         SettingsCardDivider()
 
                         SettingsCardRow(
                             "New Workspace Placement",
-                            subtitle: selectedWorkspacePlacement.description
+                            subtitle: selectedWorkspacePlacement.description,
+                            controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $newWorkspacePlacement) {
                                 ForEach(NewWorkspacePlacement.allCases) { placement in
@@ -2191,7 +2192,6 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .frame(minWidth: 170)
                         }
 
                         SettingsCardDivider()
@@ -2202,6 +2202,7 @@ struct SettingsView: View {
                         ) {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
                                 .labelsHidden()
+                                .controlSize(.small)
                         }
                     }
 
@@ -2215,6 +2216,7 @@ struct SettingsView: View {
                         ) {
                             Toggle("", isOn: $includeNightlyBuilds)
                                 .labelsHidden()
+                                .controlSize(.small)
                                 .accessibilityIdentifier("SettingsIncludeNightlyBuildsToggle")
                         }
 
@@ -2227,7 +2229,8 @@ struct SettingsView: View {
                     SettingsCard {
                         SettingsCardRow(
                             "Socket Control Mode",
-                            subtitle: selectedSocketControlMode.description
+                            subtitle: selectedSocketControlMode.description,
+                            controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $socketControlMode) {
                                 ForEach(SocketControlMode.allCases) { mode in
@@ -2236,7 +2239,6 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .frame(minWidth: 170)
                             .accessibilityIdentifier("AutomationSocketModePicker")
                         }
 
@@ -2250,7 +2252,8 @@ struct SettingsView: View {
                     SettingsCard {
                         SettingsCardRow(
                             "Default Search Engine",
-                            subtitle: "Used by the browser address bar when input is not a URL."
+                            subtitle: "Used by the browser address bar when input is not a URL.",
+                            controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $browserSearchEngine) {
                                 ForEach(BrowserSearchEngine.allCases) { engine in
@@ -2259,7 +2262,6 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .frame(minWidth: 150)
                         }
 
                         SettingsCardDivider()
@@ -2267,6 +2269,7 @@ struct SettingsView: View {
                         SettingsCardRow("Show Search Suggestions") {
                             Toggle("", isOn: $browserSearchSuggestionsEnabled)
                                 .labelsHidden()
+                                .controlSize(.small)
                         }
                     }
 
@@ -2328,7 +2331,7 @@ struct SettingsView: View {
                 SettingsTitleLeadingInsetReader(inset: $settingsTitleLeadingInset)
                     .frame(width: 0, height: 0)
 
-                AboutVisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
+                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
                         LinearGradient(
                             colors: [
@@ -2341,20 +2344,9 @@ struct SettingsView: View {
                             endPoint: .bottom
                         )
                     )
-                    .overlay(
-                        LinearGradient(
-                            colors: [
-                                Color(nsColor: .windowBackgroundColor).opacity(0.28),
-                                Color(nsColor: .windowBackgroundColor).opacity(0.12),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .opacity(0.48)
+                    .opacity(0.52)
 
-                AboutVisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
+                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
                         LinearGradient(
                             colors: [
@@ -2367,18 +2359,7 @@ struct SettingsView: View {
                             endPoint: .bottom
                         )
                     )
-                    .overlay(
-                        LinearGradient(
-                            colors: [
-                                Color(nsColor: .windowBackgroundColor).opacity(0.52),
-                                Color(nsColor: .windowBackgroundColor).opacity(0.22),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .opacity(0.2 + (topBlurOpacity * 0.8))
+                    .opacity(0.14 + (topBlurOpacity * 0.86))
 
                 HStack {
                     Text("Settings")
@@ -2401,6 +2382,7 @@ struct SettingsView: View {
                 .allowsHitTesting(false)
         }
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+        .toggleStyle(.switch)
     }
 
     private func resetAllSettings() {
@@ -2467,7 +2449,7 @@ private struct SettingsCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             content
         }
         .background(
@@ -2484,15 +2466,18 @@ private struct SettingsCard<Content: View>: View {
 private struct SettingsCardRow<Trailing: View>: View {
     let title: String
     let subtitle: String?
+    let controlWidth: CGFloat?
     @ViewBuilder let trailing: Trailing
 
     init(
         _ title: String,
         subtitle: String? = nil,
+        controlWidth: CGFloat? = nil,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.controlWidth = controlWidth
         self.trailing = trailing()
     }
 
@@ -2510,18 +2495,27 @@ private struct SettingsCardRow<Trailing: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            trailing
+            Group {
+                if let controlWidth {
+                    trailing
+                        .frame(width: controlWidth, alignment: .trailing)
+                } else {
+                    trailing
+                }
+            }
                 .layoutPriority(1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 private struct SettingsCardDivider: View {
     var body: some View {
-        Divider()
-            .overlay(Color(nsColor: NSColor.separatorColor).opacity(0.65))
+        Rectangle()
+            .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
+            .frame(height: 1)
     }
 }
 
@@ -2538,6 +2532,7 @@ private struct SettingsCardNote: View {
             .foregroundColor(.secondary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
