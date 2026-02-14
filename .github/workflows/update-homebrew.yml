@@ -69,7 +69,7 @@ jobs:
             zap trash: [
               "~/Library/Application Support/cmux",
               "~/Library/Caches/cmux",
-              "~/Library/Preferences/ai.manaflow.cmux.plist",
+              "~/Library/Preferences/ai.manaflow.cmuxterm.plist",
             ]
           end
           CASKEOF

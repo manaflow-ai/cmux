@@ -32,7 +32,7 @@ All notable changes to cmux are documented here.
 ## [1.23.0] - 2026-02-09
 
 ### Changed
-- Rename app from cmuxterm to cmux — new app name, socket paths, Homebrew tap, and CLI binary name (bundle ID remains `com.cmuxterm.app` for Sparkle update continuity)
+- Rename app to cmux — new app name, socket paths, Homebrew tap, and CLI binary name (bundle ID remains `com.cmuxterm.app` for Sparkle update continuity)
 - Sidebar now shows tab status as text instead of colored dots, with instant git HEAD change detection
 
 ### Fixed
@@ -47,37 +47,6 @@ All notable changes to cmux are documented here.
 
 ### Fixed
 - Zsh autosuggestions not working with shared history across terminal panes
-
-## [1.20.1] - 2026-02-09
-
-### Fixed
-- Updater permission error now correctly tells user to move app to Applications
-
-## [1.20.0] - 2026-02-09
-
-### Fixed
-- Blank window on macOS 26 when background glass effect is enabled
-- Update status pill not appearing in toolbar
-- Update errors appearing instantly without showing checking spinner first
-- "Copy Update Logs" showing empty logs
-
-### Changed
-- Clearer error when app needs to be moved to Applications before updating
-- DMG installer now shows drag-to-install window with Applications shortcut
-
-## [1.19.0] - 2026-02-08
-
-### Fixed
-- Blank window on macOS 26 caused by NSGlassEffectView wrapper
-
-## [1.18.0] - 2026-02-06
-
-### Added
-- Sidebar metadata: see current directory, git branch, and listening ports for each terminal pane
-- Shell integration for bash and zsh to automatically report metadata to the sidebar
-
-### Fixed
-- Stale metadata no longer lingers after closing terminal panes
 
 ## [1.17.3] - 2025-02-05
 
