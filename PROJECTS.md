@@ -3,6 +3,7 @@
 Cross-project tracking (features, bugs, backlog) for cmux.
 
 ## Done
+- 2026-02-14: Fixed updater release regression path: made `.github/workflows/release.yml` Sparkle Info.plist key injection idempotent (re-running tags no longer fails with "Entry Already Exists"), and hardened `scripts/bump-version.sh` to keep `CURRENT_PROJECT_VERSION` above the latest published Sparkle appcast build number so upgrades from `1.27.0` can be detected.
 - 2026-02-14: Relicensed the repository to strong copyleft (`AGPL-3.0-or-later`), added canonical `LICENSE` text, and updated project/package metadata to advertise AGPL consistently.
 - 2026-02-14: Added an opt-in nightly update channel in Settings (`Receive nightly builds`) that routes Sparkle feed selection between stable and nightly appcasts, plus a scheduled GitHub Actions nightly pipeline (`.github/workflows/nightly.yml`) that only rebuilds when `main` has new commits since `nightly` (or when manually forced).
 - 2026-02-13: Added `demos/wkwebview-ssh-proxy-cookie-demo/` with a standalone macOS Swift app (two WKWebViews), two Docker backends (`:8080`) running behind separate SSH SOCKS tunnels, and scripts/docs to demonstrate same URL (`shared.test:8080`) routing to different backends plus app-level cookie sync between separate proxy-scoped data stores.
