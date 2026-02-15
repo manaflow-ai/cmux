@@ -14,10 +14,13 @@
 ## Features
 
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
-- **Vertical tabs** — See all your terminals at a glance in a sidebar
-- **Notification panel** — See which agents are waiting for input at a glance
-- **Notification rings** — Tabs flash when AI agents (Claude Code, Codex) need your attention
-- **Lightweight** — Small binary, minimal resource footprint. No bundled browser engine.
+- **Vertical tabs** — Sidebar shows git branch, working directory, listening ports, and latest notification text
+- **Notification rings** — Panes get a blue ring and tabs light up when AI agents (Claude Code, OpenCode) need your attention
+- **Notification panel** — See all pending notifications in one place, jump to the most recent unread
+- **Split panes** — Horizontal and vertical splits
+- **In-app browser** — Split a browser alongside your terminal with a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser)
+- **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+- **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
 
 ## Install
@@ -53,7 +56,7 @@ I tried a few coding orchestrators but most of them were Electron/Tauri apps and
 
 The main additions are the sidebar and notification system. The sidebar has vertical tabs that show git branch, working directory, listening ports, and the latest notification text for each workspace. The notification system picks up terminal sequences (OSC 9/99/777) and has a CLI (`cmux notify`) you can wire into agent hooks for Claude Code, OpenCode, etc. When an agent is waiting, its pane gets a blue ring and the tab lights up in the sidebar, so I can tell which one needs me across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
 
-The in-app browser has a scriptable API ported from [agent-browser](https://github.com/anthropics/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
+The in-app browser has a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
 
 Everything is scriptable through the CLI and socket API — create workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
 
