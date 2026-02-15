@@ -61,7 +61,8 @@ enum WindowGlassEffect {
             // Fallback to NSVisualEffectView
             glassView = NSVisualEffectView(frame: bounds)
             glassView.blendingMode = .behindWindow
-            glassView.material = .hudWindow
+            // Favor a lighter fallback so behind-window glass reads more transparent.
+            glassView.material = .underWindowBackground
             glassView.state = .active
             glassView.wantsLayer = true
         }
@@ -269,7 +270,7 @@ struct ContentView: View {
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
-    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.05
+    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
 
     @State private var titlebarLeadingInset: CGFloat = 12

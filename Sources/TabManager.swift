@@ -988,7 +988,8 @@ class TabManager: ObservableObject {
 
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane()
+        // Cmd+T should always focus the newly created surface.
+        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
     // MARK: - Split Creation
@@ -1159,11 +1160,18 @@ class TabManager: ObservableObject {
     }
 
     /// Open a browser in the currently focused pane (as a new surface)
-    func openBrowser(url: URL? = nil) {
+    @discardableResult
+    func openBrowser(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
         guard let tabId = selectedTabId,
               let tab = tabs.first(where: { $0.id == tabId }),
-              let focusedPaneId = tab.bonsplitController.focusedPaneId else { return }
-        _ = tab.newBrowserSurface(inPane: focusedPaneId, url: url)
+              let focusedPaneId = tab.bonsplitController.focusedPaneId else { return nil }
+        let panel = tab.newBrowserSurface(
+            inPane: focusedPaneId,
+            url: url,
+            focus: true,
+            insertAtEnd: insertAtEnd
+        )
+        return panel?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
@@ -2200,6 +2208,7 @@ extension Notification.Name {
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
+    static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")

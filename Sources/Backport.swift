@@ -36,7 +36,7 @@ extension Backport where Content: View {
     func onKeyPress(_ key: KeyEquivalent, action: @escaping (EventModifiers) -> BackportKeyPressResult) -> some View {
         #if canImport(AppKit)
         if #available(macOS 14, *) {
-            return content.onKeyPress(key, phases: .down, action: { keyPress in
+            return content.onKeyPress(key, phases: [.down, .repeat], action: { keyPress in
                 switch action(keyPress.modifiers) {
                 case .handled: return .handled
                 case .ignored: return .ignored

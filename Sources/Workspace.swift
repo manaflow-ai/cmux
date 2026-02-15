@@ -227,7 +227,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let subscription = Publishers.CombineLatest3(
-            browserPanel.$pageTitle,
+            browserPanel.$pageTitle.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(),
             browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
@@ -236,11 +236,19 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            let nextTitle = browserPanel.displayTitle
+            let titleUpdate: String? = existing.title == nextTitle ? nil : nextTitle
+            let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
+            let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
+
+            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
-                title: browserPanel.displayTitle,
-                iconImageData: .some(favicon),
-                isLoading: isLoading
+                title: titleUpdate,
+                iconImageData: faviconUpdate,
+                isLoading: loadingUpdate
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
@@ -445,9 +453,10 @@ final class Workspace: Identifiable, ObservableObject {
         // updates can be deferred. Force a deterministic selection + focus path so the new
         // surface becomes interactive immediately (no "frozen until pane switch" state).
         if shouldFocusNewTab {
-            // Use the same focus path as socket-driven focus changes so we reliably transfer
-            // AppKit first responder between terminal surfaces after heavy split/tab churn.
-            focusPanel(newPanel.id)
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            newPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
         }
         return newPanel
     }
@@ -510,7 +519,12 @@ final class Workspace: Identifiable, ObservableObject {
     ///                    true = force focus/selection of the new surface,
     ///                    false = never focus (used for internal placeholder repair paths).
     @discardableResult
-    func newBrowserSurface(inPane paneId: PaneID, url: URL? = nil, focus: Bool? = nil) -> BrowserPanel? {
+    func newBrowserSurface(
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        focus: Bool? = nil,
+        insertAtEnd: Bool = false
+    ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
         let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
@@ -528,6 +542,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = browserPanel.id
+
+        // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
+        if insertAtEnd {
+            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
 
         // Match terminal behavior: enforce deterministic selection + focus.
         if shouldFocusNewTab {
@@ -886,9 +906,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
-    func newTerminalSurfaceInFocusedPane() -> TerminalPanel? {
+    func newTerminalSurfaceInFocusedPane(focus: Bool? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        return newTerminalSurface(inPane: focusedPaneId)
+        return newTerminalSurface(inPane: focusedPaneId, focus: focus)
     }
 
     // MARK: - Flash/Notification Support

@@ -11,18 +11,34 @@ struct BrowserPanelView: View {
     @State private var omnibarState = OmnibarState()
     @FocusState private var addressBarFocused: Bool
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
-    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
+    @State private var latestRemoteSuggestionQuery: String = ""
+    @State private var latestRemoteSuggestions: [String] = []
     @State private var suppressNextFocusLostRevert: Bool = false
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashFadeWorkItem: DispatchWorkItem?
+    @State private var omnibarPillFrame: CGRect = .zero
+    private let omnibarPillCornerRadius: CGFloat = 12
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
     }
 
+    private var searchSuggestionsEnabled: Bool {
+        // Touch @AppStorage so SwiftUI invalidates this view when settings change.
+        _ = searchSuggestionsEnabledStorage
+        return BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: .standard)
+    }
+
     private var remoteSuggestionsEnabled: Bool {
+        // Deterministic UI-test hook: force remote path on even if a persisted
+        // setting disabled suggestions in previous sessions.
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"] != nil ||
+            UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON") != nil {
+            return true
+        }
         // Keep UI tests deterministic by disabling network suggestions when requested.
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] == "1" {
             return false
@@ -148,14 +164,15 @@ struct BrowserPanelView: View {
                         }
                         .backport.onKeyPress("n") { modifiers in
                             // Emacs-style navigation: Ctrl+N / Ctrl+P.
-                            guard modifiers.contains(.control) else { return .ignored }
+                            // Also accept Cmd for users expecting Chrome-style shortcuts.
+                            guard modifiers.contains(.control) || modifiers.contains(.command) else { return .ignored }
                             guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return .ignored }
                             let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: +1))
                             applyOmnibarEffects(effects)
                             return .handled
                         }
                         .backport.onKeyPress("p") { modifiers in
-                            guard modifiers.contains(.control) else { return .ignored }
+                            guard modifiers.contains(.control) || modifiers.contains(.command) else { return .ignored }
                             guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return .ignored }
                             let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: -1))
                             applyOmnibarEffects(effects)
@@ -165,43 +182,31 @@ struct BrowserPanelView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
                         .fill(Color(nsColor: .textBackgroundColor))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
                         .stroke(addressBarFocused ? Color.accentColor : Color.clear, lineWidth: 1)
                 )
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
-                .overlay(alignment: .topLeading) {
+                .background {
                     GeometryReader { geo in
-                        if addressBarFocused, !omnibarState.suggestions.isEmpty {
-                            OmnibarSuggestionsView(
-                                engineName: searchEngine.displayName,
-                                items: omnibarState.suggestions,
-                                selectedIndex: omnibarState.selectedSuggestionIndex,
-                                isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
-                                searchSuggestionsEnabled: remoteSuggestionsEnabled,
-                                onCommit: { item in
-                                    commitSuggestion(item)
-                                },
-                                onHighlight: { idx in
-                                    let effects = omnibarReduce(state: &omnibarState, event: .highlightIndex(idx))
-                                    applyOmnibarEffects(effects)
-                                }
+                        Color.clear
+                            .preference(
+                                key: OmnibarPillFramePreferenceKey.self,
+                                value: geo.frame(in: .named("BrowserPanelViewSpace"))
                             )
-                            .frame(width: geo.size.width)
-                            .offset(y: geo.size.height + 6)
-                            .zIndex(1000)
-                        }
                     }
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(Color(nsColor: .windowBackgroundColor))
+            // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
+            .zIndex(1)
 
             // Web view
             WebViewRepresentable(
@@ -212,6 +217,15 @@ struct BrowserPanelView: View {
                 // Keep the representable identity stable across bonsplit structural updates.
                 // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
                 .id(panel.id)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    // Chrome-like behavior: clicking web content while editing the
+                    // omnibar should commit blur and revert transient edits.
+                    if addressBarFocused {
+                        addressBarFocused = false
+                    }
+                })
+                .zIndex(0)
                 .contextMenu {
                     Button("Open Developer Tools") {
                         openDevTools()
@@ -226,7 +240,36 @@ struct BrowserPanelView: View {
                 .padding(6)
                 .allowsHitTesting(false)
         }
+        .overlay(alignment: .topLeading) {
+            if addressBarFocused, !omnibarState.suggestions.isEmpty, omnibarPillFrame.width > 0 {
+                OmnibarSuggestionsView(
+                    engineName: searchEngine.displayName,
+                    items: omnibarState.suggestions,
+                    selectedIndex: omnibarState.selectedSuggestionIndex,
+                    isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+                    searchSuggestionsEnabled: remoteSuggestionsEnabled,
+                    onCommit: { item in
+                        commitSuggestion(item)
+                    },
+                    onHighlight: { idx in
+                        let effects = omnibarReduce(state: &omnibarState, event: .highlightIndex(idx))
+                        applyOmnibarEffects(effects)
+                    }
+                )
+                .frame(width: omnibarPillFrame.width)
+                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 6)
+                .zIndex(1000)
+            }
+        }
+        .coordinateSpace(name: "BrowserPanelViewSpace")
+        .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
+            omnibarPillFrame = frame
+        }
         .onAppear {
+            UserDefaults.standard.register(defaults: [
+                BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
+                BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+            ])
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
@@ -279,6 +322,13 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserFocusAddressBar)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
             addressBarFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
+            guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
+            guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
+            guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
+            let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
+            applyOmnibarEffects(effects)
         }
     }
 
@@ -382,6 +432,51 @@ struct BrowserPanelView: View {
             return
         }
 
+        let baseItems = localOmnibarSuggestions(for: query)
+        var items = baseItems
+        let staleRemote = staleRemoteSuggestionsForDisplay(query: query)
+        if !staleRemote.isEmpty {
+            items = mergeRemoteSuggestions(baseItems: items, remoteQueries: staleRemote)
+        }
+        let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(items))
+        applyOmnibarEffects(effects)
+
+        if let forcedRemote = forcedRemoteSuggestionsForUITest() {
+            latestRemoteSuggestionQuery = query
+            latestRemoteSuggestions = forcedRemote
+            let merged = mergeRemoteSuggestions(baseItems: baseItems, remoteQueries: forcedRemote)
+            let forcedEffects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
+            applyOmnibarEffects(forcedEffects)
+            return
+        }
+
+        guard remoteSuggestionsEnabled else { return }
+
+        // Keep current remote rows visible while fetching fresh predictions.
+        let engine = searchEngine
+        isLoadingRemoteSuggestions = true
+        suggestionTask = Task {
+            let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
+            if Task.isCancelled { return }
+
+            await MainActor.run {
+                guard addressBarFocused else { return }
+                let current = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard current == query else { return }
+                latestRemoteSuggestionQuery = query
+                latestRemoteSuggestions = remote
+                let merged = mergeRemoteSuggestions(
+                    baseItems: localOmnibarSuggestions(for: query),
+                    remoteQueries: remote
+                )
+                let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
+                applyOmnibarEffects(effects)
+                isLoadingRemoteSuggestions = false
+            }
+        }
+    }
+
+    private func localOmnibarSuggestions(for query: String) -> [OmnibarSuggestion] {
         var items: [OmnibarSuggestion] = []
         var seen = Set<String>()
 
@@ -399,44 +494,32 @@ struct BrowserPanelView: View {
             insert(.history(entry))
         }
 
-        let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(items))
-        applyOmnibarEffects(effects)
+        return items
+    }
 
-        guard searchSuggestionsEnabled else { return }
-        guard remoteSuggestionsEnabled else { return }
+    private func staleRemoteSuggestionsForDisplay(query: String) -> [String] {
+        staleOmnibarRemoteSuggestionsForDisplay(
+            query: query,
+            previousRemoteQuery: latestRemoteSuggestionQuery,
+            previousRemoteSuggestions: latestRemoteSuggestions
+        )
+    }
 
-        // Debounced remote suggestions (Google/DDG/Bing).
-        let engine = searchEngine
-        isLoadingRemoteSuggestions = true
-        suggestionTask = Task {
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            if Task.isCancelled { return }
-
-            let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
-            if Task.isCancelled { return }
-
-            await MainActor.run {
-                guard addressBarFocused else { return }
-                let current = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard current == query else { return }
-
-                var merged = omnibarState.suggestions
-                var mergedSeen = Set(merged.map { $0.completion.lowercased() })
-                var insertionIndex = min(1, merged.count) // right below the "Search …" row
-                for s in remote.prefix(8) {
-                    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { continue }
-                    let key = trimmed.lowercased()
-                    guard !mergedSeen.contains(key) else { continue }
-                    mergedSeen.insert(key)
-                    merged.insert(.remoteSearchSuggestion(trimmed), at: insertionIndex)
-                    insertionIndex += 1
-                }
-                let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
-                applyOmnibarEffects(effects)
-                isLoadingRemoteSuggestions = false
-            }
+    private func forcedRemoteSuggestionsForUITest() -> [String]? {
+        let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"]
+            ?? UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON")
+        guard let raw,
+              let data = raw.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+            return nil
         }
+
+        let values = parsed.compactMap { item -> String? in
+            guard let s = item as? String else { return nil }
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return values.isEmpty ? nil : values
     }
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {
@@ -458,6 +541,59 @@ struct BrowserPanelView: View {
                 window.makeFirstResponder(panel.webView)
                 NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
             }
+        }
+    }
+}
+
+func mergeRemoteSuggestions(baseItems: [OmnibarSuggestion], remoteQueries: [String], limit: Int = 8) -> [OmnibarSuggestion] {
+    var merged = baseItems
+    var mergedSeen = Set(merged.map { $0.completion.lowercased() })
+    var insertionIndex = min(1, merged.count)
+    for s in remoteQueries.prefix(limit) {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        let key = trimmed.lowercased()
+        guard !mergedSeen.contains(key) else { continue }
+        mergedSeen.insert(key)
+        merged.insert(.remoteSearchSuggestion(trimmed), at: insertionIndex)
+        insertionIndex += 1
+    }
+    return merged
+}
+
+func staleOmnibarRemoteSuggestionsForDisplay(
+    query: String,
+    previousRemoteQuery: String,
+    previousRemoteSuggestions: [String],
+    limit: Int = 8
+) -> [String] {
+    let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedPreviousQuery = previousRemoteQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedQuery.isEmpty, !trimmedPreviousQuery.isEmpty else { return [] }
+    guard !previousRemoteSuggestions.isEmpty else { return [] }
+    // Keep stale rows only for nearby edits (typing/backspacing around the same query).
+    guard trimmedQuery.hasPrefix(trimmedPreviousQuery) || trimmedPreviousQuery.hasPrefix(trimmedQuery) else {
+        return []
+    }
+    let sanitized = previousRemoteSuggestions.compactMap { raw -> String? in
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    if sanitized.isEmpty {
+        return []
+    }
+    return Array(sanitized.prefix(limit))
+}
+
+private struct OmnibarPillFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
         }
     }
 }
@@ -537,8 +673,12 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         }
 
     case .suggestionsUpdated(let items):
+        let previousItems = state.suggestions
         state.suggestions = items
         if items.isEmpty {
+            state.selectedSuggestionIndex = 0
+        } else if previousItems.isEmpty {
+            // Popup reopened: start keyboard focus from the first row.
             state.selectedSuggestionIndex = 0
         } else {
             state.selectedSuggestionIndex = min(max(0, state.selectedSuggestionIndex), items.count - 1)
@@ -581,22 +721,25 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case remote(query: String)
     }
 
-    let id: UUID = UUID()
     let kind: Kind
+
+    // Stable identity prevents row teardown/rebuild flicker while typing.
+    var id: String {
+        switch kind {
+        case .search(let engineName, let query):
+            return "search|\(engineName.lowercased())|\(query.lowercased())"
+        case .history(let url, _):
+            return "history|\(url.lowercased())"
+        case .remote(let query):
+            return "remote|\(query.lowercased())"
+        }
+    }
 
     var completion: String {
         switch kind {
         case .search(_, let q): return q
         case .history(let url, _): return url
         case .remote(let q): return q
-        }
-    }
-
-    var iconName: String {
-        switch kind {
-        case .search: return "magnifyingglass"
-        case .history: return "clock"
-        case .remote: return "magnifyingglass"
         }
     }
 
@@ -643,84 +786,155 @@ private struct OmnibarSuggestionsView: View {
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
 
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-                    Button {
-                        onCommit(item)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: item.iconName)
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 12))
-                                .frame(width: 16)
+    // Keep radii below the smallest rendered heights so corners don't get
+    // auto-clamped and visually change as popup height changes.
+    private let popupCornerRadius: CGFloat = 16
+    private let rowHighlightCornerRadius: CGFloat = 12
+    private let rowHeight: CGFloat = 24
+    private let rowSpacing: CGFloat = 1
+    private let topInset: CGFloat = 4
+    private let bottomInset: CGFloat = 4
+    private var horizontalInset: CGFloat { topInset }
+    private let maxPopupHeight: CGFloat = 560
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.primaryText)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                if let secondary = item.secondaryText {
-                                    Text(secondary)
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            idx == selectedIndex
-                                ? Color.accentColor.opacity(0.18)
-                                : Color.clear
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
-                    .accessibilityValue(idx == selectedIndex ? "selected" : "")
-                    .onHover { hovering in
-                        if hovering {
-                            onHighlight(idx)
-                        }
-                    }
+    private var totalRowCount: Int {
+        max(1, items.count)
+    }
 
-                    if idx != items.count - 1 {
-                        Divider()
-                            .opacity(0.5)
-                    }
-                }
+    private var contentHeight: CGFloat {
+        let rows = CGFloat(totalRowCount)
+        let gaps = CGFloat(max(0, totalRowCount - 1))
+        return (rows * rowHeight) + (gaps * rowSpacing) + topInset + bottomInset
+    }
 
-                if searchSuggestionsEnabled, isLoadingRemoteSuggestions {
-                    Divider()
-                        .opacity(0.5)
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 16)
-                        Text("Loading suggestions…")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+    private var minimumPopupHeight: CGFloat {
+        rowHeight + topInset + bottomInset
+    }
+
+    private func snapToDevicePixels(_ value: CGFloat) -> CGFloat {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        return (value * scale).rounded(.toNearestOrAwayFromZero) / scale
+    }
+
+    private var popupHeight: CGFloat {
+        snapToDevicePixels(min(max(contentHeight, minimumPopupHeight), maxPopupHeight))
+    }
+
+    private var isPointerDrivenSelectionEvent: Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+             .rightMouseDown, .rightMouseDragged, .rightMouseUp,
+             .otherMouseDown, .otherMouseDragged, .otherMouseUp, .scrollWheel:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var shouldScroll: Bool {
+        contentHeight > maxPopupHeight
+    }
+
+    @ViewBuilder
+    private var rowsView: some View {
+        VStack(spacing: rowSpacing) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                Button {
+                    onCommit(item)
+                } label: {
+                    HStack(spacing: 0) {
+                        Text(item.primaryText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.white.opacity(0.9))
+                            .lineLimit(1)
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: rowHighlightCornerRadius, style: .continuous)
+                            .fill(
+                                idx == selectedIndex
+                                    ? Color.white.opacity(0.12)
+                                    : Color.clear
+                            )
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
+                .accessibilityValue(idx == selectedIndex ? "selected" : "")
+                .onHover { hovering in
+                    if hovering, idx != selectedIndex, isPointerDrivenSelectionEvent {
+                        onHighlight(idx)
+                    }
+                }
+                .animation(.none, value: selectedIndex)
+            }
+
+        }
+        .padding(.horizontal, horizontalInset)
+        .padding(.top, topInset)
+        .padding(.bottom, bottomInset)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    var body: some View {
+        Group {
+            if shouldScroll {
+                ScrollView {
+                    rowsView
+                }
+            } else {
+                rowsView
             }
         }
-        .frame(maxHeight: 240)
+        .frame(height: popupHeight, alignment: .top)
+        .overlay(alignment: .topTrailing) {
+            if searchSuggestionsEnabled, isLoadingRemoteSuggestions {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.top, 7)
+                    .padding(.trailing, 14)
+                    .opacity(0.75)
+                    .allowsHitTesting(false)
+            }
+        }
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .textBackgroundColor))
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.black.opacity(0.26),
+                                    Color.black.opacity(0.14),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.06),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
         )
+        .shadow(color: Color.black.opacity(0.45), radius: 20, y: 10)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
+        .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
         .accessibilityLabel("Address bar suggestions")
     }

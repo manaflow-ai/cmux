@@ -103,6 +103,52 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
     }
 }
 
+final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOnly() {
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: false,
+                flags: [.command],
+                chars: "n"
+            )
+        )
+
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command],
+                chars: "n"
+            ),
+            1
+        )
+
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command],
+                chars: "p"
+            ),
+            -1
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .shift],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.control],
+                chars: "n"
+            )
+        )
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
@@ -334,6 +380,61 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceReturnsFalseForUnknownWorkspace() {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
+    }
+}
+
+@MainActor
+final class TabManagerSurfaceCreationTests: XCTestCase {
+    func testNewSurfaceFocusesCreatedSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+
+        let beforePanels = Set(workspace.panels.keys)
+        manager.newSurface()
+        let afterPanels = Set(workspace.panels.keys)
+
+        let createdPanels = afterPanels.subtracting(beforePanels)
+        XCTAssertEqual(createdPanels.count, 1, "Expected one new surface for Cmd+T path")
+        guard let createdPanelId = createdPanels.first else { return }
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            createdPanelId,
+            "Expected newly created surface to be focused"
+        )
+    }
+
+    func testOpenBrowserInsertAtEndPlacesNewBrowserAtPaneEnd() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused workspace and pane")
+            return
+        }
+
+        // Add one extra surface so we verify append-to-end rather than first insert behavior.
+        _ = workspace.newTerminalSurface(inPane: paneId, focus: false)
+
+        guard let browserPanelId = manager.openBrowser(insertAtEnd: true) else {
+            XCTFail("Expected browser panel to be created")
+            return
+        }
+
+        let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+        guard let lastSurfaceId = tabs.last?.id else {
+            XCTFail("Expected at least one surface in pane")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.panelIdFromSurfaceId(lastSurfaceId),
+            browserPanelId,
+            "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
 }
 
@@ -607,9 +708,50 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 }
 
+final class BrowserSearchSettingsTests: XCTestCase {
+    func testCurrentSearchSuggestionsEnabledDefaultsToTrueWhenUnset() {
+        let suiteName = "BrowserSearchSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+    }
+
+    func testCurrentSearchSuggestionsEnabledHonorsExplicitValue() {
+        let suiteName = "BrowserSearchSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(false, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
+        XCTAssertFalse(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+    }
+}
+
 final class BrowserHistoryStoreTests: XCTestCase {
     func testRecordVisitDedupesAndSuggests() async throws {
-        let store = await MainActor.run { BrowserHistoryStore(fileURL: nil) }
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BrowserHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let fileURL = tempDir.appendingPathComponent("browser_history.json")
+        let store = await MainActor.run { BrowserHistoryStore(fileURL: fileURL) }
 
         let u1 = try XCTUnwrap(URL(string: "https://example.com/foo"))
         let u2 = try XCTUnwrap(URL(string: "https://example.com/bar"))
@@ -624,6 +766,46 @@ final class BrowserHistoryStoreTests: XCTestCase {
         XCTAssertEqual(suggestions.first?.url, "https://example.com/foo")
         XCTAssertEqual(suggestions.first?.visitCount, 2)
         XCTAssertEqual(suggestions.first?.title, "Example Foo Updated")
+    }
+
+    func testSuggestionsLoadsPersistedHistoryImmediatelyOnFirstQuery() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BrowserHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let fileURL = tempDir.appendingPathComponent("browser_history.json")
+        let now = Date()
+        let seededEntries = [
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: "https://go.dev/",
+                title: "The Go Programming Language",
+                lastVisited: now,
+                visitCount: 3
+            ),
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: "https://www.google.com/",
+                title: "Google",
+                lastVisited: now.addingTimeInterval(-120),
+                visitCount: 2
+            ),
+        ]
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = try encoder.encode(seededEntries)
+        try data.write(to: fileURL, options: [.atomic])
+
+        let store = await MainActor.run { BrowserHistoryStore(fileURL: fileURL) }
+        let suggestions = await MainActor.run { store.suggestions(for: "go", limit: 10) }
+
+        XCTAssertGreaterThanOrEqual(suggestions.count, 2)
+        XCTAssertEqual(suggestions.first?.url, "https://go.dev/")
+        XCTAssertTrue(suggestions.contains(where: { $0.url == "https://www.google.com/" }))
     }
 }
 
@@ -693,6 +875,117 @@ final class OmnibarStateMachineTests: XCTestCase {
         _ = omnibarReduce(state: &state, event: .focusLostRevertBuffer(currentURLString: "https://example.com/"))
         XCTAssertEqual(state.buffer, "https://example.com/")
     }
+
+    func testSuggestionsUpdateKeepsSelectionAcrossNonEmptyListRefresh() throws {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
+
+        let base: [OmnibarSuggestion] = [
+            .search(engineName: "Google", query: "go"),
+            .remoteSearchSuggestion("go tutorial"),
+            .remoteSearchSuggestion("go json"),
+        ]
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(base))
+        XCTAssertEqual(state.selectedSuggestionIndex, 0)
+
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 2))
+        XCTAssertEqual(state.selectedSuggestionIndex, 2)
+
+        // Simulate remote merge update for the same query while popup remains open.
+        let merged: [OmnibarSuggestion] = [
+            .search(engineName: "Google", query: "go"),
+            .remoteSearchSuggestion("go tutorial"),
+            .remoteSearchSuggestion("go json"),
+            .remoteSearchSuggestion("go fmt"),
+        ]
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(merged))
+        XCTAssertEqual(state.selectedSuggestionIndex, 2, "Expected selection to remain stable while list stays open")
+    }
+
+    func testSuggestionsReopenResetsSelectionToFirstRow() throws {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
+
+        let rows: [OmnibarSuggestion] = [
+            .search(engineName: "Google", query: "go"),
+            .remoteSearchSuggestion("go tutorial"),
+        ]
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        XCTAssertEqual(state.selectedSuggestionIndex, 1)
+
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
+        XCTAssertEqual(state.selectedSuggestionIndex, 0)
+
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        XCTAssertEqual(state.selectedSuggestionIndex, 0, "Expected reopened popup to focus first row")
+    }
+}
+
+final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
+    func testMergeRemoteSuggestionsInsertsBelowSearchAndDedupes() {
+        let base: [OmnibarSuggestion] = [
+            .search(engineName: "Google", query: "go"),
+            .history(
+                BrowserHistoryStore.Entry(
+                    id: UUID(),
+                    url: "https://go.dev/",
+                    title: "The Go Programming Language",
+                    lastVisited: Date(),
+                    visitCount: 10
+                )
+            ),
+        ]
+
+        let merged = mergeRemoteSuggestions(
+            baseItems: base,
+            remoteQueries: ["go tutorial", "go.dev", "go json"],
+            limit: 8
+        )
+
+        XCTAssertEqual(merged.map(\.completion), [
+            "go",
+            "go tutorial",
+            "go.dev",
+            "go json",
+            "https://go.dev/",
+        ])
+    }
+
+    func testStaleRemoteSuggestionsKeptForNearbyEdits() {
+        let stale = staleOmnibarRemoteSuggestionsForDisplay(
+            query: "go t",
+            previousRemoteQuery: "go",
+            previousRemoteSuggestions: ["go tutorial", "go json", "golang tips"],
+            limit: 8
+        )
+
+        XCTAssertEqual(stale, ["go tutorial", "go json", "golang tips"])
+    }
+
+    func testStaleRemoteSuggestionsTrimAndRespectLimit() {
+        let stale = staleOmnibarRemoteSuggestionsForDisplay(
+            query: "gooo",
+            previousRemoteQuery: "goo",
+            previousRemoteSuggestions: [" go tutorial ", "", "go json", "   ", "go fmt"],
+            limit: 2
+        )
+
+        XCTAssertEqual(stale, ["go tutorial", "go json"])
+    }
+
+    func testStaleRemoteSuggestionsDroppedForUnrelatedQuery() {
+        let stale = staleOmnibarRemoteSuggestionsForDisplay(
+            query: "python",
+            previousRemoteQuery: "go",
+            previousRemoteSuggestions: ["go tutorial", "go json"],
+            limit: 8
+        )
+
+        XCTAssertTrue(stale.isEmpty)
+    }
 }
 
 @MainActor
@@ -706,6 +999,24 @@ final class NotificationDockBadgeTests: XCTestCase {
     func testDockBadgeLabelHiddenWhenDisabledOrZero() {
         XCTAssertNil(TerminalNotificationStore.dockBadgeLabel(unreadCount: 0, isEnabled: true))
         XCTAssertNil(TerminalNotificationStore.dockBadgeLabel(unreadCount: 5, isEnabled: false))
+    }
+
+    func testDockBadgeLabelShowsRunTagEvenWithoutUnread() {
+        XCTAssertEqual(
+            TerminalNotificationStore.dockBadgeLabel(unreadCount: 0, isEnabled: true, runTag: "verify-tag"),
+            "verify-tag"
+        )
+    }
+
+    func testDockBadgeLabelCombinesRunTagAndUnreadCount() {
+        XCTAssertEqual(
+            TerminalNotificationStore.dockBadgeLabel(unreadCount: 7, isEnabled: true, runTag: "verify"),
+            "verify:7"
+        )
+        XCTAssertEqual(
+            TerminalNotificationStore.dockBadgeLabel(unreadCount: 120, isEnabled: true, runTag: "verify"),
+            "verify:99+"
+        )
     }
 
     func testNotificationBadgePreferenceDefaultsToEnabled() {

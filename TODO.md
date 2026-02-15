@@ -26,6 +26,9 @@
 ## Command Palette
 - [ ] Add cmd+shift+p palette with all commands
 
+## Feature Requests
+- [ ] Warm pool of Claude Code instances mapped to a keyboard shortcut
+
 ## Claude Code Integration
 - [ ] Add "Install Claude Code integration" menu item in menubar
   - Opens a new terminal
