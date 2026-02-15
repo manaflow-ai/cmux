@@ -44,6 +44,53 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+print_tag_cleanup_reminder() {
+  local current_slug="$1"
+  local path=""
+  local tag=""
+  local seen=" "
+  local -a stale_tags=()
+
+  while IFS= read -r -d '' path; do
+    tag="${path#/tmp/cmux-}"
+    if [[ "$tag" == "$current_slug" ]]; then
+      continue
+    fi
+    # Only surface stale debug tag builds.
+    if [[ ! -d "$path/Build/Products/Debug" ]]; then
+      continue
+    fi
+    if [[ "$seen" == *" $tag "* ]]; then
+      continue
+    fi
+    seen="${seen}${tag} "
+    stale_tags+=("$tag")
+  done < <(find /tmp -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null)
+
+  echo
+  echo "Tag cleanup status:"
+  echo "  current tag: ${current_slug} (keep this running until you verify)"
+  if [[ "${#stale_tags[@]}" -eq 0 ]]; then
+    echo "  stale tags: none"
+    echo "  stale cleanup: not needed"
+  else
+    echo "  stale tags:"
+    for tag in "${stale_tags[@]}"; do
+      echo "    - ${tag}"
+    done
+    echo "Cleanup stale tags only:"
+    for tag in "${stale_tags[@]}"; do
+      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
+      echo "  rm -rf \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
+    done
+  fi
+  echo "After you verify current tag, cleanup command:"
+  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
+  echo "  rm -rf \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -256,7 +303,9 @@ OPEN_CLEAN_ENV=(
 
 if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
   # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-  "${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
+elif [[ -n "${TAG_SLUG:-}" ]]; then
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" open "$APP_PATH"
 else
   "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
 fi
@@ -280,4 +329,8 @@ if [[ "${#PIDS[@]}" -gt 1 ]]; then
       kill "$PID" 2>/dev/null || true
     fi
   done
+fi
+
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  print_tag_cleanup_reminder "$TAG_SLUG"
 fi

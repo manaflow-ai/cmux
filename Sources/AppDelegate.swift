@@ -64,6 +64,18 @@ enum WorkspaceShortcutMapper {
     }
 }
 
+func browserOmnibarSelectionDeltaForCommandNavigation(
+    hasFocusedAddressBar: Bool,
+    flags: NSEvent.ModifierFlags,
+    chars: String
+) -> Int? {
+    guard hasFocusedAddressBar else { return nil }
+    guard flags == [.command] else { return nil }
+    if chars == "n" { return 1 }
+    if chars == "p" { return -1 }
+    return nil
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -125,6 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
+    private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
+    private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
+    private var browserOmnibarRepeatKeyCode: UInt16?
+    private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private let updateController = UpdateController()
@@ -1334,12 +1350,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
-        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
-            if self.handleCustomShortcut(event: event) {
-                return nil // Consume the event
+            if event.type == .keyDown {
+                if self.handleCustomShortcut(event: event) {
+                    return nil // Consume the event
+                }
+                return event // Pass through
             }
-            return event // Pass through
+            self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+            return event
         }
     }
 
@@ -1538,6 +1558,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // Chrome-like omnibar navigation while holding Cmd+N / Cmd+P.
+        if let delta = commandOmnibarSelectionDelta(flags: flags, chars: chars) {
+            dispatchBrowserOmnibarSelectionMove(delta: delta)
+            startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: event.keyCode, delta: delta)
+            return true
+        }
+
+        // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
+        // address bar is focused. Without this, app-level Cmd+N can steal focus.
+        if shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
+            return false
+        }
+
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             sidebarState?.toggle()
@@ -1700,7 +1733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open browser: Cmd+Shift+B
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
-            tabManager?.openBrowser()
+            tabManager?.openBrowser(insertAtEnd: true)
             return true
         }
 
@@ -1721,7 +1754,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
-            tabManager?.openBrowser()
+            tabManager?.openBrowser(insertAtEnd: true)
             if let focusedPanel = tabManager?.focusedBrowserPanel {
                 browserAddressBarFocusedPanelId = focusedPanel.id
                 NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
@@ -1730,6 +1763,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
+        flags: NSEvent.ModifierFlags,
+        chars: String
+    ) -> Bool {
+        guard browserAddressBarFocusedPanelId != nil else { return false }
+        guard flags == [.command] else { return false }
+        return chars == "n" || chars == "p"
+    }
+
+    private func commandOmnibarSelectionDelta(
+        flags: NSEvent.ModifierFlags,
+        chars: String
+    ) -> Int? {
+        browserOmnibarSelectionDeltaForCommandNavigation(
+            hasFocusedAddressBar: browserAddressBarFocusedPanelId != nil,
+            flags: flags,
+            chars: chars
+        )
+    }
+
+    private func dispatchBrowserOmnibarSelectionMove(delta: Int) {
+        guard delta != 0 else { return }
+        guard let panelId = browserAddressBarFocusedPanelId else { return }
+        NotificationCenter.default.post(
+            name: .browserMoveOmnibarSelection,
+            object: panelId,
+            userInfo: ["delta": delta]
+        )
+    }
+
+    private func startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: UInt16, delta: Int) {
+        guard delta != 0 else { return }
+        guard browserAddressBarFocusedPanelId != nil else { return }
+
+        if browserOmnibarRepeatKeyCode == keyCode, browserOmnibarRepeatDelta == delta {
+            return
+        }
+
+        stopBrowserOmnibarSelectionRepeat()
+        browserOmnibarRepeatKeyCode = keyCode
+        browserOmnibarRepeatDelta = delta
+
+        let start = DispatchWorkItem { [weak self] in
+            self?.scheduleBrowserOmnibarSelectionRepeatTick()
+        }
+        browserOmnibarRepeatStartWorkItem = start
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: start)
+    }
+
+    private func scheduleBrowserOmnibarSelectionRepeatTick() {
+        browserOmnibarRepeatStartWorkItem = nil
+        guard browserAddressBarFocusedPanelId != nil else {
+            stopBrowserOmnibarSelectionRepeat()
+            return
+        }
+        guard browserOmnibarRepeatKeyCode != nil else { return }
+
+        dispatchBrowserOmnibarSelectionMove(delta: browserOmnibarRepeatDelta)
+
+        let tick = DispatchWorkItem { [weak self] in
+            self?.scheduleBrowserOmnibarSelectionRepeatTick()
+        }
+        browserOmnibarRepeatTickWorkItem = tick
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055, execute: tick)
+    }
+
+    private func stopBrowserOmnibarSelectionRepeat() {
+        browserOmnibarRepeatStartWorkItem?.cancel()
+        browserOmnibarRepeatTickWorkItem?.cancel()
+        browserOmnibarRepeatStartWorkItem = nil
+        browserOmnibarRepeatTickWorkItem = nil
+        browserOmnibarRepeatKeyCode = nil
+        browserOmnibarRepeatDelta = 0
+    }
+
+    private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
+        guard browserOmnibarRepeatKeyCode != nil else { return }
+
+        switch event.type {
+        case .keyUp:
+            if event.keyCode == browserOmnibarRepeatKeyCode {
+                stopBrowserOmnibarSelectionRepeat()
+            }
+        case .flagsChanged:
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if !flags.contains(.command) {
+                stopBrowserOmnibarSelectionRepeat()
+            }
+        default:
+            break
+        }
     }
 
     @discardableResult
@@ -2068,6 +2194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
             self.browserAddressBarFocusedPanelId = panelId
+            self.stopBrowserOmnibarSelectionRepeat()
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
@@ -2079,6 +2206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let panelId = notification.object as? UUID else { return }
             if self.browserAddressBarFocusedPanelId == panelId {
                 self.browserAddressBarFocusedPanelId = nil
+                self.stopBrowserOmnibarSelectionRepeat()
             }
         }
     }

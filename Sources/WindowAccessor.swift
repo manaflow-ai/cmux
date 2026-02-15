@@ -3,6 +3,12 @@ import SwiftUI
 
 struct WindowAccessor: NSViewRepresentable {
     let onWindow: (NSWindow) -> Void
+    let dedupeByWindow: Bool
+
+    init(dedupeByWindow: Bool = true, onWindow: @escaping (NSWindow) -> Void) {
+        self.onWindow = onWindow
+        self.dedupeByWindow = dedupeByWindow
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -11,7 +17,7 @@ struct WindowAccessor: NSViewRepresentable {
     func makeNSView(context: Context) -> WindowObservingView {
         let view = WindowObservingView()
         view.onWindow = { window in
-            guard context.coordinator.lastWindow !== window else { return }
+            guard !dedupeByWindow || context.coordinator.lastWindow !== window else { return }
             context.coordinator.lastWindow = window
             onWindow(window)
         }
@@ -20,7 +26,7 @@ struct WindowAccessor: NSViewRepresentable {
 
     func updateNSView(_ nsView: WindowObservingView, context: Context) {
         nsView.onWindow = { window in
-            guard context.coordinator.lastWindow !== window else { return }
+            guard !dedupeByWindow || context.coordinator.lastWindow !== window else { return }
             context.coordinator.lastWindow = window
             onWindow(window)
         }

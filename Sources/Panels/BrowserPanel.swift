@@ -99,26 +99,24 @@ final class BrowserHistoryStore: ObservableObject {
         didLoad = true
         guard let fileURL else { return }
 
-        Task.detached(priority: .utility) {
-            let data: Data
-            do {
-                data = try Data(contentsOf: fileURL)
-            } catch {
-                return
-            }
-
-            let decoded: [Entry]
-            do {
-                decoded = try JSONDecoder().decode([Entry].self, from: data)
-            } catch {
-                return
-            }
-
-            await MainActor.run {
-                // Most-recent first
-                self.entries = decoded.sorted(by: { $0.lastVisited > $1.lastVisited })
-            }
+        // Load synchronously on first access so the first omnibar query can use
+        // persisted history immediately (important for deterministic UI behavior).
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            return
         }
+
+        let decoded: [Entry]
+        do {
+            decoded = try JSONDecoder().decode([Entry].self, from: data)
+        } catch {
+            return
+        }
+
+        // Most-recent first.
+        entries = decoded.sorted(by: { $0.lastVisited > $1.lastVisited })
     }
 
     func recordVisit(url: URL?, title: String?) {
@@ -238,26 +236,73 @@ actor BrowserSearchSuggestionService {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
+        // Deterministic UI-test hook for validating remote suggestion rendering
+        // without relying on external network behavior.
+        let forced = ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"]
+            ?? UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON")
+        if let forced,
+           let data = forced.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+            return parsed.compactMap { item in
+                guard let s = item as? String else { return nil }
+                let value = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+        }
+
+        // Google's endpoint can intermittently throttle/block app-style traffic.
+        // Query fallbacks in parallel so we can show predictions quickly.
+        if engine == .google {
+            return await fetchRemoteSuggestionsWithGoogleFallbacks(query: trimmed)
+        }
+
+        return await fetchRemoteSuggestions(engine: engine, query: trimmed)
+    }
+
+    private func fetchRemoteSuggestionsWithGoogleFallbacks(query: String) async -> [String] {
+        await withTaskGroup(of: [String].self, returning: [String].self) { group in
+            group.addTask {
+                await self.fetchRemoteSuggestions(engine: .google, query: query)
+            }
+            group.addTask {
+                await self.fetchRemoteSuggestions(engine: .duckduckgo, query: query)
+            }
+            group.addTask {
+                await self.fetchRemoteSuggestions(engine: .bing, query: query)
+            }
+
+            while let result = await group.next() {
+                if !result.isEmpty {
+                    group.cancelAll()
+                    return result
+                }
+            }
+
+            return []
+        }
+    }
+
+    private func fetchRemoteSuggestions(engine: BrowserSearchEngine, query: String) async -> [String] {
         let url: URL?
         switch engine {
         case .google:
             var c = URLComponents(string: "https://suggestqueries.google.com/complete/search")
             c?.queryItems = [
                 URLQueryItem(name: "client", value: "firefox"),
-                URLQueryItem(name: "q", value: trimmed),
+                URLQueryItem(name: "q", value: query),
             ]
             url = c?.url
         case .duckduckgo:
             var c = URLComponents(string: "https://duckduckgo.com/ac/")
             c?.queryItems = [
-                URLQueryItem(name: "q", value: trimmed),
+                URLQueryItem(name: "q", value: query),
                 URLQueryItem(name: "type", value: "list"),
             ]
             url = c?.url
         case .bing:
             var c = URLComponents(string: "https://www.bing.com/osjson.aspx")
             c?.queryItems = [
-                URLQueryItem(name: "query", value: trimmed),
+                URLQueryItem(name: "query", value: query),
             ]
             url = c?.url
         }
@@ -265,9 +310,10 @@ actor BrowserSearchSuggestionService {
         guard let url else { return [] }
 
         var req = URLRequest(url: url)
-        req.timeoutInterval = 1.5
+        req.timeoutInterval = 0.65
         req.cachePolicy = .returnCacheDataElseLoad
         req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
 
         let data: Data
         let response: URLResponse
