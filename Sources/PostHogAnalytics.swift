@@ -9,7 +9,7 @@ final class PostHogAnalytics {
 
     // The PostHog project API key is intentionally embedded in the app (it's a public key).
     // Replace with the real key for the cmux PostHog project.
-    private let apiKey = "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
+    private let apiKey = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP"
 
     // PostHog Cloud US default (matches other cmux properties).
     private let host = "https://us.i.posthog.com"
