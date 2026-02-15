@@ -40,6 +40,9 @@
 - [ ] Codex integration
 - [ ] OpenCode integration
 
+## Browser
+- [ ] Per-WKWebView local proxy for full network request/response inspection (URL, method, headers, body, status, timing)
+
 ## UI/UX Improvements
 - [ ] Add question mark icon to learn shortcuts
 - [ ] Notification popover: each button item should show outline outside when focused/hovered
