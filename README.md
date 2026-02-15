@@ -13,13 +13,13 @@
 
 ## Features
 
-- **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Vertical tabs** — Sidebar shows git branch, working directory, listening ports, and latest notification text
 - **Notification rings** — Panes get a blue ring and tabs light up when AI agents (Claude Code, OpenCode) need your attention
 - **Notification panel** — See all pending notifications in one place, jump to the most recent unread
 - **Split panes** — Horizontal and vertical splits
 - **In-app browser** — Split a browser alongside your terminal with a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser)
 - **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+- **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
 
