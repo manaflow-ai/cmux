@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [1.33.0] - 2026-02-16
+
+### Fixed
+- Menubar and general UI lag in production builds
+- Sidebar tabs getting extra left padding when update pill is visible
+- Memory leak when middle-clicking to close tabs
+
 ## [1.32.0] - 2026-02-16
 
 ### Added
