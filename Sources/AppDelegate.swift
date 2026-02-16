@@ -799,18 +799,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     #if DEBUG
     @objc func showUpdatePill(_ sender: Any?) {
+        updateViewModel.debugOverrideText = nil
+        updateViewModel.overrideState = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {}))
+    }
+
+    @objc func showUpdatePillLongNightly(_ sender: Any?) {
+        updateViewModel.debugOverrideText = "Update Available: 1.32.0-nightly+20260216.abc1234"
         updateViewModel.overrideState = .notFound(.init(acknowledgement: {}))
     }
 
     @objc func showUpdatePillLoading(_ sender: Any?) {
+        updateViewModel.debugOverrideText = nil
         updateViewModel.overrideState = .checking(.init(cancel: {}))
     }
 
     @objc func hideUpdatePill(_ sender: Any?) {
+        updateViewModel.debugOverrideText = nil
         updateViewModel.overrideState = .idle
     }
 
     @objc func clearUpdatePillOverride(_ sender: Any?) {
+        updateViewModel.debugOverrideText = nil
         updateViewModel.overrideState = nil
     }
 #endif

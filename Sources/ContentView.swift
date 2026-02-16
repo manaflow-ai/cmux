@@ -526,8 +526,8 @@ struct VerticalTabsSidebar: View {
     private let tabRowSpacing: CGFloat = 2
 
     var body: some View {
-        GeometryReader { proxy in
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
+            GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
                         // Space for traffic lights
@@ -577,18 +577,18 @@ struct VerticalTabsSidebar: View {
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
-#if DEBUG
-                SidebarDevFooter(updateViewModel: updateViewModel)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-#else
-                UpdatePill(model: updateViewModel)
-                    .padding(.leading, 10)
-                    .padding(.bottom, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-#endif
             }
-            .accessibilityIdentifier("Sidebar")
+#if DEBUG
+            SidebarDevFooter(updateViewModel: updateViewModel)
+                .frame(maxWidth: .infinity, alignment: .leading)
+#else
+            UpdatePill(model: updateViewModel)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+#endif
         }
+        .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
         .onAppear {
@@ -740,7 +740,7 @@ private struct SidebarDevFooter: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.red)
         }
-        .padding(.leading, 10)
+        .padding(.horizontal, 10)
         .padding(.bottom, 10)
     }
 }
