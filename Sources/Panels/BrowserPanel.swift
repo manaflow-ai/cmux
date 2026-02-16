@@ -184,6 +184,18 @@ final class BrowserHistoryStore: ObservableObject {
 
         // Most-recent first.
         entries = decoded.sorted(by: { $0.lastVisited > $1.lastVisited })
+
+        // Remove entries with invalid hosts (no TLD), e.g. "https://news."
+        let beforeCount = entries.count
+        entries.removeAll { entry in
+            guard let url = URL(string: entry.url),
+                  let host = url.host?.lowercased() else { return false }
+            let trimmed = host.hasSuffix(".") ? String(host.dropLast()) : host
+            return !trimmed.contains(".")
+        }
+        if entries.count != beforeCount {
+            scheduleSave()
+        }
     }
 
     func recordVisit(url: URL?, title: String?) {
@@ -192,6 +204,11 @@ final class BrowserHistoryStore: ObservableObject {
         guard let url else { return }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return }
+        // Skip URLs whose host lacks a TLD (e.g. "https://news.").
+        if let host = url.host?.lowercased() {
+            let trimmed = host.hasSuffix(".") ? String(host.dropLast()) : host
+            if !trimmed.contains(".") { return }
+        }
 
         let urlString = url.absoluteString
         guard urlString != "about:blank" else { return }
@@ -232,6 +249,11 @@ final class BrowserHistoryStore: ObservableObject {
         guard let url else { return }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return }
+        // Skip URLs whose host lacks a TLD (e.g. "https://news.").
+        if let host = url.host?.lowercased() {
+            let trimmed = host.hasSuffix(".") ? String(host.dropLast()) : host
+            if !trimmed.contains(".") { return }
+        }
 
         let urlString = url.absoluteString
         guard urlString != "about:blank" else { return }
