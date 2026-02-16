@@ -70,9 +70,64 @@ func browserOmnibarSelectionDeltaForCommandNavigation(
     chars: String
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
-    guard flags == [.command] else { return nil }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    guard normalizedFlags == [.command] || normalizedFlags == [.control] else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
+    return nil
+}
+
+func browserOmnibarSelectionDeltaForArrowNavigation(
+    hasFocusedAddressBar: Bool,
+    flags: NSEvent.ModifierFlags,
+    keyCode: UInt16
+) -> Int? {
+    guard hasFocusedAddressBar else { return nil }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    guard normalizedFlags == [] else { return nil }
+    switch keyCode {
+    case 125: return 1
+    case 126: return -1
+    default: return nil
+    }
+}
+
+enum BrowserZoomShortcutAction: Equatable {
+    case zoomIn
+    case zoomOut
+    case reset
+}
+
+func browserZoomShortcutAction(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> BrowserZoomShortcutAction? {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    let key = chars.lowercased()
+
+    if normalizedFlags == [.command] {
+        if key == "=" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+            return .zoomIn
+        }
+        if key == "-" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+            return .zoomOut
+        }
+        if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+            return .reset
+        }
+    }
+
+    if normalizedFlags == [.command, .shift] && (key == "=" || key == "+" || keyCode == 24 || keyCode == 69) {
+        return .zoomIn
+    }
+
     return nil
 }
 
@@ -368,6 +423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        BrowserHistoryStore.shared.flushPendingSaves()
         PostHogAnalytics.shared.flush()
         notificationStore?.clearAll()
     }
@@ -1558,10 +1614,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // Chrome-like omnibar navigation while holding Cmd+N / Cmd+P.
+        // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
         if let delta = commandOmnibarSelectionDelta(flags: flags, chars: chars) {
             dispatchBrowserOmnibarSelectionMove(delta: delta)
             startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: event.keyCode, delta: delta)
+            return true
+        }
+
+        if let delta = browserOmnibarSelectionDeltaForArrowNavigation(
+            hasFocusedAddressBar: browserAddressBarFocusedPanelId != nil,
+            flags: event.modifierFlags,
+            keyCode: event.keyCode
+        ) {
+            dispatchBrowserOmnibarSelectionMove(delta: delta)
             return true
         }
 
@@ -1731,7 +1796,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Open browser: Cmd+Shift+B
+        // Open browser: Cmd+Shift+L
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
             tabManager?.openBrowser(insertAtEnd: true)
             return true
@@ -1740,8 +1805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Focus browser address bar: Cmd+L
         if flags == [.command] && chars == "l" {
             if let focusedPanel = tabManager?.focusedBrowserPanel {
-                browserAddressBarFocusedPanelId = focusedPanel.id
-                NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
+                focusBrowserAddressBar(in: focusedPanel)
                 return true
             }
 
@@ -1750,19 +1814,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                let workspace = tabManager.selectedWorkspace,
                let panel = workspace.browserPanel(for: browserAddressBarFocusedPanelId) {
                 workspace.focusPanel(panel.id)
-                NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
+                focusBrowserAddressBar(in: panel)
                 return true
             }
 
             tabManager?.openBrowser(insertAtEnd: true)
             if let focusedPanel = tabManager?.focusedBrowserPanel {
-                browserAddressBarFocusedPanelId = focusedPanel.id
-                NotificationCenter.default.post(name: .browserFocusAddressBar, object: focusedPanel.id)
+                focusBrowserAddressBar(in: focusedPanel)
                 return true
             }
         }
 
+        if let action = browserZoomShortcutAction(flags: flags, chars: chars, keyCode: event.keyCode),
+           let manager = tabManager {
+            switch action {
+            case .zoomIn:
+                return manager.zoomInFocusedBrowser()
+            case .zoomOut:
+                return manager.zoomOutFocusedBrowser()
+            case .reset:
+                return manager.resetZoomFocusedBrowser()
+            }
+        }
+
         return false
+    }
+
+    private func focusBrowserAddressBar(in panel: BrowserPanel) {
+        panel.beginSuppressWebViewFocusForAddressBar()
+        browserAddressBarFocusedPanelId = panel.id
+        NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
     }
 
     private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
@@ -1770,7 +1851,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         chars: String
     ) -> Bool {
         guard browserAddressBarFocusedPanelId != nil else { return false }
-        guard flags == [.command] else { return false }
+        let normalizedFlags = flags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
+        guard normalizedFlags == [.command] || normalizedFlags == [.control] else { return false }
         return chars == "n" || chars == "p"
     }
 
@@ -2193,6 +2277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] notification in
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
+            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
             self.browserAddressBarFocusedPanelId = panelId
             self.stopBrowserOmnibarSelectionRepeat()
         }
@@ -2209,6 +2294,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.stopBrowserOmnibarSelectionRepeat()
             }
         }
+    }
+
+    private func browserPanel(for panelId: UUID) -> BrowserPanel? {
+        return tabManager?.selectedWorkspace?.browserPanel(for: panelId)
     }
 
     private func setActiveMainWindow(_ window: NSWindow) {
