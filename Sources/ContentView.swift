@@ -311,10 +311,6 @@ struct ContentView: View {
 
                 Spacer()
 
-                if !sidebarState.isVisible {
-                    UpdatePill(model: updateViewModel)
-                        .padding(.trailing, 8)
-                }
             }
             .frame(height: 28)
             .padding(.top, 2)

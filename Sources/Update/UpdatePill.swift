@@ -65,3 +65,16 @@ struct UpdatePill: View {
         return size.width
     }
 }
+
+/// Menu item that shows "Install Update and Relaunch" when an update is ready.
+struct InstallUpdateMenuItem: View {
+    @ObservedObject var model: UpdateViewModel
+
+    var body: some View {
+        if model.state.isInstallable {
+            Button("Install Update and Relaunch") {
+                model.state.confirm()
+            }
+        }
+    }
+}

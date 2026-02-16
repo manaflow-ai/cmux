@@ -6,15 +6,6 @@ final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
-private struct TitlebarAccessoryView: View {
-    @ObservedObject var model: UpdateViewModel
-
-    var body: some View {
-        UpdatePill(model: model)
-            .padding(.trailing, 8)
-    }
-}
-
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
     case compact
@@ -864,70 +855,6 @@ private struct NotificationPopoverRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
-    }
-}
-
-final class UpdateAccessoryViewController: NSTitlebarAccessoryViewController {
-    private let hostingView: NonDraggableHostingView<TitlebarAccessoryView>
-    private let containerView = NSView()
-    private var stateCancellable: AnyCancellable?
-    private var pendingSizeUpdate = false
-
-    init(model: UpdateViewModel) {
-        hostingView = NonDraggableHostingView(rootView: TitlebarAccessoryView(model: model))
-
-        super.init(nibName: nil, bundle: nil)
-
-        view = containerView
-        containerView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
-        containerView.addSubview(hostingView)
-
-        stateCancellable = model.$state
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.scheduleSizeUpdate()
-            }
-
-        scheduleSizeUpdate()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidAppear() {
-        super.viewDidAppear()
-        scheduleSizeUpdate()
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        scheduleSizeUpdate()
-    }
-
-    private func scheduleSizeUpdate() {
-        guard !pendingSizeUpdate else { return }
-        pendingSizeUpdate = true
-        DispatchQueue.main.async { [weak self] in
-            self?.pendingSizeUpdate = false
-            self?.updateSize()
-        }
-    }
-
-    private func updateSize() {
-        hostingView.invalidateIntrinsicContentSize()
-        hostingView.layoutSubtreeIfNeeded()
-        let pillSize = hostingView.fittingSize
-        let titlebarHeight = view.window.map { window in
-            window.frame.height - window.contentLayoutRect.height
-        } ?? pillSize.height
-        let containerHeight = max(pillSize.height, titlebarHeight)
-        let yOffset = max(0, (containerHeight - pillSize.height) / 2.0)
-        preferredContentSize = NSSize(width: pillSize.width, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: pillSize.width, height: containerHeight)
-        hostingView.frame = NSRect(x: 0, y: yOffset, width: pillSize.width, height: pillSize.height)
     }
 }
 

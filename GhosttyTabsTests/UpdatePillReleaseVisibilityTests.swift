@@ -9,7 +9,6 @@ final class UpdatePillReleaseVisibilityTests: XCTestCase {
     private let filesToCheck = [
         "Sources/Update/UpdateTitlebarAccessory.swift",
         "Sources/ContentView.swift",
-        "Sources/WindowToolbarController.swift",
     ]
 
     func testUpdatePillNotGatedBehindDebug() throws {

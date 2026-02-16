@@ -194,6 +194,7 @@ struct cmuxApp: App {
                 Button("Check for Updates…") {
                     appDelegate.checkForUpdates(nil)
                 }
+                InstallUpdateMenuItem(model: appDelegate.updateViewModel)
             }
 
 #if DEBUG
