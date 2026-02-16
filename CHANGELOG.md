@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [1.30.0] - 2026-02-15
+
+### Fixed
+- Update pill not appearing when sidebar is visible in Release builds
+
 ## [1.29.0] - 2026-02-15
 
 ### Added
