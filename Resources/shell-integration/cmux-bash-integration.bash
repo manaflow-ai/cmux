@@ -151,4 +151,22 @@ _cmux_install_prompt_command() {
     fi
 }
 
+# Ensure Resources/bin is at the front of PATH. Shell init (.bashrc/.bash_profile)
+# may prepend other dirs that push our wrapper behind the system claude binary.
+_cmux_fix_path() {
+    if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
+        local bin_dir="${GHOSTTY_BIN_DIR%/MacOS}"
+        bin_dir="${bin_dir}/Resources/bin"
+        if [[ -d "$bin_dir" ]]; then
+            local new_path=":${PATH}:"
+            new_path="${new_path//:${bin_dir}:/:}"
+            new_path="${new_path#:}"
+            new_path="${new_path%:}"
+            PATH="${bin_dir}:${new_path}"
+        fi
+    fi
+}
+_cmux_fix_path
+unset -f _cmux_fix_path
+
 _cmux_install_prompt_command

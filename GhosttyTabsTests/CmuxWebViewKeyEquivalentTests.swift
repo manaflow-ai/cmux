@@ -104,7 +104,7 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
 }
 
 final class BrowserOmnibarCommandNavigationTests: XCTestCase {
-    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOnly() {
+    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: false,
@@ -139,12 +139,22 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.control],
+                chars: "p"
+            ),
+            -1
+        )
+
+        XCTAssertEqual(
             browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "n"
-            )
+            ),
+            1
         )
     }
 }
@@ -922,36 +932,56 @@ final class OmnibarStateMachineTests: XCTestCase {
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
         XCTAssertEqual(state.selectedSuggestionIndex, 0, "Expected reopened popup to focus first row")
     }
+
+    func testSuggestionsUpdatePrefersAutocompleteMatchWhenSelectionNotTracked() throws {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
+
+        let rows: [OmnibarSuggestion] = [
+            .search(engineName: "Google", query: "gm"),
+            .history(url: "https://google.com/", title: "Google"),
+            .history(url: "https://gmail.com/", title: "Gmail"),
+        ]
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        XCTAssertEqual(state.selectedSuggestionIndex, 2, "Expected autocomplete candidate to become selected without explicit index state.")
+        XCTAssertEqual(state.selectedSuggestionID, rows[2].id)
+        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: state.suggestions[state.selectedSuggestionIndex]))
+        XCTAssertEqual(state.suggestions[state.selectedSuggestionIndex].completion, "https://gmail.com/")
+    }
 }
 
 final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     func testMergeRemoteSuggestionsInsertsBelowSearchAndDedupes() {
-        let base: [OmnibarSuggestion] = [
-            .search(engineName: "Google", query: "go"),
-            .history(
-                BrowserHistoryStore.Entry(
-                    id: UUID(),
-                    url: "https://go.dev/",
-                    title: "The Go Programming Language",
-                    lastVisited: Date(),
-                    visitCount: 10
-                )
+        let now = Date()
+        let entries: [BrowserHistoryStore.Entry] = [
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: "https://go.dev/",
+                title: "The Go Programming Language",
+                lastVisited: now,
+                visitCount: 10
             ),
         ]
 
-        let merged = mergeRemoteSuggestions(
-            baseItems: base,
+        let merged = buildOmnibarSuggestions(
+            query: "go",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [],
             remoteQueries: ["go tutorial", "go.dev", "go json"],
+            resolvedURL: nil,
             limit: 8
         )
 
-        XCTAssertEqual(merged.map(\.completion), [
-            "go",
-            "go tutorial",
-            "go.dev",
-            "go json",
-            "https://go.dev/",
-        ])
+        let completions = merged.compactMap { $0.completion }
+        XCTAssertGreaterThanOrEqual(completions.count, 5)
+        XCTAssertEqual(completions[0], "https://go.dev/")
+        XCTAssertEqual(completions[1], "go")
+
+        let remoteCompletions = Array(completions.dropFirst(2))
+        XCTAssertEqual(Set(remoteCompletions), Set(["go tutorial", "go.dev", "go json"]))
+        XCTAssertEqual(remoteCompletions.count, 3)
     }
 
     func testStaleRemoteSuggestionsKeptForNearbyEdits() {
@@ -985,6 +1015,105 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
         )
 
         XCTAssertTrue(stale.isEmpty)
+    }
+}
+
+final class OmnibarSuggestionRankingTests: XCTestCase {
+    private var fixedNow: Date {
+        Date(timeIntervalSinceReferenceDate: 10_000_000)
+    }
+
+    func testSingleCharacterQueryPromotesAutocompletionMatchToFirstRow() {
+        let entries: [BrowserHistoryStore.Entry] = [
+            .init(
+                id: UUID(),
+                url: "https://news.ycombinator.com/",
+                title: "News.YC",
+                lastVisited: fixedNow,
+                visitCount: 12,
+                typedCount: 1,
+                lastTypedAt: fixedNow
+            ),
+            .init(
+                id: UUID(),
+                url: "https://www.google.com/",
+                title: "Google",
+                lastVisited: fixedNow - 200,
+                visitCount: 8,
+                typedCount: 2,
+                lastTypedAt: fixedNow - 200
+            ),
+        ]
+
+        let results = buildOmnibarSuggestions(
+            query: "n",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [],
+            remoteQueries: ["search google for n", "news"],
+            resolvedURL: nil,
+            limit: 8,
+            now: fixedNow
+        )
+
+        XCTAssertEqual(results.first?.completion, "https://news.ycombinator.com/")
+        XCTAssertNotEqual(results.map(\.completion).first, "n")
+        XCTAssertTrue(results.first.map { omnibarSuggestionSupportsAutocompletion(query: "n", suggestion: $0) } ?? false)
+    }
+
+    func testGmAutocompleteCandidateIsFirstOnExactQueryMatch() {
+        let entries: [BrowserHistoryStore.Entry] = [
+            .init(
+                id: UUID(),
+                url: "https://google.com/",
+                title: "Google",
+                lastVisited: fixedNow,
+                visitCount: 4,
+                typedCount: 1,
+                lastTypedAt: fixedNow
+            ),
+            .init(
+                id: UUID(),
+                url: "https://gmail.com/",
+                title: "Gmail",
+                lastVisited: fixedNow,
+                visitCount: 10,
+                typedCount: 2,
+                lastTypedAt: fixedNow
+            ),
+        ]
+
+        let results = buildOmnibarSuggestions(
+            query: "gm",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [],
+            remoteQueries: ["gmail", "gmail.com", "google mail"],
+            resolvedURL: nil,
+            limit: 8,
+            now: fixedNow
+        )
+
+        XCTAssertEqual(results.first?.completion, "https://gmail.com/")
+        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: results[0]))
+
+        let inlineCompletion = omnibarInlineCompletionForDisplay(
+            typedText: "gm",
+            suggestions: results,
+            isFocused: true,
+            selectionRange: NSRange(location: 2, length: 0),
+            hasMarkedText: false
+        )
+        XCTAssertNotNil(inlineCompletion)
+    }
+
+    func testHistorySuggestionDisplaysTitleAndUrlOnSingleLine() {
+        let row = OmnibarSuggestion.history(
+            url: "https://www.example.com/path?q=1",
+            title: "Example Domain"
+        )
+        XCTAssertEqual(row.listText, "Example Domain — example.com/path?q=1")
+        XCTAssertFalse(row.listText.contains("\n"))
     }
 }
 

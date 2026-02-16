@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# cmux claude wrapper - injects hooks and session tracking
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# intercepts `claude` invocations to inject --session-id and --settings flags
+# so that Claude Code hooks fire back into cmux for notifications/status.
+# Outside cmux, it passes through to the real claude binary unchanged.
+
+# Find the real claude binary, skipping our own directory.
+find_real_claude() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+    done
+    return 1
+}
+
+# Pass through if not in a cmux terminal or hooks are disabled.
+if [[ -z "$CMUX_SURFACE_ID" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec "$REAL_CLAUDE" "$@"
+fi
+
+# Find real claude.
+REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+
+# Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
+# independent sessions even when the parent shell was launched from Claude Code.
+unset CLAUDECODE
+
+# Generate a fresh session ID for this invocation.
+SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+# Build hooks settings JSON.
+# Claude Code merges --settings additively with the user's own settings.json.
+HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook stop","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook notification","timeout":10}]}]}}'
+
+exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
