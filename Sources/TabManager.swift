@@ -768,6 +768,21 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    @discardableResult
+    func zoomInFocusedBrowser() -> Bool {
+        focusedBrowserPanel?.zoomIn() ?? false
+    }
+
+    @discardableResult
+    func zoomOutFocusedBrowser() -> Bool {
+        focusedBrowserPanel?.zoomOut() ?? false
+    }
+
+    @discardableResult
+    func resetZoomFocusedBrowser() -> Bool {
+        focusedBrowserPanel?.resetZoom() ?? false
+    }
+
     /// Backwards compatibility: returns the focused surface ID
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
         focusedPanelId(for: tabId)

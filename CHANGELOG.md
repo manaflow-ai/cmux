@@ -2,6 +2,19 @@
 
 All notable changes to cmux are documented here.
 
+## [1.29.0] - 2026-02-15
+
+### Added
+- Cmd+click on links in the browser opens them in a new tab
+- Right-click context menu shows "Open Link in New Tab" instead of "Open in New Window"
+- Third-party licenses bundled in app with Licenses button in About window
+- Update availability pill now visible in Release builds
+
+### Changed
+- Cmd+[/] now triggers browser back/forward when a browser panel is focused (no-op on terminal)
+- Reload configuration shortcut changed to Cmd+Shift+,
+- Improved browser omnibar suggestions and focus behavior
+
 ## [1.28.2] - 2026-02-14
 
 ### Fixed
