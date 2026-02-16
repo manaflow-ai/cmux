@@ -75,14 +75,19 @@ Tudo é programável através da CLI e socket API — criar workspaces/abas, div
 | ⌘ N | Novo workspace |
 | ⌘ 1–8 | Ir para workspace 1–8 |
 | ⌘ 9 | Ir para último workspace |
+| ⌃ ⌘ ] | Próximo workspace |
+| ⌃ ⌘ [ | Workspace anterior |
 | ⌘ ⇧ W | Fechar workspace |
+| ⌘ B | Alternar barra lateral |
 
 ### Surfaces
 
 | Atalho | Ação |
 |----------|--------|
 | ⌘ T | Nova surface |
+| ⌘ ⇧ ] | Próxima surface |
 | ⌘ ⇧ [ | Surface anterior |
+| ⌃ Tab | Próxima surface |
 | ⌃ ⇧ Tab | Surface anterior |
 | ⌃ 1–8 | Ir para surface 1–8 |
 | ⌃ 9 | Ir para última surface |
@@ -95,13 +100,15 @@ Tudo é programável através da CLI e socket API — criar workspaces/abas, div
 | ⌘ D | Dividir à direita |
 | ⌘ ⇧ D | Dividir para baixo |
 | ⌥ ⌘ ← → ↑ ↓ | Focar painel direcionalmente |
+| ⌘ ⇧ H | Piscar painel focado |
 
 ### Navegador
 
 | Atalho | Ação |
 |----------|--------|
-| ⌘ ⇧ B | Abrir navegador em divisão |
+| ⌘ ⇧ L | Abrir navegador em divisão |
 | ⌘ L | Focar barra de endereço |
+| ⌘ [ | Voltar |
 | ⌘ ] | Avançar |
 | ⌘ R | Recarregar página |
 | ⌥ ⌘ I | Abrir Ferramentas do Desenvolvedor |
@@ -110,7 +117,7 @@ Tudo é programável através da CLI e socket API — criar workspaces/abas, div
 
 | Atalho | Ação |
 |----------|--------|
-| ⌘ ⇧ I | Mostrar painel de notificações |
+| ⌘ I | Mostrar painel de notificações |
 | ⌘ ⇧ U | Ir para última não lida |
 
 ### Busca
@@ -138,7 +145,7 @@ Tudo é programável através da CLI e socket API — criar workspaces/abas, div
 |----------|--------|
 | ⌘ ⇧ N | Nova janela |
 | ⌘ , | Configurações |
-| ⌘ ⇧ R | Recarregar configuração |
+| ⌘ ⇧ , | Recarregar configuração |
 | ⌘ Q | Sair |
 
 ## Licença

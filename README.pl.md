@@ -75,14 +75,19 @@ Wszystko jest skryptowalne przez CLI i socket API — tworzenie przestrzeni robo
 | ⌘ N | Nowa przestrzeń robocza |
 | ⌘ 1–8 | Przejdź do przestrzeni roboczej 1–8 |
 | ⌘ 9 | Przejdź do ostatniej przestrzeni roboczej |
+| ⌃ ⌘ ] | Następna przestrzeń robocza |
+| ⌃ ⌘ [ | Poprzednia przestrzeń robocza |
 | ⌘ ⇧ W | Zamknij przestrzeń roboczą |
+| ⌘ B | Przełącz pasek boczny |
 
 ### Powierzchnie
 
 | Skrót | Akcja |
 |----------|--------|
 | ⌘ T | Nowa powierzchnia |
+| ⌘ ⇧ ] | Następna powierzchnia |
 | ⌘ ⇧ [ | Poprzednia powierzchnia |
+| ⌃ Tab | Następna powierzchnia |
 | ⌃ ⇧ Tab | Poprzednia powierzchnia |
 | ⌃ 1–8 | Przejdź do powierzchni 1–8 |
 | ⌃ 9 | Przejdź do ostatniej powierzchni |
@@ -95,13 +100,15 @@ Wszystko jest skryptowalne przez CLI i socket API — tworzenie przestrzeni robo
 | ⌘ D | Podziel w prawo |
 | ⌘ ⇧ D | Podziel w dół |
 | ⌥ ⌘ ← → ↑ ↓ | Fokus panelu kierunkowo |
+| ⌘ ⇧ H | Mignij fokusowanym panelem |
 
 ### Przeglądarka
 
 | Skrót | Akcja |
 |----------|--------|
-| ⌘ ⇧ B | Otwórz przeglądarkę w podziale |
+| ⌘ ⇧ L | Otwórz przeglądarkę w podziale |
 | ⌘ L | Fokus na pasku adresu |
+| ⌘ [ | Wstecz |
 | ⌘ ] | Do przodu |
 | ⌘ R | Przeładuj stronę |
 | ⌥ ⌘ I | Otwórz Narzędzia Deweloperskie |
@@ -110,7 +117,7 @@ Wszystko jest skryptowalne przez CLI i socket API — tworzenie przestrzeni robo
 
 | Skrót | Akcja |
 |----------|--------|
-| ⌘ ⇧ I | Pokaż panel powiadomień |
+| ⌘ I | Pokaż panel powiadomień |
 | ⌘ ⇧ U | Przejdź do najnowszego nieprzeczytanego |
 
 ### Szukaj
@@ -138,7 +145,7 @@ Wszystko jest skryptowalne przez CLI i socket API — tworzenie przestrzeni robo
 |----------|--------|
 | ⌘ ⇧ N | Nowe okno |
 | ⌘ , | Ustawienia |
-| ⌘ ⇧ R | Przeładuj konfigurację |
+| ⌘ ⇧ , | Przeładuj konfigurację |
 | ⌘ Q | Zakończ |
 
 ## Licencja

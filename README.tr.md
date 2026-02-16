@@ -75,14 +75,19 @@ Her şey CLI ve socket API aracılığıyla betiklenebilir — çalışma alanla
 | ⌘ N | Yeni çalışma alanı |
 | ⌘ 1–8 | Çalışma alanı 1–8'e atla |
 | ⌘ 9 | Son çalışma alanına atla |
+| ⌃ ⌘ ] | Sonraki çalışma alanı |
+| ⌃ ⌘ [ | Önceki çalışma alanı |
 | ⌘ ⇧ W | Çalışma alanını kapat |
+| ⌘ B | Kenar çubuğunu aç/kapat |
 
 ### Surfaces
 
 | Kısayol | Eylem |
 |----------|--------|
 | ⌘ T | Yeni surface |
+| ⌘ ⇧ ] | Sonraki surface |
 | ⌘ ⇧ [ | Önceki surface |
+| ⌃ Tab | Sonraki surface |
 | ⌃ ⇧ Tab | Önceki surface |
 | ⌃ 1–8 | Surface 1–8'e atla |
 | ⌃ 9 | Son surface'e atla |
@@ -95,13 +100,15 @@ Her şey CLI ve socket API aracılığıyla betiklenebilir — çalışma alanla
 | ⌘ D | Sağa böl |
 | ⌘ ⇧ D | Aşağı böl |
 | ⌥ ⌘ ← → ↑ ↓ | Yönlü panel odaklama |
+| ⌘ ⇧ H | Odaklanan paneli yanıp söndür |
 
 ### Tarayıcı
 
 | Kısayol | Eylem |
 |----------|--------|
-| ⌘ ⇧ B | Bölmede tarayıcı aç |
+| ⌘ ⇧ L | Bölmede tarayıcı aç |
 | ⌘ L | Adres çubuğuna odaklan |
+| ⌘ [ | Geri |
 | ⌘ ] | İleri |
 | ⌘ R | Sayfayı yeniden yükle |
 | ⌥ ⌘ I | Geliştirici Araçlarını aç |
@@ -110,7 +117,7 @@ Her şey CLI ve socket API aracılığıyla betiklenebilir — çalışma alanla
 
 | Kısayol | Eylem |
 |----------|--------|
-| ⌘ ⇧ I | Bildirim panelini göster |
+| ⌘ I | Bildirim panelini göster |
 | ⌘ ⇧ U | En son okunmamışa atla |
 
 ### Bul
@@ -138,7 +145,7 @@ Her şey CLI ve socket API aracılığıyla betiklenebilir — çalışma alanla
 |----------|--------|
 | ⌘ ⇧ N | Yeni pencere |
 | ⌘ , | Ayarlar |
-| ⌘ ⇧ R | Yapılandırmayı yeniden yükle |
+| ⌘ ⇧ , | Yapılandırmayı yeniden yükle |
 | ⌘ Q | Çıkış |
 
 ## Lisans

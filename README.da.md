@@ -75,14 +75,19 @@ Alt er scriptbart gennem CLI og socket API — opret workspaces/faner, del panel
 | ⌘ N | Nyt workspace |
 | ⌘ 1–8 | Hop til workspace 1–8 |
 | ⌘ 9 | Hop til sidste workspace |
+| ⌃ ⌘ ] | Næste workspace |
+| ⌃ ⌘ [ | Forrige workspace |
 | ⌘ ⇧ W | Luk workspace |
+| ⌘ B | Skjul/vis sidebjælke |
 
 ### Overflader
 
 | Genvej | Handling |
 |----------|--------|
 | ⌘ T | Ny overflade |
+| ⌘ ⇧ ] | Næste overflade |
 | ⌘ ⇧ [ | Forrige overflade |
+| ⌃ Tab | Næste overflade |
 | ⌃ ⇧ Tab | Forrige overflade |
 | ⌃ 1–8 | Hop til overflade 1–8 |
 | ⌃ 9 | Hop til sidste overflade |
@@ -95,13 +100,15 @@ Alt er scriptbart gennem CLI og socket API — opret workspaces/faner, del panel
 | ⌘ D | Del til højre |
 | ⌘ ⇧ D | Del nedad |
 | ⌥ ⌘ ← → ↑ ↓ | Fokuser panel retningsbestemt |
+| ⌘ ⇧ H | Blink fokuseret panel |
 
 ### Browser
 
 | Genvej | Handling |
 |----------|--------|
-| ⌘ ⇧ B | Åbn browser i opdeling |
+| ⌘ ⇧ L | Åbn browser i opdeling |
 | ⌘ L | Fokuser adresselinjen |
+| ⌘ [ | Tilbage |
 | ⌘ ] | Frem |
 | ⌘ R | Genindlæs side |
 | ⌥ ⌘ I | Åbn Udviklerværktøjer |
@@ -110,7 +117,7 @@ Alt er scriptbart gennem CLI og socket API — opret workspaces/faner, del panel
 
 | Genvej | Handling |
 |----------|--------|
-| ⌘ ⇧ I | Vis notifikationspanel |
+| ⌘ I | Vis notifikationspanel |
 | ⌘ ⇧ U | Hop til seneste ulæste |
 
 ### Søg
@@ -138,7 +145,7 @@ Alt er scriptbart gennem CLI og socket API — opret workspaces/faner, del panel
 |----------|--------|
 | ⌘ ⇧ N | Nyt vindue |
 | ⌘ , | Indstillinger |
-| ⌘ ⇧ R | Genindlæs konfiguration |
+| ⌘ ⇧ , | Genindlæs konfiguration |
 | ⌘ Q | Afslut |
 
 ## Licens

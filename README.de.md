@@ -73,14 +73,19 @@ Alles ist über CLI und Socket-API skriptfähig — Arbeitsbereiche/Tabs erstell
 | ⌘ N | Neuer Arbeitsbereich |
 | ⌘ 1–8 | Zu Arbeitsbereich 1–8 springen |
 | ⌘ 9 | Zum letzten Arbeitsbereich springen |
+| ⌃ ⌘ ] | Nächster Arbeitsbereich |
+| ⌃ ⌘ [ | Vorheriger Arbeitsbereich |
 | ⌘ ⇧ W | Arbeitsbereich schließen |
+| ⌘ B | Seitenleiste umschalten |
 
 ### Oberflächen
 
 | Tastenkürzel | Aktion |
 |----------|--------|
 | ⌘ T | Neue Oberfläche |
+| ⌘ ⇧ ] | Nächste Oberfläche |
 | ⌘ ⇧ [ | Vorherige Oberfläche |
+| ⌃ Tab | Nächste Oberfläche |
 | ⌃ ⇧ Tab | Vorherige Oberfläche |
 | ⌃ 1–8 | Zu Oberfläche 1–8 springen |
 | ⌃ 9 | Zur letzten Oberfläche springen |
@@ -93,13 +98,15 @@ Alles ist über CLI und Socket-API skriptfähig — Arbeitsbereiche/Tabs erstell
 | ⌘ D | Nach rechts teilen |
 | ⌘ ⇧ D | Nach unten teilen |
 | ⌥ ⌘ ← → ↑ ↓ | Bereich richtungsabhängig fokussieren |
+| ⌘ ⇧ H | Fokussierten Bereich aufblitzen |
 
 ### Browser
 
 | Tastenkürzel | Aktion |
 |----------|--------|
-| ⌘ ⇧ B | Browser in Teilung öffnen |
+| ⌘ ⇧ L | Browser in Teilung öffnen |
 | ⌘ L | Adressleiste fokussieren |
+| ⌘ [ | Zurück |
 | ⌘ ] | Vorwärts |
 | ⌘ R | Seite neu laden |
 | ⌥ ⌘ I | Entwicklertools öffnen |
@@ -108,7 +115,7 @@ Alles ist über CLI und Socket-API skriptfähig — Arbeitsbereiche/Tabs erstell
 
 | Tastenkürzel | Aktion |
 |----------|--------|
-| ⌘ ⇧ I | Benachrichtigungspanel anzeigen |
+| ⌘ I | Benachrichtigungspanel anzeigen |
 | ⌘ ⇧ U | Zur neuesten ungelesenen springen |
 
 ### Suchen
@@ -136,7 +143,7 @@ Alles ist über CLI und Socket-API skriptfähig — Arbeitsbereiche/Tabs erstell
 |----------|--------|
 | ⌘ ⇧ N | Neues Fenster |
 | ⌘ , | Einstellungen |
-| ⌘ ⇧ R | Konfiguration neu laden |
+| ⌘ ⇧ , | Konfiguration neu laden |
 | ⌘ Q | Beenden |
 
 ## Lizenz

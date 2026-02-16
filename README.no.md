@@ -75,14 +75,19 @@ Alt er skriptbart gjennom CLI og socket API — opprett arbeidsomrader/faner, de
 | ⌘ N | Nytt arbeidsomrade |
 | ⌘ 1–8 | Hopp til arbeidsomrade 1–8 |
 | ⌘ 9 | Hopp til siste arbeidsomrade |
+| ⌃ ⌘ ] | Neste arbeidsomrade |
+| ⌃ ⌘ [ | Forrige arbeidsomrade |
 | ⌘ ⇧ W | Lukk arbeidsomrade |
+| ⌘ B | Vis/skjul sidefelt |
 
 ### Overflater
 
 | Snarvei | Handling |
 |----------|--------|
 | ⌘ T | Ny overflate |
+| ⌘ ⇧ ] | Neste overflate |
 | ⌘ ⇧ [ | Forrige overflate |
+| ⌃ Tab | Neste overflate |
 | ⌃ ⇧ Tab | Forrige overflate |
 | ⌃ 1–8 | Hopp til overflate 1–8 |
 | ⌃ 9 | Hopp til siste overflate |
@@ -95,13 +100,15 @@ Alt er skriptbart gjennom CLI og socket API — opprett arbeidsomrader/faner, de
 | ⌘ D | Del til hoyre |
 | ⌘ ⇧ D | Del nedover |
 | ⌥ ⌘ ← → ↑ ↓ | Fokuser panel i retning |
+| ⌘ ⇧ H | Blink fokusert panel |
 
 ### Nettleser
 
 | Snarvei | Handling |
 |----------|--------|
-| ⌘ ⇧ B | Apne nettleser i deling |
+| ⌘ ⇧ L | Apne nettleser i deling |
 | ⌘ L | Fokuser adressefeltet |
+| ⌘ [ | Tilbake |
 | ⌘ ] | Fremover |
 | ⌘ R | Last inn siden pa nytt |
 | ⌥ ⌘ I | Apne utviklerverktoy |
@@ -110,7 +117,7 @@ Alt er skriptbart gjennom CLI og socket API — opprett arbeidsomrader/faner, de
 
 | Snarvei | Handling |
 |----------|--------|
-| ⌘ ⇧ I | Vis varselpanel |
+| ⌘ I | Vis varselpanel |
 | ⌘ ⇧ U | Hopp til nyeste uleste |
 
 ### Sok
@@ -138,7 +145,7 @@ Alt er skriptbart gjennom CLI og socket API — opprett arbeidsomrader/faner, de
 |----------|--------|
 | ⌘ ⇧ N | Nytt vindu |
 | ⌘ , | Innstillinger |
-| ⌘ ⇧ R | Last inn konfigurasjon pa nytt |
+| ⌘ ⇧ , | Last inn konfigurasjon pa nytt |
 | ⌘ Q | Avslutt |
 
 ## Lisens

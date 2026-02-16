@@ -73,14 +73,19 @@ Todo es programable a través del CLI y la API de socket — crear espacios de t
 | ⌘ N | Nuevo espacio de trabajo |
 | ⌘ 1–8 | Ir al espacio de trabajo 1–8 |
 | ⌘ 9 | Ir al último espacio de trabajo |
+| ⌃ ⌘ ] | Siguiente espacio de trabajo |
+| ⌃ ⌘ [ | Espacio de trabajo anterior |
 | ⌘ ⇧ W | Cerrar espacio de trabajo |
+| ⌘ B | Alternar barra lateral |
 
 ### Superficies
 
 | Atajo | Acción |
 |----------|--------|
 | ⌘ T | Nueva superficie |
+| ⌘ ⇧ ] | Siguiente superficie |
 | ⌘ ⇧ [ | Superficie anterior |
+| ⌃ Tab | Siguiente superficie |
 | ⌃ ⇧ Tab | Superficie anterior |
 | ⌃ 1–8 | Ir a la superficie 1–8 |
 | ⌃ 9 | Ir a la última superficie |
@@ -93,13 +98,15 @@ Todo es programable a través del CLI y la API de socket — crear espacios de t
 | ⌘ D | Dividir a la derecha |
 | ⌘ ⇧ D | Dividir hacia abajo |
 | ⌥ ⌘ ← → ↑ ↓ | Enfocar panel direccionalmente |
+| ⌘ ⇧ H | Destellar panel enfocado |
 
 ### Navegador
 
 | Atajo | Acción |
 |----------|--------|
-| ⌘ ⇧ B | Abrir navegador en división |
+| ⌘ ⇧ L | Abrir navegador en división |
 | ⌘ L | Enfocar barra de direcciones |
+| ⌘ [ | Atrás |
 | ⌘ ] | Adelante |
 | ⌘ R | Recargar página |
 | ⌥ ⌘ I | Abrir herramientas de desarrollo |
@@ -108,7 +115,7 @@ Todo es programable a través del CLI y la API de socket — crear espacios de t
 
 | Atajo | Acción |
 |----------|--------|
-| ⌘ ⇧ I | Mostrar panel de notificaciones |
+| ⌘ I | Mostrar panel de notificaciones |
 | ⌘ ⇧ U | Ir a la última no leída |
 
 ### Buscar
@@ -136,7 +143,7 @@ Todo es programable a través del CLI y la API de socket — crear espacios de t
 |----------|--------|
 | ⌘ ⇧ N | Nueva ventana |
 | ⌘ , | Ajustes |
-| ⌘ ⇧ R | Recargar configuración |
+| ⌘ ⇧ , | Recargar configuración |
 | ⌘ Q | Salir |
 
 ## Licencia

@@ -75,14 +75,19 @@ Sve je skriptabilno kroz CLI i socket API — kreiranje radnih prostora/tabova, 
 | ⌘ N | Novi radni prostor |
 | ⌘ 1–8 | Skoči na radni prostor 1–8 |
 | ⌘ 9 | Skoči na posljednji radni prostor |
+| ⌃ ⌘ ] | Sljedeći radni prostor |
+| ⌃ ⌘ [ | Prethodni radni prostor |
 | ⌘ ⇧ W | Zatvori radni prostor |
+| ⌘ B | Prikaži/sakrij bočnu traku |
 
 ### Površine
 
 | Prečica | Akcija |
 |----------|--------|
 | ⌘ T | Nova površina |
+| ⌘ ⇧ ] | Sljedeća površina |
 | ⌘ ⇧ [ | Prethodna površina |
+| ⌃ Tab | Sljedeća površina |
 | ⌃ ⇧ Tab | Prethodna površina |
 | ⌃ 1–8 | Skoči na površinu 1–8 |
 | ⌃ 9 | Skoči na posljednju površinu |
@@ -95,13 +100,15 @@ Sve je skriptabilno kroz CLI i socket API — kreiranje radnih prostora/tabova, 
 | ⌘ D | Podijeli desno |
 | ⌘ ⇧ D | Podijeli dolje |
 | ⌥ ⌘ ← → ↑ ↓ | Fokusiraj panel po smjeru |
+| ⌘ ⇧ H | Trepni fokusiranim panelom |
 
 ### Preglednik
 
 | Prečica | Akcija |
 |----------|--------|
-| ⌘ ⇧ B | Otvori preglednik u podjeli |
+| ⌘ ⇧ L | Otvori preglednik u podjeli |
 | ⌘ L | Fokusiraj adresnu traku |
+| ⌘ [ | Nazad |
 | ⌘ ] | Naprijed |
 | ⌘ R | Ponovo učitaj stranicu |
 | ⌥ ⌘ I | Otvori Alate za Programere |
@@ -110,7 +117,7 @@ Sve je skriptabilno kroz CLI i socket API — kreiranje radnih prostora/tabova, 
 
 | Prečica | Akcija |
 |----------|--------|
-| ⌘ ⇧ I | Prikaži panel obavještenja |
+| ⌘ I | Prikaži panel obavještenja |
 | ⌘ ⇧ U | Skoči na posljednje nepročitano |
 
 ### Pretraga
@@ -138,7 +145,7 @@ Sve je skriptabilno kroz CLI i socket API — kreiranje radnih prostora/tabova, 
 |----------|--------|
 | ⌘ ⇧ N | Novi prozor |
 | ⌘ , | Postavke |
-| ⌘ ⇧ R | Ponovo učitaj konfiguraciju |
+| ⌘ ⇧ , | Ponovo učitaj konfiguraciju |
 | ⌘ Q | Zatvori |
 
 ## Licenca

@@ -75,14 +75,19 @@ Tutto è scriptabile attraverso il CLI e la socket API — creare workspace/sche
 | ⌘ N | Nuovo workspace |
 | ⌘ 1–8 | Vai al workspace 1–8 |
 | ⌘ 9 | Vai all'ultimo workspace |
+| ⌃ ⌘ ] | Workspace successivo |
+| ⌃ ⌘ [ | Workspace precedente |
 | ⌘ ⇧ W | Chiudi workspace |
+| ⌘ B | Mostra/nascondi barra laterale |
 
 ### Superfici
 
 | Scorciatoia | Azione |
 |----------|--------|
 | ⌘ T | Nuova superficie |
+| ⌘ ⇧ ] | Superficie successiva |
 | ⌘ ⇧ [ | Superficie precedente |
+| ⌃ Tab | Superficie successiva |
 | ⌃ ⇧ Tab | Superficie precedente |
 | ⌃ 1–8 | Vai alla superficie 1–8 |
 | ⌃ 9 | Vai all'ultima superficie |
@@ -95,13 +100,15 @@ Tutto è scriptabile attraverso il CLI e la socket API — creare workspace/sche
 | ⌘ D | Dividi a destra |
 | ⌘ ⇧ D | Dividi in basso |
 | ⌥ ⌘ ← → ↑ ↓ | Sposta il focus direzionalmente |
+| ⌘ ⇧ H | Lampeggia pannello focalizzato |
 
 ### Browser
 
 | Scorciatoia | Azione |
 |----------|--------|
-| ⌘ ⇧ B | Apri browser in divisione |
+| ⌘ ⇧ L | Apri browser in divisione |
 | ⌘ L | Focus sulla barra degli indirizzi |
+| ⌘ [ | Indietro |
 | ⌘ ] | Avanti |
 | ⌘ R | Ricarica pagina |
 | ⌥ ⌘ I | Apri Strumenti di Sviluppo |
@@ -110,7 +117,7 @@ Tutto è scriptabile attraverso il CLI e la socket API — creare workspace/sche
 
 | Scorciatoia | Azione |
 |----------|--------|
-| ⌘ ⇧ I | Mostra pannello notifiche |
+| ⌘ I | Mostra pannello notifiche |
 | ⌘ ⇧ U | Vai all'ultima non letta |
 
 ### Cerca
@@ -138,7 +145,7 @@ Tutto è scriptabile attraverso il CLI e la socket API — creare workspace/sche
 |----------|--------|
 | ⌘ ⇧ N | Nuova finestra |
 | ⌘ , | Impostazioni |
-| ⌘ ⇧ R | Ricarica configurazione |
+| ⌘ ⇧ , | Ricarica configurazione |
 | ⌘ Q | Esci |
 
 ## Licenza

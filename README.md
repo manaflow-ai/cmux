@@ -73,14 +73,19 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌘ N | New workspace |
 | ⌘ 1–8 | Jump to workspace 1–8 |
 | ⌘ 9 | Jump to last workspace |
+| ⌃ ⌘ ] | Next workspace |
+| ⌃ ⌘ [ | Previous workspace |
 | ⌘ ⇧ W | Close workspace |
+| ⌘ B | Toggle sidebar |
 
 ### Surfaces
 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ T | New surface |
+| ⌘ ⇧ ] | Next surface |
 | ⌘ ⇧ [ | Previous surface |
+| ⌃ Tab | Next surface |
 | ⌃ ⇧ Tab | Previous surface |
 | ⌃ 1–8 | Jump to surface 1–8 |
 | ⌃ 9 | Jump to last surface |
@@ -93,13 +98,15 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌘ ⇧ H | Flash focused panel |
 
 ### Browser
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ ⇧ B | Open browser in split |
+| ⌘ ⇧ L | Open browser in split |
 | ⌘ L | Focus address bar |
+| ⌘ [ | Back |
 | ⌘ ] | Forward |
 | ⌘ R | Reload page |
 | ⌥ ⌘ I | Open Developer Tools |
@@ -108,7 +115,7 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ ⇧ I | Show notifications panel |
+| ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
 
 ### Find
@@ -136,7 +143,7 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 |----------|--------|
 | ⌘ ⇧ N | New window |
 | ⌘ , | Settings |
-| ⌘ ⇧ R | Reload configuration |
+| ⌘ ⇧ , | Reload configuration |
 | ⌘ Q | Quit |
 
 ## License
