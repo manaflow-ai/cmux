@@ -2,6 +2,21 @@
 
 All notable changes to cmux are documented here.
 
+## [1.31.0] - 2026-02-15
+
+### Added
+- Arrow key navigation in browser omnibar suggestions
+- Browser zoom shortcuts (Cmd+/-, Cmd+0 to reset)
+- "Install Update and Relaunch" menu item when an update is available
+
+### Changed
+- Open browser shortcut remapped from Cmd+Shift+B to Cmd+Shift+L
+- Flash focused panel shortcut remapped from Cmd+Shift+L to Cmd+Shift+H
+- Update pill now shows only in the sidebar footer
+
+### Fixed
+- Omnibar inline completion showing partial domain (e.g. "news." instead of "news.ycombinator.com")
+
 ## [1.30.0] - 2026-02-15
 
 ### Fixed
