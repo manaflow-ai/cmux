@@ -20,11 +20,14 @@ This maps common `agent-browser` usage to `cmux browser` usage.
 ### Navigation
 
 ```bash
-cmux browser open <url>
+cmux browser open <url>                        # opens in caller's workspace (uses CMUX_WORKSPACE_ID)
+cmux browser open <url> --workspace <id|ref>   # opens in a specific workspace
 cmux browser <surface> goto <url>
 cmux browser <surface> back|forward|reload
 cmux browser <surface> get url|title
 ```
+
+> **Workspace context:** `browser open` targets the workspace of the terminal where the command is run (via `CMUX_WORKSPACE_ID`), even if a different workspace is currently focused. Use `--workspace` to override.
 
 ### Snapshot and Inspection
 

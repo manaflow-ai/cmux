@@ -895,6 +895,12 @@ private struct TabItemView: View {
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
+    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
+    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
+    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
+    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
 
     var isActive: Bool {
         tabManager.selectedTabId == tab.id
@@ -1008,14 +1014,75 @@ private struct TabItemView: View {
                     .multilineTextAlignment(.leading)
             }
 
-            if let directories = directorySummary {
-                Text(directories)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            if sidebarShowStatusPills, !tab.statusEntries.isEmpty {
+                SidebarStatusPillsRow(
+                    entries: tab.statusEntries.values.sorted(by: { (lhs, rhs) in
+                        if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                        return lhs.key < rhs.key
+                    }),
+                    isActive: isActive,
+                    onFocus: { updateSelection() }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Latest log entry
+            if sidebarShowLog, let latestLog = tab.logEntries.last {
+                HStack(spacing: 4) {
+                    Image(systemName: logLevelIcon(latestLog.level))
+                        .font(.system(size: 8))
+                        .foregroundColor(logLevelColor(latestLog.level, isActive: isActive))
+                    Text(latestLog.message)
+                        .font(.system(size: 10))
+                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Progress bar
+            if sidebarShowProgress, let progress = tab.progress {
+                VStack(alignment: .leading, spacing: 2) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(isActive ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2))
+                            Capsule()
+                                .fill(isActive ? Color.white.opacity(0.8) : Color.accentColor)
+                                .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
+                        }
+                    }
+                    .frame(height: 3)
+
+                    if let label = progress.label {
+                        Text(label)
+                            .font(.system(size: 9))
+                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Branch + directory + ports row
+            if let dirRow = branchDirectoryRow {
+                HStack(spacing: 3) {
+                    if sidebarShowGitBranch && tab.gitBranch != nil && sidebarShowGitBranchIcon {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 9))
+                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                    }
+                    Text(dirRow)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
+        .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -1306,7 +1373,31 @@ private struct TabItemView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private var directorySummary: String? {
+    private var branchDirectoryRow: String? {
+        var parts: [String] = []
+
+        // Git branch (if enabled and available)
+        if sidebarShowGitBranch, let git = tab.gitBranch {
+            let dirty = git.isDirty ? "*" : ""
+            parts.append("\(git.branch)\(dirty)")
+        }
+
+        // Directory summary
+        if let dirs = directorySummaryText {
+            parts.append(dirs)
+        }
+
+        // Ports (if enabled and available)
+        if sidebarShowPorts, !tab.listeningPorts.isEmpty {
+            let portsStr = tab.listeningPorts.map { ":\($0)" }.joined(separator: ",")
+            parts.append(portsStr)
+        }
+
+        let result = parts.joined(separator: " · ")
+        return result.isEmpty ? nil : result
+    }
+
+    private var directorySummaryText: String? {
         guard !tab.panels.isEmpty else { return nil }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var seen: Set<String> = []
@@ -1320,6 +1411,35 @@ private struct TabItemView: View {
             }
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
+    }
+
+    private func logLevelIcon(_ level: SidebarLogLevel) -> String {
+        switch level {
+        case .info: return "circle.fill"
+        case .progress: return "arrowtriangle.right.fill"
+        case .success: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .error: return "xmark.circle.fill"
+        }
+    }
+
+    private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
+        if isActive {
+            switch level {
+            case .info: return .white.opacity(0.5)
+            case .progress: return .white.opacity(0.8)
+            case .success: return .white.opacity(0.9)
+            case .warning: return .white.opacity(0.9)
+            case .error: return .white.opacity(0.9)
+            }
+        }
+        switch level {
+        case .info: return .secondary
+        case .progress: return .blue
+        case .success: return .green
+        case .warning: return .orange
+        case .error: return .red
+        }
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
@@ -1353,6 +1473,62 @@ private struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+}
+
+private struct SidebarStatusPillsRow: View {
+    let entries: [SidebarStatusEntry]
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(statusText)
+                .font(.system(size: 10))
+                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                .lineLimit(isExpanded ? nil : 3)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onFocus()
+                    guard shouldShowToggle else { return }
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+
+            if shouldShowToggle {
+                Button(isExpanded ? "Show less" : "Show more") {
+                    onFocus()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .help(statusText)
+    }
+
+    private var statusText: String {
+        entries
+            .map { entry in
+                let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty { return value }
+                return entry.key
+            }
+            .joined(separator: "\n")
+    }
+
+    private var shouldShowToggle: Bool {
+        entries.count > 1 || statusText.count > 120
     }
 }
 
