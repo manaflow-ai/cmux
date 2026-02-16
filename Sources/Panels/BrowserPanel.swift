@@ -70,6 +70,16 @@ enum BrowserUserAgentSettings {
     static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
 }
 
+func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
+    if bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.") {
+        return "com.cmuxterm.app.debug"
+    }
+    if bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.") {
+        return "com.cmuxterm.app.staging"
+    }
+    return bundleIdentifier
+}
+
 @MainActor
 final class BrowserHistoryStore: ObservableObject {
     static let shared = BrowserHistoryStore()
@@ -80,6 +90,47 @@ final class BrowserHistoryStore: ObservableObject {
         var title: String?
         var lastVisited: Date
         var visitCount: Int
+        var typedCount: Int
+        var lastTypedAt: Date?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case url
+            case title
+            case lastVisited
+            case visitCount
+            case typedCount
+            case lastTypedAt
+        }
+
+        init(
+            id: UUID,
+            url: String,
+            title: String?,
+            lastVisited: Date,
+            visitCount: Int,
+            typedCount: Int = 0,
+            lastTypedAt: Date? = nil
+        ) {
+            self.id = id
+            self.url = url
+            self.title = title
+            self.lastVisited = lastVisited
+            self.visitCount = visitCount
+            self.typedCount = typedCount
+            self.lastTypedAt = lastTypedAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            url = try container.decode(String.self, forKey: .url)
+            title = try container.decodeIfPresent(String.self, forKey: .title)
+            lastVisited = try container.decode(Date.self, forKey: .lastVisited)
+            visitCount = try container.decode(Int.self, forKey: .visitCount)
+            typedCount = try container.decodeIfPresent(Int.self, forKey: .typedCount) ?? 0
+            lastTypedAt = try container.decodeIfPresent(Date.self, forKey: .lastTypedAt)
+        }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -88,6 +139,21 @@ final class BrowserHistoryStore: ObservableObject {
     private var didLoad: Bool = false
     private var saveTask: Task<Void, Never>?
     private let maxEntries: Int = 5000
+    private let saveDebounceNanoseconds: UInt64 = 120_000_000
+
+    private struct SuggestionCandidate {
+        let entry: Entry
+        let urlLower: String
+        let urlSansSchemeLower: String
+        let hostLower: String
+        let pathAndQueryLower: String
+        let titleLower: String
+    }
+
+    private struct ScoredSuggestion {
+        let entry: Entry
+        let score: Double
+    }
 
     init(fileURL: URL? = nil) {
         // Avoid calling @MainActor-isolated static methods from default argument context.
@@ -98,6 +164,7 @@ final class BrowserHistoryStore: ObservableObject {
         guard !didLoad else { return }
         didLoad = true
         guard let fileURL else { return }
+        migrateLegacyTaggedHistoryFileIfNeeded(to: fileURL)
 
         // Load synchronously on first access so the first omnibar query can use
         // persisted history immediately (important for deterministic UI behavior).
@@ -128,8 +195,12 @@ final class BrowserHistoryStore: ObservableObject {
 
         let urlString = url.absoluteString
         guard urlString != "about:blank" else { return }
+        let normalizedKey = normalizedHistoryKey(url: url)
 
-        if let idx = entries.firstIndex(where: { $0.url == urlString }) {
+        if let idx = entries.firstIndex(where: {
+            if $0.url == urlString { return true }
+            return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+        }) {
             entries[idx].lastVisited = Date()
             entries[idx].visitCount += 1
             // Prefer non-empty titles, but don't clobber an existing title with empty/whitespace.
@@ -155,30 +226,122 @@ final class BrowserHistoryStore: ObservableObject {
         scheduleSave()
     }
 
+    func recordTypedNavigation(url: URL?) {
+        loadIfNeeded()
+
+        guard let url else { return }
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return }
+
+        let urlString = url.absoluteString
+        guard urlString != "about:blank" else { return }
+
+        let now = Date()
+        let normalizedKey = normalizedHistoryKey(url: url)
+        if let idx = entries.firstIndex(where: {
+            if $0.url == urlString { return true }
+            return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+        }) {
+            entries[idx].typedCount += 1
+            entries[idx].lastTypedAt = now
+            entries[idx].lastVisited = now
+        } else {
+            entries.insert(Entry(
+                id: UUID(),
+                url: urlString,
+                title: nil,
+                lastVisited: now,
+                visitCount: 1,
+                typedCount: 1,
+                lastTypedAt: now
+            ), at: 0)
+        }
+
+        entries.sort(by: { $0.lastVisited > $1.lastVisited })
+        if entries.count > maxEntries {
+            entries.removeLast(entries.count - maxEntries)
+        }
+
+        scheduleSave()
+    }
+
     func suggestions(for input: String, limit: Int = 10) -> [Entry] {
         loadIfNeeded()
+        guard limit > 0 else { return [] }
 
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return [] }
+        let queryTokens = tokenizeSuggestionQuery(q)
+        let now = Date()
 
-        func haystackMatches(_ s: String) -> Bool {
-            s.lowercased().contains(q)
+        let matched = entries.compactMap { entry -> ScoredSuggestion? in
+            let candidate = makeSuggestionCandidate(entry: entry)
+            guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
+                return nil
+            }
+            return ScoredSuggestion(entry: entry, score: score)
+        }
+        .sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            if lhs.entry.lastVisited != rhs.entry.lastVisited { return lhs.entry.lastVisited > rhs.entry.lastVisited }
+            if lhs.entry.visitCount != rhs.entry.visitCount { return lhs.entry.visitCount > rhs.entry.visitCount }
+            return lhs.entry.url < rhs.entry.url
         }
 
-        // Basic matching: contains in URL or title.
-        // Sort by visit recency first; break ties by visit count.
-        let matched = entries.filter { e in
-            if haystackMatches(e.url) { return true }
-            if let t = e.title, haystackMatches(t) { return true }
-            return false
-        }
-        .sorted { a, b in
-            if a.lastVisited != b.lastVisited { return a.lastVisited > b.lastVisited }
-            return a.visitCount > b.visitCount
+        if matched.count <= limit { return matched.map(\.entry) }
+        return Array(matched.prefix(limit).map(\.entry))
+    }
+
+    func recentSuggestions(limit: Int = 10) -> [Entry] {
+        loadIfNeeded()
+        guard limit > 0 else { return [] }
+
+        let ranked = entries.sorted { lhs, rhs in
+            if lhs.typedCount != rhs.typedCount { return lhs.typedCount > rhs.typedCount }
+            let lhsTypedDate = lhs.lastTypedAt ?? .distantPast
+            let rhsTypedDate = rhs.lastTypedAt ?? .distantPast
+            if lhsTypedDate != rhsTypedDate { return lhsTypedDate > rhsTypedDate }
+            if lhs.lastVisited != rhs.lastVisited { return lhs.lastVisited > rhs.lastVisited }
+            if lhs.visitCount != rhs.visitCount { return lhs.visitCount > rhs.visitCount }
+            return lhs.url < rhs.url
         }
 
-        if matched.count <= limit { return matched }
-        return Array(matched.prefix(limit))
+        if ranked.count <= limit { return ranked }
+        return Array(ranked.prefix(limit))
+    }
+
+    func clearHistory() {
+        loadIfNeeded()
+        saveTask?.cancel()
+        saveTask = nil
+        entries = []
+        guard let fileURL else { return }
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    @discardableResult
+    func removeHistoryEntry(urlString: String) -> Bool {
+        loadIfNeeded()
+        let normalized = normalizedHistoryKey(urlString: urlString)
+        let originalCount = entries.count
+        entries.removeAll { entry in
+            if entry.url == urlString { return true }
+            guard let normalized else { return false }
+            return normalizedHistoryKey(urlString: entry.url) == normalized
+        }
+        let didRemove = entries.count != originalCount
+        if didRemove {
+            scheduleSave()
+        }
+        return didRemove
+    }
+
+    func flushPendingSaves() {
+        loadIfNeeded()
+        saveTask?.cancel()
+        saveTask = nil
+        guard let fileURL else { return }
+        try? Self.persistSnapshot(entries, to: fileURL)
     }
 
     private func scheduleSave() {
@@ -186,36 +349,211 @@ final class BrowserHistoryStore: ObservableObject {
 
         saveTask?.cancel()
         let snapshot = entries
+        let debounceNanoseconds = saveDebounceNanoseconds
 
         saveTask = Task.detached(priority: .utility) {
             do {
-                try await Task.sleep(nanoseconds: 500_000_000) // debounce
+                try await Task.sleep(nanoseconds: debounceNanoseconds) // debounce
             } catch {
                 return
             }
-
-            let dir = fileURL.deletingLastPathComponent()
-            do {
-                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
-            } catch {
-                return
-            }
-
-            let data: Data
-            do {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.withoutEscapingSlashes]
-                data = try encoder.encode(snapshot)
-            } catch {
-                return
-            }
+            if Task.isCancelled { return }
 
             do {
-                try data.write(to: fileURL, options: [.atomic])
+                try Self.persistSnapshot(snapshot, to: fileURL)
             } catch {
                 return
             }
         }
+    }
+
+    private func migrateLegacyTaggedHistoryFileIfNeeded(to targetURL: URL) {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: targetURL.path) else { return }
+        guard let legacyURL = Self.legacyTaggedHistoryFileURL(),
+              legacyURL != targetURL,
+              fm.fileExists(atPath: legacyURL.path) else {
+            return
+        }
+
+        do {
+            let dir = targetURL.deletingLastPathComponent()
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+            try fm.copyItem(at: legacyURL, to: targetURL)
+        } catch {
+            return
+        }
+    }
+
+    private func makeSuggestionCandidate(entry: Entry) -> SuggestionCandidate {
+        let urlLower = entry.url.lowercased()
+        let urlSansSchemeLower = stripHTTPSSchemePrefix(urlLower)
+        let components = URLComponents(string: entry.url)
+        let hostLower = components?.host?.lowercased() ?? ""
+        let path = (components?.percentEncodedPath ?? components?.path ?? "").lowercased()
+        let query = (components?.percentEncodedQuery ?? components?.query ?? "").lowercased()
+        let pathAndQueryLower: String
+        if query.isEmpty {
+            pathAndQueryLower = path
+        } else {
+            pathAndQueryLower = "\(path)?\(query)"
+        }
+        let titleLower = (entry.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return SuggestionCandidate(
+            entry: entry,
+            urlLower: urlLower,
+            urlSansSchemeLower: urlSansSchemeLower,
+            hostLower: hostLower,
+            pathAndQueryLower: pathAndQueryLower,
+            titleLower: titleLower
+        )
+    }
+
+    private func suggestionScore(
+        candidate: SuggestionCandidate,
+        query: String,
+        queryTokens: [String],
+        now: Date
+    ) -> Double? {
+        let queryIncludesScheme = query.hasPrefix("http://") || query.hasPrefix("https://")
+        let urlMatchValue = queryIncludesScheme ? candidate.urlLower : candidate.urlSansSchemeLower
+        let isSingleCharacterQuery = query.count == 1
+        if isSingleCharacterQuery {
+            let hasSingleCharStrongMatch =
+                candidate.hostLower.hasPrefix(query) ||
+                candidate.titleLower.hasPrefix(query) ||
+                urlMatchValue.hasPrefix(query)
+            guard hasSingleCharStrongMatch else { return nil }
+        }
+
+        let queryMatches =
+            urlMatchValue.contains(query) ||
+            candidate.hostLower.contains(query) ||
+            candidate.pathAndQueryLower.contains(query) ||
+            candidate.titleLower.contains(query)
+
+        let tokenMatches = !queryTokens.isEmpty && queryTokens.allSatisfy { token in
+            candidate.urlSansSchemeLower.contains(token) ||
+            candidate.hostLower.contains(token) ||
+            candidate.pathAndQueryLower.contains(token) ||
+            candidate.titleLower.contains(token)
+        }
+
+        guard queryMatches || tokenMatches else { return nil }
+
+        var score = 0.0
+
+        if urlMatchValue == query { score += 1200 }
+        if candidate.hostLower == query { score += 980 }
+        if candidate.hostLower.hasPrefix(query) { score += 680 }
+        if urlMatchValue.hasPrefix(query) { score += 560 }
+        if candidate.titleLower.hasPrefix(query) { score += 420 }
+        if candidate.pathAndQueryLower.hasPrefix(query) { score += 300 }
+
+        if candidate.hostLower.contains(query) { score += 210 }
+        if candidate.pathAndQueryLower.contains(query) { score += 165 }
+        if candidate.titleLower.contains(query) { score += 145 }
+
+        for token in queryTokens {
+            if candidate.hostLower == token { score += 260 }
+            else if candidate.hostLower.hasPrefix(token) { score += 170 }
+            else if candidate.hostLower.contains(token) { score += 110 }
+
+            if candidate.pathAndQueryLower.hasPrefix(token) { score += 80 }
+            else if candidate.pathAndQueryLower.contains(token) { score += 52 }
+
+            if candidate.titleLower.hasPrefix(token) { score += 74 }
+            else if candidate.titleLower.contains(token) { score += 48 }
+        }
+
+        // Blend recency and repeat visits so history feels closer to browser frecency.
+        let ageHours = max(0, now.timeIntervalSince(candidate.entry.lastVisited) / 3600)
+        let recencyScore = max(0, 110 - (ageHours / 3))
+        let frequencyScore = min(120, log1p(Double(max(1, candidate.entry.visitCount))) * 38)
+        let typedFrequencyScore = min(190, log1p(Double(max(0, candidate.entry.typedCount))) * 80)
+        let typedRecencyScore: Double
+        if let lastTypedAt = candidate.entry.lastTypedAt {
+            let typedAgeHours = max(0, now.timeIntervalSince(lastTypedAt) / 3600)
+            typedRecencyScore = max(0, 85 - (typedAgeHours / 4))
+        } else {
+            typedRecencyScore = 0
+        }
+        score += recencyScore + frequencyScore + typedFrequencyScore + typedRecencyScore
+
+        return score
+    }
+
+    private func stripHTTPSSchemePrefix(_ value: String) -> String {
+        if value.hasPrefix("https://") {
+            return String(value.dropFirst("https://".count))
+        }
+        if value.hasPrefix("http://") {
+            return String(value.dropFirst("http://".count))
+        }
+        return value
+    }
+
+    private func normalizedHistoryKey(url: URL) -> String? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return nil }
+        return normalizedHistoryKey(components: &components)
+    }
+
+    private func normalizedHistoryKey(urlString: String) -> String? {
+        guard var components = URLComponents(string: urlString) else { return nil }
+        return normalizedHistoryKey(components: &components)
+    }
+
+    private func normalizedHistoryKey(components: inout URLComponents) -> String? {
+        guard let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              var host = components.host?.lowercased() else {
+            return nil
+        }
+
+        if host.hasPrefix("www.") {
+            host.removeFirst(4)
+        }
+
+        if (scheme == "http" && components.port == 80) ||
+            (scheme == "https" && components.port == 443) {
+            components.port = nil
+        }
+
+        let portPart: String
+        if let port = components.port {
+            portPart = ":\(port)"
+        } else {
+            portPart = ""
+        }
+
+        var path = components.percentEncodedPath
+        if path.isEmpty { path = "/" }
+        while path.count > 1, path.hasSuffix("/") {
+            path.removeLast()
+        }
+
+        let queryPart: String
+        if let query = components.percentEncodedQuery, !query.isEmpty {
+            queryPart = "?\(query.lowercased())"
+        } else {
+            queryPart = ""
+        }
+
+        return "\(scheme)://\(host)\(portPart)\(path)\(queryPart)"
+    }
+
+    private func tokenizeSuggestionQuery(_ query: String) -> [String] {
+        var tokens: [String] = []
+        var seen = Set<String>()
+        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
+        for raw in query.components(separatedBy: separators) {
+            let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else { continue }
+            guard !seen.contains(token) else { continue }
+            seen.insert(token)
+            tokens.append(token)
+        }
+        return tokens
     }
 
     nonisolated private static func defaultHistoryFileURL() -> URL? {
@@ -224,8 +562,31 @@ final class BrowserHistoryStore: ObservableObject {
             return nil
         }
         let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
+        let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
+        let dir = appSupport.appendingPathComponent(namespace, isDirectory: true)
+        return dir.appendingPathComponent("browser_history.json", isDirectory: false)
+    }
+
+    nonisolated private static func legacyTaggedHistoryFileURL() -> URL? {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
+        let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
+        guard namespace != bundleId else { return nil }
+        let fm = FileManager.default
+        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
         let dir = appSupport.appendingPathComponent(bundleId, isDirectory: true)
         return dir.appendingPathComponent("browser_history.json", isDirectory: false)
+    }
+
+    nonisolated private static func persistSnapshot(_ snapshot: [Entry], to fileURL: URL) throws {
+        let dir = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = try encoder.encode(snapshot)
+        try data.write(to: fileURL, options: [.atomic])
     }
 }
 
@@ -392,6 +753,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
     private var suppressOmnibarAutofocusUntil: Date?
 
+    /// Prevent forcing web-view focus when another UI path requested omnibar focus.
+    /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
+    private var suppressWebViewFocusUntil: Date?
+    private var suppressWebViewFocusForAddressBar: Bool = false
+    private let blankURLString = "about:blank"
+
     /// Published URL being displayed
     @Published private(set) var currentURL: URL?
 
@@ -418,6 +785,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
+    private var uiDelegate: BrowserUIDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -428,6 +796,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private var faviconTask: Task<Void, Never>?
     private var lastFaviconURLString: String?
+    private let minPageZoom: CGFloat = 0.25
+    private let maxPageZoom: CGFloat = 5.0
+    private let pageZoomStep: CGFloat = 0.1
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -481,8 +852,20 @@ final class BrowserPanel: Panel, ObservableObject {
                 self?.refreshFavicon(from: webView)
             }
         }
+        navDelegate.openInNewTab = { [weak self] url in
+            self?.openLinkInNewTab(url: url)
+        }
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
+
+        // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
+        let browserUIDelegate = BrowserUIDelegate()
+        browserUIDelegate.openInNewTab = { [weak self] url in
+            guard let self else { return }
+            self.openLinkInNewTab(url: url)
+        }
+        webView.uiDelegate = browserUIDelegate
+        self.uiDelegate = browserUIDelegate
 
         // Observe web view properties
         setupObservers()
@@ -559,6 +942,10 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Panel Protocol
 
     func focus() {
+        if shouldSuppressWebViewFocus() {
+            return
+        }
+
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
@@ -590,6 +977,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         navigationDelegate = nil
+        uiDelegate = nil
         webViewObservers.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
@@ -784,36 +1172,55 @@ final class BrowserPanel: Panel, ObservableObject {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        if let url = parseSmartInput(trimmed) {
+        if let url = resolveNavigableURL(from: trimmed) {
+            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
             navigate(to: url)
+            return
         }
+
+        let engine = BrowserSearchSettings.currentSearchEngine()
+        guard let searchURL = engine.searchURL(query: trimmed) else { return }
+        navigate(to: searchURL)
     }
 
-    private func parseSmartInput(_ input: String) -> URL? {
-        // Check if it's already a valid URL with scheme
-        if let url = URL(string: input), url.scheme != nil {
+    func resolveNavigableURL(from input: String) -> URL? {
+        resolveBrowserNavigableURL(input)
+    }
+
+    deinit {
+        webViewObservers.removeAll()
+    }
+}
+
+func resolveBrowserNavigableURL(_ input: String) -> URL? {
+    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard !trimmed.contains(" ") else { return nil }
+
+    if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
+        if scheme == "http" || scheme == "https" {
             return url
         }
-
-        // Check for localhost (prefer http:// since https is often not configured)
-        if input.hasPrefix("localhost") || input.hasPrefix("127.0.0.1") {
-            if let url = URL(string: "http://\(input)") {
-                return url
-            }
-        }
-
-        // Check if it looks like a domain (contains a dot and no spaces)
-        if input.contains(".") && !input.contains(" ") {
-            // Try adding https://
-            if let url = URL(string: "https://\(input)") {
-                return url
-            }
-        }
-
-        // Treat as a search query
-        let engine = BrowserSearchSettings.currentSearchEngine()
-        return engine.searchURL(query: input)
+        return nil
     }
+
+    let lower = trimmed.lowercased()
+    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+        return URL(string: "http://\(trimmed)")
+    }
+
+    if trimmed.contains(":") || trimmed.contains("/") {
+        return URL(string: "https://\(trimmed)")
+    }
+
+    if trimmed.contains(".") {
+        return URL(string: "https://\(trimmed)")
+    }
+
+    return nil
+}
+
+extension BrowserPanel {
 
     /// Go back in history
     func goBack() {
@@ -827,6 +1234,14 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.goForward()
     }
 
+    /// Open a link in a new browser surface in the same pane
+    func openLinkInNewTab(url: URL) {
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let paneId = workspace.paneId(forPanelId: id) else { return }
+        workspace.newBrowserSurface(inPane: paneId, url: url, focus: true)
+    }
+
     /// Reload the current page
     func reload() {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -836,6 +1251,21 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Stop loading
     func stopLoading() {
         webView.stopLoading()
+    }
+
+    @discardableResult
+    func zoomIn() -> Bool {
+        applyPageZoom(webView.pageZoom + pageZoomStep)
+    }
+
+    @discardableResult
+    func zoomOut() -> Bool {
+        applyPageZoom(webView.pageZoom - pageZoomStep)
+    }
+
+    @discardableResult
+    func resetZoom() -> Bool {
+        applyPageZoom(1.0)
     }
 
     /// Take a snapshot of the web view
@@ -860,6 +1290,14 @@ final class BrowserPanel: Panel, ObservableObject {
         suppressOmnibarAutofocusUntil = Date().addingTimeInterval(seconds)
     }
 
+    func suppressWebViewFocus(for seconds: TimeInterval) {
+        suppressWebViewFocusUntil = Date().addingTimeInterval(seconds)
+    }
+
+    func clearWebViewFocusSuppression() {
+        suppressWebViewFocusUntil = nil
+    }
+
     func shouldSuppressOmnibarAutofocus() -> Bool {
         if let until = suppressOmnibarAutofocusUntil {
             return Date() < until
@@ -867,12 +1305,57 @@ final class BrowserPanel: Panel, ObservableObject {
         return false
     }
 
-    deinit {
-        webViewObservers.removeAll()
+    func shouldSuppressWebViewFocus() -> Bool {
+        if suppressWebViewFocusForAddressBar {
+            return true
+        }
+        if let until = suppressWebViewFocusUntil {
+            return Date() < until
+        }
+        return false
     }
+
+    func beginSuppressWebViewFocusForAddressBar() {
+        suppressWebViewFocusForAddressBar = true
+    }
+
+    func endSuppressWebViewFocusForAddressBar() {
+        suppressWebViewFocusForAddressBar = false
+    }
+
+    /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
+    /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
+    func preferredURLStringForOmnibar() -> String? {
+        if let webViewURL = webView.url?.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !webViewURL.isEmpty,
+           webViewURL != blankURLString {
+            return webViewURL
+        }
+
+        if let current = currentURL?.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !current.isEmpty,
+           current != blankURLString {
+            return current
+        }
+
+        return nil
+    }
+
 }
 
 private extension BrowserPanel {
+    @discardableResult
+    func applyPageZoom(_ candidate: CGFloat) -> Bool {
+        let clamped = max(minPageZoom, min(maxPageZoom, candidate))
+        if abs(webView.pageZoom - clamped) < 0.0001 {
+            return false
+        }
+        webView.pageZoom = clamped
+        return true
+    }
+
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
         var r = start
         var hops = 0
@@ -889,6 +1372,7 @@ private extension BrowserPanel {
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
+    var openInNewTab: ((URL) -> Void)?
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         // Navigation started
@@ -911,7 +1395,43 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // Allow all navigation for now
+        // target=_blank or window.open() — open in a new tab instead of a new window
+        if navigationAction.targetFrame == nil,
+           let url = navigationAction.request.url {
+            openInNewTab?(url)
+            decisionHandler(.cancel)
+            return
+        }
+
+        // Cmd+click on a regular link — open in a new tab
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.modifierFlags.contains(.command),
+           let url = navigationAction.request.url {
+            openInNewTab?(url)
+            decisionHandler(.cancel)
+            return
+        }
+
         decisionHandler(.allow)
+    }
+}
+
+// MARK: - UI Delegate
+
+private class BrowserUIDelegate: NSObject, WKUIDelegate {
+    var openInNewTab: ((URL) -> Void)?
+
+    /// Handle cmd+click / target=_blank links. Returning nil tells WebKit not to open a new window;
+    /// instead we open the URL as a new surface in the same pane.
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            openInNewTab?(url)
+        }
+        return nil
     }
 }
