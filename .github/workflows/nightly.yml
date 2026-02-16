@@ -172,6 +172,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
 
           # Embed commit SHA for bug reports
+          /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$APP_PLIST"
 
           echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
