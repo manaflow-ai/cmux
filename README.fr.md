@@ -73,14 +73,19 @@ Tout est scriptable via le CLI et l'API socket — créer des espaces de travail
 | ⌘ N | Nouvel espace de travail |
 | ⌘ 1–8 | Aller à l'espace de travail 1–8 |
 | ⌘ 9 | Aller au dernier espace de travail |
+| ⌃ ⌘ ] | Espace de travail suivant |
+| ⌃ ⌘ [ | Espace de travail précédent |
 | ⌘ ⇧ W | Fermer l'espace de travail |
+| ⌘ B | Basculer la barre latérale |
 
 ### Surfaces
 
 | Raccourci | Action |
 |----------|--------|
 | ⌘ T | Nouvelle surface |
+| ⌘ ⇧ ] | Surface suivante |
 | ⌘ ⇧ [ | Surface précédente |
+| ⌃ Tab | Surface suivante |
 | ⌃ ⇧ Tab | Surface précédente |
 | ⌃ 1–8 | Aller à la surface 1–8 |
 | ⌃ 9 | Aller à la dernière surface |
@@ -93,13 +98,15 @@ Tout est scriptable via le CLI et l'API socket — créer des espaces de travail
 | ⌘ D | Diviser à droite |
 | ⌘ ⇧ D | Diviser vers le bas |
 | ⌥ ⌘ ← → ↑ ↓ | Focaliser le panneau directionnellement |
+| ⌘ ⇧ H | Faire clignoter le panneau focalisé |
 
 ### Navigateur
 
 | Raccourci | Action |
 |----------|--------|
-| ⌘ ⇧ B | Ouvrir le navigateur en division |
+| ⌘ ⇧ L | Ouvrir le navigateur en division |
 | ⌘ L | Focaliser la barre d'adresse |
+| ⌘ [ | Reculer |
 | ⌘ ] | Avancer |
 | ⌘ R | Recharger la page |
 | ⌥ ⌘ I | Ouvrir les outils de développement |
@@ -108,7 +115,7 @@ Tout est scriptable via le CLI et l'API socket — créer des espaces de travail
 
 | Raccourci | Action |
 |----------|--------|
-| ⌘ ⇧ I | Afficher le panneau de notifications |
+| ⌘ I | Afficher le panneau de notifications |
 | ⌘ ⇧ U | Aller à la dernière non lue |
 
 ### Recherche
@@ -136,7 +143,7 @@ Tout est scriptable via le CLI et l'API socket — créer des espaces de travail
 |----------|--------|
 | ⌘ ⇧ N | Nouvelle fenêtre |
 | ⌘ , | Paramètres |
-| ⌘ ⇧ R | Recharger la configuration |
+| ⌘ ⇧ , | Recharger la configuration |
 | ⌘ Q | Quitter |
 
 ## Licence
