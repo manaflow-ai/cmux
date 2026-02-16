@@ -1423,7 +1423,8 @@ struct CMUXCLI {
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
             }
-            if let workspaceRaw = workspaceOpt {
+            let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            if let workspaceRaw {
                 if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
                     params["workspace_id"] = workspace
                 }
@@ -3128,7 +3129,7 @@ struct CMUXCLI {
           simulate-app-active
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
-          browser open [url]                   (create browser split; if surface supplied, behaves like navigate)
+          browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
           browser open-split [url]
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
@@ -3171,7 +3172,10 @@ struct CMUXCLI {
           help
 
         Environment:
-          CMUX_WORKSPACE_ID, CMUX_SURFACE_ID, CMUX_SOCKET_PATH
+          CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
+                              browser open, new-surface, notify, and other commands.
+          CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
+          CMUX_SOCKET_PATH    Override the default Unix socket path (/tmp/cmux.sock).
         """
     }
 }

@@ -1219,16 +1219,18 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     guard !trimmed.isEmpty else { return nil }
     guard !trimmed.contains(" ") else { return nil }
 
+    // Check localhost/loopback before generic URL parsing because
+    // URL(string: "localhost:3777") treats "localhost" as a scheme.
+    let lower = trimmed.lowercased()
+    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+        return URL(string: "http://\(trimmed)")
+    }
+
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
             return url
         }
         return nil
-    }
-
-    let lower = trimmed.lowercased()
-    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
-        return URL(string: "http://\(trimmed)")
     }
 
     if trimmed.contains(":") || trimmed.contains("/") {
