@@ -31,4 +31,18 @@ final class CmuxWebView: WKWebView {
 
         super.keyDown(with: event)
     }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+
+        for item in menu.items {
+            // Rename "Open Link in New Window" to "Open Link in New Tab".
+            // The UIDelegate's createWebViewWith already handles the action
+            // by opening the link as a new surface in the same pane.
+            if item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
+                || item.title.contains("Open Link in New Window") {
+                item.title = "Open Link in New Tab"
+            }
+        }
+    }
 }
