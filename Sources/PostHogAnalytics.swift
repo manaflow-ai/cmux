@@ -44,6 +44,9 @@ final class PostHogAnalytics {
 
         PostHogSDK.shared.setup(config)
 
+        // Tag every event so PostHog can distinguish desktop from web.
+        PostHogSDK.shared.register(["platform": "cmuxterm"])
+
         // Keep a stable distinct id so DAU is "unique installs active" and doesn't churn.
         PostHogSDK.shared.identify(getOrCreateDistinctId())
 
