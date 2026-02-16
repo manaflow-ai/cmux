@@ -2,6 +2,17 @@
 
 All notable changes to cmux are documented here.
 
+## [1.32.0] - 2026-02-16
+
+### Added
+- Sidebar metadata: git branch, listening ports, log entries, progress bars, and status pills
+
+### Fixed
+- localhost and 127.0.0.1 URLs not resolving correctly in the browser panel
+
+### Changed
+- `browser open` now targets the caller's workspace by default via CMUX_WORKSPACE_ID
+
 ## [1.31.0] - 2026-02-15
 
 ### Added
