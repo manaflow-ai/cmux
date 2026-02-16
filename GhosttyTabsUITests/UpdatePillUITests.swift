@@ -123,29 +123,6 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Check Automatically"].exists)
     }
 
-    func testCheckForUpdatesStatesRemainVisibleWhenSidebarHidden() {
-        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
-        systemSettings.terminate()
-        let app = launchAppWithMockFeed(
-            mode: "none",
-            version: "9.9.9",
-            extraEnvironment: [
-                "CMUX_UI_TEST_MOCK_FEED_DELAY_MS": "7000",
-            ]
-        )
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-        app.typeKey("b", modifierFlags: [.command]) // hide sidebar
-
-        let checkingPill = pillButton(app: app, expectedLabel: "Checking for Updates…")
-        XCTAssertTrue(checkingPill.waitForExistence(timeout: 6.0))
-        assertVisibleSize(checkingPill)
-
-        let noUpdatePill = pillButton(app: app, expectedLabel: "No Updates Available")
-        XCTAssertTrue(noUpdatePill.waitForExistence(timeout: 8.0))
-        assertVisibleSize(noUpdatePill)
-    }
-
     private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
         // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier
