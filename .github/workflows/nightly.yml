@@ -155,20 +155,28 @@ jobs:
         run: |
           set -euo pipefail
           APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
+          SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
 
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
           /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
 
-          BASE_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST")
+          # Marketing version: append -nightly.YYYYMMDD so users can identify the channel and date
+          BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
           NIGHTLY_DATE=$(date -u +%Y%m%d)
-          NIGHTLY_BUILD="${BASE_BUILD}.${NIGHTLY_DATE}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}" "$APP_PLIST"
+
+          # Build number: monotonic YYYYMMDDNN integer for clean Sparkle comparisons
+          NIGHTLY_BUILD="${NIGHTLY_DATE}01"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
 
+          # Embed commit SHA for bug reports
+          /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$APP_PLIST"
+
+          echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST"
+          echo "Commit SHA: ${SHORT_SHA}"
 
       - name: Import signing cert
         env:
