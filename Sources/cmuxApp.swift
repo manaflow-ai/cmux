@@ -189,7 +189,7 @@ struct cmuxApp: App {
                 Button("Reload Configuration") {
                     GhosttyApp.shared.reloadConfiguration()
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .keyboardShortcut(",", modifiers: [.command, .shift])
                 Divider()
                 Button("Check for Updates…") {
                     appDelegate.checkForUpdates(nil)
