@@ -104,6 +104,39 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
 }
 
 final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+    func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: false,
+                flags: [],
+                keyCode: 126
+            )
+        )
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command],
+                keyCode: 126
+            )
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [],
+                keyCode: 126
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [],
+                keyCode: 125
+            ),
+            1
+        )
+    }
+
     func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForCommandNavigation(
@@ -1105,6 +1138,197 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             hasMarkedText: false
         )
         XCTAssertNotNil(inlineCompletion)
+    }
+
+    func testAutocompletionCandidateWinsOverRemoteAndSearchRowsForTwoLetterQuery() {
+        let entries: [BrowserHistoryStore.Entry] = [
+            .init(
+                id: UUID(),
+                url: "https://google.com/",
+                title: "Google",
+                lastVisited: fixedNow,
+                visitCount: 4,
+                typedCount: 1,
+                lastTypedAt: fixedNow
+            ),
+            .init(
+                id: UUID(),
+                url: "https://gmail.com/",
+                title: "Gmail",
+                lastVisited: fixedNow,
+                visitCount: 10,
+                typedCount: 2,
+                lastTypedAt: fixedNow
+            ),
+        ]
+
+        let results = buildOmnibarSuggestions(
+            query: "gm",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [
+                .init(
+                    tabId: UUID(),
+                    panelId: UUID(),
+                    url: "https://gmail.com/",
+                    title: "Gmail",
+                    isKnownOpenTab: true
+                ),
+            ],
+            remoteQueries: ["Search google for gm", "gmail", "gmail.com", "Google mail"],
+            resolvedURL: nil,
+            limit: 8,
+            now: fixedNow
+        )
+
+        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: results[0]))
+        XCTAssertEqual(results.first?.completion, "https://gmail.com/")
+    }
+
+    func testSuggestionSelectionPrefersAutocompletionCandidateAfterSuggestionsUpdate() {
+        let entries: [BrowserHistoryStore.Entry] = [
+            .init(
+                id: UUID(),
+                url: "https://google.com/",
+                title: "Google",
+                lastVisited: fixedNow,
+                visitCount: 4,
+                typedCount: 1,
+                lastTypedAt: fixedNow
+            ),
+            .init(
+                id: UUID(),
+                url: "https://gmail.com/",
+                title: "Gmail",
+                lastVisited: fixedNow,
+                visitCount: 10,
+                typedCount: 2,
+                lastTypedAt: fixedNow
+            ),
+        ]
+
+        let results = buildOmnibarSuggestions(
+            query: "gm",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [],
+            remoteQueries: ["Search google for gm", "gmail", "gmail.com"],
+            resolvedURL: nil,
+            limit: 8,
+            now: fixedNow
+        )
+
+        var state = OmnibarState()
+        let _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: ""))
+        let _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
+        let _ = omnibarReduce(state: &state, event: .suggestionsUpdated(results))
+
+        XCTAssertEqual(state.selectedSuggestionIndex, 0)
+        XCTAssertEqual(state.selectedSuggestionID, results[0].id)
+        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: state.suggestions[0]))
+    }
+
+    func testTwoCharQueryWithRemoteSuggestionsStillPromotesAutocompletionMatch() {
+        let entries: [BrowserHistoryStore.Entry] = [
+            .init(
+                id: UUID(),
+                url: "https://news.ycombinator.com/",
+                title: "News.YC",
+                lastVisited: fixedNow,
+                visitCount: 12,
+                typedCount: 1,
+                lastTypedAt: fixedNow
+            ),
+            .init(
+                id: UUID(),
+                url: "https://www.google.com/",
+                title: "Google",
+                lastVisited: fixedNow - 200,
+                visitCount: 8,
+                typedCount: 2,
+                lastTypedAt: fixedNow - 200
+            ),
+        ]
+
+        let results = buildOmnibarSuggestions(
+            query: "ne",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [],
+            remoteQueries: ["netflix", "new york times", "newegg"],
+            resolvedURL: nil,
+            limit: 8,
+            now: fixedNow
+        )
+
+        // The autocompletable history entry (news.ycombinator.com) should be first despite remote results.
+        XCTAssertEqual(results.first?.completion, "https://news.ycombinator.com/")
+        XCTAssertTrue(results.first.map { omnibarSuggestionSupportsAutocompletion(query: "ne", suggestion: $0) } ?? false)
+
+        // Remote suggestions should still appear in the results (two-char queries include them).
+        let remoteCompletions = results.filter {
+            if case .remote = $0.kind { return true }
+            return false
+        }.map(\.completion)
+        XCTAssertFalse(remoteCompletions.isEmpty, "Expected remote suggestions to be present for two-char query")
+    }
+
+    func testGmQueryWithRemoteSuggestionsAndOpenTabPromotesAutocompletionMatch() {
+        let entries: [BrowserHistoryStore.Entry] = [
+            .init(
+                id: UUID(),
+                url: "https://google.com/",
+                title: "Google",
+                lastVisited: fixedNow,
+                visitCount: 4,
+                typedCount: 1,
+                lastTypedAt: fixedNow
+            ),
+            .init(
+                id: UUID(),
+                url: "https://gmail.com/",
+                title: "Gmail",
+                lastVisited: fixedNow,
+                visitCount: 10,
+                typedCount: 2,
+                lastTypedAt: fixedNow
+            ),
+        ]
+
+        let results = buildOmnibarSuggestions(
+            query: "gm",
+            engineName: "Google",
+            historyEntries: entries,
+            openTabMatches: [
+                .init(
+                    tabId: UUID(),
+                    panelId: UUID(),
+                    url: "https://google.com/maps",
+                    title: "Google Maps",
+                    isKnownOpenTab: true
+                ),
+            ],
+            remoteQueries: ["gmail login", "gm stock price", "gmail.com"],
+            resolvedURL: nil,
+            limit: 8,
+            now: fixedNow
+        )
+
+        // Gmail should be first (autocompletable + typed history).
+        XCTAssertEqual(results.first?.completion, "https://gmail.com/")
+        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: results[0]))
+
+        // Verify remote suggestions are present alongside history/tab matches.
+        let remoteCompletions = results.filter {
+            if case .remote = $0.kind { return true }
+            return false
+        }.map(\.completion)
+        XCTAssertFalse(remoteCompletions.isEmpty, "Expected remote suggestions in results")
+        let hasSearch = results.contains {
+            if case .search = $0.kind { return true }
+            return false
+        }
+        XCTAssertTrue(hasSearch, "Expected search row in results")
     }
 
     func testHistorySuggestionDisplaysTitleAndUrlOnSingleLine() {

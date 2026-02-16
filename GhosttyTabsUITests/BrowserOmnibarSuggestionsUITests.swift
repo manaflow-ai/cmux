@@ -9,9 +9,15 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
+
+        // Terminate any lingering app from a prior test so its debounced
+        // history-save doesn't overwrite the seeded browser_history.json.
+        let cleanup = XCUIApplication()
+        cleanup.terminate()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    func testOmnibarSuggestionsAlignToPillAndCtrlNP() {
+    func testOmnibarSuggestionsAlignToPillAndCmdNP() {
         seedBrowserHistoryForTest()
 
         let app = XCUIApplication()
@@ -63,34 +69,30 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected suggestions popup to render below (not behind) the omnibar.\nPill: \(pillFrame)\nSug: \(suggestionsFrame)"
         )
 
-        // Ctrl+N should select the first history suggestion (2nd row) and Enter should navigate to the URL.
-        app.typeKey("n", modifierFlags: [.control])
-
-        // Wait for selection to move to row 1 (history) before committing.
+        // Row 0 should be the autocompletable example.com history entry.
+        // Verify Cmd+N moves to row 1, Cmd+P returns to row 0, then Enter navigates.
         let row1 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.1").firstMatch
         XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
-        let selectDeadline = Date().addingTimeInterval(2.0)
-        while Date() < selectDeadline {
-            let v = (row1.value as? String) ?? ""
-            if v.contains("selected") {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        XCTAssertTrue(((row1.value as? String) ?? "").contains("selected"), "Expected Ctrl+N to select row 1. value=\(String(describing: row1.value))")
+
+        app.typeKey("n", modifierFlags: [.command])
+        XCTAssertTrue(waitForRowSelected(row1, timeout: 2.0), "Expected Cmd+N to select row 1. value=\(String(describing: row1.value))")
+
+        app.typeKey("p", modifierFlags: [.command])
+        XCTAssertTrue(waitForRowSelected(row0, timeout: 2.0), "Expected Cmd+P to return to row 0. value=\(String(describing: row0.value))")
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
-        // After committing the history suggestion, the omnibar should contain the URL.
+        // After committing the autocompletion candidate, the omnibar should contain the URL.
+        // Note: example.com may redirect to example.org in some environments.
         let deadline = Date().addingTimeInterval(8.0)
         while Date() < deadline {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains("example.com") {
+            if value.contains("example.com") || value.contains("example.org") {
                 return
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        XCTFail("Expected omnibar to navigate to example.com after Ctrl+N + Enter. value=\(String(describing: omnibar.value))")
+        XCTFail("Expected omnibar to navigate to example.com after keyboard nav + Enter. value=\(String(describing: omnibar.value))")
     }
 
     func testOmnibarEscapeAndClickOutsideBehaveLikeChrome() {
@@ -108,39 +110,30 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
-        // Focus omnibar and navigate to example.com via history suggestion (same as the alignment test).
+        // Focus omnibar and navigate to example.com via autocompletion (row 0).
         app.typeKey("l", modifierFlags: [.command])
         omnibar.typeText("exam")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
 
-        app.typeKey("n", modifierFlags: [.control])
-
-        // Wait for selection to move to row 1 (history) before committing.
-        let row1 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.1").firstMatch
-        XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
-        let selectDeadline = Date().addingTimeInterval(2.0)
-        while Date() < selectDeadline {
-            let v = (row1.value as? String) ?? ""
-            if v.contains("selected") {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        XCTAssertTrue(((row1.value as? String) ?? "").contains("selected"), "Expected Ctrl+N to select row 1. value=\(String(describing: row1.value))")
-
+        // Row 0 is the autocompletion candidate (example.com). Enter commits it.
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        // Note: example.com may redirect to example.org in some environments.
+        func containsExampleDomain(_ value: String) -> Bool {
+            value.contains("example.com") || value.contains("example.org")
+        }
 
         let deadline = Date().addingTimeInterval(8.0)
         while Date() < deadline {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains("example.com") {
+            if containsExampleDomain(value) {
                 break
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        XCTAssertTrue(((omnibar.value as? String) ?? "").contains("example.com"))
+        XCTAssertTrue(containsExampleDomain((omnibar.value as? String) ?? ""))
 
         // Type a new query to open the popup, then Escape should revert to the current URL.
         app.typeKey("l", modifierFlags: [.command])
@@ -149,7 +142,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         let reverted = (omnibar.value as? String) ?? ""
-        XCTAssertTrue(reverted.contains("example.com"), "Expected Escape to revert omnibar to current URL. value=\(reverted)")
+        XCTAssertTrue(containsExampleDomain(reverted), "Expected Escape to revert omnibar to current URL. value=\(reverted)")
         XCTAssertFalse(suggestionsElement.waitForExistence(timeout: 0.5), "Expected Escape to close suggestions popup")
 
         // Second Escape should blur to the web view: typing should not change the omnibar value.
@@ -171,13 +164,13 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         let afterClick = (omnibar.value as? String) ?? ""
-        if !afterClick.contains("example.com") {
+        if !containsExampleDomain(afterClick) {
             // VM UI automation can occasionally keep focus in the text field after a coordinate click.
             // Fall back to Escape so we still validate post-click revert/blur behavior.
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         }
         let recoveredAfterClick = (omnibar.value as? String) ?? ""
-        XCTAssertTrue(recoveredAfterClick.contains("example.com"), "Expected click-outside path to discard edits. value=\(recoveredAfterClick)")
+        XCTAssertTrue(containsExampleDomain(recoveredAfterClick), "Expected click-outside path to discard edits. value=\(recoveredAfterClick)")
 
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
@@ -252,6 +245,117 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertLessThanOrEqual(row2Frame.maxY, popupFrame.maxY + 1, "Expected third row to stay inside popup bounds")
     }
 
+    func testCmdLRefocusAfterNavigationKeepsOmnibarEditable() {
+        seedBrowserHistoryForTest()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        app.launch()
+        app.activate()
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+
+        // Start a real navigation, then re-focus the omnibar immediately.
+        omnibar.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        // Wait for navigation to finish so we can verify focus is held through page load.
+        let loaded = Date().addingTimeInterval(8.0)
+        var loadObserved = false
+        while Date() < loaded {
+            let value = (omnibar.value as? String) ?? ""
+            if value.lowercased().contains("example.com") {
+                loadObserved = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        }
+        XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(omnibar.value)")
+
+        let valueAfterLoad = (omnibar.value as? String) ?? ""
+        omnibar.typeText("zx")
+
+        let typed = Date().addingTimeInterval(5.0)
+        var valueCaptured = false
+        while Date() < typed {
+            let value = (omnibar.value as? String) ?? ""
+            if value.contains("zx") && value != valueAfterLoad {
+                valueCaptured = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(valueCaptured, "Expected omnirbar to keep keyboard focus after Cmd+L when navigation is in-flight. value=\(String(describing: omnibar.value))")
+
+        let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
+        XCTAssertTrue(
+            suggestionsElement.waitForExistence(timeout: 3.0),
+            "Expected omnibar suggestions to appear while focused after Cmd+L during navigation"
+        )
+
+        // Avoid leaving test in partially edited state.
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeKey("x", modifierFlags: [])
+    }
+
+    func testOmnibarAutocompleteCandidateIsCommittedOnEnter() {
+        seedBrowserHistoryForTest(
+            seedEntries: [
+                SeedEntry(url: "https://news.ycombinator.com/", title: "News Y Combinator", visitCount: 12, typedCount: 1),
+                SeedEntry(url: "https://gmail.com/", title: "Gmail", visitCount: 10, typedCount: 2),
+            ]
+        )
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        app.launch()
+        app.activate()
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+
+        omnibar.typeText("gm")
+
+        let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
+        XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
+        let row0 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.0").firstMatch
+        XCTAssertTrue(row0.waitForExistence(timeout: 4.0))
+
+        let row0Value = (row0.value as? String) ?? ""
+        XCTAssertTrue(
+            row0Value.localizedCaseInsensitiveContains("gmail"),
+            "Expected autocomplete candidate to be first row. row0Value=\(row0Value)"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let deadline = Date().addingTimeInterval(8.0)
+        var committedToGmail = false
+        while Date() < deadline {
+            let value = (omnibar.value as? String) ?? ""
+            if value.localizedCaseInsensitiveContains("gmail.com") {
+                committedToGmail = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertTrue(committedToGmail, "Expected Enter to commit Gmail autocomplete target. value=\(String(describing: omnibar.value))")
+    }
+
     func testOmnibarSingleRowPopupUsesMinimumHeight() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -276,8 +380,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(row0.waitForExistence(timeout: 6.0))
         XCTAssertFalse(row1.waitForExistence(timeout: 0.5), "Expected one-row popup for a unique query")
 
-        let expectedMinHeight: CGFloat = 32
-        let tolerance: CGFloat = 3
+        let expectedMinHeight: CGFloat = 30
+        let tolerance: CGFloat = 2
         let popupHeight = suggestionsElement.frame.height
         XCTAssertLessThanOrEqual(
             abs(popupHeight - expectedMinHeight),
@@ -296,7 +400,92 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
     }
 
-    private func seedBrowserHistoryForTest() {
+    func testInlineAutocompleteBackspaceDeletesTypedPrefixCharacter() {
+        seedBrowserHistoryForTest()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        app.launch()
+        app.activate()
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        omnibar.typeText("exam")
+
+        let valueAfterTyping = (omnibar.value as? String) ?? ""
+        XCTAssertTrue(
+            valueAfterTyping.contains("example.com"),
+            "Expected inline completion to display a URL for typed prefix. value=\(valueAfterTyping)"
+        )
+        XCTAssertFalse(
+            valueAfterTyping.lowercased().hasPrefix("https://"),
+            "Expected inline completion display to avoid injecting an https:// prefix unless typed."
+        )
+
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+
+        let valueAfterDeleteAndEscape = (omnibar.value as? String) ?? ""
+        XCTAssertEqual(
+            valueAfterDeleteAndEscape,
+            "exa",
+            "Expected Backspace with inline suffix selected to remove one typed prefix character."
+        )
+    }
+
+    func testCmdASelectAllDoesNotClearInlineCompletion() {
+        seedBrowserHistoryForTest()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        app.launch()
+        app.activate()
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        omnibar.typeText("go")
+
+        let inlineDeadline = Date().addingTimeInterval(3.0)
+        while Date() < inlineDeadline {
+            let value = (omnibar.value as? String) ?? ""
+            if value.contains("google.com") {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(
+            ((omnibar.value as? String) ?? "").contains("google.com"),
+            "Expected inline completion to show google.com before Cmd+A."
+        )
+
+        app.typeKey("a", modifierFlags: [.command])
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+
+        let afterCmdA = (omnibar.value as? String) ?? ""
+        XCTAssertTrue(
+            afterCmdA.contains("google.com"),
+            "Expected Cmd+A to preserve inline completion display instead of collapsing to typed prefix. value=\(afterCmdA)"
+        )
+    }
+
+    private struct SeedEntry {
+        let url: String
+        let title: String
+        var visitCount: Int = 2
+        var typedCount: Int = 0
+    }
+
+    private func seedBrowserHistoryForTest(entries: [(String, String)]? = nil, seedEntries: [SeedEntry]? = nil) {
         // Keep the test hermetic: write a deterministic history file in the app's support dir
         // so the omnibar always has at least one local suggestion row.
         let fileManager = FileManager.default
@@ -316,29 +505,42 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         }
 
         let now = Date().timeIntervalSinceReferenceDate
+        let resolved: [SeedEntry]
+        if let seedEntries {
+            resolved = seedEntries
+        } else if let entries {
+            resolved = entries.map { SeedEntry(url: $0.0, title: $0.1, visitCount: 10, typedCount: 2) }
+        } else {
+            resolved = [
+                SeedEntry(url: "https://example.com/", title: "Example Domain", visitCount: 10, typedCount: 2),
+                SeedEntry(url: "https://go.dev/", title: "The Go Programming Language", visitCount: 10, typedCount: 2),
+                SeedEntry(url: "https://www.google.com/", title: "Google", visitCount: 10, typedCount: 2),
+            ]
+        }
+        let entriesJSON = resolved.enumerated().reversed().map { index, entry in
+            let recencyOffset = index * 120
+            var json = """
+              {
+                "id": "\(UUID().uuidString)",
+                "url": "\(entry.url)",
+                "title": "\(entry.title)",
+                "lastVisited": \(now - Double(recencyOffset)),
+                "visitCount": \(entry.visitCount)
+            """
+            if entry.typedCount > 0 {
+                json += """
+                ,
+                    "typedCount": \(entry.typedCount),
+                    "lastTypedAt": \(now - Double(recencyOffset))
+                """
+            }
+            json += "\n  }"
+            return json
+        }.joined(separator: ",\n")
+
         let json = """
         [
-          {
-            "id": "\(UUID().uuidString)",
-            "url": "https://example.com/",
-            "title": "Example Domain",
-            "lastVisited": \(now),
-            "visitCount": 3
-          },
-          {
-            "id": "\(UUID().uuidString)",
-            "url": "https://go.dev/",
-            "title": "The Go Programming Language",
-            "lastVisited": \(now - 100),
-            "visitCount": 2
-          },
-          {
-            "id": "\(UUID().uuidString)",
-            "url": "https://www.google.com/",
-            "title": "Google",
-            "lastVisited": \(now - 200),
-            "visitCount": 2
-          }
+          \(entriesJSON)
         ]
         """
         do {
