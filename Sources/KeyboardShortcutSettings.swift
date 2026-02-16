@@ -86,8 +86,7 @@ enum KeyboardShortcutSettings {
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
             case .triggerFlash:
-                // Unused by existing app shortcuts, and avoids clobbering Cmd+L (browser omnibar).
-                return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
@@ -111,7 +110,7 @@ enum KeyboardShortcutSettings {
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .openBrowser:
-                return StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             }
         }
 

@@ -173,11 +173,11 @@ struct EmptyPanelView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Label("Browser", systemImage: "globe")
-                        ShortcutHint(text: "⌘⇧B")
+                        ShortcutHint(text: "⌘⇧L")
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .keyboardShortcut("l", modifiers: [.command, .shift])
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
