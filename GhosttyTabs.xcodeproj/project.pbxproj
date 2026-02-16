@@ -69,6 +69,7 @@
 					D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */; };
 					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 				F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */; };
+				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -185,6 +186,7 @@
 					D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
 					E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 			F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyEquivalentTests.swift; sourceTree = "<group>"; };
+			F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -384,6 +386,7 @@
 			isa = PBXGroup;
 			children = (
 				F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */,
+				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 			);
 			path = GhosttyTabsTests;
 			sourceTree = "<group>";
@@ -578,6 +581,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */,
+				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
