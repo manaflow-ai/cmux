@@ -584,6 +584,11 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
                 SidebarDevFooter(updateViewModel: updateViewModel)
                     .frame(maxWidth: .infinity, alignment: .leading)
+#else
+                UpdatePill(model: updateViewModel)
+                    .padding(.leading, 10)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 #endif
             }
             .accessibilityIdentifier("Sidebar")
