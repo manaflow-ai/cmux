@@ -42,7 +42,7 @@ struct UpdatePill: View {
                     .font(Font(textFont))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(width: textWidth)
+                    .frame(maxWidth: textWidth, alignment: .leading)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

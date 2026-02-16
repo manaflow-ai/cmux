@@ -6,12 +6,18 @@ import Sparkle
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
+    #if DEBUG
+    @Published var debugOverrideText: String?
+    #endif
 
     var effectiveState: UpdateState {
         overrideState ?? state
     }
 
     var text: String {
+        #if DEBUG
+        if let debugOverrideText { return debugOverrideText }
+        #endif
         switch effectiveState {
         case .idle:
             return ""

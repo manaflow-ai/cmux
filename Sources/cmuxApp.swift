@@ -202,6 +202,9 @@ struct cmuxApp: App {
                 Button("Show Update Pill") {
                     appDelegate.showUpdatePill(nil)
                 }
+                Button("Show Long Nightly Pill") {
+                    appDelegate.showUpdatePillLongNightly(nil)
+                }
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
                 }
