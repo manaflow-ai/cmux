@@ -6783,7 +6783,10 @@ class TerminalController {
                 "notify_surface",
                 "notify_target",
                 "list_notifications",
-                "clear_notifications"
+                "clear_notifications",
+                "set_status",
+                "clear_status",
+                "list_status"
             ]
             return allowed.contains(command)
         case .off:

@@ -301,6 +301,24 @@ _cmux_precmd() {
     fi
 }
 
+# Ensure Resources/bin is at the front of PATH. Shell init (.zprofile/.zshrc)
+# may prepend other dirs that push our wrapper behind the system claude binary.
+# We fix this once on first prompt (after all init files have run).
+_cmux_fix_path() {
+    if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
+        local bin_dir="${GHOSTTY_BIN_DIR%/MacOS}"
+        bin_dir="${bin_dir}/Resources/bin"
+        if [[ -d "$bin_dir" ]]; then
+            # Remove existing entry and re-prepend.
+            local -a parts=("${(@s/:/)PATH}")
+            parts=("${(@)parts:#$bin_dir}")
+            PATH="${bin_dir}:${(j/:/)parts}"
+        fi
+    fi
+    add-zsh-hook -d precmd _cmux_fix_path
+}
+
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
+add-zsh-hook precmd _cmux_fix_path

@@ -1210,6 +1210,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
 
+        let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
+        if !claudeHooksEnabled {
+            env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        }
+
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }

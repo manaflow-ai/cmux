@@ -401,12 +401,12 @@ struct cmuxApp: App {
                 }
 
                 Button("Back") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).navigateBack()
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goBack()
                 }
                 .keyboardShortcut("[", modifiers: .command)
 
                 Button("Forward") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).navigateForward()
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goForward()
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
@@ -414,6 +414,25 @@ struct cmuxApp: App {
                     (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Button("Zoom In") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
+                }
+                .keyboardShortcut("=", modifiers: .command)
+
+                Button("Zoom Out") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomOutFocusedBrowser()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button("Actual Size") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).resetZoomFocusedBrowser()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+
+                Button("Clear Browser History") {
+                    BrowserHistoryStore.shared.clearHistory()
+                }
 
                 Button("Next Workspace") {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
@@ -2191,6 +2210,7 @@ struct SettingsView: View {
 
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
@@ -2200,6 +2220,8 @@ struct SettingsView: View {
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
     @State private var settingsTitleLeadingInset: CGFloat = 92
+    @State private var showClearBrowserHistoryConfirmation = false
+    @State private var browserHistoryEntryCount: Int = 0
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -2207,6 +2229,17 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+    }
+
+    private var browserHistorySubtitle: String {
+        switch browserHistoryEntryCount {
+        case 0:
+            return "No saved pages yet."
+        case 1:
+            return "1 saved page appears in omnibar suggestions."
+        default:
+            return "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions."
+        }
     }
 
     private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
@@ -2301,6 +2334,24 @@ struct SettingsView: View {
                         SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
                     }
 
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Claude Code Integration",
+                            subtitle: claudeCodeHooksEnabled
+                                ? "Sidebar shows Claude session status and notifications."
+                                : "Claude Code runs without cmux integration."
+                        ) {
+                            Toggle("", isOn: $claudeCodeHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsClaudeCodeHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.")
+                    }
+
                     SettingsSectionHeader(title: "Browser")
                     SettingsCard {
                         SettingsCardRow(
@@ -2323,6 +2374,17 @@ struct SettingsView: View {
                             Toggle("", isOn: $browserSearchSuggestionsEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow("Browsing History", subtitle: browserHistorySubtitle) {
+                            Button("Clear History…") {
+                                showClearBrowserHistoryConfirmation = true
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(browserHistoryEntryCount == 0)
                         }
                     }
 
@@ -2436,11 +2498,31 @@ struct SettingsView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .toggleStyle(.switch)
+        .onAppear {
+            BrowserHistoryStore.shared.loadIfNeeded()
+            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+        }
+        .onReceive(BrowserHistoryStore.shared.$entries) { entries in
+            browserHistoryEntryCount = entries.count
+        }
+        .confirmationDialog(
+            "Clear browser history?",
+            isPresented: $showClearBrowserHistoryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) {
+                BrowserHistoryStore.shared.clearHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes visited-page suggestions from the browser omnibar.")
+        }
     }
 
     private func resetAllSettings() {
         appearanceMode = AppearanceMode.dark.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        claudeCodeHooksEnabled = true
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled

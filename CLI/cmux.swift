@@ -59,6 +59,202 @@ struct NotificationInfo {
     let body: String
 }
 
+private struct ClaudeHookParsedInput {
+    let rawInput: String
+    let object: [String: Any]?
+    let sessionId: String?
+    let cwd: String?
+    let transcriptPath: String?
+}
+
+private struct ClaudeHookSessionRecord: Codable {
+    var sessionId: String
+    var workspaceId: String
+    var surfaceId: String
+    var cwd: String?
+    var lastSubtitle: String?
+    var lastBody: String?
+    var startedAt: TimeInterval
+    var updatedAt: TimeInterval
+}
+
+private struct ClaudeHookSessionStoreFile: Codable {
+    var version: Int = 1
+    var sessions: [String: ClaudeHookSessionRecord] = [:]
+}
+
+private final class ClaudeHookSessionStore {
+    private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
+    private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+
+    private let statePath: String
+    private let fileManager: FileManager
+    private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
+
+    init(
+        processEnv: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) {
+        if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            self.statePath = NSString(string: overridePath).expandingTildeInPath
+        } else {
+            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
+        }
+        self.fileManager = fileManager
+        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    }
+
+    func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        return try withLockedState { state in
+            state.sessions[normalized]
+        }
+    }
+
+    func upsert(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        lastSubtitle: String? = nil,
+        lastBody: String? = nil
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                startedAt: now,
+                updatedAt: now
+            )
+            record.workspaceId = workspaceId
+            record.surfaceId = surfaceId
+            if let cwd = normalizeOptional(cwd) {
+                record.cwd = cwd
+            }
+            if let subtitle = normalizeOptional(lastSubtitle) {
+                record.lastSubtitle = subtitle
+            }
+            if let body = normalizeOptional(lastBody) {
+                record.lastBody = body
+            }
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
+    func consume(
+        sessionId: String?,
+        workspaceId: String?,
+        surfaceId: String?
+    ) throws -> ClaudeHookSessionRecord? {
+        let normalizedSessionId = normalizeOptional(sessionId)
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        return try withLockedState { state in
+            if let normalizedSessionId,
+               let removed = state.sessions.removeValue(forKey: normalizedSessionId) {
+                return removed
+            }
+
+            guard let fallback = fallbackRecord(
+                sessions: Array(state.sessions.values),
+                workspaceId: normalizedWorkspace,
+                surfaceId: normalizedSurface
+            ) else {
+                return nil
+            }
+            state.sessions.removeValue(forKey: fallback.sessionId)
+            return fallback
+        }
+    }
+
+    private func fallbackRecord(
+        sessions: [ClaudeHookSessionRecord],
+        workspaceId: String?,
+        surfaceId: String?
+    ) -> ClaudeHookSessionRecord? {
+        if let surfaceId {
+            let matches = sessions.filter { $0.surfaceId == surfaceId }
+            return matches.max(by: { $0.updatedAt < $1.updatedAt })
+        }
+        if let workspaceId {
+            let matches = sessions.filter { $0.workspaceId == workspaceId }
+            if matches.count == 1 {
+                return matches[0]
+            }
+        }
+        return nil
+    }
+
+    private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        let lockPath = statePath + ".lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_EX) != 0 {
+            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+
+        var state = loadUnlocked()
+        pruneExpired(&state)
+        let result = try body(&state)
+        try saveUnlocked(state)
+        return result
+    }
+
+    private func loadUnlocked() -> ClaudeHookSessionStoreFile {
+        guard fileManager.fileExists(atPath: statePath) else {
+            return ClaudeHookSessionStoreFile()
+        }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
+              let decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
+            return ClaudeHookSessionStoreFile()
+        }
+        return decoded
+    }
+
+    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
+        let stateURL = URL(fileURLWithPath: statePath)
+        let parentURL = stateURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)
+        let data = try encoder.encode(state)
+        try data.write(to: stateURL, options: .atomic)
+    }
+
+    private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {
+        let now = Date().timeIntervalSince1970
+        let cutoff = now - Self.maxStateAgeSeconds
+        state.sessions = state.sessions.filter { _, record in
+            record.updatedAt >= cutoff
+        }
+    }
+
+    private func normalizeSessionId(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizeOptional(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 enum CLIIDFormat: String {
     case refs
     case uuids
@@ -676,6 +872,9 @@ struct CMUXCLI {
         case "clear-notifications":
             let response = try client.send(command: "clear_notifications")
             print(response)
+
+        case "claude-hook":
+            try runClaudeHook(commandArgs: commandArgs, client: client)
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -2480,6 +2679,401 @@ struct CMUXCLI {
         return output
     }
 
+    private func runClaudeHook(commandArgs: [String], client: SocketClient) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let hookArgs = Array(commandArgs.dropFirst())
+        let workspaceArg = optionValue(hookArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        let sessionStore = ClaudeHookSessionStore()
+        let fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
+        let fallbackSurfaceId = try? resolveSurfaceId(surfaceArg, workspaceId: fallbackWorkspaceId, client: client)
+
+        switch subcommand {
+        case "session-start", "active":
+            let workspaceId = fallbackWorkspaceId
+            let surfaceId = try resolveSurfaceIdForClaudeHook(
+                surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd
+                )
+            }
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("OK")
+
+        case "stop", "idle":
+            let consumedSession = try? sessionStore.consume(
+                sessionId: parsedInput.sessionId,
+                workspaceId: fallbackWorkspaceId,
+                surfaceId: fallbackSurfaceId
+            )
+            let workspaceId = consumedSession?.workspaceId ?? fallbackWorkspaceId
+            try clearClaudeStatus(client: client, workspaceId: workspaceId)
+
+            if let completion = summarizeClaudeHookStop(
+                parsedInput: parsedInput,
+                sessionRecord: consumedSession
+            ) {
+                let surfaceId = try resolveSurfaceIdForClaudeHook(
+                    consumedSession?.surfaceId ?? surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+                let title = "Claude Code"
+                let subtitle = sanitizeNotificationField(completion.subtitle)
+                let body = sanitizeNotificationField(completion.body)
+                let payload = "\(title)|\(subtitle)|\(body)"
+                let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+                print(response)
+            } else {
+                print("OK")
+            }
+
+        case "notification", "notify":
+            let summary = summarizeClaudeHookNotification(rawInput: rawInput)
+
+            var workspaceId = fallbackWorkspaceId
+            var preferredSurface = surfaceArg
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+                preferredSurface = mapped.surfaceId
+            }
+
+            let surfaceId = try resolveSurfaceIdForClaudeHook(
+                preferredSurface,
+                workspaceId: workspaceId,
+                client: client
+            )
+
+            let title = "Claude Code"
+            let subtitle = sanitizeNotificationField(summary.subtitle)
+            let body = sanitizeNotificationField(summary.body)
+            let payload = "\(title)|\(subtitle)|\(body)"
+
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: summary.subtitle,
+                    lastBody: summary.body
+                )
+            }
+
+            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            _ = try? setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Needs input",
+                icon: "bell.fill",
+                color: "#4C8DFF"
+            )
+            print(response)
+
+        case "help", "--help", "-h":
+            print(
+                """
+                cmux claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
+                """
+            )
+
+        default:
+            throw CLIError(message: "Unknown claude-hook subcommand: \(subcommand)")
+        }
+    }
+
+    private func setClaudeStatus(
+        client: SocketClient,
+        workspaceId: String,
+        value: String,
+        icon: String,
+        color: String
+    ) throws {
+        _ = try client.send(
+            command: "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        )
+    }
+
+    private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
+        _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    }
+
+    private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
+        if let raw, !raw.isEmpty, let candidate = try? resolveWorkspaceId(raw, client: client) {
+            let probe = try? client.send(command: "list_surfaces \(candidate)")
+            if let probe, !probe.hasPrefix("ERROR") {
+                return candidate
+            }
+        }
+        return try resolveWorkspaceId(nil, client: client)
+    }
+
+    private func resolveSurfaceIdForClaudeHook(
+        _ raw: String?,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> String {
+        if let raw, !raw.isEmpty, let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client) {
+            return candidate
+        }
+        return try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+    }
+
+    private func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: []),
+              let object = json as? [String: Any] else {
+            return ClaudeHookParsedInput(rawInput: rawInput, object: nil, sessionId: nil, cwd: nil, transcriptPath: nil)
+        }
+
+        let sessionId = extractClaudeHookSessionId(from: object)
+        let cwd = extractClaudeHookCWD(from: object)
+        let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
+        return ClaudeHookParsedInput(rawInput: rawInput, object: object, sessionId: sessionId, cwd: cwd, transcriptPath: transcriptPath)
+    }
+
+    private func extractClaudeHookSessionId(from object: [String: Any]) -> String? {
+        if let id = firstString(in: object, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+
+        if let nested = object["notification"] as? [String: Any],
+           let id = firstString(in: nested, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+        if let nested = object["data"] as? [String: Any],
+           let id = firstString(in: nested, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+        if let session = object["session"] as? [String: Any],
+           let id = firstString(in: session, keys: ["id", "session_id", "sessionId"]) {
+            return id
+        }
+        if let context = object["context"] as? [String: Any],
+           let id = firstString(in: context, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+        return nil
+    }
+
+    private func extractClaudeHookCWD(from object: [String: Any]) -> String? {
+        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]
+        if let cwd = firstString(in: object, keys: cwdKeys) {
+            return cwd
+        }
+        if let nested = object["notification"] as? [String: Any],
+           let cwd = firstString(in: nested, keys: cwdKeys) {
+            return cwd
+        }
+        if let nested = object["data"] as? [String: Any],
+           let cwd = firstString(in: nested, keys: cwdKeys) {
+            return cwd
+        }
+        if let context = object["context"] as? [String: Any],
+           let cwd = firstString(in: context, keys: cwdKeys) {
+            return cwd
+        }
+        return nil
+    }
+
+    private func summarizeClaudeHookStop(
+        parsedInput: ClaudeHookParsedInput,
+        sessionRecord: ClaudeHookSessionRecord?
+    ) -> (subtitle: String, body: String)? {
+        let cwd = parsedInput.cwd ?? sessionRecord?.cwd
+        let transcriptPath = parsedInput.transcriptPath
+
+        let projectName: String? = {
+            guard let cwd = cwd, !cwd.isEmpty else { return nil }
+            let path = NSString(string: cwd).expandingTildeInPath
+            let tail = URL(fileURLWithPath: path).lastPathComponent
+            return tail.isEmpty ? path : tail
+        }()
+
+        // Try reading the transcript JSONL for a richer summary.
+        let transcript = transcriptPath.flatMap { readTranscriptSummary(path: $0) }
+
+        if let lastMsg = transcript?.lastAssistantMessage {
+            var subtitle = "Completed"
+            if let projectName, !projectName.isEmpty {
+                subtitle = "Completed in \(projectName)"
+            }
+            return (subtitle, truncate(lastMsg, maxLength: 200))
+        }
+
+        // Fallback: use session record data.
+        let lastMessage = sessionRecord?.lastBody ?? sessionRecord?.lastSubtitle
+        let hasContext = cwd != nil || lastMessage != nil
+        guard hasContext else { return nil }
+
+        var body = "Claude session completed"
+        if let projectName, !projectName.isEmpty {
+            body += " in \(projectName)"
+        }
+        if let lastMessage, !lastMessage.isEmpty {
+            body += ". Last: \(lastMessage)"
+        }
+        return ("Completed", body)
+    }
+
+    private struct TranscriptSummary {
+        let lastAssistantMessage: String?
+    }
+
+    private func readTranscriptSummary(path: String) -> TranscriptSummary? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        guard let content = String(data: data, encoding: .utf8) else { return nil }
+
+        let lines = content.components(separatedBy: "\n")
+
+        var lastAssistantMessage: String?
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let lineData = trimmed.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let message = obj["message"] as? [String: Any],
+                  let role = message["role"] as? String,
+                  role == "assistant" else {
+                continue
+            }
+
+            let text = extractMessageText(from: message)
+            guard let text, !text.isEmpty else { continue }
+            lastAssistantMessage = truncate(normalizedSingleLine(text), maxLength: 120)
+        }
+
+        guard lastAssistantMessage != nil else { return nil }
+        return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
+    }
+
+    private func extractMessageText(from message: [String: Any]) -> String? {
+        if let content = message["content"] as? String {
+            return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let contentArray = message["content"] as? [[String: Any]] {
+            let texts = contentArray.compactMap { block -> String? in
+                guard (block["type"] as? String) == "text",
+                      let text = block["text"] as? String else { return nil }
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let joined = texts.joined(separator: " ")
+            return joined.isEmpty ? nil : joined
+        }
+        return nil
+    }
+
+    private func summarizeClaudeHookNotification(rawInput: String) -> (subtitle: String, body: String) {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ("Waiting", "Claude is waiting for your input")
+        }
+
+        guard let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: []),
+              let object = json as? [String: Any] else {
+            let fallback = truncate(normalizedSingleLine(trimmed), maxLength: 180)
+            return classifyClaudeNotification(signal: fallback, message: fallback)
+        }
+
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let signalParts = [
+            firstString(in: object, keys: ["event", "event_name", "hook_event_name", "type", "kind"]),
+            firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
+            firstString(in: nested, keys: ["type", "kind", "reason"])
+        ]
+        let messageCandidates = [
+            firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
+            firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
+        ]
+        let session = firstString(in: object, keys: ["session_id", "sessionId"])
+        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        let normalizedMessage = normalizedSingleLine(message)
+        let signal = signalParts.compactMap { $0 }.joined(separator: " ")
+        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+
+        if let session, !session.isEmpty {
+            let shortSession = String(session.prefix(8))
+            if !classified.body.contains(shortSession) {
+                classified.body = "\(classified.body) [\(shortSession)]"
+            }
+        }
+
+        classified.body = truncate(classified.body, maxLength: 180)
+        return classified
+    }
+
+    private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
+        let lower = "\(signal) \(message)".lowercased()
+        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
+            let body = message.isEmpty ? "Approval needed" : message
+            return ("Permission", body)
+        }
+        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
+            let body = message.isEmpty ? "Claude reported an error" : message
+            return ("Error", body)
+        }
+        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("prompt") {
+            let body = message.isEmpty ? "Claude is waiting for your input" : message
+            return ("Waiting", body)
+        }
+        let body = message.isEmpty ? "Claude needs your input" : message
+        return ("Attention", body)
+    }
+
+    private func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = object[key] else { continue }
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
+
+    private func normalizedSingleLine(_ value: String) -> String {
+        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func truncate(_ value: String, maxLength: Int) -> String {
+        guard value.count > maxLength else { return value }
+        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
+        return String(value[..<index]) + "…"
+    }
+
+    private func sanitizeNotificationField(_ value: String) -> String {
+        let normalized = normalizedSingleLine(value)
+            .replacingOccurrences(of: "|", with: "¦")
+        return truncate(normalized, maxLength: 180)
+    }
+
     private func usage() -> String {
         return """
         cmux - control cmux via Unix socket
@@ -2529,6 +3123,7 @@ struct CMUXCLI {
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|index>] [--surface <id|index>]
           list-notifications
           clear-notifications
+          claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
