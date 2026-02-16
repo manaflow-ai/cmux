@@ -5,27 +5,19 @@ import SwiftUI
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
-    private let updateItemIdentifier = NSToolbarItem.Identifier("cmux.updatePill")
 
     private weak var tabManager: TabManager?
-    private weak var updateViewModel: UpdateViewModel?
 
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
-    private var updateSizeCancellables: [ObjectIdentifier: AnyCancellable] = [:]
-    private var updateViewConstraints: [ObjectIdentifier: (width: NSLayoutConstraint, height: NSLayoutConstraint)] = [:]
 
-    init(updateViewModel: UpdateViewModel) {
-        self.updateViewModel = updateViewModel
+    override init() {
         super.init()
     }
 
     deinit {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
-        }
-        for cancellable in updateSizeCancellables.values {
-            cancellable.cancel()
         }
     }
 
@@ -105,11 +97,11 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandItemIdentifier, .flexibleSpace, updateItemIdentifier]
+        [commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandItemIdentifier, .flexibleSpace, updateItemIdentifier]
+        [commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -126,41 +118,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             return item
         }
 
-        if itemIdentifier == updateItemIdentifier, let updateViewModel {
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            let view = NonDraggableHostingView(rootView: UpdatePill(model: updateViewModel))
-            let key = ObjectIdentifier(toolbar)
-            item.view = view
-            sizeToolbarItem(for: key, hostingView: view)
-            updateSizeCancellables[key]?.cancel()
-            updateSizeCancellables[key] = updateViewModel.$state
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak view] _ in
-                    guard let self, let view else { return }
-                    self.sizeToolbarItem(for: key, hostingView: view)
-                }
-            return item
-        }
 
         return nil
     }
 
-    private func sizeToolbarItem(for key: ObjectIdentifier, hostingView: NSView) {
-        hostingView.invalidateIntrinsicContentSize()
-        hostingView.layoutSubtreeIfNeeded()
-        let size = hostingView.fittingSize
-        hostingView.setFrameSize(size)
-        hostingView.setContentHuggingPriority(.required, for: .horizontal)
-        hostingView.setContentHuggingPriority(.required, for: .vertical)
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        if let constraints = updateViewConstraints[key] {
-            constraints.width.constant = size.width
-            constraints.height.constant = size.height
-        } else {
-            let width = hostingView.widthAnchor.constraint(equalToConstant: size.width)
-            let height = hostingView.heightAnchor.constraint(equalToConstant: size.height)
-            NSLayoutConstraint.activate([width, height])
-            updateViewConstraints[key] = (width: width, height: height)
-        }
-    }
 }
