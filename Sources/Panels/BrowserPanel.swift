@@ -861,6 +861,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
 
+        // Match the empty-page background to the window so newly-created browsers
+        // don't flash white before content loads.
+        webView.underPageBackgroundColor = .windowBackgroundColor
+
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
 
