@@ -1423,6 +1423,17 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
+        switch kind {
+        case "terminal":
+            _ = newTerminalSurface(inPane: pane)
+        case "browser":
+            _ = newBrowserSurface(inPane: pane)
+        default:
+            _ = newTerminalSurface(inPane: pane)
+        }
+    }
+
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         _ = snapshot
         scheduleTerminalGeometryReconcile()
