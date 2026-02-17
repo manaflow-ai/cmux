@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [1.36.0] - 2026-02-17
+
+### Fixed
+- App hang when omnibar safety timeout failed to fire (blocked main thread)
+- Tab drag/drop not working when multiple workspaces exist
+- Clicking in browser WebView not focusing the browser tab
+
 ## [1.35.0] - 2026-02-17
 
 ### Fixed
