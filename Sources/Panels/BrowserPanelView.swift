@@ -1742,19 +1742,20 @@ private final class OmnibarNativeTextField: NSTextField {
         } else {
             // Already editing — allow normal click-to-place-cursor and drag-to-select.
             // Guard against a stuck tracking loop by posting a synthetic mouseUp after
-            // a timeout so the main thread can't be blocked indefinitely.
-            var trackingFinished = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                guard !trackingFinished, let self, let window = self.window else { return }
-                #if DEBUG
-                dlog("browser.omnibarTrackingTimeout — forcing mouseUp")
-                #endif
+            // a timeout. IMPORTANT: must use a background queue because super.mouseDown
+            // blocks the main thread in NSTextView's tracking loop, so
+            // DispatchQueue.main.asyncAfter would never fire.
+            let cancelled = DispatchWorkItem { /* sentinel */ }
+            let windowNumber = window?.windowNumber ?? 0
+            let location = event.locationInWindow
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 3.0) {
+                guard !cancelled.isCancelled else { return }
                 if let fakeUp = NSEvent.mouseEvent(
                     with: .leftMouseUp,
-                    location: event.locationInWindow,
+                    location: location,
                     modifierFlags: [],
                     timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
+                    windowNumber: windowNumber,
                     context: nil,
                     eventNumber: 0,
                     clickCount: 1,
@@ -1764,7 +1765,7 @@ private final class OmnibarNativeTextField: NSTextField {
                 }
             }
             super.mouseDown(with: event)
-            trackingFinished = true
+            cancelled.cancel()
         }
     }
 
