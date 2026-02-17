@@ -5,6 +5,82 @@ description: Release notes and version history for cmux
 
 All notable changes to cmux are documented here.
 
+## [1.33.0] - 2026-02-16
+
+### Fixed
+- Menubar and general UI lag in production builds
+- Sidebar tabs getting extra left padding when update pill is visible
+- Memory leak when middle-clicking to close tabs
+
+## [1.32.0] - 2026-02-16
+
+### Added
+- Sidebar metadata: git branch, listening ports, log entries, progress bars, and status pills
+
+### Fixed
+- localhost and 127.0.0.1 URLs not resolving correctly in the browser panel
+
+### Changed
+- `browser open` now targets the caller's workspace by default via CMUX_WORKSPACE_ID
+
+## [1.31.0] - 2026-02-15
+
+### Added
+- Arrow key navigation in browser omnibar suggestions
+- Browser zoom shortcuts (Cmd+/-, Cmd+0 to reset)
+- "Install Update and Relaunch" menu item when an update is available
+
+### Changed
+- Open browser shortcut remapped from Cmd+Shift+B to Cmd+Shift+L
+- Flash focused panel shortcut remapped from Cmd+Shift+L to Cmd+Shift+H
+- Update pill now shows only in the sidebar footer
+
+### Fixed
+- Omnibar inline completion showing partial domain (e.g. "news." instead of "news.ycombinator.com")
+
+## [1.30.0] - 2026-02-15
+
+### Fixed
+- Update pill not appearing when sidebar is visible in Release builds
+
+## [1.29.0] - 2026-02-15
+
+### Added
+- Cmd+click on links in the browser opens them in a new tab
+- Right-click context menu shows "Open Link in New Tab" instead of "Open in New Window"
+- Third-party licenses bundled in app with Licenses button in About window
+- Update availability pill now visible in Release builds
+
+### Changed
+- Cmd+[/] now triggers browser back/forward when a browser panel is focused (no-op on terminal)
+- Reload configuration shortcut changed to Cmd+Shift+,
+- Improved browser omnibar suggestions and focus behavior
+
+## [1.28.2] - 2026-02-14
+
+### Fixed
+- Sparkle updates from `1.27.0` could fail to detect newer releases because release build numbers were behind the latest published appcast build number
+- Release GitHub Action failed on repeat runs when `SUPublicEDKey` / `SUFeedURL` already existed in `Info.plist`
+
+## [1.28.1] - 2026-02-14
+
+### Fixed
+- Release build failure caused by debug-only helper symbols referenced in non-debug code paths
+
+## [1.28.0] - 2026-02-14
+
+### Added
+- Optional nightly update channel in Settings (`Receive Nightly Builds`)
+- Automated nightly build and publish workflow for `main` when new commits are available
+
+### Changed
+- Settings and About windows now use the updated transparent titlebar styling and aligned controls
+- Repository license changed to GNU AGPLv3
+
+### Fixed
+- Terminal panes freezing after repeated split churn
+- Finder service directory resolution now normalizes paths consistently
+
 ## [1.27.0] - 2026-02-11
 
 ### Fixed
@@ -32,7 +108,7 @@ All notable changes to cmux are documented here.
 ## [1.23.0] - 2026-02-09
 
 ### Changed
-- Rename app from cmuxterm to cmux — new app name, socket paths, Homebrew tap, and CLI binary name (bundle ID remains `com.cmuxterm.app` for Sparkle update continuity)
+- Rename app to cmux — new app name, socket paths, Homebrew tap, and CLI binary name (bundle ID remains `com.cmuxterm.app` for Sparkle update continuity)
 - Sidebar now shows tab status as text instead of colored dots, with instant git HEAD change detection
 
 ### Fixed
@@ -47,37 +123,6 @@ All notable changes to cmux are documented here.
 
 ### Fixed
 - Zsh autosuggestions not working with shared history across terminal panes
-
-## [1.20.1] - 2026-02-09
-
-### Fixed
-- Updater permission error now correctly tells user to move app to Applications
-
-## [1.20.0] - 2026-02-09
-
-### Fixed
-- Blank window on macOS 26 when background glass effect is enabled
-- Update status pill not appearing in toolbar
-- Update errors appearing instantly without showing checking spinner first
-- "Copy Update Logs" showing empty logs
-
-### Changed
-- Clearer error when app needs to be moved to Applications before updating
-- DMG installer now shows drag-to-install window with Applications shortcut
-
-## [1.19.0] - 2026-02-08
-
-### Fixed
-- Blank window on macOS 26 caused by NSGlassEffectView wrapper
-
-## [1.18.0] - 2026-02-06
-
-### Added
-- Sidebar metadata: see current directory, git branch, and listening ports for each terminal pane
-- Shell integration for bash and zsh to automatically report metadata to the sidebar
-
-### Fixed
-- Stale metadata no longer lingers after closing terminal panes
 
 ## [1.17.3] - 2025-02-05
 

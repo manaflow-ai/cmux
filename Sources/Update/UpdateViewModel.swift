@@ -6,12 +6,18 @@ import Sparkle
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
+    #if DEBUG
+    @Published var debugOverrideText: String?
+    #endif
 
     var effectiveState: UpdateState {
         overrideState ?? state
     }
 
     var text: String {
+        #if DEBUG
+        if let debugOverrideText { return debugOverrideText }
+        #endif
         switch effectiveState {
         case .idle:
             return ""
@@ -192,6 +198,8 @@ class UpdateViewModel: ObservableObject {
         }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
+            case 4005:
+                return "Updater Permission Error"
             case 2001:
                 return "Couldn't Download Update"
             case 1000, 1002:
@@ -202,8 +210,8 @@ class UpdateViewModel: ObservableObject {
                 return "Insecure Update Feed"
             case 1, 2, 3001, 3002:
                 return "Update Signature Error"
-            case 1003, 1005, 4005:
-                return "Move to Applications"
+            case 1003, 1005:
+                return "App Location Issue"
             default:
                 break
             }
@@ -216,13 +224,13 @@ class UpdateViewModel: ObservableObject {
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
-                return "cmux can't reach the update server. Check your internet connection and try again."
+                return "cmux can’t reach the update server. Check your internet connection and try again."
             case NSURLErrorTimedOut:
                 return "The update server took too long to respond. Try again in a moment."
             case NSURLErrorCannotFindHost:
                 return "The update server can’t be found. Check your connection or try again later."
             case NSURLErrorCannotConnectToHost:
-                return "cmux couldn't connect to the update server. Check your connection or try again later."
+                return "cmux couldn’t connect to the update server. Check your connection or try again later."
             case NSURLErrorNetworkConnectionLost:
                 return "The network connection was lost while checking for updates. Try again."
             case NSURLErrorSecureConnectionFailed,

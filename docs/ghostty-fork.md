@@ -22,6 +22,15 @@ When we change the fork, update this document and the parent submodule SHA.
 - Summary:
   - Adds a parser for kitty OSC 99 notifications and wires it into the OSC dispatcher.
 
+### 2) macOS display link restart on display changes
+
+- Commit: `7c2562cbe` (macos: restart display link after display ID change)
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Restarts the CVDisplayLink when `setMacOSDisplayID` updates the current CGDisplay.
+  - Prevents a rare state where vsync is "running" but no callbacks arrive, which can look like a frozen surface until focus/occlusion changes.
+
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:

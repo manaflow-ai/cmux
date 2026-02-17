@@ -1,48 +1,182 @@
 import AppKit
 import SwiftUI
 
-/// Stores customizable keyboard shortcuts
+/// Stores customizable keyboard shortcuts (definitions + persistence).
 enum KeyboardShortcutSettings {
-    static let showNotificationsKey = "shortcut.showNotifications"
-    static let jumpToUnreadKey = "shortcut.jumpToUnread"
+    enum Action: String, CaseIterable, Identifiable {
+        // Titlebar / primary UI
+        case toggleSidebar
+        case newTab
+        case showNotifications
+        case jumpToUnread
+        case triggerFlash
 
-    /// Default shortcut: Cmd+Shift+I
-    static let showNotificationsDefault = StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
-    /// Default shortcut: Cmd+Shift+U
-    static let jumpToUnreadDefault = StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+        // Navigation
+        case nextSurface
+        case prevSurface
+        case nextSidebarTab
+        case prevSidebarTab
+        case newSurface
 
-    static func showNotificationsShortcut() -> StoredShortcut {
-        guard let data = UserDefaults.standard.data(forKey: showNotificationsKey),
+        // Panes / splits
+        case focusLeft
+        case focusRight
+        case focusUp
+        case focusDown
+        case splitRight
+        case splitDown
+
+        // Panels
+        case openBrowser
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .toggleSidebar: return "Toggle Sidebar"
+            case .newTab: return "New Tab"
+            case .showNotifications: return "Show Notifications"
+            case .jumpToUnread: return "Jump to Latest Unread"
+            case .triggerFlash: return "Flash Focused Panel"
+            case .nextSurface: return "Next Surface"
+            case .prevSurface: return "Previous Surface"
+            case .nextSidebarTab: return "Next Workspace"
+            case .prevSidebarTab: return "Previous Workspace"
+            case .newSurface: return "New Surface"
+            case .focusLeft: return "Focus Pane Left"
+            case .focusRight: return "Focus Pane Right"
+            case .focusUp: return "Focus Pane Up"
+            case .focusDown: return "Focus Pane Down"
+            case .splitRight: return "Split Right"
+            case .splitDown: return "Split Down"
+            case .openBrowser: return "Open Browser"
+            }
+        }
+
+        var defaultsKey: String {
+            switch self {
+            case .toggleSidebar: return "shortcut.toggleSidebar"
+            case .newTab: return "shortcut.newTab"
+            case .showNotifications: return "shortcut.showNotifications"
+            case .jumpToUnread: return "shortcut.jumpToUnread"
+            case .triggerFlash: return "shortcut.triggerFlash"
+            case .nextSidebarTab: return "shortcut.nextSidebarTab"
+            case .prevSidebarTab: return "shortcut.prevSidebarTab"
+            case .focusLeft: return "shortcut.focusLeft"
+            case .focusRight: return "shortcut.focusRight"
+            case .focusUp: return "shortcut.focusUp"
+            case .focusDown: return "shortcut.focusDown"
+            case .splitRight: return "shortcut.splitRight"
+            case .splitDown: return "shortcut.splitDown"
+            case .nextSurface: return "shortcut.nextSurface"
+            case .prevSurface: return "shortcut.prevSurface"
+            case .newSurface: return "shortcut.newSurface"
+            case .openBrowser: return "shortcut.openBrowser"
+            }
+        }
+
+        var defaultShortcut: StoredShortcut {
+            switch self {
+            case .toggleSidebar:
+                return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            case .newTab:
+                return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            case .showNotifications:
+                return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+            case .jumpToUnread:
+                return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+            case .triggerFlash:
+                return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
+            case .nextSidebarTab:
+                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+            case .prevSidebarTab:
+                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+            case .focusLeft:
+                return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
+            case .focusRight:
+                return StoredShortcut(key: "→", command: true, shift: false, option: true, control: false)
+            case .focusUp:
+                return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
+            case .focusDown:
+                return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            case .splitRight:
+                return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+            case .splitDown:
+                return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
+            case .nextSurface:
+                return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+            case .prevSurface:
+                return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+            case .newSurface:
+                return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .openBrowser:
+                return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
+            }
+        }
+
+        func tooltip(_ base: String) -> String {
+            "\(base) (\(KeyboardShortcutSettings.shortcut(for: self).displayString))"
+        }
+    }
+
+    static func shortcut(for action: Action) -> StoredShortcut {
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return showNotificationsDefault
+            return action.defaultShortcut
         }
         return shortcut
     }
 
-    static func setShowNotificationsShortcut(_ shortcut: StoredShortcut) {
+    static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
         if let data = try? JSONEncoder().encode(shortcut) {
-            UserDefaults.standard.set(data, forKey: showNotificationsKey)
+            UserDefaults.standard.set(data, forKey: action.defaultsKey)
         }
     }
 
-    static func jumpToUnreadShortcut() -> StoredShortcut {
-        guard let data = UserDefaults.standard.data(forKey: jumpToUnreadKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return jumpToUnreadDefault
-        }
-        return shortcut
-    }
-
-    static func setJumpToUnreadShortcut(_ shortcut: StoredShortcut) {
-        if let data = try? JSONEncoder().encode(shortcut) {
-            UserDefaults.standard.set(data, forKey: jumpToUnreadKey)
-        }
+    static func resetShortcut(for action: Action) {
+        UserDefaults.standard.removeObject(forKey: action.defaultsKey)
     }
 
     static func resetAll() {
-        UserDefaults.standard.removeObject(forKey: showNotificationsKey)
-        UserDefaults.standard.removeObject(forKey: jumpToUnreadKey)
+        for action in Action.allCases {
+            resetShortcut(for: action)
+        }
     }
+
+    // MARK: - Backwards-Compatible API (call-sites can migrate gradually)
+
+    // Keys (used by debug socket command + UI tests)
+    static let focusLeftKey = Action.focusLeft.defaultsKey
+    static let focusRightKey = Action.focusRight.defaultsKey
+    static let focusUpKey = Action.focusUp.defaultsKey
+    static let focusDownKey = Action.focusDown.defaultsKey
+
+    // Defaults (used by settings reset + recorder button initial title)
+    static let showNotificationsDefault = Action.showNotifications.defaultShortcut
+    static let jumpToUnreadDefault = Action.jumpToUnread.defaultShortcut
+
+    static func showNotificationsShortcut() -> StoredShortcut { shortcut(for: .showNotifications) }
+    static func setShowNotificationsShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .showNotifications) }
+
+    static func jumpToUnreadShortcut() -> StoredShortcut { shortcut(for: .jumpToUnread) }
+    static func setJumpToUnreadShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .jumpToUnread) }
+
+    static func nextSidebarTabShortcut() -> StoredShortcut { shortcut(for: .nextSidebarTab) }
+    static func prevSidebarTabShortcut() -> StoredShortcut { shortcut(for: .prevSidebarTab) }
+
+    static func focusLeftShortcut() -> StoredShortcut { shortcut(for: .focusLeft) }
+    static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
+    static func focusUpShortcut() -> StoredShortcut { shortcut(for: .focusUp) }
+    static func focusDownShortcut() -> StoredShortcut { shortcut(for: .focusDown) }
+
+    static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
+    static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
+
+    static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
+    static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
+    static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
+
+    static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults
@@ -59,7 +193,14 @@ struct StoredShortcut: Codable, Equatable {
         if option { parts.append("⌥") }
         if shift { parts.append("⇧") }
         if command { parts.append("⌘") }
-        parts.append(key.uppercased())
+        let keyText: String
+        switch key {
+        case "\t":
+            keyText = "TAB"
+        default:
+            keyText = key.uppercased()
+        }
+        parts.append(keyText)
         return parts.joined()
     }
 
@@ -73,20 +214,60 @@ struct StoredShortcut: Codable, Equatable {
     }
 
     static func from(event: NSEvent) -> StoredShortcut? {
-        guard let chars = event.charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first,
-              char.isLetter || char.isNumber else {
-            return nil
-        }
+        guard let key = storedKey(from: event) else { return nil }
 
-        let flags = event.modifierFlags
-        return StoredShortcut(
-            key: String(char),
+        // Some keys include extra flags depending on the responder chain.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
+
+        let shortcut = StoredShortcut(
+            key: key,
             command: flags.contains(.command),
             shift: flags.contains(.shift),
             option: flags.contains(.option),
             control: flags.contains(.control)
         )
+
+        // Avoid recording plain typing; require at least one modifier.
+        if !shortcut.command && !shortcut.shift && !shortcut.option && !shortcut.control {
+            return nil
+        }
+        return shortcut
+    }
+
+    private static func storedKey(from event: NSEvent) -> String? {
+        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
+        switch event.keyCode {
+        case 123: return "←" // left arrow
+        case 124: return "→" // right arrow
+        case 125: return "↓" // down arrow
+        case 126: return "↑" // up arrow
+        case 48: return "\t" // tab
+        case 33: return "["  // kVK_ANSI_LeftBracket
+        case 30: return "]"  // kVK_ANSI_RightBracket
+        case 27: return "-"  // kVK_ANSI_Minus
+        case 24: return "="  // kVK_ANSI_Equal
+        case 43: return ","  // kVK_ANSI_Comma
+        case 47: return "."  // kVK_ANSI_Period
+        case 44: return "/"  // kVK_ANSI_Slash
+        case 41: return ";"  // kVK_ANSI_Semicolon
+        case 39: return "'"  // kVK_ANSI_Quote
+        case 50: return "`"  // kVK_ANSI_Grave
+        case 42: return "\\" // kVK_ANSI_Backslash
+        default:
+            break
+        }
+
+        guard let chars = event.charactersIgnoringModifiers?.lowercased(),
+              let char = chars.first else {
+            return nil
+        }
+
+        // Allow letters/numbers; everything else should be handled by keyCode mapping above.
+        if char.isLetter || char.isNumber {
+            return String(char)
+        }
+        return nil
     }
 }
 
@@ -192,7 +373,8 @@ private class ShortcutRecorderNSButton: NSButton {
                 return nil
             }
 
-            return event
+            // Consume unsupported keys while recording to avoid triggering app shortcuts.
+            return nil
         }
 
         // Also stop recording if window loses focus

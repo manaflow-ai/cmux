@@ -11,16 +11,17 @@ struct UpdatePill: View {
 
     var body: some View {
         let state = model.effectiveState
-        let visible = !state.isIdle
-        pillButton
-            .popover(
-                isPresented: $showPopover,
-                attachmentAnchor: .rect(.bounds),
-                arrowEdge: .top
-            ) {
-                UpdatePopoverView(model: model)
-            }
-            .opacity(visible ? 1 : 0)
+        if !state.isIdle {
+            pillButton
+                .popover(
+                    isPresented: $showPopover,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .top
+                ) {
+                    UpdatePopoverView(model: model)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        }
     }
 
     @ViewBuilder
@@ -41,7 +42,7 @@ struct UpdatePill: View {
                     .font(Font(textFont))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(width: textWidth)
+                    .frame(maxWidth: textWidth, alignment: .leading)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -62,5 +63,18 @@ struct UpdatePill: View {
         let attributes: [NSAttributedString.Key: Any] = [.font: textFont]
         let size = (model.maxWidthText as NSString).size(withAttributes: attributes)
         return size.width
+    }
+}
+
+/// Menu item that shows "Install Update and Relaunch" when an update is ready.
+struct InstallUpdateMenuItem: View {
+    @ObservedObject var model: UpdateViewModel
+
+    var body: some View {
+        if model.state.isInstallable {
+            Button("Install Update and Relaunch") {
+                model.state.confirm()
+            }
+        }
     }
 }

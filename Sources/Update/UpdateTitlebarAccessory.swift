@@ -6,96 +6,6 @@ final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
-#if DEBUG
-private struct DevTitlebarAccessoryView: View {
-    var body: some View {
-        Text("THIS IS A DEV BUILD")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(.red)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-    }
-}
-
-final class DevBuildAccessoryViewController: NSTitlebarAccessoryViewController {
-    private let hostingView: NonDraggableHostingView<DevTitlebarAccessoryView>
-    private let containerView = NSView()
-    private var pendingSizeUpdate = false
-
-    init() {
-        hostingView = NonDraggableHostingView(rootView: DevTitlebarAccessoryView())
-
-        super.init(nibName: nil, bundle: nil)
-
-        view = containerView
-        containerView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
-        containerView.addSubview(hostingView)
-
-        if #available(macOS 14, *) {
-            containerView.clipsToBounds = true
-            hostingView.clipsToBounds = true
-        }
-
-        scheduleSizeUpdate()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidAppear() {
-        super.viewDidAppear()
-        view.isHidden = false
-        containerView.isHidden = false
-        hostingView.isHidden = false
-        scheduleSizeUpdate()
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        view.isHidden = false
-        containerView.isHidden = false
-        hostingView.isHidden = false
-        scheduleSizeUpdate()
-    }
-
-    private func scheduleSizeUpdate() {
-        guard !pendingSizeUpdate else { return }
-        pendingSizeUpdate = true
-        DispatchQueue.main.async { [weak self] in
-            self?.pendingSizeUpdate = false
-            self?.updateSize()
-        }
-    }
-
-    private func updateSize() {
-        hostingView.invalidateIntrinsicContentSize()
-        hostingView.layoutSubtreeIfNeeded()
-        let labelSize = hostingView.fittingSize
-        guard labelSize.width > 1 && labelSize.height > 1 else { return }
-        let titlebarHeight = view.window.map { window in
-            window.frame.height - window.contentLayoutRect.height
-        } ?? labelSize.height
-        let containerHeight = max(labelSize.height, titlebarHeight)
-        let yOffset = max(0, (containerHeight - labelSize.height) / 2.0)
-        preferredContentSize = NSSize(width: labelSize.width, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: labelSize.width, height: containerHeight)
-        hostingView.frame = NSRect(x: 0, y: yOffset, width: labelSize.width, height: labelSize.height)
-    }
-}
-#endif
-
-private struct TitlebarAccessoryView: View {
-    @ObservedObject var model: UpdateViewModel
-
-    var body: some View {
-        UpdatePill(model: model)
-            .padding(.trailing, 8)
-    }
-}
-
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
     case compact
@@ -232,6 +142,56 @@ private final class AnchorNSView: NSView {
     }
 }
 
+struct ShortcutHintLanePlanner {
+    static func assignLanes(for intervals: [ClosedRange<CGFloat>], minSpacing: CGFloat = 4) -> [Int] {
+        guard !intervals.isEmpty else { return [] }
+
+        var laneMaxX: [CGFloat] = []
+        var lanes: [Int] = []
+        lanes.reserveCapacity(intervals.count)
+
+        for interval in intervals {
+            var lane = 0
+            while lane < laneMaxX.count {
+                let requiredMinX = laneMaxX[lane] + minSpacing
+                if interval.lowerBound >= requiredMinX {
+                    break
+                }
+                lane += 1
+            }
+
+            if lane == laneMaxX.count {
+                laneMaxX.append(interval.upperBound)
+            } else {
+                laneMaxX[lane] = max(laneMaxX[lane], interval.upperBound)
+            }
+            lanes.append(lane)
+        }
+
+        return lanes
+    }
+}
+
+struct ShortcutHintHorizontalPlanner {
+    static func assignRightEdges(for intervals: [ClosedRange<CGFloat>], minSpacing: CGFloat = 6) -> [CGFloat] {
+        guard !intervals.isEmpty else { return [] }
+
+        var assignedRightEdges = Array(repeating: CGFloat.zero, count: intervals.count)
+        var nextMaxRight = CGFloat.greatestFiniteMagnitude
+
+        for index in stride(from: intervals.count - 1, through: 0, by: -1) {
+            let interval = intervals[index]
+            let width = interval.upperBound - interval.lowerBound
+            let preferredRightEdge = interval.upperBound
+            let adjustedRightEdge = min(preferredRightEdge, nextMaxRight)
+            assignedRightEdges[index] = adjustedRightEdge
+            nextMaxRight = adjustedRightEdge - width - minSpacing
+        }
+
+        return assignedRightEdges
+    }
+}
+
 private struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let action: () -> Void
@@ -267,22 +227,84 @@ private struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @State private var shortcutRefreshTick = 0
+    @StateObject private var commandKeyMonitor = TitlebarCommandKeyMonitor()
+    private let titlebarHintRightSafetyShift: CGFloat = 10
+    private let titlebarHintBaseXShift: CGFloat = -10
+    private let titlebarHintBaseYShift: CGFloat = 1
+
+    private enum HintSlot: Int, CaseIterable {
+        case toggleSidebar
+        case showNotifications
+        case newTab
+
+        var action: KeyboardShortcutSettings.Action {
+            switch self {
+            case .toggleSidebar:
+                return .toggleSidebar
+            case .showNotifications:
+                return .showNotifications
+            case .newTab:
+                return .newTab
+            }
+        }
+    }
+
+    private struct TitlebarHintLayoutItem: Identifiable {
+        let action: KeyboardShortcutSettings.Action
+        let shortcut: StoredShortcut
+        let width: CGFloat
+        let leftEdge: CGFloat
+
+        var id: String { action.rawValue }
+    }
+
+    private var shouldShowTitlebarShortcutHints: Bool {
+        alwaysShowShortcutHints || commandKeyMonitor.isCommandPressed
+    }
 
     var body: some View {
+        // Force the `.help(...)` tooltips to re-evaluate when shortcuts are changed in settings.
+        // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
+        let _ = shortcutRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         controlsGroup(config: config)
             .padding(.leading, 4)
+            .padding(.trailing, titlebarHintTrailingInset)
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                shortcutRefreshTick &+= 1
+            }
+            .onAppear {
+                commandKeyMonitor.start()
+            }
+            .onDisappear {
+                commandKeyMonitor.stop()
+            }
+    }
+
+    private var titlebarHintTrailingInset: CGFloat {
+        // Keep room for blur + shadow so the rightmost hint never clips.
+        max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)) + titlebarHintRightSafetyShift + 8
+    }
+
+    private func titlebarHintVerticalBaseOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
+        max(8, config.buttonSize * 0.4)
     }
 
     @ViewBuilder
     private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
+        let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(config: config, action: onToggleSidebar) {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
+            .accessibilityIdentifier("titlebarControl.toggleSidebar")
             .accessibilityLabel("Toggle Sidebar")
-            .help("Show or hide the sidebar (Cmd+B)")
+            .help(KeyboardShortcutSettings.Action.toggleSidebar.tooltip("Show or hide the sidebar"))
 
             TitlebarControlButton(config: config, action: onToggleNotifications) {
                 ZStack(alignment: .topTrailing) {
@@ -301,15 +323,17 @@ private struct TitlebarControlsView: View {
                 }
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
+            .accessibilityIdentifier("titlebarControl.showNotifications")
             .overlay(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 }.allowsHitTesting(false))
             .accessibilityLabel("Notifications")
-            .help("Show notifications (Cmd+Shift+I)")
+            .help(KeyboardShortcutSettings.Action.showNotifications.tooltip("Show notifications"))
 
             TitlebarControlButton(config: config, action: onNewTab) {
                 iconLabel(systemName: "plus", config: config)
             }
-            .accessibilityLabel("New Tab")
-            .help("Open a new tab (Cmd+T or Cmd+N)")
+            .accessibilityIdentifier("titlebarControl.newTab")
+            .accessibilityLabel("New Workspace")
+            .help(KeyboardShortcutSettings.Action.newTab.tooltip("New workspace"))
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -324,9 +348,113 @@ private struct TitlebarControlsView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
                 )
+                .overlay(alignment: .topLeading) {
+                    titlebarShortcutHintOverlay(items: hintLayoutItems, config: config)
+                }
         } else {
             paddedContent
+                .overlay(alignment: .topLeading) {
+                    titlebarShortcutHintOverlay(items: hintLayoutItems, config: config)
+                }
         }
+    }
+
+    private func titlebarHintLayoutItems(config: TitlebarControlsStyleConfig) -> [TitlebarHintLayoutItem] {
+        let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
+        let intervals = titlebarHintIntervals(config: config, xOffset: xOffset)
+        guard !intervals.isEmpty else { return [] }
+
+        // Keep all titlebar hints on the same Y lane and resolve overlaps by shifting left.
+        let minimumSpacing: CGFloat = 6
+        let assignedRightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(
+            for: intervals.map { $0.interval },
+            minSpacing: minimumSpacing
+        )
+
+        var items: [TitlebarHintLayoutItem] = []
+        items.reserveCapacity(intervals.count)
+        for (index, item) in intervals.enumerated() {
+            let rightEdge = assignedRightEdges[index]
+            items.append(
+                TitlebarHintLayoutItem(
+                    action: item.action,
+                    shortcut: item.shortcut,
+                    width: item.width,
+                    leftEdge: rightEdge - item.width
+                )
+            )
+        }
+        return items
+    }
+
+    private func titlebarHintIntervals(
+        config: TitlebarControlsStyleConfig,
+        xOffset: CGFloat
+    ) -> [(action: KeyboardShortcutSettings.Action, shortcut: StoredShortcut, width: CGFloat, interval: ClosedRange<CGFloat>)] {
+        guard shouldShowTitlebarShortcutHints else { return [] }
+
+        return HintSlot.allCases.compactMap { slot in
+            let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+            guard shortcut.command else { return nil }
+
+            let width = titlebarHintWidth(for: shortcut, config: config)
+            let rightEdge = config.groupPadding.leading
+                + titlebarButtonRightEdge(for: slot, config: config)
+                + xOffset
+                + titlebarHintRightSafetyShift
+                + titlebarHintBaseXShift
+            return (slot.action, shortcut, width, (rightEdge - width)...rightEdge)
+        }
+    }
+
+    private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
+        let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: font]).width
+        return ceil(textWidth) + 12
+    }
+
+    private func titlebarButtonRightEdge(for slot: HintSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
+        let index = CGFloat(slot.rawValue)
+        return (index + 1) * config.buttonSize + index * config.spacing
+    }
+
+    @ViewBuilder
+    private func titlebarShortcutHintOverlay(
+        items: [TitlebarHintLayoutItem],
+        config: TitlebarControlsStyleConfig
+    ) -> some View {
+        let yOffset = config.groupPadding.top
+            + titlebarHintVerticalBaseOffset(for: config)
+            + titlebarHintBaseYShift
+            + ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)
+
+        ZStack(alignment: .topLeading) {
+            ForEach(items) { item in
+                titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
+                    .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
+                    .frame(width: item.width, alignment: .leading)
+                    .offset(x: item.leftEdge, y: yOffset)
+            }
+        }
+        .animation(.easeInOut(duration: 0.14), value: shouldShowTitlebarShortcutHints)
+        .transition(.opacity)
+        .allowsHitTesting(false)
+    }
+
+    private func titlebarShortcutHintPill(
+        shortcut: StoredShortcut,
+        config: TitlebarControlsStyleConfig
+    ) -> some View {
+        Text(shortcut.displayString)
+            .font(.system(size: max(8, config.iconSize - 5), weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundColor(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .frame(minHeight: max(14, config.iconSize + 1))
+            .background(ShortcutHintPillBackground())
     }
 
     @ViewBuilder
@@ -347,6 +475,93 @@ private struct TitlebarControlsView: View {
     }
 }
 
+@MainActor
+private final class TitlebarCommandKeyMonitor: ObservableObject {
+    @Published private(set) var isCommandPressed = false
+
+    private var flagsMonitor: Any?
+    private var keyDownMonitor: Any?
+    private var resignObserver: NSObjectProtocol?
+    private var pendingShowWorkItem: DispatchWorkItem?
+
+    func start() {
+        guard flagsMonitor == nil else {
+            update(from: NSEvent.modifierFlags)
+            return
+        }
+
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.update(from: event.modifierFlags)
+            return event
+        }
+
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.cancelPendingHintShow(resetVisible: true)
+            return event
+        }
+
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
+        }
+
+        update(from: NSEvent.modifierFlags)
+    }
+
+    func stop() {
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+            self.flagsMonitor = nil
+        }
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+            self.keyDownMonitor = nil
+        }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+            self.resignObserver = nil
+        }
+        cancelPendingHintShow(resetVisible: true)
+    }
+
+    private func update(from modifierFlags: NSEvent.ModifierFlags) {
+        guard SidebarCommandHintPolicy.shouldShowHints(for: modifierFlags) else {
+            cancelPendingHintShow(resetVisible: true)
+            return
+        }
+
+        queueHintShow()
+    }
+
+    private func queueHintShow() {
+        guard !isCommandPressed else { return }
+        guard pendingShowWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingShowWorkItem = nil
+            guard SidebarCommandHintPolicy.shouldShowHints(for: NSEvent.modifierFlags) else { return }
+            self.isCommandPressed = true
+        }
+
+        pendingShowWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarCommandHintPolicy.intentionalHoldDelay, execute: workItem)
+    }
+
+    private func cancelPendingHintShow(resetVisible: Bool) {
+        pendingShowWorkItem?.cancel()
+        pendingShowWorkItem = nil
+        if resetVisible {
+            isCommandPressed = false
+        }
+    }
+}
+
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
     private let containerView = NSView()
@@ -355,6 +570,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var pendingSizeUpdate = false
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
+    var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
 
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
@@ -380,13 +596,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.autoresizingMask = [.width, .height]
         containerView.addSubview(hostingView)
 
-        // macOS 14 (Sonoma) changed clipsToBounds default to NO, which can cause
-        // titlebar accessory views to render incorrectly or disappear during layout.
-        if #available(macOS 14, *) {
-            containerView.clipsToBounds = true
-            hostingView.clipsToBounds = true
-        }
-
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -410,22 +619,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        ensureVisible()
         scheduleSizeUpdate()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        ensureVisible()
         scheduleSizeUpdate()
-    }
-
-    /// Sonoma can hide titlebar accessory views during layout transitions.
-    /// Force visibility on every layout pass.
-    private func ensureVisible() {
-        view.isHidden = false
-        containerView.isHidden = false
-        hostingView.isHidden = false
     }
 
     private func scheduleSizeUpdate() {
@@ -441,8 +640,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
         let contentSize = hostingView.fittingSize
-        // Guard against zero-size frames during layout transitions (Sonoma)
-        guard contentSize.width > 1 && contentSize.height > 1 else { return }
         let titlebarHeight = view.window.map { window in
             window.frame.height - window.contentLayoutRect.height
         } ?? contentSize.height
@@ -496,6 +693,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
     }
 
+    func dismissNotificationsPopover() {
+        if notificationsPopover.isShown {
+            notificationsPopover.performClose(nil)
+        }
+    }
+
     private func makeNotificationsPopover() -> NSPopover {
         let popover = NSPopover()
         popover.behavior = .semitransient
@@ -516,7 +719,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     let onDismiss: () -> Void
-    @FocusState private var focusedNotificationId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -556,8 +758,7 @@ private struct NotificationsPopoverView: View {
                                 notification: notification,
                                 tabTitle: tabTitle(for: notification.tabId),
                                 onOpen: { open(notification) },
-                                onClear: { notificationStore.remove(id: notification.id) },
-                                focusedNotificationId: $focusedNotificationId
+                                onClear: { notificationStore.remove(id: notification.id) }
                             )
                         }
                     }
@@ -567,40 +768,22 @@ private struct NotificationsPopoverView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
-            setInitialFocus()
-        }
-    }
-
-    private func setInitialFocus() {
-        guard let firstId = notificationStore.notifications.first?.id else {
-            focusedNotificationId = nil
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusedNotificationId = firstId
-        }
     }
 
     private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId })?.title
+        AppDelegate.shared?.tabTitle(for: tabId)
     }
 
     private func open(_ notification: TerminalNotification) {
-        AppDelegate.shared?.tabManager?.focusTabFromNotification(notification.tabId, surfaceId: notification.surfaceId)
-        markReadIfFocused(notification)
-        onDismiss()
-    }
-
-    private func markReadIfFocused(_ notification: TerminalNotification) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard let tabManager = AppDelegate.shared?.tabManager else { return }
-            guard tabManager.selectedTabId == notification.tabId else { return }
-            if let surfaceId = notification.surfaceId {
-                guard tabManager.focusedSurfaceId(for: notification.tabId) == surfaceId else { return }
-            }
-            notificationStore.markRead(id: notification.id)
+        // SwiftUI action closures are not guaranteed to run on the main actor.
+        // Ensure window focus + tab selection happens on the main thread.
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.openNotification(
+                tabId: notification.tabId,
+                surfaceId: notification.surfaceId,
+                notificationId: notification.id
+            )
+            onDismiss()
         }
     }
 }
@@ -610,7 +793,6 @@ private struct NotificationPopoverRow: View {
     let tabTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
-    let focusedNotificationId: FocusState<UUID?>.Binding
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -657,9 +839,10 @@ private struct NotificationPopoverRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .focusable()
-            .focused(focusedNotificationId, equals: notification.id)
-            .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
+            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // XCUITest's `.click()` is not always reliable for SwiftUI `Button`s hosted in an `NSPopover`.
+            // Provide an explicit accessibility action so AXPress always routes to `onOpen`.
+            .accessibilityAction { onOpen() }
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
@@ -675,108 +858,14 @@ private struct NotificationPopoverRow: View {
     }
 }
 
-private struct DefaultActionModifier: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.keyboardShortcut(.defaultAction)
-        } else {
-            content
-        }
-    }
-}
-
-final class UpdateAccessoryViewController: NSTitlebarAccessoryViewController {
-    private let hostingView: NonDraggableHostingView<TitlebarAccessoryView>
-    private let containerView = NSView()
-    private var stateCancellable: AnyCancellable?
-    private var pendingSizeUpdate = false
-
-    init(model: UpdateViewModel) {
-        hostingView = NonDraggableHostingView(rootView: TitlebarAccessoryView(model: model))
-
-        super.init(nibName: nil, bundle: nil)
-
-        view = containerView
-        containerView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
-        containerView.addSubview(hostingView)
-
-        if #available(macOS 14, *) {
-            containerView.clipsToBounds = true
-            hostingView.clipsToBounds = true
-        }
-
-        stateCancellable = model.$state
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.scheduleSizeUpdate()
-            }
-
-        scheduleSizeUpdate()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidAppear() {
-        super.viewDidAppear()
-        ensureVisible()
-        scheduleSizeUpdate()
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        ensureVisible()
-        scheduleSizeUpdate()
-    }
-
-    private func ensureVisible() {
-        view.isHidden = false
-        containerView.isHidden = false
-        hostingView.isHidden = false
-    }
-
-    private func scheduleSizeUpdate() {
-        guard !pendingSizeUpdate else { return }
-        pendingSizeUpdate = true
-        DispatchQueue.main.async { [weak self] in
-            self?.pendingSizeUpdate = false
-            self?.updateSize()
-        }
-    }
-
-    private func updateSize() {
-        hostingView.invalidateIntrinsicContentSize()
-        hostingView.layoutSubtreeIfNeeded()
-        let pillSize = hostingView.fittingSize
-        guard pillSize.width > 1 && pillSize.height > 1 else { return }
-        let titlebarHeight = view.window.map { window in
-            window.frame.height - window.contentLayoutRect.height
-        } ?? pillSize.height
-        let containerHeight = max(pillSize.height, titlebarHeight)
-        let yOffset = max(0, (containerHeight - pillSize.height) / 2.0)
-        preferredContentSize = NSSize(width: pillSize.width, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: pillSize.width, height: containerHeight)
-        hostingView.frame = NSRect(x: 0, y: yOffset, width: pillSize.width, height: pillSize.height)
-    }
-}
-
 final class UpdateTitlebarAccessoryController {
     private weak var updateViewModel: UpdateViewModel?
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
-    private var stateCancellable: AnyCancellable?
-    private var lastIsIdle: Bool?
-    private let updateIdentifier = NSUserInterfaceItemIdentifier("cmux.updateAccessory")
+    private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
+    private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
-#if DEBUG
-    private let devIdentifier = NSUserInterfaceItemIdentifier("cmux.devAccessory")
-#endif
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
 
     init(viewModel: UpdateViewModel) {
@@ -794,8 +883,7 @@ final class UpdateTitlebarAccessoryController {
         didStart = true
         attachToExistingWindows()
         installObservers()
-        installStateObserver()
-        installSidebarToggleObserver()
+        scheduleStartupWindowScans()
     }
 
     func attach(to window: NSWindow) {
@@ -821,6 +909,9 @@ final class UpdateTitlebarAccessoryController {
             guard let window = notification.object as? NSWindow else { return }
             self?.attachIfNeeded(to: window)
         })
+
+        // We intentionally do not rely on "window became visible" notifications here:
+        // AppKit does not provide a stable cross-SDK API for this. Startup scans handle this case.
     }
 
     private func attachToExistingWindows() {
@@ -829,12 +920,51 @@ final class UpdateTitlebarAccessoryController {
         }
     }
 
+    private func scheduleStartupWindowScans() {
+        // We want to be robust to SwiftUI/AppKit timing and to XCTest automation. Scanning
+        // NSApp.windows briefly at startup is cheap and ensures accessories are attached even
+        // if key/main/visible notifications are missed.
+        let delays: [TimeInterval] = [0.05, 0.15, 0.3, 0.6, 1.0, 2.0, 3.0]
+        for delay in delays {
+            let item = DispatchWorkItem { [weak self] in
+                self?.attachToExistingWindows()
+#if DEBUG
+                let env = ProcessInfo.processInfo.environment
+                if env["CMUX_UI_TEST_MODE"] == "1" {
+                    let ids = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
+                    let delayText = String(format: "%.2f", delay)
+                    UpdateLogStore.shared.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
+                }
+#endif
+            }
+            startupScanWorkItems.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        }
+    }
+
     private func attachIfNeeded(to window: NSWindow) {
-        guard let updateViewModel else { return }
         guard !attachedWindows.contains(window) else { return }
-        guard window.styleMask.contains(.titled) else { return }
-        guard isMainTerminalWindow(window) else { return }
         guard !isSettingsWindow(window) else { return }
+
+        // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
+        // after didBecomeKey/didBecomeMain notifications. Retry briefly to avoid missing
+        // attaching accessories (notably in UI tests).
+        if !isMainTerminalWindow(window) {
+            let key = ObjectIdentifier(window)
+            let attempts = pendingAttachRetries[key, default: 0]
+            if attempts < 40 {
+                pendingAttachRetries[key] = attempts + 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
+                    guard let self, let window else { return }
+                    self.attachIfNeeded(to: window)
+                }
+            } else {
+                pendingAttachRetries.removeValue(forKey: key)
+            }
+            return
+        }
+
+        pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
@@ -846,23 +976,15 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        attachedWindows.add(window)
+
 #if DEBUG
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == devIdentifier }) {
-            let devAccessory = DevBuildAccessoryViewController()
-            devAccessory.layoutAttribute = .right
-            devAccessory.view.identifier = devIdentifier
-            window.addTitlebarAccessoryViewController(devAccessory)
+        let env = ProcessInfo.processInfo.environment
+        if env["CMUX_UI_TEST_MODE"] == "1" {
+            let ident = window.identifier?.rawValue ?? "<nil>"
+            UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
         }
 #endif
-
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == updateIdentifier }) {
-            let accessory = UpdateAccessoryViewController(model: updateViewModel)
-            accessory.layoutAttribute = .right
-            accessory.view.identifier = updateIdentifier
-            window.addTitlebarAccessoryViewController(accessory)
-        }
-
-        attachedWindows.add(window)
     }
 
     private func isSettingsWindow(_ window: NSWindow) -> Bool {
@@ -873,94 +995,71 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
-        window.identifier?.rawValue == "cmux.main"
+        guard let raw = window.identifier?.rawValue else { return false }
+        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
     }
 
-    /// After sidebar toggle on Sonoma, titlebar accessories can disappear. Re-add if needed.
-    private func installSidebarToggleObserver() {
-        let center = NotificationCenter.default
-        observers.append(center.addObserver(
-            forName: SidebarState.didToggleNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            // Delay slightly to let SwiftUI layout settle before revalidating
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self?.revalidateAllAccessories()
-            }
-        })
-    }
-
-    private func revalidateAllAccessories() {
-        guard let updateViewModel else { return }
-        for window in attachedWindows.allObjects {
-            // Re-add controls if they were removed during layout
-            if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
-                let controls = TitlebarControlsAccessoryViewController(
-                    notificationStore: TerminalNotificationStore.shared
-                )
-                controls.layoutAttribute = .left
-                controls.view.identifier = controlsIdentifier
-                window.addTitlebarAccessoryViewController(controls)
-                controlsControllers.add(controls)
-            }
-
-            // Re-add update accessory if it was removed and state is not idle
-            let isIdle = (updateViewModel.overrideState ?? updateViewModel.state).isIdle
-            if !isIdle && !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == updateIdentifier }) {
-                let accessory = UpdateAccessoryViewController(model: updateViewModel)
-                accessory.layoutAttribute = .right
-                accessory.view.identifier = updateIdentifier
-                window.addTitlebarAccessoryViewController(accessory)
-            }
-
-            // Ensure all accessories are visible and properly sized
-            for controller in window.titlebarAccessoryViewControllers {
-                controller.view.isHidden = false
-                controller.view.needsLayout = true
-            }
+    private func preferredNotificationsController(
+        from controllers: [TitlebarControlsAccessoryViewController],
+        preferShownPopover: Bool
+    ) -> TitlebarControlsAccessoryViewController? {
+        if let keyWindow = NSApp.keyWindow,
+           let match = controllers.first(where: { $0.view.window === keyWindow }) {
+            return match
         }
-    }
-
-    private func installStateObserver() {
-        guard let updateViewModel else { return }
-        stateCancellable = Publishers.CombineLatest(updateViewModel.$state, updateViewModel.$overrideState)
-            .map { state, override in
-                override ?? state
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard let self else { return }
-                let isIdle = state.isIdle
-                if let lastIsIdle, lastIsIdle == isIdle {
-                    return
-                }
-                self.lastIsIdle = isIdle
-                self.refreshAccessories(isIdle: isIdle)
-            }
-    }
-
-    private func refreshAccessories(isIdle: Bool) {
-        guard let updateViewModel else { return }
-
-        for window in attachedWindows.allObjects {
-            if let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0.view.identifier == updateIdentifier }) {
-                window.removeTitlebarAccessoryViewController(at: index)
-            }
-
-            guard !isIdle else { continue }
-
-            let accessory = UpdateAccessoryViewController(model: updateViewModel)
-            accessory.layoutAttribute = .right
-            accessory.view.identifier = updateIdentifier
-            window.addTitlebarAccessoryViewController(accessory)
+        if let keyMain = NSApp.windows.first(where: { $0.isKeyWindow && isMainTerminalWindow($0) }),
+           let match = controllers.first(where: { $0.view.window === keyMain }) {
+            return match
         }
+        if preferShownPopover,
+           let shown = controllers.first(where: { $0.popoverIsShownForTesting }) {
+            return shown
+        }
+        return controllers.first
     }
 
     func toggleNotificationsPopover(animated: Bool = true) {
-        for controller in controlsControllers.allObjects {
-            controller.toggleNotificationsPopover(animated: animated)
+        let controllers = controlsControllers.allObjects
+        guard !controllers.isEmpty else { return }
+
+        let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
+        for controller in controllers {
+            if controller !== target {
+                controller.dismissNotificationsPopover()
+            }
         }
+        target?.toggleNotificationsPopover(animated: animated)
+    }
+
+    func isNotificationsPopoverShown() -> Bool {
+        controlsControllers.allObjects.contains(where: { $0.popoverIsShownForTesting })
+    }
+
+    @discardableResult
+    func dismissNotificationsPopoverIfShown() -> Bool {
+        let controllers = controlsControllers.allObjects
+        var dismissed = false
+        for controller in controllers where controller.popoverIsShownForTesting {
+            controller.dismissNotificationsPopover()
+            dismissed = true
+        }
+        return dismissed
+    }
+
+    func showNotificationsPopover(animated: Bool = true) {
+        let controllers = controlsControllers.allObjects
+        guard !controllers.isEmpty else { return }
+
+        let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
+        for controller in controllers {
+            if controller !== target {
+                controller.dismissNotificationsPopover()
+            }
+        }
+        guard let target else { return }
+        if target.popoverIsShownForTesting {
+            return
+        }
+        target.toggleNotificationsPopover(animated: animated)
     }
 }

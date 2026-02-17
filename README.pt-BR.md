@@ -1,0 +1,155 @@
+> Esta tradução foi gerada pelo Claude. Se você tiver sugestões de melhoria, abra um PR.
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | Português (Brasil) | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a>
+</p>
+
+<h1 align="center">cmux</h1>
+<p align="center">Um terminal macOS baseado em Ghostty com abas verticais e notificações para agentes de programação com IA</p>
+
+<p align="center">
+  <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+    <img src="./docs/assets/macos-badge.png" alt="Baixar cmux para macOS" width="180" />
+  </a>
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshot.png" alt="Captura de tela do cmux" width="900" />
+</p>
+
+## Recursos
+
+- **Abas verticais** — A barra lateral mostra o branch do git, diretório de trabalho, portas em escuta e o texto da última notificação
+- **Anéis de notificação** — Os painéis recebem um anel azul e as abas acendem quando agentes de IA (Claude Code, OpenCode) precisam da sua atenção
+- **Painel de notificações** — Veja todas as notificações pendentes em um só lugar, vá direto para a mais recente não lida
+- **Painéis divididos** — Divisões horizontais e verticais
+- **Navegador integrado** — Divida um navegador ao lado do seu terminal com uma API programável portada do [agent-browser](https://github.com/vercel-labs/agent-browser)
+- **Programável** — CLI e socket API para criar workspaces, dividir painéis, enviar teclas e automatizar o navegador
+- **App nativo macOS** — Construído com Swift e AppKit, não Electron. Inicialização rápida, baixo consumo de memória.
+- **Compatível com Ghostty** — Lê sua configuração existente em `~/.config/ghostty/config` para temas, fontes e cores
+- **Acelerado por GPU** — Alimentado por libghostty para renderização suave
+
+## Instalação
+
+### DMG (recomendado)
+
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="Baixar cmux para macOS" width="180" />
+</a>
+
+Abra o `.dmg` e arraste o cmux para a pasta Aplicativos. O cmux se atualiza automaticamente via Sparkle, então você só precisa baixar uma vez.
+
+### Homebrew
+
+```bash
+brew tap manaflow-ai/cmux
+brew install --cask cmux
+```
+
+Para atualizar depois:
+
+```bash
+brew upgrade --cask cmux
+```
+
+Na primeira execução, o macOS pode pedir para você confirmar a abertura de um app de um desenvolvedor identificado. Clique em **Abrir** para continuar.
+
+## Por que o cmux?
+
+Eu executo muitas sessões de Claude Code e Codex em paralelo. Eu estava usando o Ghostty com vários painéis divididos e contando com as notificações nativas do macOS para saber quando um agente precisava de mim. Mas o corpo da notificação do Claude Code é sempre apenas "Claude is waiting for your input" sem contexto, e com abas suficientes abertas eu não conseguia nem ler os títulos mais.
+
+Eu tentei alguns orquestradores de código, mas a maioria era apps Electron/Tauri e o desempenho me incomodava. Eu também prefiro o terminal, já que orquestradores GUI te prendem no fluxo de trabalho deles. Então eu construí o cmux como um app nativo macOS em Swift/AppKit. Ele usa o libghostty para renderização do terminal e lê sua configuração existente do Ghostty para temas, fontes e cores.
+
+As principais adições são a barra lateral e o sistema de notificações. A barra lateral tem abas verticais que mostram o branch do git, diretório de trabalho, portas em escuta e o texto da última notificação para cada workspace. O sistema de notificações captura sequências do terminal (OSC 9/99/777) e tem uma CLI (`cmux notify`) que você pode conectar aos hooks de agentes para Claude Code, OpenCode, etc. Quando um agente está esperando, seu painel recebe um anel azul e a aba acende na barra lateral, para que eu possa ver qual precisa de mim entre divisões e abas. Cmd+Shift+U pula para o mais recente não lido.
+
+O navegador integrado tem uma API programável portada do [agent-browser](https://github.com/vercel-labs/agent-browser). Agentes podem capturar a árvore de acessibilidade, obter referências de elementos, clicar, preencher formulários e executar JS. Você pode dividir um painel de navegador ao lado do seu terminal e fazer o Claude Code interagir diretamente com seu servidor de desenvolvimento.
+
+Tudo é programável através da CLI e socket API — criar workspaces/abas, dividir painéis, enviar teclas, abrir URLs no navegador.
+
+## Atalhos de Teclado
+
+### Workspaces
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ N | Novo workspace |
+| ⌘ 1–8 | Ir para workspace 1–8 |
+| ⌘ 9 | Ir para último workspace |
+| ⌃ ⌘ ] | Próximo workspace |
+| ⌃ ⌘ [ | Workspace anterior |
+| ⌘ ⇧ W | Fechar workspace |
+| ⌘ B | Alternar barra lateral |
+
+### Surfaces
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ T | Nova surface |
+| ⌘ ⇧ ] | Próxima surface |
+| ⌘ ⇧ [ | Surface anterior |
+| ⌃ Tab | Próxima surface |
+| ⌃ ⇧ Tab | Surface anterior |
+| ⌃ 1–8 | Ir para surface 1–8 |
+| ⌃ 9 | Ir para última surface |
+| ⌘ W | Fechar surface |
+
+### Painéis Divididos
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ D | Dividir à direita |
+| ⌘ ⇧ D | Dividir para baixo |
+| ⌥ ⌘ ← → ↑ ↓ | Focar painel direcionalmente |
+| ⌘ ⇧ H | Piscar painel focado |
+
+### Navegador
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ ⇧ L | Abrir navegador em divisão |
+| ⌘ L | Focar barra de endereço |
+| ⌘ [ | Voltar |
+| ⌘ ] | Avançar |
+| ⌘ R | Recarregar página |
+| ⌥ ⌘ I | Abrir Ferramentas do Desenvolvedor |
+
+### Notificações
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ I | Mostrar painel de notificações |
+| ⌘ ⇧ U | Ir para última não lida |
+
+### Busca
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ F | Buscar |
+| ⌘ G / ⌘ ⇧ G | Buscar próximo / anterior |
+| ⌘ ⇧ F | Ocultar barra de busca |
+| ⌘ E | Usar seleção para busca |
+
+### Terminal
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ K | Limpar histórico de rolagem |
+| ⌘ C | Copiar (com seleção) |
+| ⌘ V | Colar |
+| ⌘ + / ⌘ - | Aumentar / diminuir tamanho da fonte |
+| ⌘ 0 | Redefinir tamanho da fonte |
+
+### Janela
+
+| Atalho | Ação |
+|----------|--------|
+| ⌘ ⇧ N | Nova janela |
+| ⌘ , | Configurações |
+| ⌘ ⇧ , | Recarregar configuração |
+| ⌘ Q | Sair |
+
+## Licença
+
+Este projeto é licenciado sob a GNU Affero General Public License v3.0 ou posterior (`AGPL-3.0-or-later`).
+
+Veja `LICENSE` para o texto completo.

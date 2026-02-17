@@ -7,9 +7,14 @@ struct cmuxApp: App {
     @StateObject private var tabManager = TabManager()
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
+    @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    private let primaryWindowId = UUID()
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -22,6 +27,11 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.full.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+
+        // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
+        // callbacks (e.g. `.onAppear`) are delayed or skipped.
+        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
     }
 
     private func configureGhosttyEnvironment() {
@@ -59,8 +69,6 @@ struct cmuxApp: App {
             let resourcesParent = resourcesURL.deletingLastPathComponent()
             let dataDir = resourcesParent.path
             let manDir = resourcesParent.appendingPathComponent("man").path
-            let bundledTerminfoDir = resourcesURL.appendingPathComponent("terminfo").path
-            let siblingTerminfoDir = resourcesParent.appendingPathComponent("terminfo").path
 
             appendEnvPathIfMissing(
                 "XDG_DATA_DIRS",
@@ -68,18 +76,6 @@ struct cmuxApp: App {
                 defaultValue: "/usr/local/share:/usr/share"
             )
             appendEnvPathIfMissing("MANPATH", path: manDir)
-
-            // Ensure `TERM=xterm-ghostty` works even when launching from Finder
-            // (no shell to pre-seed TERMINFO). Prefer a terminfo directory next
-            // to the configured ghostty resources, but fall back to the sibling
-            // layout used by the Ghostty.app bundle.
-            if getenv("TERMINFO") == nil {
-                if fileManager.fileExists(atPath: bundledTerminfoDir) {
-                    setenv("TERMINFO", bundledTerminfoDir, 1)
-                } else if fileManager.fileExists(atPath: siblingTerminfoDir) {
-                    setenv("TERMINFO", siblingTerminfoDir, 1)
-                }
-            }
         }
     }
 
@@ -96,20 +92,74 @@ struct cmuxApp: App {
         setenv(key, updated, 1)
     }
 
+    private func migrateSidebarAppearanceDefaultsIfNeeded(defaults: UserDefaults) {
+        let migrationKey = "sidebarAppearanceDefaultsVersion"
+        let targetVersion = 1
+        guard defaults.integer(forKey: migrationKey) < targetVersion else { return }
+
+        func normalizeHex(_ value: String) -> String {
+            value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "#", with: "")
+                .uppercased()
+        }
+
+        func approximatelyEqual(_ lhs: Double, _ rhs: Double, tolerance: Double = 0.0001) -> Bool {
+            abs(lhs - rhs) <= tolerance
+        }
+
+        let material = defaults.string(forKey: "sidebarMaterial") ?? SidebarMaterialOption.sidebar.rawValue
+        let blendMode = defaults.string(forKey: "sidebarBlendMode") ?? SidebarBlendModeOption.behindWindow.rawValue
+        let state = defaults.string(forKey: "sidebarState") ?? SidebarStateOption.followWindow.rawValue
+        let tintHex = defaults.string(forKey: "sidebarTintHex") ?? "#101010"
+        let tintOpacity = defaults.object(forKey: "sidebarTintOpacity") as? Double ?? 0.54
+        let blurOpacity = defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? 0.79
+        let cornerRadius = defaults.object(forKey: "sidebarCornerRadius") as? Double ?? 0.0
+
+        let usesLegacyDefaults =
+            material == SidebarMaterialOption.sidebar.rawValue &&
+            blendMode == SidebarBlendModeOption.behindWindow.rawValue &&
+            state == SidebarStateOption.followWindow.rawValue &&
+            normalizeHex(tintHex) == "101010" &&
+            approximatelyEqual(tintOpacity, 0.54) &&
+            approximatelyEqual(blurOpacity, 0.79) &&
+            approximatelyEqual(cornerRadius, 0.0)
+
+        if usesLegacyDefaults {
+            let preset = SidebarPresetOption.nativeSidebar
+            defaults.set(preset.rawValue, forKey: "sidebarPreset")
+            defaults.set(preset.material.rawValue, forKey: "sidebarMaterial")
+            defaults.set(preset.blendMode.rawValue, forKey: "sidebarBlendMode")
+            defaults.set(preset.state.rawValue, forKey: "sidebarState")
+            defaults.set(preset.tintHex, forKey: "sidebarTintHex")
+            defaults.set(preset.tintOpacity, forKey: "sidebarTintOpacity")
+            defaults.set(preset.blurOpacity, forKey: "sidebarBlurOpacity")
+            defaults.set(preset.cornerRadius, forKey: "sidebarCornerRadius")
+        }
+
+        defaults.set(targetVersion, forKey: migrationKey)
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView(updateViewModel: appDelegate.updateViewModel)
+            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
                 .environmentObject(tabManager)
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
+                .environmentObject(sidebarSelectionState)
                 .onAppear {
+#if DEBUG
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                        UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
+                    }
+#endif
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
                     applyAppearance()
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
                         DispatchQueue.main.async {
-                            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                            showSettingsPanel()
                         }
                     }
                 }
@@ -121,12 +171,14 @@ struct cmuxApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
-        Settings {
-            SettingsRootView()
-        }
-        .defaultSize(width: 460, height: 360)
-        .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    showSettingsPanel()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
             CommandGroup(replacing: .appInfo) {
                 Button("About cmux") {
                     showAboutPanel()
@@ -137,17 +189,21 @@ struct cmuxApp: App {
                 Button("Reload Configuration") {
                     GhosttyApp.shared.reloadConfiguration()
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .keyboardShortcut(",", modifiers: [.command, .shift])
                 Divider()
                 Button("Check for Updates…") {
                     appDelegate.checkForUpdates(nil)
                 }
+                InstallUpdateMenuItem(model: appDelegate.updateViewModel)
             }
 
 #if DEBUG
             CommandMenu("Update Pill") {
                 Button("Show Update Pill") {
                     appDelegate.showUpdatePill(nil)
+                }
+                Button("Show Long Nightly Pill") {
+                    appDelegate.showUpdatePillLongNightly(nil)
                 }
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
@@ -170,6 +226,44 @@ struct cmuxApp: App {
                 }
             }
 
+            CommandMenu("Notifications") {
+                let snapshot = notificationMenuSnapshot
+
+                Button(snapshot.stateHintTitle) {}
+                    .disabled(true)
+
+                if !snapshot.recentNotifications.isEmpty {
+                    Divider()
+
+                    ForEach(snapshot.recentNotifications) { notification in
+                        Button(notificationMenuItemTitle(for: notification)) {
+                            openNotificationFromMainMenu(notification)
+                        }
+                    }
+
+                    Divider()
+                }
+
+                Button("Show Notifications") {
+                    showNotificationsPopover()
+                }
+
+                Button("Jump to Latest Unread") {
+                    appDelegate.jumpToLatestUnread()
+                }
+                .disabled(!snapshot.hasUnreadNotifications)
+
+                Button("Mark All Read") {
+                    notificationStore.markAllRead()
+                }
+                .disabled(!snapshot.hasUnreadNotifications)
+
+                Button("Clear All") {
+                    notificationStore.clearAll()
+                }
+                .disabled(!snapshot.hasNotifications)
+            }
+
 #if DEBUG
             CommandMenu("Debug") {
                 Button("New Tab With Lorem Search Text") {
@@ -181,14 +275,36 @@ struct cmuxApp: App {
                 }
 
                 Divider()
+                Menu("Debug Windows") {
+                    Button("Debug Window Controls…") {
+                        DebugWindowControlsWindowController.shared.show()
+                    }
 
-                Button("Sidebar Debug…") {
-                    SidebarDebugWindowController.shared.show()
+                    Button("Settings/About Titlebar Debug…") {
+                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    }
+
+                    Divider()
+                    Button("Sidebar Debug…") {
+                        SidebarDebugWindowController.shared.show()
+                    }
+
+                    Button("Background Debug…") {
+                        BackgroundDebugWindowController.shared.show()
+                    }
+
+                    Button("Menu Bar Extra Debug…") {
+                        MenuBarExtraDebugWindowController.shared.show()
+                    }
+
+                    Divider()
+
+                    Button("Open All Debug Windows") {
+                        openAllDebugWindows()
+                    }
                 }
 
-                Button("Background Debug…") {
-                    BackgroundDebugWindowController.shared.show()
-                }
+                Toggle("Always Show Shortcut Hints", isOn: $alwaysShowShortcutHints)
 
                 Divider()
 
@@ -208,31 +324,30 @@ struct cmuxApp: App {
 
             // New tab commands
             CommandGroup(replacing: .newItem) {
-                Button("New Tab") {
-                    tabManager.addTab()
+                Button("New Window") {
+                    appDelegate.openNewMainWindow(nil)
                 }
-                .keyboardShortcut("t", modifiers: .command)
+                .keyboardShortcut("n", modifiers: [.command, .shift])
 
-                Button("New Tab") {
-                    tabManager.addTab()
+                Button("New Workspace") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).addTab()
                 }
-                .keyboardShortcut("n", modifiers: .command)
-
-                Button("New Tab") {
-                    tabManager.addTab()
-                }
-                .keyboardShortcut("`", modifiers: [.control, .shift])
             }
 
-            // Close tab
+            // Close tab/workspace
             CommandGroup(after: .newItem) {
-                Button("Close Panel") {
+                // Terminal semantics:
+                // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
+                // tab in the last workspace, it closes the window.
+                Button("Close Tab") {
                     closePanelOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: .command)
 
-                Button("Close Tab") {
-                    tabManager.closeCurrentTabWithConfirmation()
+                // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
+                // is the last workspace, it closes the window.
+                Button("Close Workspace") {
+                    closeTabOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
@@ -241,35 +356,35 @@ struct cmuxApp: App {
             CommandGroup(after: .textEditing) {
                 Menu("Find") {
                     Button("Find…") {
-                        tabManager.startSearch()
+                        (AppDelegate.shared?.tabManager ?? tabManager).startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
 
                     Button("Find Next") {
-                        tabManager.findNext()
+                        (AppDelegate.shared?.tabManager ?? tabManager).findNext()
                     }
                     .keyboardShortcut("g", modifiers: .command)
 
                     Button("Find Previous") {
-                        tabManager.findPrevious()
+                        (AppDelegate.shared?.tabManager ?? tabManager).findPrevious()
                     }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
                     Button("Hide Find Bar") {
-                        tabManager.hideFind()
+                        (AppDelegate.shared?.tabManager ?? tabManager).hideFind()
                     }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(!tabManager.isFindVisible)
+                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).isFindVisible))
 
                     Divider()
 
                     Button("Use Selection for Find") {
-                        tabManager.searchSelection()
+                        (AppDelegate.shared?.tabManager ?? tabManager).searchSelection()
                     }
                     .keyboardShortcut("e", modifiers: .command)
-                    .disabled(!tabManager.canUseSelectionForFind)
+                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).canUseSelectionForFind))
                 }
             }
 
@@ -278,49 +393,77 @@ struct cmuxApp: App {
                 Button("Toggle Sidebar") {
                     sidebarState.toggle()
                 }
-                .keyboardShortcut("b", modifiers: .command)
 
                 Divider()
 
-                Button("Next Tab") {
-                    tabManager.selectNextTab()
+                Button("Next Surface") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextSurface()
                 }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
 
-                Button("Previous Tab") {
-                    tabManager.selectPreviousTab()
+                Button("Previous Surface") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousSurface()
                 }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
 
                 Button("Back") {
-                    tabManager.navigateBack()
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goBack()
                 }
                 .keyboardShortcut("[", modifiers: .command)
 
                 Button("Forward") {
-                    tabManager.navigateForward()
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goForward()
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
-                Button("Next Tab") {
-                    tabManager.selectNextTab()
+                Button("Reload Page") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
                 }
-                .keyboardShortcut(.tab, modifiers: .control)
+                .keyboardShortcut("r", modifiers: .command)
 
-                Button("Previous Tab") {
-                    tabManager.selectPreviousTab()
+                Button("Zoom In") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
                 }
-                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .keyboardShortcut("=", modifiers: .command)
+
+                Button("Zoom Out") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomOutFocusedBrowser()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button("Actual Size") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).resetZoomFocusedBrowser()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+
+                Button("Clear Browser History") {
+                    BrowserHistoryStore.shared.clearHistory()
+                }
+
+                Button("Next Workspace") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
+                }
+
+                Button("Previous Workspace") {
+                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
+                }
 
                 Divider()
 
-                // Cmd+1 through Cmd+9 for tab selection
+                splitCommandButton(title: "Split Right", shortcut: splitRightMenuShortcut) {
+                    performSplitFromMenu(direction: .right)
+                }
+
+                splitCommandButton(title: "Split Down", shortcut: splitDownMenuShortcut) {
+                    performSplitFromMenu(direction: .down)
+                }
+
+                Divider()
+
+                // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
                     Button("Tab \(number)") {
-                        if number == 9 {
-                            tabManager.selectLastTab()
-                        } else {
-                            tabManager.selectTab(at: number - 1)
+                        let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
+                            manager.selectTab(at: targetIndex)
                         }
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
@@ -341,6 +484,11 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showSettingsPanel() {
+        SettingsWindowController.shared.show()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -377,38 +525,434 @@ struct cmuxApp: App {
         SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
     }
 
+    private var splitRightMenuShortcut: StoredShortcut {
+        decodeShortcut(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
+    }
+
+    private var splitDownMenuShortcut: StoredShortcut {
+        decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
+    }
+
+    private var notificationMenuSnapshot: NotificationMenuSnapshot {
+        NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
+    private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
+        let tabTitle = appDelegate.tabTitle(for: notification.tabId)
+        return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
+    }
+
+    private func openNotificationFromMainMenu(_ notification: TerminalNotification) {
+        _ = appDelegate.openNotification(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            notificationId: notification.id
+        )
+    }
+
+    private func performSplitFromMenu(direction: SplitDirection) {
+        if AppDelegate.shared?.performSplitShortcut(direction: direction) == true {
+            return
+        }
+        tabManager.createSplit(direction: direction)
+    }
+
+    @ViewBuilder
+    private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+        if let key = keyEquivalent(for: shortcut) {
+            Button(title, action: action)
+                .keyboardShortcut(key, modifiers: eventModifiers(for: shortcut))
+        } else {
+            Button(title, action: action)
+        }
+    }
+
+    private func keyEquivalent(for shortcut: StoredShortcut) -> KeyEquivalent? {
+        switch shortcut.key {
+        case "←":
+            return .leftArrow
+        case "→":
+            return .rightArrow
+        case "↑":
+            return .upArrow
+        case "↓":
+            return .downArrow
+        case "\t":
+            return .tab
+        default:
+            let lowered = shortcut.key.lowercased()
+            guard lowered.count == 1, let character = lowered.first else { return nil }
+            return KeyEquivalent(character)
+        }
+    }
+
+    private func eventModifiers(for shortcut: StoredShortcut) -> EventModifiers {
+        var modifiers: EventModifiers = []
+        if shortcut.command {
+            modifiers.insert(.command)
+        }
+        if shortcut.shift {
+            modifiers.insert(.shift)
+        }
+        if shortcut.option {
+            modifiers.insert(.option)
+        }
+        if shortcut.control {
+            modifiers.insert(.control)
+        }
+        return modifiers
+    }
+
     private func closePanelOrWindow() {
         if let window = NSApp.keyWindow,
            window.identifier?.rawValue == "cmux.settings" {
             window.performClose(nil)
             return
         }
-        tabManager.closeCurrentPanelWithConfirmation()
+        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentPanelWithConfirmation()
+    }
+
+    private func closeTabOrWindow() {
+        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentTabWithConfirmation()
     }
 
     private func showNotificationsPopover() {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
     }
+
+    private func openAllDebugWindows() {
+        SettingsAboutTitlebarDebugWindowController.shared.show()
+        SidebarDebugWindowController.shared.show()
+        BackgroundDebugWindowController.shared.show()
+        MenuBarExtraDebugWindowController.shared.show()
+    }
 }
 
-private final class AboutWindowController: NSWindowController, NSWindowDelegate {
-    static let shared = AboutWindowController()
+private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
+    case settings
+    case about
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .settings:
+            return "Settings Window"
+        case .about:
+            return "About Window"
+        }
+    }
+
+    var windowIdentifier: String {
+        switch self {
+        case .settings:
+            return "cmux.settings"
+        case .about:
+            return "cmux.about"
+        }
+    }
+
+    var fallbackTitle: String {
+        switch self {
+        case .settings:
+            return "Settings"
+        case .about:
+            return "About cmux"
+        }
+    }
+
+    var minimumSize: NSSize {
+        switch self {
+        case .settings:
+            return NSSize(width: 420, height: 360)
+        case .about:
+            return NSSize(width: 360, height: 520)
+        }
+    }
+}
+
+private enum TitlebarVisibilityOption: String, CaseIterable, Identifiable {
+    case hidden
+    case visible
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .hidden:
+            return "Hidden"
+        case .visible:
+            return "Visible"
+        }
+    }
+
+    var windowValue: NSWindow.TitleVisibility {
+        switch self {
+        case .hidden:
+            return .hidden
+        case .visible:
+            return .visible
+        }
+    }
+}
+
+private enum TitlebarToolbarStyleOption: String, CaseIterable, Identifiable {
+    case automatic
+    case expanded
+    case preference
+    case unified
+    case unifiedCompact
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .automatic:
+            return "Automatic"
+        case .expanded:
+            return "Expanded"
+        case .preference:
+            return "Preference"
+        case .unified:
+            return "Unified"
+        case .unifiedCompact:
+            return "Unified Compact"
+        }
+    }
+
+    var windowValue: NSWindow.ToolbarStyle {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .expanded:
+            return .expanded
+        case .preference:
+            return .preference
+        case .unified:
+            return .unified
+        case .unifiedCompact:
+            return .unifiedCompact
+        }
+    }
+}
+
+private struct SettingsAboutTitlebarDebugOptions: Equatable {
+    var overridesEnabled: Bool
+    var windowTitle: String
+    var titleVisibility: TitlebarVisibilityOption
+    var titlebarAppearsTransparent: Bool
+    var movableByWindowBackground: Bool
+    var titled: Bool
+    var closable: Bool
+    var miniaturizable: Bool
+    var resizable: Bool
+    var fullSizeContentView: Bool
+    var showToolbar: Bool
+    var toolbarStyle: TitlebarToolbarStyleOption
+
+    static func defaults(for kind: SettingsAboutWindowKind) -> SettingsAboutTitlebarDebugOptions {
+        switch kind {
+        case .settings:
+            return SettingsAboutTitlebarDebugOptions(
+                overridesEnabled: false,
+                windowTitle: "Settings",
+                titleVisibility: .hidden,
+                titlebarAppearsTransparent: true,
+                movableByWindowBackground: true,
+                titled: true,
+                closable: true,
+                miniaturizable: true,
+                resizable: true,
+                fullSizeContentView: true,
+                showToolbar: false,
+                toolbarStyle: .unifiedCompact
+            )
+        case .about:
+            return SettingsAboutTitlebarDebugOptions(
+                overridesEnabled: false,
+                windowTitle: "About cmux",
+                titleVisibility: .hidden,
+                titlebarAppearsTransparent: true,
+                movableByWindowBackground: false,
+                titled: true,
+                closable: true,
+                miniaturizable: true,
+                resizable: false,
+                fullSizeContentView: false,
+                showToolbar: false,
+                toolbarStyle: .automatic
+            )
+        }
+    }
+}
+
+@MainActor
+private final class SettingsAboutTitlebarDebugStore: ObservableObject {
+    static let shared = SettingsAboutTitlebarDebugStore()
+
+    @Published var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
+        didSet { applyToOpenWindows(for: .settings) }
+    }
+    @Published var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
+        didSet { applyToOpenWindows(for: .about) }
+    }
+
+    private init() {}
+
+    func options(for kind: SettingsAboutWindowKind) -> SettingsAboutTitlebarDebugOptions {
+        switch kind {
+        case .settings:
+            return settingsOptions
+        case .about:
+            return aboutOptions
+        }
+    }
+
+    func update(_ newValue: SettingsAboutTitlebarDebugOptions, for kind: SettingsAboutWindowKind) {
+        switch kind {
+        case .settings:
+            settingsOptions = newValue
+        case .about:
+            aboutOptions = newValue
+        }
+    }
+
+    func reset(_ kind: SettingsAboutWindowKind) {
+        update(SettingsAboutTitlebarDebugOptions.defaults(for: kind), for: kind)
+    }
+
+    func applyToOpenWindows(for kind: SettingsAboutWindowKind) {
+        for window in NSApp.windows where window.identifier?.rawValue == kind.windowIdentifier {
+            apply(options(for: kind), to: window, for: kind)
+        }
+    }
+
+    func applyToOpenWindows() {
+        applyToOpenWindows(for: .settings)
+        applyToOpenWindows(for: .about)
+    }
+
+    func applyCurrentOptions(to window: NSWindow, for kind: SettingsAboutWindowKind) {
+        apply(options(for: kind), to: window, for: kind)
+    }
+
+    func copyConfigToPasteboard() {
+        let settings = options(for: .settings)
+        let about = options(for: .about)
+        let payload = """
+        # Settings/About Titlebar Debug
+        settings.overridesEnabled=\(settings.overridesEnabled)
+        settings.title=\(settings.windowTitle)
+        settings.titleVisibility=\(settings.titleVisibility.rawValue)
+        settings.titlebarAppearsTransparent=\(settings.titlebarAppearsTransparent)
+        settings.movableByWindowBackground=\(settings.movableByWindowBackground)
+        settings.titled=\(settings.titled)
+        settings.closable=\(settings.closable)
+        settings.miniaturizable=\(settings.miniaturizable)
+        settings.resizable=\(settings.resizable)
+        settings.fullSizeContentView=\(settings.fullSizeContentView)
+        settings.showToolbar=\(settings.showToolbar)
+        settings.toolbarStyle=\(settings.toolbarStyle.rawValue)
+        about.overridesEnabled=\(about.overridesEnabled)
+        about.title=\(about.windowTitle)
+        about.titleVisibility=\(about.titleVisibility.rawValue)
+        about.titlebarAppearsTransparent=\(about.titlebarAppearsTransparent)
+        about.movableByWindowBackground=\(about.movableByWindowBackground)
+        about.titled=\(about.titled)
+        about.closable=\(about.closable)
+        about.miniaturizable=\(about.miniaturizable)
+        about.resizable=\(about.resizable)
+        about.fullSizeContentView=\(about.fullSizeContentView)
+        about.showToolbar=\(about.showToolbar)
+        about.toolbarStyle=\(about.toolbarStyle.rawValue)
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    private func apply(_ options: SettingsAboutTitlebarDebugOptions, to window: NSWindow, for kind: SettingsAboutWindowKind) {
+        let effective = options.overridesEnabled ? options : SettingsAboutTitlebarDebugOptions.defaults(for: kind)
+        let resolvedTitle = effective.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        window.title = resolvedTitle.isEmpty ? kind.fallbackTitle : resolvedTitle
+        window.titleVisibility = effective.titleVisibility.windowValue
+        window.titlebarAppearsTransparent = effective.titlebarAppearsTransparent
+        window.isMovableByWindowBackground = effective.movableByWindowBackground
+        window.toolbarStyle = effective.toolbarStyle.windowValue
+
+        if effective.showToolbar {
+            ensureToolbar(on: window, kind: kind)
+        } else if window.toolbar != nil {
+            window.toolbar = nil
+        }
+
+        var styleMask = window.styleMask
+        setStyleMaskBit(&styleMask, .titled, enabled: effective.titled)
+        setStyleMaskBit(&styleMask, .closable, enabled: effective.closable)
+        setStyleMaskBit(&styleMask, .miniaturizable, enabled: effective.miniaturizable)
+        setStyleMaskBit(&styleMask, .resizable, enabled: effective.resizable)
+        setStyleMaskBit(&styleMask, .fullSizeContentView, enabled: effective.fullSizeContentView)
+        window.styleMask = styleMask
+
+        let maxSize = effective.resizable ? NSSize(width: 8192, height: 8192) : kind.minimumSize
+        window.minSize = kind.minimumSize
+        window.maxSize = maxSize
+        window.contentMinSize = kind.minimumSize
+        window.contentMaxSize = maxSize
+        window.invalidateShadow()
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+    }
+
+    private func ensureToolbar(on window: NSWindow, kind: SettingsAboutWindowKind) {
+        guard window.toolbar == nil else { return }
+        let identifier = NSToolbar.Identifier("cmux.debug.titlebar.\(kind.rawValue)")
+        let toolbar = NSToolbar(identifier: identifier)
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.displayMode = .iconOnly
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+    }
+
+    private func setStyleMaskBit(
+        _ styleMask: inout NSWindow.StyleMask,
+        _ bit: NSWindow.StyleMask,
+        enabled: Bool
+    ) {
+        if enabled {
+            styleMask.insert(bit)
+        } else {
+            styleMask.remove(bit)
+        }
+    }
+}
+
+private final class SettingsAboutTitlebarDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SettingsAboutTitlebarDebugWindowController()
 
     private init() {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
-            styleMask: [.titled, .closable, .utilityWindow],
+            contentRect: NSRect(x: 0, y: 0, width: 470, height: 690),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
             backing: .buffered,
             defer: false
         )
-        window.title = ""
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        window.title = "Settings/About Titlebar Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.settingsAboutTitlebarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: AboutPanelView())
+        window.contentView = NSHostingView(rootView: SettingsAboutTitlebarDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
@@ -422,6 +966,484 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
     func show() {
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+        SettingsAboutTitlebarDebugStore.shared.applyToOpenWindows()
+    }
+}
+
+private struct SettingsAboutTitlebarDebugView: View {
+    @ObservedObject private var store = SettingsAboutTitlebarDebugStore.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Settings/About Titlebar Debug")
+                    .font(.headline)
+
+                editor(for: .settings)
+                editor(for: .about)
+
+                GroupBox("Actions") {
+                    HStack(spacing: 10) {
+                        Button("Reset All") {
+                            store.reset(.settings)
+                            store.reset(.about)
+                        }
+                        Button("Reapply to Open Windows") {
+                            store.applyToOpenWindows()
+                        }
+                        Button("Copy Config") {
+                            store.copyConfigToPasteboard()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func editor(for kind: SettingsAboutWindowKind) -> some View {
+        let overridesEnabled = binding(for: kind, keyPath: \.overridesEnabled)
+
+        return GroupBox(kind.displayTitle) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Enable Debug Overrides", isOn: overridesEnabled)
+
+                Text("When disabled, cmux uses normal default titlebar behavior for this window.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text("Window Title")
+                        TextField("", text: binding(for: kind, keyPath: \.windowTitle))
+                    }
+
+                    HStack(spacing: 10) {
+                        Picker("Title Visibility", selection: binding(for: kind, keyPath: \.titleVisibility)) {
+                            ForEach(TitlebarVisibilityOption.allCases) { option in
+                                Text(option.displayTitle).tag(option)
+                            }
+                        }
+                        Picker("Toolbar Style", selection: binding(for: kind, keyPath: \.toolbarStyle)) {
+                            ForEach(TitlebarToolbarStyleOption.allCases) { option in
+                                Text(option.displayTitle).tag(option)
+                            }
+                        }
+                    }
+
+                    Toggle("Show Toolbar", isOn: binding(for: kind, keyPath: \.showToolbar))
+                    Toggle("Transparent Titlebar", isOn: binding(for: kind, keyPath: \.titlebarAppearsTransparent))
+                    Toggle("Movable by Window Background", isOn: binding(for: kind, keyPath: \.movableByWindowBackground))
+
+                    Divider()
+
+                    Text("Style Mask")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Toggle("Titled", isOn: binding(for: kind, keyPath: \.titled))
+                    Toggle("Closable", isOn: binding(for: kind, keyPath: \.closable))
+                    Toggle("Miniaturizable", isOn: binding(for: kind, keyPath: \.miniaturizable))
+                    Toggle("Resizable", isOn: binding(for: kind, keyPath: \.resizable))
+                    Toggle("Full Size Content View", isOn: binding(for: kind, keyPath: \.fullSizeContentView))
+
+                    HStack(spacing: 10) {
+                        Button("Reset \(kind == .settings ? "Settings" : "About")") {
+                            store.reset(kind)
+                        }
+                        Button("Apply Now") {
+                            store.applyToOpenWindows(for: kind)
+                        }
+                    }
+                }
+                .disabled(!overridesEnabled.wrappedValue)
+                .opacity(overridesEnabled.wrappedValue ? 1 : 0.75)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func binding<Value>(
+        for kind: SettingsAboutWindowKind,
+        keyPath: WritableKeyPath<SettingsAboutTitlebarDebugOptions, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { store.options(for: kind)[keyPath: keyPath] },
+            set: { newValue in
+                var updated = store.options(for: kind)
+                updated[keyPath: keyPath] = newValue
+                store.update(updated, for: kind)
+            }
+        )
+    }
+}
+
+private enum DebugWindowConfigSnapshot {
+    static func copyCombinedToPasteboard(defaults: UserDefaults = .standard) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(combinedPayload(defaults: defaults), forType: .string)
+    }
+
+    static func combinedPayload(defaults: UserDefaults = .standard) -> String {
+        let sidebarPayload = """
+        sidebarPreset=\(stringValue(defaults, key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
+        sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
+        sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
+        sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
+        sidebarBlurOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarBlurOpacity", fallback: 1.0)))
+        sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#000000"))
+        sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
+        sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
+        shortcutHintSidebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintXKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintX)))
+        shortcutHintSidebarYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintYKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintY)))
+        shortcutHintTitlebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.titlebarHintXKey, fallback: ShortcutHintDebugSettings.defaultTitlebarHintX)))
+        shortcutHintTitlebarYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.titlebarHintYKey, fallback: ShortcutHintDebugSettings.defaultTitlebarHintY)))
+        shortcutHintPaneTabXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintXKey, fallback: ShortcutHintDebugSettings.defaultPaneHintX)))
+        shortcutHintPaneTabYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintYKey, fallback: ShortcutHintDebugSettings.defaultPaneHintY)))
+        shortcutHintAlwaysShow=\(boolValue(defaults, key: ShortcutHintDebugSettings.alwaysShowHintsKey, fallback: ShortcutHintDebugSettings.defaultAlwaysShowHints))
+        """
+
+        let backgroundPayload = """
+        bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: true))
+        bgGlassMaterial=\(stringValue(defaults, key: "bgGlassMaterial", fallback: "hudWindow"))
+        bgGlassTintHex=\(stringValue(defaults, key: "bgGlassTintHex", fallback: "#000000"))
+        bgGlassTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "bgGlassTintOpacity", fallback: 0.03)))
+        """
+
+        let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
+
+        return """
+        # Sidebar Debug
+        \(sidebarPayload)
+
+        # Background Debug
+        \(backgroundPayload)
+
+        # Menu Bar Extra Debug
+        \(menuBarPayload)
+        """
+    }
+
+    private static func stringValue(_ defaults: UserDefaults, key: String, fallback: String) -> String {
+        defaults.string(forKey: key) ?? fallback
+    }
+
+    private static func doubleValue(_ defaults: UserDefaults, key: String, fallback: Double) -> Double {
+        if let value = defaults.object(forKey: key) as? NSNumber {
+            return value.doubleValue
+        }
+        if let text = defaults.string(forKey: key), let parsed = Double(text) {
+            return parsed
+        }
+        return fallback
+    }
+
+    private static func boolValue(_ defaults: UserDefaults, key: String, fallback: Bool) -> Bool {
+        guard defaults.object(forKey: key) != nil else { return fallback }
+        return defaults.bool(forKey: key)
+    }
+}
+
+private final class DebugWindowControlsWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = DebugWindowControlsWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Debug Window Controls"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.debugWindowControls")
+        window.center()
+        window.contentView = NSHostingView(rootView: DebugWindowControlsView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct DebugWindowControlsView: View {
+    @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+    @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
+    @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Debug Window Controls")
+                    .font(.headline)
+
+                GroupBox("Open") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("Settings/About Titlebar Debug…") {
+                            SettingsAboutTitlebarDebugWindowController.shared.show()
+                        }
+                        Button("Sidebar Debug…") {
+                            SidebarDebugWindowController.shared.show()
+                        }
+                        Button("Background Debug…") {
+                            BackgroundDebugWindowController.shared.show()
+                        }
+                        Button("Menu Bar Extra Debug…") {
+                            MenuBarExtraDebugWindowController.shared.show()
+                        }
+                        Button("Open All Debug Windows") {
+                            SettingsAboutTitlebarDebugWindowController.shared.show()
+                            SidebarDebugWindowController.shared.show()
+                            BackgroundDebugWindowController.shared.show()
+                            MenuBarExtraDebugWindowController.shared.show()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Shortcut Hints") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Always show shortcut hints", isOn: $alwaysShowShortcutHints)
+
+                        hintOffsetSection(
+                            "Sidebar Cmd+1…9",
+                            x: $sidebarShortcutHintXOffset,
+                            y: $sidebarShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Titlebar Buttons",
+                            x: $titlebarShortcutHintXOffset,
+                            y: $titlebarShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Pane Ctrl/Cmd+1…9",
+                            x: $paneShortcutHintXOffset,
+                            y: $paneShortcutHintYOffset
+                        )
+
+                        HStack(spacing: 12) {
+                            Button("Reset Hints") {
+                                resetShortcutHintOffsets()
+                            }
+                            Button("Copy Hint Config") {
+                                copyShortcutHintConfig()
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Copy") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("Copy All Debug Config") {
+                            DebugWindowConfigSnapshot.copyCombinedToPasteboard()
+                        }
+                        Text("Copies sidebar, background, and menu bar debug settings as one payload.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func hintOffsetSection(_ title: String, x: Binding<Double>, y: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            sliderRow("X", value: x)
+            sliderRow("Y", value: y)
+        }
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
+            Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
+                .font(.caption)
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func resetShortcutHintOffsets() {
+        sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+        sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+        titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+        titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+        paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
+        paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+        alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    }
+
+    private func copyShortcutHintConfig() {
+        let payload = """
+        shortcutHintSidebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset)))
+        shortcutHintSidebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)))
+        shortcutHintTitlebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)))
+        shortcutHintTitlebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)))
+        shortcutHintPaneTabXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintXOffset)))
+        shortcutHintPaneTabYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintYOffset)))
+        shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+}
+
+private final class AboutWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = AboutWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
+        window.center()
+        window.contentView = NSHostingView(rootView: AboutPanelView())
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        guard let window else { return }
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+private final class AcknowledgmentsWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = AcknowledgmentsWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.title = "Third-Party Licenses"
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.licenses")
+        window.center()
+        window.contentView = NSHostingView(rootView: AcknowledgmentsView())
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        guard let window else { return }
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct AcknowledgmentsView: View {
+    private let content: String = {
+        if let url = Bundle.main.url(forResource: "THIRD_PARTY_LICENSES", withExtension: "md"),
+           let text = try? String(contentsOf: url) {
+            return text
+        }
+        return "Licenses file not found."
+    }()
+
+    var body: some View {
+        ScrollView {
+            Text(content)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+    }
+}
+
+private final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SettingsWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+        window.center()
+        window.contentView = NSHostingView(rootView: SettingsRootView())
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        guard let window else { return }
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+        if !window.isVisible {
+            window.center()
+        }
+        window.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -463,7 +1485,7 @@ private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let docsURL = URL(string: "https://term.cmux.dev")
+    private let docsURL = URL(string: "https://cmux.dev/docs")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -524,6 +1546,9 @@ private struct AboutPanelView: View {
                             openURL(url)
                         }
                     }
+                    Button("Licenses") {
+                        AcknowledgmentsWindowController.shared.show()
+                    }
                 }
 
                 if let copy = copyright, !copy.isEmpty {
@@ -547,13 +1572,20 @@ private struct AboutPanelView: View {
 
 private struct SidebarDebugView: View {
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.54
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#101010"
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.18
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 0.79
+    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
+    @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+    @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
+    @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
 
     var body: some View {
         ScrollView {
@@ -630,6 +1662,31 @@ private struct SidebarDebugView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox("Shortcut Hints") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Always show shortcut hints", isOn: $alwaysShowShortcutHints)
+
+                        hintOffsetSection(
+                            "Sidebar Cmd+1…9",
+                            x: $sidebarShortcutHintXOffset,
+                            y: $sidebarShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Titlebar Buttons",
+                            x: $titlebarShortcutHintXOffset,
+                            y: $titlebarShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Pane Ctrl/Cmd+1…9",
+                            x: $paneShortcutHintXOffset,
+                            y: $paneShortcutHintYOffset
+                        )
+                    }
+                    .padding(.top, 2)
+                }
+
                 HStack(spacing: 12) {
                     Button("Reset Tint") {
                         sidebarTintOpacity = 0.62
@@ -643,6 +1700,9 @@ private struct SidebarDebugView: View {
                     }
                     Button("Reset Shape") {
                         sidebarCornerRadius = 0.0
+                    }
+                    Button("Reset Hints") {
+                        resetShortcutHintOffsets()
                     }
                 }
 
@@ -669,6 +1729,37 @@ private struct SidebarDebugView: View {
         )
     }
 
+    private func hintOffsetSection(_ title: String, x: Binding<Double>, y: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            sliderRow("X", value: x)
+            sliderRow("Y", value: y)
+        }
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
+            Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
+                .font(.caption)
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func resetShortcutHintOffsets() {
+        sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+        sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+        titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+        titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+        paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
+        paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+        alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    }
+
     private func copySidebarConfig() {
         let payload = """
         sidebarPreset=\(sidebarPreset)
@@ -679,6 +1770,13 @@ private struct SidebarDebugView: View {
         sidebarTintHex=\(sidebarTintHex)
         sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
+        shortcutHintSidebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset)))
+        shortcutHintSidebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)))
+        shortcutHintTitlebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)))
+        shortcutHintTitlebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)))
+        shortcutHintPaneTabXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintXOffset)))
+        shortcutHintPaneTabYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintYOffset)))
+        shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
         """
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -694,6 +1792,176 @@ private struct SidebarDebugView: View {
         sidebarTintOpacity = preset.tintOpacity
         sidebarCornerRadius = preset.cornerRadius
         sidebarBlurOpacity = preset.blurOpacity
+    }
+}
+
+// MARK: - Menu Bar Extra Debug Window
+
+private final class MenuBarExtraDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = MenuBarExtraDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 430),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Menu Bar Extra Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.menubarDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: MenuBarExtraDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct MenuBarExtraDebugView: View {
+    @AppStorage(MenuBarIconDebugSettings.previewEnabledKey) private var previewEnabled = false
+    @AppStorage(MenuBarIconDebugSettings.previewCountKey) private var previewCount = 1
+    @AppStorage(MenuBarIconDebugSettings.badgeRectXKey) private var badgeRectX = Double(MenuBarIconDebugSettings.defaultBadgeRect.origin.x)
+    @AppStorage(MenuBarIconDebugSettings.badgeRectYKey) private var badgeRectY = Double(MenuBarIconDebugSettings.defaultBadgeRect.origin.y)
+    @AppStorage(MenuBarIconDebugSettings.badgeRectWidthKey) private var badgeRectWidth = Double(MenuBarIconDebugSettings.defaultBadgeRect.width)
+    @AppStorage(MenuBarIconDebugSettings.badgeRectHeightKey) private var badgeRectHeight = Double(MenuBarIconDebugSettings.defaultBadgeRect.height)
+    @AppStorage(MenuBarIconDebugSettings.singleDigitFontSizeKey) private var singleDigitFontSize = Double(MenuBarIconDebugSettings.defaultSingleDigitFontSize)
+    @AppStorage(MenuBarIconDebugSettings.multiDigitFontSizeKey) private var multiDigitFontSize = Double(MenuBarIconDebugSettings.defaultMultiDigitFontSize)
+    @AppStorage(MenuBarIconDebugSettings.singleDigitYOffsetKey) private var singleDigitYOffset = Double(MenuBarIconDebugSettings.defaultSingleDigitYOffset)
+    @AppStorage(MenuBarIconDebugSettings.multiDigitYOffsetKey) private var multiDigitYOffset = Double(MenuBarIconDebugSettings.defaultMultiDigitYOffset)
+    @AppStorage(MenuBarIconDebugSettings.singleDigitXAdjustKey) private var singleDigitXAdjust = Double(MenuBarIconDebugSettings.defaultSingleDigitXAdjust)
+    @AppStorage(MenuBarIconDebugSettings.multiDigitXAdjustKey) private var multiDigitXAdjust = Double(MenuBarIconDebugSettings.defaultMultiDigitXAdjust)
+    @AppStorage(MenuBarIconDebugSettings.textRectWidthAdjustKey) private var textRectWidthAdjust = Double(MenuBarIconDebugSettings.defaultTextRectWidthAdjust)
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Menu Bar Extra Icon")
+                    .font(.headline)
+
+                GroupBox("Preview Count") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Override unread count", isOn: $previewEnabled)
+
+                        Stepper(value: $previewCount, in: 0...99) {
+                            HStack {
+                                Text("Unread Count")
+                                Spacer()
+                                Text("\(previewCount)")
+                                    .font(.caption)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .disabled(!previewEnabled)
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Badge Rect") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        sliderRow("X", value: $badgeRectX, range: 0...20, format: "%.2f")
+                        sliderRow("Y", value: $badgeRectY, range: 0...20, format: "%.2f")
+                        sliderRow("Width", value: $badgeRectWidth, range: 4...14, format: "%.2f")
+                        sliderRow("Height", value: $badgeRectHeight, range: 4...14, format: "%.2f")
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Badge Text") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        sliderRow("1-digit size", value: $singleDigitFontSize, range: 6...14, format: "%.2f")
+                        sliderRow("2-digit size", value: $multiDigitFontSize, range: 6...14, format: "%.2f")
+                        sliderRow("1-digit X", value: $singleDigitXAdjust, range: -4...4, format: "%.2f")
+                        sliderRow("2-digit X", value: $multiDigitXAdjust, range: -4...4, format: "%.2f")
+                        sliderRow("1-digit Y", value: $singleDigitYOffset, range: -3...4, format: "%.2f")
+                        sliderRow("2-digit Y", value: $multiDigitYOffset, range: -3...4, format: "%.2f")
+                        sliderRow("Text width adjust", value: $textRectWidthAdjust, range: -3...5, format: "%.2f")
+                    }
+                    .padding(.top, 2)
+                }
+
+                HStack(spacing: 12) {
+                    Button("Reset") {
+                        previewEnabled = false
+                        previewCount = 1
+                        badgeRectX = Double(MenuBarIconDebugSettings.defaultBadgeRect.origin.x)
+                        badgeRectY = Double(MenuBarIconDebugSettings.defaultBadgeRect.origin.y)
+                        badgeRectWidth = Double(MenuBarIconDebugSettings.defaultBadgeRect.width)
+                        badgeRectHeight = Double(MenuBarIconDebugSettings.defaultBadgeRect.height)
+                        singleDigitFontSize = Double(MenuBarIconDebugSettings.defaultSingleDigitFontSize)
+                        multiDigitFontSize = Double(MenuBarIconDebugSettings.defaultMultiDigitFontSize)
+                        singleDigitYOffset = Double(MenuBarIconDebugSettings.defaultSingleDigitYOffset)
+                        multiDigitYOffset = Double(MenuBarIconDebugSettings.defaultMultiDigitYOffset)
+                        singleDigitXAdjust = Double(MenuBarIconDebugSettings.defaultSingleDigitXAdjust)
+                        multiDigitXAdjust = Double(MenuBarIconDebugSettings.defaultMultiDigitXAdjust)
+                        textRectWidthAdjust = Double(MenuBarIconDebugSettings.defaultTextRectWidthAdjust)
+                        applyLiveUpdate()
+                    }
+
+                    Button("Copy Config") {
+                        let payload = MenuBarIconDebugSettings.copyPayload()
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(payload, forType: .string)
+                    }
+                }
+
+                Text("Tip: enable override count, then tune until the menu bar icon looks right.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .onAppear { applyLiveUpdate() }
+        .onChange(of: previewEnabled) { _ in applyLiveUpdate() }
+        .onChange(of: previewCount) { _ in applyLiveUpdate() }
+        .onChange(of: badgeRectX) { _ in applyLiveUpdate() }
+        .onChange(of: badgeRectY) { _ in applyLiveUpdate() }
+        .onChange(of: badgeRectWidth) { _ in applyLiveUpdate() }
+        .onChange(of: badgeRectHeight) { _ in applyLiveUpdate() }
+        .onChange(of: singleDigitFontSize) { _ in applyLiveUpdate() }
+        .onChange(of: multiDigitFontSize) { _ in applyLiveUpdate() }
+        .onChange(of: singleDigitXAdjust) { _ in applyLiveUpdate() }
+        .onChange(of: multiDigitXAdjust) { _ in applyLiveUpdate() }
+        .onChange(of: singleDigitYOffset) { _ in applyLiveUpdate() }
+        .onChange(of: multiDigitYOffset) { _ in applyLiveUpdate() }
+        .onChange(of: textRectWidthAdjust) { _ in applyLiveUpdate() }
+    }
+
+    private func sliderRow(
+        _ label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        format: String
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Slider(value: value, in: range)
+            Text(String(format: format, value.wrappedValue))
+                .font(.caption)
+                .monospacedDigit()
+                .frame(width: 58, alignment: .trailing)
+        }
+    }
+
+    private func applyLiveUpdate() {
+        AppDelegate.shared?.refreshMenuBarExtraForDebug()
     }
 }
 
@@ -735,7 +2003,7 @@ private final class BackgroundDebugWindowController: NSWindowController, NSWindo
 
 private struct BackgroundDebugView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
-    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.05
+    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassMaterial") private var bgGlassMaterial = "hudWindow"
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
 
@@ -781,7 +2049,7 @@ private struct BackgroundDebugView: View {
                 HStack(spacing: 12) {
                     Button("Reset") {
                         bgGlassTintHex = "#000000"
-                        bgGlassTintOpacity = 0.05
+                        bgGlassTintOpacity = 0.03
                         bgGlassMaterial = "hudWindow"
                         bgGlassEnabled = true
                         updateWindowGlassTint()
@@ -806,7 +2074,18 @@ private struct BackgroundDebugView: View {
     }
 
     private func updateWindowGlassTint() {
-        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main" }) else { return }
+        let window: NSWindow? = {
+            if let key = NSApp.keyWindow,
+               let raw = key.identifier?.rawValue,
+               raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
+                return key
+            }
+            return NSApp.windows.first(where: {
+                guard let raw = $0.identifier?.rawValue else { return false }
+                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+            })
+        }()
+        guard let window else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
     }
@@ -930,131 +2209,492 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    private let contentTopInset: CGFloat = 8
+    private let pickerColumnWidth: CGFloat = 196
+
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
-    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
-    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
-    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
-    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
-    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
-    @AppStorage("sidebarShellIntegration") private var sidebarShellIntegration = true
-    @AppStorage("sidebarMaxLogEntries") private var sidebarMaxLogEntries = 50
-    @State private var notificationsShortcut = KeyboardShortcutSettings.showNotificationsShortcut()
-    @State private var jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadShortcut()
+    @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
+    @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
+    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    @AppStorage(UpdateChannelSettings.includeNightlyBuildsKey) private var includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
+    @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @State private var shortcutResetToken = UUID()
+    @State private var topBlurOpacity: Double = 0
+    @State private var topBlurBaselineOffset: CGFloat?
+    @State private var settingsTitleLeadingInset: CGFloat = 92
+    @State private var showClearBrowserHistoryConfirmation = false
+    @State private var browserHistoryEntryCount: Int = 0
+
+    private var selectedWorkspacePlacement: NewWorkspacePlacement {
+        NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedSocketControlMode: SocketControlMode {
+        SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+    }
+
+    private var browserHistorySubtitle: String {
+        switch browserHistoryEntryCount {
+        case 0:
+            return "No saved pages yet."
+        case 1:
+            return "1 saved page appears in omnibar suggestions."
+        default:
+            return "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions."
+        }
+    }
+
+    private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
+        guard let baseline = topBlurBaselineOffset else { return 0 }
+        let reveal = (baseline - offset) / 24
+        return Double(min(max(reveal, 0), 1))
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Theme")
-                    .font(.headline)
-
-                Picker("", selection: $appearanceMode) {
-                    ForEach(AppearanceMode.visibleCases) { mode in
-                        Text(mode.displayName).tag(mode.rawValue)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-
-                Divider()
-
-                Text("Sidebar")
-                    .font(.headline)
-
-                Toggle("Show status", isOn: $sidebarShowStatusPills)
-                Toggle("Show git branch", isOn: $sidebarShowGitBranch)
-                Toggle("Show branch icon", isOn: $sidebarShowGitBranchIcon)
-                    .disabled(!sidebarShowGitBranch)
-                Toggle("Show listening ports", isOn: $sidebarShowPorts)
-                Toggle("Show latest log entry", isOn: $sidebarShowLog)
-                Toggle("Show progress bar", isOn: $sidebarShowProgress)
-                Toggle("Shell integration (auto-detect git branch and ports)", isOn: $sidebarShellIntegration)
-
-                Stepper("Max log entries: \(sidebarMaxLogEntries)", value: $sidebarMaxLogEntries, in: 10...500, step: 10)
-
-                Text("Shell integration injects a precmd hook to report git branch and ports automatically.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
-
-                Text("Keyboard Shortcuts")
-                    .font(.headline)
-
-                KeyboardShortcutRecorder(label: "Show Notifications", shortcut: $notificationsShortcut)
-                    .onChange(of: notificationsShortcut) { newValue in
-                        KeyboardShortcutSettings.setShowNotificationsShortcut(newValue)
-                    }
-
-                KeyboardShortcutRecorder(label: "Jump to Unread", shortcut: $jumpToUnreadShortcut)
-                    .onChange(of: jumpToUnreadShortcut) { newValue in
-                        KeyboardShortcutSettings.setJumpToUnreadShortcut(newValue)
-                    }
-
-                Text("Click to record a new shortcut.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
-
-                Text("Automation")
-                    .font(.headline)
-
-                Picker("", selection: $socketControlMode) {
-                    ForEach(SocketControlMode.allCases) { mode in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(mode.displayName)
-                            Text(mode.description)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    SettingsSectionHeader(title: "App")
+                    SettingsCard {
+                        SettingsCardRow("Theme", controlWidth: pickerColumnWidth) {
+                            Picker("", selection: $appearanceMode) {
+                                ForEach(AppearanceMode.visibleCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
                         }
-                        .tag(mode.rawValue)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "New Workspace Placement",
+                            subtitle: selectedWorkspacePlacement.description,
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $newWorkspacePlacement) {
+                                ForEach(NewWorkspacePlacement.allCases) { placement in
+                                    Text(placement.displayName).tag(placement.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Dock Badge",
+                            subtitle: "Show unread count on app icon (Dock and Cmd+Tab)."
+                        ) {
+                            Toggle("", isOn: $notificationDockBadgeEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Updates")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Receive Nightly Builds",
+                            subtitle: includeNightlyBuilds
+                                ? "Using nightly update channel. Builds may be less stable."
+                                : "Using stable update channel."
+                        ) {
+                            Toggle("", isOn: $includeNightlyBuilds)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsIncludeNightlyBuildsToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Nightly builds are published from the latest main branch commit when available.")
+                    }
+
+                    SettingsSectionHeader(title: "Automation")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Socket Control Mode",
+                            subtitle: selectedSocketControlMode.description,
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $socketControlMode) {
+                                ForEach(SocketControlMode.allCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityIdentifier("AutomationSocketModePicker")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
+                        SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Claude Code Integration",
+                            subtitle: claudeCodeHooksEnabled
+                                ? "Sidebar shows Claude session status and notifications."
+                                : "Claude Code runs without cmux integration."
+                        ) {
+                            Toggle("", isOn: $claudeCodeHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsClaudeCodeHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.")
+                    }
+
+                    SettingsSectionHeader(title: "Browser")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Default Search Engine",
+                            subtitle: "Used by the browser address bar when input is not a URL.",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $browserSearchEngine) {
+                                ForEach(BrowserSearchEngine.allCases) { engine in
+                                    Text(engine.displayName).tag(engine.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow("Show Search Suggestions") {
+                            Toggle("", isOn: $browserSearchSuggestionsEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow("Browsing History", subtitle: browserHistorySubtitle) {
+                            Button("Clear History…") {
+                                showClearBrowserHistoryConfirmation = true
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(browserHistoryEntryCount == 0)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Keyboard Shortcuts")
+                    SettingsCard {
+                        let actions = KeyboardShortcutSettings.Action.allCases
+                        ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                            ShortcutSettingRow(action: action)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                            if index < actions.count - 1 {
+                                SettingsCardDivider()
+                            }
+                        }
+                    }
+                    .id(shortcutResetToken)
+
+                    Text("Click a shortcut value to record a new shortcut.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 2)
+
+                    SettingsSectionHeader(title: "Reset")
+                    SettingsCard {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button("Reset All Settings") {
+                                resetAllSettings()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                 }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .accessibilityIdentifier("AutomationSocketModePicker")
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+                .padding(.top, contentTopInset)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: SettingsTopOffsetPreferenceKey.self,
+                            value: proxy.frame(in: .named("SettingsScrollArea")).minY
+                        )
+                    }
+                )
+            }
+            .coordinateSpace(name: "SettingsScrollArea")
+            .onPreferenceChange(SettingsTopOffsetPreferenceKey.self) { value in
+                if topBlurBaselineOffset == nil {
+                    topBlurBaselineOffset = value
+                }
+                topBlurOpacity = blurOpacity(forContentOffset: value)
+            }
 
-                Text("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            ZStack(alignment: .top) {
+                SettingsTitleLeadingInsetReader(inset: $settingsTitleLeadingInset)
+                    .frame(width: 0, height: 0)
 
-                Text("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
+                    .mask(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.9),
+                                Color.black.opacity(0.64),
+                                Color.black.opacity(0.36),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .opacity(0.52)
 
-                Divider()
+                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
+                    .mask(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.98),
+                                Color.black.opacity(0.78),
+                                Color.black.opacity(0.42),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .opacity(0.14 + (topBlurOpacity * 0.86))
 
                 HStack {
-                    Spacer()
-                    Button("Reset All Settings") {
-                        resetAllSettings()
-                    }
-                    Spacer()
+                    Text("Settings")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary.opacity(0.92))
+                    Spacer(minLength: 0)
                 }
-                .padding(.top, 8)
+                .padding(.leading, settingsTitleLeadingInset)
+                .padding(.top, 12)
             }
-            .padding(20)
-            .padding(.top, 4)
+                .frame(height: 62)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea(.container, edges: .top)
+                .overlay(
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor).opacity(0.07))
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
+                .allowsHitTesting(false)
         }
-        .frame(minWidth: 420, minHeight: 360)
+        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+        .toggleStyle(.switch)
+        .onAppear {
+            BrowserHistoryStore.shared.loadIfNeeded()
+            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+        }
+        .onReceive(BrowserHistoryStore.shared.$entries) { entries in
+            browserHistoryEntryCount = entries.count
+        }
+        .confirmationDialog(
+            "Clear browser history?",
+            isPresented: $showClearBrowserHistoryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) {
+                BrowserHistoryStore.shared.clearHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes visited-page suggestions from the browser omnibar.")
+        }
     }
 
     private func resetAllSettings() {
         appearanceMode = AppearanceMode.dark.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
-        sidebarShowStatusPills = true
-        sidebarShowGitBranch = true
-        sidebarShowGitBranchIcon = false
-        sidebarShowPorts = true
-        sidebarShowLog = true
-        sidebarShowProgress = true
-        sidebarShellIntegration = true
-        sidebarMaxLogEntries = 50
+        claudeCodeHooksEnabled = true
+        browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
+        browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+        includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
+        newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
-        notificationsShortcut = KeyboardShortcutSettings.showNotificationsDefault
-        jumpToUnreadShortcut = KeyboardShortcutSettings.jumpToUnreadDefault
+        shortcutResetToken = UUID()
+    }
+}
+
+private struct SettingsTopOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
+    @Binding var inset: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+            let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+            let maxX = buttons
+                .compactMap { window.standardWindowButton($0)?.frame.maxX }
+                .max() ?? 78
+            let nextInset = maxX + 14
+            if abs(nextInset - inset) > 0.5 {
+                inset = nextInset
+            }
+        }
+    }
+}
+
+private struct SettingsSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.secondary)
+            .padding(.leading, 2)
+            .padding(.bottom, -2)
+    }
+}
+
+private struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.76))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
+                )
+        )
+    }
+}
+
+private struct SettingsCardRow<Trailing: View>: View {
+    let title: String
+    let subtitle: String?
+    let controlWidth: CGFloat?
+    @ViewBuilder let trailing: Trailing
+
+    init(
+        _ title: String,
+        subtitle: String? = nil,
+        controlWidth: CGFloat? = nil,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.controlWidth = controlWidth
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Group {
+                if let controlWidth {
+                    trailing
+                        .frame(width: controlWidth, alignment: .trailing)
+                } else {
+                    trailing
+                }
+            }
+                .layoutPriority(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsCardDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
+            .frame(height: 1)
+    }
+}
+
+private struct SettingsCardNote: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ShortcutSettingRow: View {
+    let action: KeyboardShortcutSettings.Action
+    @State private var shortcut: StoredShortcut
+
+    init(action: KeyboardShortcutSettings.Action) {
+        self.action = action
+        _shortcut = State(initialValue: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    var body: some View {
+        KeyboardShortcutRecorder(label: action.label, shortcut: $shortcut)
+            .onChange(of: shortcut) { newValue in
+                KeyboardShortcutSettings.setShortcut(newValue, for: action)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                let latest = KeyboardShortcutSettings.shortcut(for: action)
+                if latest != shortcut {
+                    shortcut = latest
+                }
+            }
     }
 }
 
@@ -1068,22 +2708,7 @@ private struct SettingsRootView: View {
 
     private func configureSettingsWindow(_ window: NSWindow) {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
-        window.title = ""
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = false
-        window.styleMask.remove(.fullSizeContentView)
-        window.styleMask.insert(.resizable)
-        window.contentMinSize = NSSize(width: 420, height: 360)
-        if window.toolbar == nil {
-            let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.settings.toolbar"))
-            toolbar.displayMode = .iconOnly
-            toolbar.sizeMode = .regular
-            toolbar.allowsUserCustomization = false
-            toolbar.autosavesConfiguration = false
-            toolbar.showsBaselineSeparator = false
-            window.toolbar = toolbar
-            window.toolbarStyle = .unified
-        }
+        applyCurrentSettingsWindowStyle(to: window)
 
         let accessories = window.titlebarAccessoryViewControllers
         for index in accessories.indices.reversed() {
@@ -1092,5 +2717,9 @@ private struct SettingsRootView: View {
             window.removeTitlebarAccessoryViewController(at: index)
         }
         AppDelegate.shared?.applyWindowDecorations(to: window)
+    }
+
+    private func applyCurrentSettingsWindowStyle(to window: NSWindow) {
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
     }
 }

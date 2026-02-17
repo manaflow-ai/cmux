@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="cmux DEV"
-BUNDLE_ID="com.cmux.app.debug"
+BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
 DERIVED_DATA=""
 NAME_SET=0
@@ -12,10 +12,10 @@ TAG=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/reload.sh [options]
+Usage: ./scripts/reload.sh --tag <name> [options]
 
 Options:
-  --tag <name>           Short tag for parallel builds (e.g., feature-xyz-lol).
+  --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
                          Sets app name, bundle id, and derived data path unless overridden.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
@@ -42,6 +42,53 @@ sanitize_path() {
     cleaned="agent"
   fi
   echo "$cleaned"
+}
+
+print_tag_cleanup_reminder() {
+  local current_slug="$1"
+  local path=""
+  local tag=""
+  local seen=" "
+  local -a stale_tags=()
+
+  while IFS= read -r -d '' path; do
+    tag="${path#/tmp/cmux-}"
+    if [[ "$tag" == "$current_slug" ]]; then
+      continue
+    fi
+    # Only surface stale debug tag builds.
+    if [[ ! -d "$path/Build/Products/Debug" ]]; then
+      continue
+    fi
+    if [[ "$seen" == *" $tag "* ]]; then
+      continue
+    fi
+    seen="${seen}${tag} "
+    stale_tags+=("$tag")
+  done < <(find /tmp -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null)
+
+  echo
+  echo "Tag cleanup status:"
+  echo "  current tag: ${current_slug} (keep this running until you verify)"
+  if [[ "${#stale_tags[@]}" -eq 0 ]]; then
+    echo "  stale tags: none"
+    echo "  stale cleanup: not needed"
+  else
+    echo "  stale tags:"
+    for tag in "${stale_tags[@]}"; do
+      echo "    - ${tag}"
+    done
+    echo "Cleanup stale tags only:"
+    for tag in "${stale_tags[@]}"; do
+      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
+      echo "  rm -rf \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
+    done
+  fi
+  echo "After you verify current tag, cleanup command:"
+  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
+  echo "  rm -rf \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
 
 while [[ $# -gt 0 ]]; do
@@ -93,6 +140,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$TAG" ]]; then
+  echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
+  usage
+  exit 1
+fi
+
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
@@ -100,7 +153,7 @@ if [[ -n "$TAG" ]]; then
     APP_NAME="cmux DEV ${TAG}"
   fi
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
-    BUNDLE_ID="com.cmux.app.debug.${TAG_ID}"
+    BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="/tmp/cmux-${TAG_SLUG}"
@@ -250,7 +303,9 @@ OPEN_CLEAN_ENV=(
 
 if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
   # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-  "${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
+elif [[ -n "${TAG_SLUG:-}" ]]; then
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" open "$APP_PATH"
 else
   "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
 fi
@@ -274,4 +329,8 @@ if [[ "${#PIDS[@]}" -gt 1 ]]; then
       kill "$PID" 2>/dev/null || true
     fi
   done
+fi
+
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  print_tag_cleanup_reminder "$TAG_SLUG"
 fi
