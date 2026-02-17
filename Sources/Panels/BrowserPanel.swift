@@ -861,6 +861,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
 
+        // Match the empty-page background to the window so newly-created browsers
+        // don't flash white before content loads.
+        webView.underPageBackgroundColor = .windowBackgroundColor
+
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
 
@@ -872,6 +876,16 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
             Task { @MainActor [weak self] in
                 self?.refreshFavicon(from: webView)
+            }
+        }
+        navDelegate.didFailNavigation = { [weak self] _, failedURL in
+            Task { @MainActor in
+                guard let self else { return }
+                // Clear stale title/favicon from the previous page so the tab
+                // shows the failed URL instead of the old page's branding.
+                self.pageTitle = failedURL.isEmpty ? "" : failedURL
+                self.faviconPNGData = nil
+                self.lastFaviconURLString = nil
             }
         }
         navDelegate.openInNewTab = { [weak self] url in
@@ -1181,6 +1195,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func navigate(to url: URL) {
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        navigationDelegate?.lastAttemptedURL = url
         var request = URLRequest(url: url)
         // Behave like a normal browser (respect HTTP caching). Reload is handled separately.
         request.cachePolicy = .useProtocolCachePolicy
@@ -1396,10 +1411,14 @@ private extension BrowserPanel {
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
+    var didFailNavigation: ((WKWebView, String) -> Void)?
     var openInNewTab: ((URL) -> Void)?
+    /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
+    /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
+    var lastAttemptedURL: URL?
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        // Navigation started
+        lastAttemptedURL = webView.url
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1411,7 +1430,101 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
+
+        // Cancelled navigations (e.g. rapid typing) are not real errors.
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+
+        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+            ?? lastAttemptedURL?.absoluteString
+            ?? ""
+        didFailNavigation?(webView, failedURL)
+        loadErrorPage(in: webView, failedURL: failedURL, error: nsError)
+    }
+
+    func webView(_ webView: WKWebView, webContentProcessDidTerminate: WKWebView) {
+        NSLog("BrowserPanel web content process terminated, reloading")
+        webView.reload()
+    }
+
+    private func loadErrorPage(in webView: WKWebView, failedURL: String, error: NSError) {
+        let title: String
+        let message: String
+
+        switch (error.domain, error.code) {
+        case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
+             (NSURLErrorDomain, NSURLErrorCannotFindHost),
+             (NSURLErrorDomain, NSURLErrorTimedOut):
+            title = "Can\u{2019}t reach this page"
+            message = "\(failedURL.isEmpty ? "The site" : failedURL) refused to connect. Check that a server is running on this address."
+        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
+             (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
+            title = "No internet connection"
+            message = "Check your network connection and try again."
+        case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
+             (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
+             (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
+             (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
+             (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
+            title = "Connection isn\u{2019}t secure"
+            message = "The certificate for this site is invalid."
+        default:
+            title = "Can\u{2019}t open this page"
+            message = error.localizedDescription
+        }
+
+        let escapedURL = failedURL
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width">
+        <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            min-height: 80vh; margin: 0; padding: 20px;
+            background: #1a1a1a; color: #e0e0e0;
+        }
+        .container { text-align: center; max-width: 420px; }
+        h1 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+        p { font-size: 13px; color: #999; line-height: 1.5; }
+        .url { font-size: 12px; color: #666; word-break: break-all; margin-top: 16px; }
+        button {
+            margin-top: 20px; padding: 6px 20px;
+            background: #333; color: #e0e0e0; border: 1px solid #555;
+            border-radius: 6px; font-size: 13px; cursor: pointer;
+        }
+        button:hover { background: #444; }
+        @media (prefers-color-scheme: light) {
+            body { background: #fafafa; color: #222; }
+            p { color: #666; }
+            .url { color: #999; }
+            button { background: #eee; color: #222; border-color: #ccc; }
+            button:hover { background: #ddd; }
+        }
+        </style>
+        </head>
+        <body>
+        <div class="container">
+            <h1>\(title)</h1>
+            <p>\(message)</p>
+            <div class="url">\(escapedURL)</div>
+            <button onclick="location.reload()">Reload</button>
+        </div>
+        </body>
+        </html>
+        """
+        webView.loadHTMLString(html, baseURL: URL(string: failedURL))
     }
 
     func webView(

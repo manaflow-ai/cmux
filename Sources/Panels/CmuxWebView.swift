@@ -32,6 +32,31 @@ final class CmuxWebView: WKWebView {
         super.keyDown(with: event)
     }
 
+    // MARK: - Focus on click
+
+    // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
+    // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
+    // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
+    // bonsplit focus tracks which pane the user clicked in.
+    override func mouseDown(with event: NSEvent) {
+        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        super.mouseDown(with: event)
+    }
+
+    // MARK: - Drag-and-drop passthrough
+
+    // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
+    // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
+    // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
+    // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
+    // AppKit only bubbles up through superviews, not siblings.
+    //
+    // Fix: prevent WKWebView from registering as a drag destination entirely. AppKit won't
+    // route drags here, so they reach the SwiftUI overlay drop zones as intended.
+    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
+        // No-op: suppress WKWebView's automatic drag type registration.
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
 

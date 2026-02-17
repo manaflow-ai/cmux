@@ -14,6 +14,10 @@ struct WorkspaceContentView: View {
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
 
+        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
+        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
+        let _ = { workspace.bonsplitController.isInteractive = isTabActive }()
+
         BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
@@ -137,11 +141,17 @@ struct EmptyPanelView: View {
     }
 
     private func createTerminal() {
+        #if DEBUG
+        dlog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
+        #endif
         focusPane()
         _ = workspace.newTerminalSurface(inPane: paneId)
     }
 
     private func createBrowser() {
+        #if DEBUG
+        dlog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
+        #endif
         focusPane()
         _ = workspace.newBrowserSurface(inPane: paneId)
     }

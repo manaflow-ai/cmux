@@ -5,6 +5,30 @@ description: Release notes and version history for cmux
 
 All notable changes to cmux are documented here.
 
+## [1.36.0] - 2026-02-17
+
+### Fixed
+- App hang when omnibar safety timeout failed to fire (blocked main thread)
+- Tab drag/drop not working when multiple workspaces exist
+- Clicking in browser WebView not focusing the browser tab
+
+## [1.35.0] - 2026-02-17
+
+### Fixed
+- App hang when clicking browser omnibar (NSTextView tracking loop spinning forever)
+- White flash when creating new browser panels
+- Tab drag/drop broken when dragging over WebView panes
+- Stale drag timeout cancelling new drags of the same tab
+- 88% idle CPU from infinite makeFirstResponder loop
+- Terminal keys (arrows, Ctrl+N/P) swallowed after opening browser
+- Cmd+N swallowed by browser omnibar navigation
+- Split focus stolen by re-entrant becomeFirstResponder during reparenting
+
+## [1.34.0] - 2026-02-16
+
+### Fixed
+- Browser not loading localhost URLs correctly
+
 ## [1.33.0] - 2026-02-16
 
 ### Fixed
