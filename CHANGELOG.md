@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [1.34.0] - 2026-02-16
+
+### Fixed
+- Browser not loading localhost URLs correctly
+
 ## [1.33.0] - 2026-02-16
 
 ### Fixed
