@@ -99,6 +99,13 @@ struct BrowserPanelView: View {
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
             omnibarPillFrame = frame
         }
+        .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
+            // Only handle clicks from our own webview.
+            guard let webView = note.object as? CmuxWebView else { return false }
+            return webView === panel?.webView
+        }) { _ in
+            onRequestPanelFocus()
+        }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,

@@ -32,6 +32,17 @@ final class CmuxWebView: WKWebView {
         super.keyDown(with: event)
     }
 
+    // MARK: - Focus on click
+
+    // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
+    // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
+    // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
+    // bonsplit focus tracks which pane the user clicked in.
+    override func mouseDown(with event: NSEvent) {
+        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        super.mouseDown(with: event)
+    }
+
     // MARK: - Drag-and-drop passthrough
 
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
