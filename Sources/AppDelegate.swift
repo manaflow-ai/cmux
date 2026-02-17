@@ -1686,6 +1686,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // New Window: Cmd+Shift+N
+        // Handled here instead of relying on SwiftUI's CommandGroup menu item because
+        // after a browser panel has been shown, SwiftUI's menu dispatch can silently
+        // consume the key equivalent without firing the action closure.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newWindow)) {
+            openNewMainWindow(nil)
+            return true
+        }
+
         // Check Show Notifications shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
             toggleNotificationsPopover(animated: false)
@@ -3321,14 +3330,20 @@ private extension NSWindow {
 #endif
 
         // When the terminal surface is the first responder, prevent SwiftUI's
-        // hosting view from consuming non-Command key events via performKeyEquivalent.
-        // After a browser panel has been shown, SwiftUI's internal focus system can
-        // intercept arrow keys, Ctrl+N/P, and other keys, preventing them from
-        // reaching the terminal's keyDown. Skip the view hierarchy walk for any key
-        // that doesn't carry Command, so these events flow through normal keyDown
-        // dispatch to the terminal instead.
-        // This must run before handleBrowserSurfaceKeyEquivalent, which routes
-        // through handleCustomShortcut and can consume events via the local monitor.
+        // hosting view from consuming key events via performKeyEquivalent.
+        // After a browser panel (WKWebView) has been in the responder chain,
+        // SwiftUI's internal focus system can get into a broken state where it
+        // intercepts key events in the content view hierarchy, returns true
+        // (claiming consumption), but never actually fires the action closure.
+        //
+        // For non-Command keys: bypass the view hierarchy entirely and send
+        // directly to the terminal so arrow keys, Ctrl+N/P, etc. reach keyDown.
+        //
+        // For Command keys: bypass the SwiftUI content view hierarchy and
+        // dispatch directly to the main menu. No SwiftUI view should be handling
+        // Command shortcuts when the terminal is focused — the local event monitor
+        // (handleCustomShortcut) already handles app-level shortcuts, and anything
+        // remaining should be menu items.
         if let ghosttyView = self.firstResponder as? GhosttyNSView {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
@@ -3343,6 +3358,18 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             klog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
+            return true
+        }
+
+        // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
+        // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
+        // events directly to the main menu. This avoids the broken SwiftUI focus path.
+        if self.firstResponder is GhosttyNSView,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+#if DEBUG
+            klog("  → consumed by mainMenu (bypassed SwiftUI)")
 #endif
             return true
         }

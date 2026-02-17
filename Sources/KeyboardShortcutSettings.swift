@@ -7,6 +7,7 @@ enum KeyboardShortcutSettings {
         // Titlebar / primary UI
         case toggleSidebar
         case newTab
+        case newWindow
         case showNotifications
         case jumpToUnread
         case triggerFlash
@@ -35,6 +36,7 @@ enum KeyboardShortcutSettings {
             switch self {
             case .toggleSidebar: return "Toggle Sidebar"
             case .newTab: return "New Tab"
+            case .newWindow: return "New Window"
             case .showNotifications: return "Show Notifications"
             case .jumpToUnread: return "Jump to Latest Unread"
             case .triggerFlash: return "Flash Focused Panel"
@@ -57,6 +59,7 @@ enum KeyboardShortcutSettings {
             switch self {
             case .toggleSidebar: return "shortcut.toggleSidebar"
             case .newTab: return "shortcut.newTab"
+            case .newWindow: return "shortcut.newWindow"
             case .showNotifications: return "shortcut.showNotifications"
             case .jumpToUnread: return "shortcut.jumpToUnread"
             case .triggerFlash: return "shortcut.triggerFlash"
@@ -81,6 +84,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            case .newWindow:
+                return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
             case .showNotifications:
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
