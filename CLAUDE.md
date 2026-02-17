@@ -68,6 +68,23 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## Debug event log
+
+All debug events (keys, mouse, focus, splits, tabs) go to a single unified log in DEBUG builds:
+
+```bash
+tail -f /tmp/cmux-debug.log
+```
+
+- Implementation: `vendor/bonsplit/Sources/Bonsplit/Public/DebugEventLog.swift`
+- Free function `dlog("message")` — logs with timestamp and appends to file in real time
+- Entire file is `#if DEBUG`; all call sites must be wrapped in `#if DEBUG` / `#endif`
+- 500-entry ring buffer; `DebugEventLog.shared.dump()` writes full buffer to file
+- Key events logged in `AppDelegate.swift` (monitor, performKeyEquivalent)
+- Mouse/UI events logged inline in views (ContentView, BrowserPanelView, etc.)
+- Focus events: `focus.panel`, `focus.bonsplit`, `focus.firstResponder`, `focus.moveFocus`
+- Bonsplit events: `tab.select`, `tab.close`, `tab.dragStart`, `tab.drop`, `pane.focus`, `pane.drop`, `divider.dragStart`
+
 ## Pitfalls
 
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.

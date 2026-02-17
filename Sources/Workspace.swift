@@ -58,6 +58,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
 
+    /// Panel ID that is the target of an in-flight programmatic focus. Re-entrant focusPanel
+    /// calls for OTHER panels (triggered by AppKit first-responder reparenting) are suppressed.
+    private var programmaticFocusTargetPanelId: UUID?
+
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
 
@@ -412,6 +416,10 @@ final class Workspace: Identifiable, ObservableObject {
 	        // SplitViewController focuses the newly created pane, but the AppKit first responder can lag
 	        // (or remain on the source surface) during SwiftUI/bonsplit structural updates. Explicitly
 	        // focus the new panel so model focus + responder chain converge deterministically.
+	        // Guard against re-entrant focusPanel calls from the old panel's becomeFirstResponder
+	        // during SwiftUI view reparenting.
+	        programmaticFocusTargetPanelId = newPanel.id
+	        defer { programmaticFocusTargetPanelId = nil }
 	        focusPanel(newPanel.id, previousHostedView: previousHostedView)
 
 	        return newPanel
@@ -515,6 +523,8 @@ final class Workspace: Identifiable, ObservableObject {
 
 	        // See newTerminalSplit: explicitly focus the newly created panel so focus state is
 	        // deterministic for both user and socket-driven workflows.
+	        programmaticFocusTargetPanelId = browserPanel.id
+	        defer { programmaticFocusTargetPanelId = nil }
 	        focusPanel(browserPanel.id)
 
         installBrowserPanelSubscription(browserPanel)
@@ -804,6 +814,16 @@ final class Workspace: Identifiable, ObservableObject {
         dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
         FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
 #endif
+        // During programmatic split/focus, AppKit can fire becomeFirstResponder on the OLD
+        // view as SwiftUI reparents it, which re-entrantly calls focusPanel for the old panel
+        // and steals focus from the new one. Suppress these re-entrant calls.
+        if let target = programmaticFocusTargetPanelId, panelId != target {
+#if DEBUG
+            dlog("focus.panel SUPPRESSED (re-entrant, target=\(target.uuidString.prefix(5)))")
+#endif
+            return
+        }
+
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let currentlyFocusedPanelId = focusedPanelId
 
