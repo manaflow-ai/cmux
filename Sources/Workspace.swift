@@ -58,6 +58,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
 
+
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
 
@@ -392,6 +393,10 @@ final class Workspace: Identifiable, ObservableObject {
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
 
+	        // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
+	        // so we can hand it to focusPanel as the "move focus FROM" view.
+	        let previousHostedView = focusedTerminalPanel?.hostedView
+
 	        // Create the split with the new tab already present in the new pane.
 	        isProgrammaticSplit = true
 	        defer { isProgrammaticSplit = false }
@@ -401,10 +406,18 @@ final class Workspace: Identifiable, ObservableObject {
 	            return nil
 	        }
 
-	        // SplitViewController focuses the newly created pane, but the AppKit first responder can lag
-	        // (or remain on the source surface) during SwiftUI/bonsplit structural updates. Explicitly
-	        // focus the new panel so model focus + responder chain converge deterministically.
-	        focusPanel(newPanel.id)
+#if DEBUG
+	        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
+#endif
+
+	        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
+	        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
+	        // stealing focus from the new panel and creating model/surface divergence.
+	        previousHostedView?.suppressReparentFocus()
+	        focusPanel(newPanel.id, previousHostedView: previousHostedView)
+	        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+	            previousHostedView?.clearSuppressReparentFocus()
+	        }
 
 	        return newPanel
 	    }
@@ -505,9 +518,13 @@ final class Workspace: Identifiable, ObservableObject {
 	            return nil
 	        }
 
-	        // See newTerminalSplit: explicitly focus the newly created panel so focus state is
-	        // deterministic for both user and socket-driven workflows.
+	        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
+	        let previousHostedView = focusedTerminalPanel?.hostedView
+	        previousHostedView?.suppressReparentFocus()
 	        focusPanel(browserPanel.id)
+	        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+	            previousHostedView?.clearSuppressReparentFocus()
+	        }
 
         installBrowserPanelSubscription(browserPanel)
 
@@ -790,9 +807,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
     // MARK: - Focus Management
 
-    func focusPanel(_ panelId: UUID) {
+    func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
 #if DEBUG
-        let pane = bonsplitController.focusedPaneId?.id.uuidString ?? "nil"
+        let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
         FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
@@ -801,7 +819,9 @@ final class Workspace: Identifiable, ObservableObject {
         // Capture the currently focused terminal view so we can explicitly move AppKit first
         // responder when focusing another terminal (helps avoid "highlighted but typing goes to
         // another pane" after heavy split/tab mutations).
-        let previousTerminalHostedView = focusedTerminalPanel?.hostedView
+        // When a caller passes an explicit previousHostedView (e.g. during split creation where
+        // bonsplit has already mutated focusedPaneId), prefer it over the derived value.
+        let previousTerminalHostedView = previousHostedView ?? focusedTerminalPanel?.hostedView
 
         // `selectTab` does not necessarily move bonsplit's focused pane. For programmatic focus
         // (socket API, notification click, etc.), ensure the target tab's pane becomes focused

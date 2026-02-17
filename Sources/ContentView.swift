@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
@@ -216,6 +217,9 @@ struct ContentView: View {
                         .onChanged { value in
                             if !isResizerDragging {
                                 isResizerDragging = true
+                                #if DEBUG
+                                dlog("sidebar.resizeDragStart")
+                                #endif
                                 if !isResizerHovering {
                                     NSCursor.resizeLeftRight.push()
                                     isResizerHovering = true
@@ -973,7 +977,12 @@ private struct TabItemView: View {
                 Spacer()
 
                 ZStack(alignment: .trailing) {
-                    Button(action: { tabManager.closeWorkspaceWithConfirmation(tab) }) {
+                    Button(action: {
+                        #if DEBUG
+                        dlog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
@@ -1105,6 +1114,9 @@ private struct TabItemView: View {
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
             MiddleClickCapture {
+                #if DEBUG
+                dlog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                #endif
                 tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
@@ -1268,6 +1280,15 @@ private struct TabItemView: View {
     }
 
     private func updateSelection() {
+        #if DEBUG
+        let mods = NSEvent.modifierFlags
+        var modStr = ""
+        if mods.contains(.command) { modStr += "cmd " }
+        if mods.contains(.shift) { modStr += "shift " }
+        if mods.contains(.option) { modStr += "opt " }
+        if mods.contains(.control) { modStr += "ctrl " }
+        dlog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
+        #endif
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
@@ -1847,6 +1868,9 @@ private struct SidebarTabDropDelegate: DropDelegate {
             dropIndicator = nil
             dragAutoScrollController.stop()
         }
+        #if DEBUG
+        dlog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
+        #endif
         guard let draggedTabId else { return false }
         guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else { return false }
         let tabIds = tabManager.tabs.map(\.id)
@@ -2057,6 +2081,9 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        dlog("folder.dragStart dir=\(directory)")
+        #endif
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 

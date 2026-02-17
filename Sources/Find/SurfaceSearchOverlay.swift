@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 
 struct SurfaceSearchOverlay: View {
@@ -55,6 +56,9 @@ struct SurfaceSearchOverlay: View {
                 }
 
                 Button(action: {
+                    #if DEBUG
+                    dlog("findbar.next surface=\(surface.id.uuidString.prefix(5))")
+                    #endif
                     _ = surface.performBindingAction("navigate_search:next")
                 }) {
                     Image(systemName: "chevron.up")
@@ -63,6 +67,9 @@ struct SurfaceSearchOverlay: View {
                 .help("Next match (Return)")
 
                 Button(action: {
+                    #if DEBUG
+                    dlog("findbar.prev surface=\(surface.id.uuidString.prefix(5))")
+                    #endif
                     _ = surface.performBindingAction("navigate_search:previous")
                 }) {
                     Image(systemName: "chevron.down")
@@ -70,7 +77,12 @@ struct SurfaceSearchOverlay: View {
                 .buttonStyle(SearchButtonStyle())
                 .help("Previous match (Shift+Return)")
 
-                Button(action: onClose) {
+                Button(action: {
+                    #if DEBUG
+                    dlog("findbar.close surface=\(surface.id.uuidString.prefix(5))")
+                    #endif
+                    onClose()
+                }) {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(SearchButtonStyle())

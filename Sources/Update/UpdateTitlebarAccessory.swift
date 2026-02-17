@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Combine
 import SwiftUI
 
@@ -299,14 +300,24 @@ private struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let content = HStack(spacing: config.spacing) {
-            TitlebarControlButton(config: config, action: onToggleSidebar) {
+            TitlebarControlButton(config: config, action: {
+                #if DEBUG
+                dlog("titlebar.toggleSidebar")
+                #endif
+                onToggleSidebar()
+            }) {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
             .accessibilityIdentifier("titlebarControl.toggleSidebar")
             .accessibilityLabel("Toggle Sidebar")
             .help(KeyboardShortcutSettings.Action.toggleSidebar.tooltip("Show or hide the sidebar"))
 
-            TitlebarControlButton(config: config, action: onToggleNotifications) {
+            TitlebarControlButton(config: config, action: {
+                #if DEBUG
+                dlog("titlebar.notifications")
+                #endif
+                onToggleNotifications()
+            }) {
                 ZStack(alignment: .topTrailing) {
                     iconLabel(systemName: "bell", config: config)
 
@@ -328,7 +339,12 @@ private struct TitlebarControlsView: View {
             .accessibilityLabel("Notifications")
             .help(KeyboardShortcutSettings.Action.showNotifications.tooltip("Show notifications"))
 
-            TitlebarControlButton(config: config, action: onNewTab) {
+            TitlebarControlButton(config: config, action: {
+                #if DEBUG
+                dlog("titlebar.newTab")
+                #endif
+                onNewTab()
+            }) {
                 iconLabel(systemName: "plus", config: config)
             }
             .accessibilityIdentifier("titlebarControl.newTab")

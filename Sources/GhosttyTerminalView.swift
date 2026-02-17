@@ -1496,6 +1496,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var scrollbar: GhosttyScrollbar?
     var cellSize: CGSize = .zero
     var desiredFocus: Bool = false
+    var suppressingReparentFocus: Bool = false
     var tabId: UUID?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
@@ -1782,6 +1783,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
             desiredFocus = true
+
+            // During programmatic splits, SwiftUI reparents the old NSView which triggers
+            // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
+            // the old view from stealing focus and creating model/surface divergence.
+            if suppressingReparentFocus {
+#if DEBUG
+                dlog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+                return result
+            }
+
             // Always notify the host app that this pane became the first responder so bonsplit
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
             // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
@@ -1795,6 +1807,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
 #if DEBUG
+            dlog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
             if let terminalSurface {
                 AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
                     tabId: terminalSurface.tabId,
@@ -2248,6 +2261,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Mouse Handling
 
     override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        #endif
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -2504,7 +2520,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        insertDroppedPasteboard(sender.draggingPasteboard)
+        #if DEBUG
+        dlog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        #endif
+        return insertDroppedPasteboard(sender.draggingPasteboard)
     }
 }
 
@@ -2903,6 +2922,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
+#if DEBUG
+        dlog("focus.moveFocus to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
         let work = { [weak self] in
             guard let self else { return }
             guard let window = self.window else { return }
@@ -3028,6 +3050,16 @@ final class GhosttySurfaceScrollView: NSView {
         if !isSurfaceViewFirstResponder() {
             retry()
         }
+    }
+
+    /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
+    /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
+    func suppressReparentFocus() {
+        surfaceView.suppressingReparentFocus = true
+    }
+
+    func clearSuppressReparentFocus() {
+        surfaceView.suppressingReparentFocus = false
     }
 
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
