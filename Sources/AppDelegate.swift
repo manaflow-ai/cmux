@@ -1418,9 +1418,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
             if event.type == .keyDown {
+#if DEBUG
+                let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                klog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+#endif
                 if self.handleCustomShortcut(event: event) {
+#if DEBUG
+                    klog("  → consumed by handleCustomShortcut")
+                    KeyDebugLog.shared.dump()
+#endif
                     return nil // Consume the event
                 }
+#if DEBUG
+                KeyDebugLog.shared.dump()
+#endif
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
@@ -1621,6 +1632,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
+        }
+
+        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
+        // (e.g., split that doesn't properly blur the address bar). If the first responder
+        // is a terminal surface, the address bar can't be focused.
+        if browserAddressBarFocusedPanelId != nil,
+           NSApp.keyWindow?.firstResponder is GhosttyNSView {
+#if DEBUG
+            klog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+#endif
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
         }
 
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
@@ -2289,6 +2312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
             self.browserAddressBarFocusedPanelId = panelId
             self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+            klog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+#endif
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
@@ -2301,6 +2327,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if self.browserAddressBarFocusedPanelId == panelId {
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+                klog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+#endif
             }
         }
     }
@@ -3247,11 +3276,93 @@ enum MenuBarIconRenderer {
     }
 }
 
+#if DEBUG
+/// Ring buffer for keyboard event tracing. Dumps to /tmp/cmux-key-debug.log.
+final class KeyDebugLog {
+    static let shared = KeyDebugLog()
+    private var entries: [String] = []
+    private let capacity = 200
+    private let queue = DispatchQueue(label: "cmux.key-debug-log")
+
+    func log(_ msg: String) {
+        queue.async {
+            let entry = "\(Self.timestamp()) \(msg)"
+            if self.entries.count >= self.capacity {
+                self.entries.removeFirst()
+            }
+            self.entries.append(entry)
+        }
+    }
+
+    func dump() {
+        queue.async {
+            let content = self.entries.joined(separator: "\n") + "\n"
+            try? content.write(toFile: "/tmp/cmux-key-debug.log", atomically: true, encoding: .utf8)
+        }
+    }
+
+    private static func timestamp() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f.string(from: Date())
+    }
+}
+
+func klog(_ msg: String) {
+    KeyDebugLog.shared.log(msg)
+}
+#endif
+
 private extension NSWindow {
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+#if DEBUG
+        let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        klog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+#endif
+
+        // When the terminal surface is the first responder, prevent SwiftUI's
+        // hosting view from consuming non-Command key events via performKeyEquivalent.
+        // After a browser panel has been shown, SwiftUI's internal focus system can
+        // intercept arrow keys, Ctrl+N/P, and other keys, preventing them from
+        // reaching the terminal's keyDown. Skip the view hierarchy walk for any key
+        // that doesn't carry Command, so these events flow through normal keyDown
+        // dispatch to the terminal instead.
+        // This must run before handleBrowserSurfaceKeyEquivalent, which routes
+        // through handleCustomShortcut and can consume events via the local monitor.
+        if let ghosttyView = self.firstResponder as? GhosttyNSView {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if !flags.contains(.command) {
+                let result = ghosttyView.performKeyEquivalent(with: event)
+#if DEBUG
+                klog("  → ghostty direct: \(result)")
+#endif
+                return result
+            }
+        }
+
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+#if DEBUG
+            klog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
             return true
         }
-        return cmux_performKeyEquivalent(with: event)
+
+        let result = cmux_performKeyEquivalent(with: event)
+#if DEBUG
+        if result { klog("  → consumed by original performKeyEquivalent") }
+#endif
+        return result
+    }
+
+    static func keyDescription(_ event: NSEvent) -> String {
+        var parts: [String] = []
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) { parts.append("Cmd") }
+        if flags.contains(.shift) { parts.append("Shift") }
+        if flags.contains(.option) { parts.append("Opt") }
+        if flags.contains(.control) { parts.append("Ctrl") }
+        let chars = event.charactersIgnoringModifiers ?? "?"
+        parts.append("'\(chars)'(\(event.keyCode))")
+        return parts.joined(separator: "+")
     }
 }
