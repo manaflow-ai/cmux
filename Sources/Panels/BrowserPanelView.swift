@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 import WebKit
 import AppKit
@@ -197,7 +198,12 @@ struct BrowserPanelView: View {
         let navButtonSize: CGFloat = 22
 
         return HStack(spacing: 0) {
-            Button(action: { panel.goBack() }) {
+            Button(action: {
+                #if DEBUG
+                dlog("browser.back panel=\(panel.id.uuidString.prefix(5))")
+                #endif
+                panel.goBack()
+            }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
@@ -208,7 +214,12 @@ struct BrowserPanelView: View {
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .help("Go Back")
 
-            Button(action: { panel.goForward() }) {
+            Button(action: {
+                #if DEBUG
+                dlog("browser.forward panel=\(panel.id.uuidString.prefix(5))")
+                #endif
+                panel.goForward()
+            }) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
@@ -221,8 +232,14 @@ struct BrowserPanelView: View {
 
             Button(action: {
                 if panel.isLoading {
+                    #if DEBUG
+                    dlog("browser.stop panel=\(panel.id.uuidString.prefix(5))")
+                    #endif
                     panel.stopLoading()
                 } else {
+                    #if DEBUG
+                    dlog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
+                    #endif
                     panel.reload()
                 }
             }) {
@@ -1711,6 +1728,9 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        dlog("browser.omnibarClick")
+        #endif
         onPointerDown?()
         super.mouseDown(with: event)
     }
@@ -2116,6 +2136,9 @@ private struct OmnibarSuggestionsView: View {
         VStack(spacing: rowSpacing) {
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
             Button {
+                #if DEBUG
+                dlog("browser.suggestionClick index=\(idx) text=\"\(item.listText)\"")
+                #endif
                 onCommit(item)
             } label: {
                 HStack(spacing: 6) {

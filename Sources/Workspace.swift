@@ -405,6 +405,10 @@ final class Workspace: Identifiable, ObservableObject {
 	            return nil
 	        }
 
+#if DEBUG
+	        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
+#endif
+
 	        // SplitViewController focuses the newly created pane, but the AppKit first responder can lag
 	        // (or remain on the source surface) during SwiftUI/bonsplit structural updates. Explicitly
 	        // focus the new panel so model focus + responder chain converge deterministically.
@@ -796,7 +800,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
 #if DEBUG
-        let pane = bonsplitController.focusedPaneId?.id.uuidString ?? "nil"
+        let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
         FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }

@@ -1420,17 +1420,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if event.type == .keyDown {
 #if DEBUG
                 let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                klog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+                dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
 #endif
                 if self.handleCustomShortcut(event: event) {
 #if DEBUG
-                    klog("  → consumed by handleCustomShortcut")
-                    KeyDebugLog.shared.dump()
+                    dlog("  → consumed by handleCustomShortcut")
+                    DebugEventLog.shared.dump()
 #endif
                     return nil // Consume the event
                 }
 #if DEBUG
-                KeyDebugLog.shared.dump()
+                DebugEventLog.shared.dump()
 #endif
                 return event // Pass through
             }
@@ -1640,7 +1640,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if browserAddressBarFocusedPanelId != nil,
            NSApp.keyWindow?.firstResponder is GhosttyNSView {
 #if DEBUG
-            klog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
 #endif
             browserAddressBarFocusedPanelId = nil
             stopBrowserOmnibarSelectionRepeat()
@@ -2322,7 +2322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.browserAddressBarFocusedPanelId = panelId
             self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-            klog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+            dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
 #endif
         }
 
@@ -2337,7 +2337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-                klog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+                dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
 #endif
             }
         }
@@ -3285,48 +3285,12 @@ enum MenuBarIconRenderer {
     }
 }
 
-#if DEBUG
-/// Ring buffer for keyboard event tracing. Dumps to /tmp/cmux-key-debug.log.
-final class KeyDebugLog {
-    static let shared = KeyDebugLog()
-    private var entries: [String] = []
-    private let capacity = 200
-    private let queue = DispatchQueue(label: "cmux.key-debug-log")
-
-    func log(_ msg: String) {
-        queue.async {
-            let entry = "\(Self.timestamp()) \(msg)"
-            if self.entries.count >= self.capacity {
-                self.entries.removeFirst()
-            }
-            self.entries.append(entry)
-        }
-    }
-
-    func dump() {
-        queue.async {
-            let content = self.entries.joined(separator: "\n") + "\n"
-            try? content.write(toFile: "/tmp/cmux-key-debug.log", atomically: true, encoding: .utf8)
-        }
-    }
-
-    private static func timestamp() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: Date())
-    }
-}
-
-func klog(_ msg: String) {
-    KeyDebugLog.shared.log(msg)
-}
-#endif
 
 private extension NSWindow {
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        klog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
 #endif
 
         // When the terminal surface is the first responder, prevent SwiftUI's
@@ -3349,7 +3313,7 @@ private extension NSWindow {
             if !flags.contains(.command) {
                 let result = ghosttyView.performKeyEquivalent(with: event)
 #if DEBUG
-                klog("  → ghostty direct: \(result)")
+                dlog("  → ghostty direct: \(result)")
 #endif
                 return result
             }
@@ -3357,7 +3321,7 @@ private extension NSWindow {
 
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
-            klog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+            dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
 #endif
             return true
         }
@@ -3369,14 +3333,14 @@ private extension NSWindow {
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
            let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
 #if DEBUG
-            klog("  → consumed by mainMenu (bypassed SwiftUI)")
+            dlog("  → consumed by mainMenu (bypassed SwiftUI)")
 #endif
             return true
         }
 
         let result = cmux_performKeyEquivalent(with: event)
 #if DEBUG
-        if result { klog("  → consumed by original performKeyEquivalent") }
+        if result { dlog("  → consumed by original performKeyEquivalent") }
 #endif
         return result
     }

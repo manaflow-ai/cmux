@@ -1795,6 +1795,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
 #if DEBUG
+            dlog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
             if let terminalSurface {
                 AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
                     tabId: terminalSurface.tabId,
@@ -2248,6 +2249,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Mouse Handling
 
     override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        #endif
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -2504,7 +2508,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        insertDroppedPasteboard(sender.draggingPasteboard)
+        #if DEBUG
+        dlog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        #endif
+        return insertDroppedPasteboard(sender.draggingPasteboard)
     }
 }
 
@@ -2903,6 +2910,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
+#if DEBUG
+        dlog("focus.moveFocus to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
         let work = { [weak self] in
             guard let self else { return }
             guard let window = self.window else { return }
