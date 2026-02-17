@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 import WebKit
 import AppKit
@@ -197,7 +198,12 @@ struct BrowserPanelView: View {
         let navButtonSize: CGFloat = 22
 
         return HStack(spacing: 0) {
-            Button(action: { panel.goBack() }) {
+            Button(action: {
+                #if DEBUG
+                dlog("browser.back panel=\(panel.id.uuidString.prefix(5))")
+                #endif
+                panel.goBack()
+            }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
@@ -208,7 +214,12 @@ struct BrowserPanelView: View {
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .help("Go Back")
 
-            Button(action: { panel.goForward() }) {
+            Button(action: {
+                #if DEBUG
+                dlog("browser.forward panel=\(panel.id.uuidString.prefix(5))")
+                #endif
+                panel.goForward()
+            }) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
@@ -221,8 +232,14 @@ struct BrowserPanelView: View {
 
             Button(action: {
                 if panel.isLoading {
+                    #if DEBUG
+                    dlog("browser.stop panel=\(panel.id.uuidString.prefix(5))")
+                    #endif
                     panel.stopLoading()
                 } else {
+                    #if DEBUG
+                    dlog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
+                    #endif
                     panel.reload()
                 }
             }) {
@@ -1711,8 +1728,44 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        dlog("browser.omnibarClick")
+        #endif
         onPointerDown?()
-        super.mouseDown(with: event)
+
+        if currentEditor() == nil {
+            // First click — activate editing and select all (standard URL bar behavior).
+            // Avoids NSTextView's tracking loop which can spin forever if text layout
+            // enters an infinite invalidation cycle (e.g. under memory pressure).
+            window?.makeFirstResponder(self)
+            currentEditor()?.selectAll(nil)
+        } else {
+            // Already editing — allow normal click-to-place-cursor and drag-to-select.
+            // Guard against a stuck tracking loop by posting a synthetic mouseUp after
+            // a timeout so the main thread can't be blocked indefinitely.
+            var trackingFinished = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                guard !trackingFinished, let self, let window = self.window else { return }
+                #if DEBUG
+                dlog("browser.omnibarTrackingTimeout — forcing mouseUp")
+                #endif
+                if let fakeUp = NSEvent.mouseEvent(
+                    with: .leftMouseUp,
+                    location: event.locationInWindow,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 0.0
+                ) {
+                    NSApp.postEvent(fakeUp, atStart: true)
+                }
+            }
+            super.mouseDown(with: event)
+            trackingFinished = true
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -1783,7 +1836,12 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                         guard self.parent.isFocused else { return }
                         guard self.parent.shouldSuppressWebViewFocus() else { return }
                         guard let field = self.parentField, let window = field.window else { return }
-                        if !(window.firstResponder === field) {
+                        // Check both the field itself AND its field editor (which becomes
+                        // the actual first responder when the text field is being edited).
+                        let fr = window.firstResponder
+                        let isAlreadyFocused = fr === field ||
+                            ((fr as? NSTextView)?.delegate as? NSTextField) === field
+                        if !isAlreadyFocused {
                             window.makeFirstResponder(field)
                         }
                     }
@@ -2116,6 +2174,9 @@ private struct OmnibarSuggestionsView: View {
         VStack(spacing: rowSpacing) {
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
             Button {
+                #if DEBUG
+                dlog("browser.suggestionClick index=\(idx) text=\"\(item.listText)\"")
+                #endif
                 onCommit(item)
             } label: {
                 HStack(spacing: 6) {

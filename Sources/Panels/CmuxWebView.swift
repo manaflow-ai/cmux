@@ -32,6 +32,20 @@ final class CmuxWebView: WKWebView {
         super.keyDown(with: event)
     }
 
+    // MARK: - Drag-and-drop passthrough
+
+    // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
+    // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
+    // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
+    // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
+    // AppKit only bubbles up through superviews, not siblings.
+    //
+    // Fix: prevent WKWebView from registering as a drag destination entirely. AppKit won't
+    // route drags here, so they reach the SwiftUI overlay drop zones as intended.
+    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
+        // No-op: suppress WKWebView's automatic drag type registration.
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
 

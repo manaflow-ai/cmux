@@ -73,7 +73,7 @@ func browserOmnibarSelectionDeltaForCommandNavigation(
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
-    guard normalizedFlags == [.command] || normalizedFlags == [.control] else { return nil }
+    guard normalizedFlags == [.control] else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil
@@ -1418,9 +1418,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
             if event.type == .keyDown {
+#if DEBUG
+                let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+#endif
                 if self.handleCustomShortcut(event: event) {
+#if DEBUG
+                    dlog("  → consumed by handleCustomShortcut")
+                    DebugEventLog.shared.dump()
+#endif
                     return nil // Consume the event
                 }
+#if DEBUG
+                DebugEventLog.shared.dump()
+#endif
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
@@ -1623,6 +1634,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
+        // (e.g., split that doesn't properly blur the address bar). If the first responder
+        // is a terminal surface, the address bar can't be focused.
+        if browserAddressBarFocusedPanelId != nil,
+           NSApp.keyWindow?.firstResponder is GhosttyNSView {
+#if DEBUG
+            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+#endif
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
+        }
+
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
         if let delta = commandOmnibarSelectionDelta(flags: flags, chars: chars) {
             dispatchBrowserOmnibarSelectionMove(delta: delta)
@@ -1660,6 +1683,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 tabManager?.addTab()
             }
+            return true
+        }
+
+        // New Window: Cmd+Shift+N
+        // Handled here instead of relying on SwiftUI's CommandGroup menu item because
+        // after a browser panel has been shown, SwiftUI's menu dispatch can silently
+        // consume the key equivalent without firing the action closure.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newWindow)) {
+            openNewMainWindow(nil)
             return true
         }
 
@@ -1863,7 +1895,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let normalizedFlags = flags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function])
-        guard normalizedFlags == [.command] || normalizedFlags == [.control] else { return false }
+        guard normalizedFlags == [.control] else { return false }
         return chars == "n" || chars == "p"
     }
 
@@ -2289,6 +2321,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
             self.browserAddressBarFocusedPanelId = panelId
             self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+            dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+#endif
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
@@ -2301,6 +2336,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if self.browserAddressBarFocusedPanelId == panelId {
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+                dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+#endif
             }
         }
     }
@@ -3247,11 +3285,75 @@ enum MenuBarIconRenderer {
     }
 }
 
+
 private extension NSWindow {
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+#if DEBUG
+        let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+#endif
+
+        // When the terminal surface is the first responder, prevent SwiftUI's
+        // hosting view from consuming key events via performKeyEquivalent.
+        // After a browser panel (WKWebView) has been in the responder chain,
+        // SwiftUI's internal focus system can get into a broken state where it
+        // intercepts key events in the content view hierarchy, returns true
+        // (claiming consumption), but never actually fires the action closure.
+        //
+        // For non-Command keys: bypass the view hierarchy entirely and send
+        // directly to the terminal so arrow keys, Ctrl+N/P, etc. reach keyDown.
+        //
+        // For Command keys: bypass the SwiftUI content view hierarchy and
+        // dispatch directly to the main menu. No SwiftUI view should be handling
+        // Command shortcuts when the terminal is focused — the local event monitor
+        // (handleCustomShortcut) already handles app-level shortcuts, and anything
+        // remaining should be menu items.
+        if let ghosttyView = self.firstResponder as? GhosttyNSView {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if !flags.contains(.command) {
+                let result = ghosttyView.performKeyEquivalent(with: event)
+#if DEBUG
+                dlog("  → ghostty direct: \(result)")
+#endif
+                return result
+            }
+        }
+
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+#if DEBUG
+            dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
             return true
         }
-        return cmux_performKeyEquivalent(with: event)
+
+        // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
+        // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
+        // events directly to the main menu. This avoids the broken SwiftUI focus path.
+        if self.firstResponder is GhosttyNSView,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+#if DEBUG
+            dlog("  → consumed by mainMenu (bypassed SwiftUI)")
+#endif
+            return true
+        }
+
+        let result = cmux_performKeyEquivalent(with: event)
+#if DEBUG
+        if result { dlog("  → consumed by original performKeyEquivalent") }
+#endif
+        return result
+    }
+
+    static func keyDescription(_ event: NSEvent) -> String {
+        var parts: [String] = []
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) { parts.append("Cmd") }
+        if flags.contains(.shift) { parts.append("Shift") }
+        if flags.contains(.option) { parts.append("Opt") }
+        if flags.contains(.control) { parts.append("Ctrl") }
+        let chars = event.charactersIgnoringModifiers ?? "?"
+        parts.append("'\(chars)'(\(event.keyCode))")
+        return parts.joined(separator: "+")
     }
 }
