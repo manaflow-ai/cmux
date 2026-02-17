@@ -874,6 +874,16 @@ final class BrowserPanel: Panel, ObservableObject {
                 self?.refreshFavicon(from: webView)
             }
         }
+        navDelegate.didFailNavigation = { [weak self] _, failedURL in
+            Task { @MainActor in
+                guard let self else { return }
+                // Clear stale title/favicon from the previous page so the tab
+                // shows the failed URL instead of the old page's branding.
+                self.pageTitle = failedURL.isEmpty ? "" : failedURL
+                self.faviconPNGData = nil
+                self.lastFaviconURLString = nil
+            }
+        }
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
@@ -1397,6 +1407,7 @@ private extension BrowserPanel {
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
+    var didFailNavigation: ((WKWebView, String) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
@@ -1426,6 +1437,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
+        didFailNavigation?(webView, failedURL)
         loadErrorPage(in: webView, failedURL: failedURL, error: nsError)
     }
 
