@@ -804,7 +804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func showUpdatePillLongNightly(_ sender: Any?) {
-        updateViewModel.debugOverrideText = "Update Available: 1.32.0-nightly+20260216.abc1234"
+        updateViewModel.debugOverrideText = "Update Available: 0.32.0-nightly+20260216.abc1234"
         updateViewModel.overrideState = .notFound(.init(acknowledgement: {}))
     }
 

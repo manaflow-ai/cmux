@@ -6,7 +6,7 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
 
 1. **Determine the new version number**
    - Get the current version from `GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
-   - Bump the minor version unless the user specifies otherwise (e.g., 1.12.0 → 1.13.0)
+   - Bump the minor version unless the user specifies otherwise (e.g., 0.12.0 → 0.13.0)
 
 2. **Create a release branch**
    - Create branch: `git checkout -b release/vX.Y.Z`
@@ -82,7 +82,7 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
 ## Example Changelog Entry
 
 ```markdown
-## [1.13.0] - 2025-01-30
+## [0.13.0] - 2025-01-30
 
 ### Added
 - New keyboard shortcut for quick tab switching
