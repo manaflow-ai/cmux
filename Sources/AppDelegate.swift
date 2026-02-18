@@ -182,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
     private var workspaceObserver: NSObjectProtocol?
     private var windowKeyObserver: NSObjectProtocol?
@@ -423,6 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        TerminalController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         PostHogAnalytics.shared.flush()
         notificationStore?.clearAll()
@@ -1188,11 +1190,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func recordGotoSplitUITestWebViewFocus(panelId: UUID, key: String) {
-        // Give the responder chain time to settle.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        // Give the responder chain time to settle, retrying for slow environments (e.g. VM).
+        recordGotoSplitUITestWebViewFocusRetry(panelId: panelId, key: key, attempt: 0)
+    }
+
+    private func recordGotoSplitUITestWebViewFocusRetry(panelId: UUID, key: String, attempt: Int) {
+        let delays: [Double] = [0.05, 0.1, 0.25, 0.5]
+        let delay = attempt < delays.count ? delays[attempt] : delays.last!
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, let tabManager, let tab = tabManager.selectedWorkspace,
                   let panel = tab.browserPanel(for: panelId) else { return }
             let focused = self.isWebViewFocused(panel)
+            // If focus hasn't settled yet and we have retries left, try again.
+            if !focused && key.contains("Exit") && attempt < delays.count - 1 {
+                self.recordGotoSplitUITestWebViewFocusRetry(panelId: panelId, key: key, attempt: attempt + 1)
+                return
+            }
             self.writeGotoSplitTestData([
                 key: focused ? "true" : "false",
                 "\(key)PanelId": panelId.uuidString
@@ -1386,8 +1399,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.apply(to: window)
     }
 
-    func toggleNotificationsPopover(animated: Bool = true) {
-        titlebarAccessoryController.toggleNotificationsPopover(animated: animated)
+    func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
+        titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
 
     func jumpToLatestUnread() {
@@ -1698,7 +1711,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Check Show Notifications shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
-            toggleNotificationsPopover(animated: false)
+            toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
             return true
         }
 

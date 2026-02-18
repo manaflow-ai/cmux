@@ -13,6 +13,7 @@ class TerminalController {
     private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
+    private nonisolated(unsafe) var acceptLoopAlive = false
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .full
@@ -77,7 +78,7 @@ class TerminalController {
         self.accessMode = accessMode
 
         if isRunning {
-            if self.socketPath == socketPath {
+            if self.socketPath == socketPath && acceptLoopAlive {
                 self.accessMode = accessMode
                 return
             }
@@ -143,7 +144,14 @@ class TerminalController {
         unlink(socketPath)
     }
 
-    private func acceptLoop() {
+    private nonisolated func acceptLoop() {
+        acceptLoopAlive = true
+        defer {
+            acceptLoopAlive = false
+            isRunning = false
+        }
+
+        var consecutiveFailures = 0
         while isRunning {
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -156,10 +164,18 @@ class TerminalController {
 
             guard clientSocket >= 0 else {
                 if isRunning {
-                    print("TerminalController: Accept failed")
+                    consecutiveFailures += 1
+                    print("TerminalController: Accept failed (\(consecutiveFailures) consecutive)")
+                    if consecutiveFailures >= 50 {
+                        print("TerminalController: Too many consecutive accept failures, exiting accept loop")
+                        break
+                    }
+                    usleep(10_000) // 10ms backoff
                 }
                 continue
             }
+
+            consecutiveFailures = 0
 
             // Handle client in new thread
             Thread.detachNewThread { [weak self] in

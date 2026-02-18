@@ -87,6 +87,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        TerminalController.shared.stop()
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()
