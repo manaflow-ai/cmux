@@ -5,12 +5,12 @@ description: Release notes and version history for cmux
 
 All notable changes to cmux are documented here.
 
-## [1.38.1] - 2026-02-18
+## [0.38.1] - 2026-02-18
 
 ### Fixed
 - Right-click and menubar lag in production builds (rebuilt with macOS 26.2 SDK)
 
-## [1.38.0] - 2026-02-18
+## [0.38.0] - 2026-02-18
 
 ### Added
 - Double-clicking the sidebar title-bar area now zooms/maximizes the window
@@ -19,19 +19,19 @@ All notable changes to cmux are documented here.
 - Browser omnibar `Cmd+L` now reliably refreshes/selects-all and supports immediate typing without stale inline text
 - Omnibar inline completion no longer replaces typed prefixes with mismatched suggestion text
 
-## [1.37.0] - 2026-02-17
+## [0.37.0] - 2026-02-17
 
 ### Added
 - "+" button on the tab bar for quickly creating new terminal or browser tabs
 
-## [1.36.0] - 2026-02-17
+## [0.36.0] - 2026-02-17
 
 ### Fixed
 - App hang when omnibar safety timeout failed to fire (blocked main thread)
 - Tab drag/drop not working when multiple workspaces exist
 - Clicking in browser WebView not focusing the browser tab
 
-## [1.35.0] - 2026-02-17
+## [0.35.0] - 2026-02-17
 
 ### Fixed
 - App hang when clicking browser omnibar (NSTextView tracking loop spinning forever)
@@ -43,19 +43,19 @@ All notable changes to cmux are documented here.
 - Cmd+N swallowed by browser omnibar navigation
 - Split focus stolen by re-entrant becomeFirstResponder during reparenting
 
-## [1.34.0] - 2026-02-16
+## [0.34.0] - 2026-02-16
 
 ### Fixed
 - Browser not loading localhost URLs correctly
 
-## [1.33.0] - 2026-02-16
+## [0.33.0] - 2026-02-16
 
 ### Fixed
 - Menubar and general UI lag in production builds
 - Sidebar tabs getting extra left padding when update pill is visible
 - Memory leak when middle-clicking to close tabs
 
-## [1.32.0] - 2026-02-16
+## [0.32.0] - 2026-02-16
 
 ### Added
 - Sidebar metadata: git branch, listening ports, log entries, progress bars, and status pills
@@ -66,7 +66,7 @@ All notable changes to cmux are documented here.
 ### Changed
 - `browser open` now targets the caller's workspace by default via CMUX_WORKSPACE_ID
 
-## [1.31.0] - 2026-02-15
+## [0.31.0] - 2026-02-15
 
 ### Added
 - Arrow key navigation in browser omnibar suggestions
@@ -81,12 +81,12 @@ All notable changes to cmux are documented here.
 ### Fixed
 - Omnibar inline completion showing partial domain (e.g. "news." instead of "news.ycombinator.com")
 
-## [1.30.0] - 2026-02-15
+## [0.30.0] - 2026-02-15
 
 ### Fixed
 - Update pill not appearing when sidebar is visible in Release builds
 
-## [1.29.0] - 2026-02-15
+## [0.29.0] - 2026-02-15
 
 ### Added
 - Cmd+click on links in the browser opens them in a new tab
@@ -99,18 +99,18 @@ All notable changes to cmux are documented here.
 - Reload configuration shortcut changed to Cmd+Shift+,
 - Improved browser omnibar suggestions and focus behavior
 
-## [1.28.2] - 2026-02-14
+## [0.28.2] - 2026-02-14
 
 ### Fixed
-- Sparkle updates from `1.27.0` could fail to detect newer releases because release build numbers were behind the latest published appcast build number
+- Sparkle updates from `0.27.0` could fail to detect newer releases because release build numbers were behind the latest published appcast build number
 - Release GitHub Action failed on repeat runs when `SUPublicEDKey` / `SUFeedURL` already existed in `Info.plist`
 
-## [1.28.1] - 2026-02-14
+## [0.28.1] - 2026-02-14
 
 ### Fixed
 - Release build failure caused by debug-only helper symbols referenced in non-debug code paths
 
-## [1.28.0] - 2026-02-14
+## [0.28.0] - 2026-02-14
 
 ### Added
 - Optional nightly update channel in Settings (`Receive Nightly Builds`)
@@ -124,31 +124,31 @@ All notable changes to cmux are documented here.
 - Terminal panes freezing after repeated split churn
 - Finder service directory resolution now normalizes paths consistently
 
-## [1.27.0] - 2026-02-11
+## [0.27.0] - 2026-02-11
 
 ### Fixed
 - Muted traffic lights and toolbar items on macOS 14 (Sonoma) caused by `clipsToBounds` default change
 - Toolbar buttons (sidebar, notifications, new tab) disappearing after toggling sidebar with Cmd+B
 - Update check pill not appearing in titlebar on macOS 14 (Sonoma)
 
-## [1.26.0] - 2026-02-11
+## [0.26.0] - 2026-02-11
 
 ### Fixed
 - Muted traffic lights and toolbar items in focused window caused by background blur in themeFrame
 - Sidebar showing two different textures near the titlebar on older macOS versions
 
-## [1.25.0] - 2026-02-11
+## [0.25.0] - 2026-02-11
 
 ### Fixed
 - Blank terminal on macOS 26 (Tahoe) — two additional code paths were still clearing the window background, bypassing the initial fix
 - Blank terminal on macOS 15 caused by background blur view covering terminal content
 
-## [1.24.0] - 2026-02-09
+## [0.24.0] - 2026-02-09
 
 ### Changed
 - Update bundle identifier to `com.cmuxterm.app` for consistency
 
-## [1.23.0] - 2026-02-09
+## [0.23.0] - 2026-02-09
 
 ### Changed
 - Rename app to cmux — new app name, socket paths, Homebrew tap, and CLI binary name (bundle ID remains `com.cmuxterm.app` for Sparkle update continuity)
@@ -157,44 +157,44 @@ All notable changes to cmux are documented here.
 ### Fixed
 - CLI `set-status` command not properly quoting values or routing `--tab` flag
 
-## [1.22.0] - 2026-02-09
+## [0.22.0] - 2026-02-09
 
 ### Fixed
 - Xcode and system environment variables (e.g. DYLD, LANGUAGE) leaking into terminal sessions
 
-## [1.21.0] - 2026-02-09
+## [0.21.0] - 2026-02-09
 
 ### Fixed
 - Zsh autosuggestions not working with shared history across terminal panes
 
-## [1.17.3] - 2025-02-05
+## [0.17.3] - 2025-02-05
 
 ### Fixed
 - Auto-update not working (Sparkle EdDSA signing was silently failing due to SUPublicEDKey missing from Info.plist)
 
-## [1.17.1] - 2025-02-05
+## [0.17.1] - 2025-02-05
 
 ### Fixed
 - Auto-update not working (Sparkle public key was missing from release builds)
 
-## [1.17.0] - 2025-02-05
+## [0.17.0] - 2025-02-05
 
 ### Fixed
 - Traffic lights (close/minimize/zoom) not showing on macOS 13-15
 - Titlebar content overlapping traffic lights and toolbar buttons when sidebar is hidden
 
-## [1.16.0] - 2025-02-04
+## [0.16.0] - 2025-02-04
 
 ### Added
 - Sidebar blur effect with withinWindow blending for a polished look
 - `--panel` flag for `new-split` command to control split pane placement
 
-## [1.15.0] - 2025-01-30
+## [0.15.0] - 2025-01-30
 
 ### Fixed
 - Typing lag caused by redundant render loop
 
-## [1.14.0] - 2025-01-30
+## [0.14.0] - 2025-01-30
 
 ### Added
 - Setup script for initializing submodules and building dependencies
@@ -206,7 +206,7 @@ All notable changes to cmux are documented here.
 ### Changed
 - Reload scripts are more robust with better error handling
 
-## [1.13.0] - 2025-01-29
+## [0.13.0] - 2025-01-29
 
 ### Added
 - Customizable keyboard shortcuts via Settings
@@ -217,7 +217,7 @@ All notable changes to cmux are documented here.
 ### Changed
 - Sentry environment now distinguishes between production and dev builds
 
-## [1.12.0] - 2025-01-29
+## [0.12.0] - 2025-01-29
 
 ### Fixed
 - Handle display scale changes when moving between monitors
@@ -225,7 +225,7 @@ All notable changes to cmux are documented here.
 ### Changed
 - Fix SwiftPM cache handling for release builds
 
-## [1.11.0] - 2025-01-29
+## [0.11.0] - 2025-01-29
 
 ### Added
 - Notifications documentation for AI agent integrations
@@ -233,7 +233,7 @@ All notable changes to cmux are documented here.
 ### Changed
 - App and tooling updates
 
-## [1.10.0] - 2025-01-29
+## [0.10.0] - 2025-01-29
 
 ### Added
 - Sentry SDK for crash reporting
@@ -248,13 +248,13 @@ All notable changes to cmux are documented here.
 ### Changed
 - New tabs now insert after current tab and inherit working directory
 
-## [1.9.0] - 2025-01-29
+## [0.9.0] - 2025-01-29
 
 ### Changed
 - Normalized window controls appearance
 - Added confirmation panel when closing windows with active processes
 
-## [1.8.0] - 2025-01-29
+## [0.8.0] - 2025-01-29
 
 ### Fixed
 - Socket key input handling
@@ -264,24 +264,24 @@ All notable changes to cmux are documented here.
 - Customized About window
 - Restricted titlebar accessories for cleaner appearance
 
-## [1.7.0] - 2025-01-29
+## [0.7.0] - 2025-01-29
 
 ### Fixed
 - Environment variable and terminfo packaging issues
 - XDG defaults handling
 
-## [1.6.0] - 2025-01-28
+## [0.6.0] - 2025-01-28
 
 ### Fixed
 - Terminfo packaging for proper terminal compatibility
 
-## [1.5.0] - 2025-01-28
+## [0.5.0] - 2025-01-28
 
 ### Added
 - Sparkle updater cache handling
 - Ghostty fork documentation
 
-## [1.4.0] - 2025-01-28
+## [0.4.0] - 2025-01-28
 
 ### Added
 - cmux CLI with socket control modes
@@ -295,7 +295,7 @@ All notable changes to cmux are documented here.
 - Refined titlebar controls and variants
 - Clear notifications on window close
 
-## [1.3.0] - 2025-01-28
+## [0.3.0] - 2025-01-28
 
 ### Added
 - Debug scrollback tab with smooth scroll wheel
@@ -311,13 +311,13 @@ All notable changes to cmux are documented here.
 - Renamed app to cmux
 - Improved CI UI test stability
 
-## [1.1.0] - 2025-01-28
+## [0.1.0] - 2025-01-28
 
 ### Added
 - Sparkle auto-update flow
 - Titlebar update UI indicator
 
-## [1.0.x] - 2025-01-28
+## [0.0.x] - 2025-01-28
 
 Initial releases with core terminal functionality:
 - GPU-accelerated terminal rendering via Ghostty

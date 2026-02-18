@@ -3,10 +3,10 @@ set -euo pipefail
 
 # Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in the Xcode project.
 # Usage:
-#   ./scripts/bump-version.sh           # Auto-bump minor (1.15.0 -> 1.16.0)
-#   ./scripts/bump-version.sh 1.16.0    # Set specific version
-#   ./scripts/bump-version.sh patch     # Bump patch (1.15.0 -> 1.15.1)
-#   ./scripts/bump-version.sh major     # Bump major (1.15.0 -> 2.0.0)
+#   ./scripts/bump-version.sh           # Auto-bump minor (0.15.0 -> 0.16.0)
+#   ./scripts/bump-version.sh 0.16.0    # Set specific version
+#   ./scripts/bump-version.sh patch     # Bump patch (0.15.0 -> 0.15.1)
+#   ./scripts/bump-version.sh major     # Bump major (0.15.0 -> 1.0.0)
 
 PROJECT_FILE="GhosttyTabs.xcodeproj/project.pbxproj"
 
@@ -52,7 +52,7 @@ elif [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   NEW_MARKETING="$1"
 else
   echo "Usage: $0 [version|minor|patch|major]" >&2
-  echo "  version: specific version like 1.16.0" >&2
+  echo "  version: specific version like 0.16.0" >&2
   echo "  minor: bump minor version (default)" >&2
   echo "  patch: bump patch version" >&2
   echo "  major: bump major version" >&2

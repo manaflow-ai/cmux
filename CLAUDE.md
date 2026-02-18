@@ -149,10 +149,10 @@ Use the `/release` command to prepare a new release. This will:
 Version bumping:
 
 ```bash
-./scripts/bump-version.sh          # bump minor (1.15.0 → 1.16.0)
-./scripts/bump-version.sh patch    # bump patch (1.15.0 → 1.15.1)
-./scripts/bump-version.sh major    # bump major (1.15.0 → 2.0.0)
-./scripts/bump-version.sh 2.0.0    # set specific version
+./scripts/bump-version.sh          # bump minor (0.15.0 → 0.16.0)
+./scripts/bump-version.sh patch    # bump patch (0.15.0 → 0.15.1)
+./scripts/bump-version.sh major    # bump major (0.15.0 → 1.0.0)
+./scripts/bump-version.sh 1.0.0    # set specific version
 ```
 
 This updates both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (build number). The build number is auto-incremented and is required for Sparkle auto-update to work.
