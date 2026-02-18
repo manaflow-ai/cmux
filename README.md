@@ -47,7 +47,7 @@ Split a browser alongside your terminal with a scriptable API ported from <a hre
 </tr>
 <tr>
 <td width="40%" valign="top">
-<h3>Vertical tabs &amp; split panes</h3>
+<h3>Vertical + horizontal tabs</h3>
 Sidebar shows git branch, working directory, listening ports, and latest notification text. Split horizontally and vertically.
 </td>
 <td width="60%">
