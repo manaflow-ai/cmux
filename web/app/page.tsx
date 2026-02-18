@@ -84,7 +84,7 @@ export default function Home() {
           alt="cmux screenshot"
           width={1800}
           height={1100}
-          className="rounded-xl border border-border"
+          className="rounded-xl"
           priority
         />
 
@@ -107,7 +107,7 @@ export default function Home() {
                   alt={feature.alt}
                   width={1200}
                   height={750}
-                  className="rounded-lg border border-border"
+                  className="rounded-lg"
                 />
               </div>
             ))}
