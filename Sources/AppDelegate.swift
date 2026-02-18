@@ -424,6 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        TerminalController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         PostHogAnalytics.shared.flush()
         notificationStore?.clearAll()
