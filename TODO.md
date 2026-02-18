@@ -47,6 +47,10 @@
 - [ ] Add question mark icon to learn shortcuts
 - [ ] Notification popover: each button item should show outline outside when focused/hovered
 - [ ] Notification popover: add right-click context menu to mark as read/unread
+- [ ] Cmd+click should open links in cmux (browser panel) instead of external browser
+- [ ] "Waiting for input" notification should include custom terminal title if set
+- [ ] Close button for current/active tab should always be visible (not just on hover)
+- [ ] Add browser icon to the left of the plus button in the tab bar
 
 ## Analytics
 - [x] Add PostHog tracking (set `PostHogAnalytics.apiKey` in `Sources/PostHogAnalytics.swift`)

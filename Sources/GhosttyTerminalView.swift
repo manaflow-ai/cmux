@@ -888,6 +888,24 @@ class GhosttyApp {
                 surfaceView.updateKeyTable(action.action.key_table)
                 return true
             }
+        case GHOSTTY_ACTION_OPEN_URL:
+            let openUrl = action.action.open_url
+            guard let cstr = openUrl.url else { return false }
+            let urlString = String(cString: cstr)
+            guard let url = URL(string: urlString) else { return false }
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else { return false }
+            return performOnMain {
+                guard let tabManager = AppDelegate.shared?.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return false
+                }
+                if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                    return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                } else {
+                    return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                }
+            }
         default:
             return false
         }
