@@ -1188,11 +1188,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func recordGotoSplitUITestWebViewFocus(panelId: UUID, key: String) {
-        // Give the responder chain time to settle.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        // Give the responder chain time to settle, retrying for slow environments (e.g. VM).
+        recordGotoSplitUITestWebViewFocusRetry(panelId: panelId, key: key, attempt: 0)
+    }
+
+    private func recordGotoSplitUITestWebViewFocusRetry(panelId: UUID, key: String, attempt: Int) {
+        let delays: [Double] = [0.05, 0.1, 0.25, 0.5]
+        let delay = attempt < delays.count ? delays[attempt] : delays.last!
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, let tabManager, let tab = tabManager.selectedWorkspace,
                   let panel = tab.browserPanel(for: panelId) else { return }
             let focused = self.isWebViewFocused(panel)
+            // If focus hasn't settled yet and we have retries left, try again.
+            if !focused && key.contains("Exit") && attempt < delays.count - 1 {
+                self.recordGotoSplitUITestWebViewFocusRetry(panelId: panelId, key: key, attempt: attempt + 1)
+                return
+            }
             self.writeGotoSplitTestData([
                 key: focused ? "true" : "false",
                 "\(key)PanelId": panelId.uuidString
