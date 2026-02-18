@@ -307,6 +307,59 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.typeKey("x", modifierFlags: [])
     }
 
+    func testCmdLImmediateTypingReplacesExistingURLBuffer() {
+        seedBrowserHistoryForTest()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        app.launch()
+        app.activate()
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+
+        // Navigate to a non-empty URL first so Cmd+L must replace existing text.
+        app.typeKey("l", modifierFlags: [.command])
+        omnibar.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let loadedDeadline = Date().addingTimeInterval(8.0)
+        var loaded = false
+        while Date() < loadedDeadline {
+            let value = ((omnibar.value as? String) ?? "").lowercased()
+            if value.contains("example.com") || value.contains("example.org") {
+                loaded = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertTrue(loaded, "Expected baseline navigation to load before Cmd+L fast-typing check.")
+
+        // Reproduce user flow: Cmd+L then immediate typing without waiting.
+        app.typeKey("l", modifierFlags: [.command])
+        app.typeText("lo")
+
+        let typedDeadline = Date().addingTimeInterval(4.0)
+        var observedValue = ""
+        var startsWithTypedPrefix = false
+        while Date() < typedDeadline {
+            observedValue = ((omnibar.value as? String) ?? "").lowercased()
+            if observedValue.hasPrefix("lo") {
+                startsWithTypedPrefix = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTAssertTrue(
+            startsWithTypedPrefix,
+            "Expected immediate typing after Cmd+L to preserve typed prefix 'lo'. value=\(observedValue)"
+        )
+    }
+
     func testOmnibarAutocompleteCandidateIsCommittedOnEnter() {
         seedBrowserHistoryForTest(
             seedEntries: [

@@ -1339,6 +1339,92 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         XCTAssertEqual(row.listText, "Example Domain — example.com/path?q=1")
         XCTAssertFalse(row.listText.contains("\n"))
     }
+
+    func testPublishedBufferTextUsesTypedPrefixWhenInlineSuffixIsSelected() {
+        let inline = OmnibarInlineCompletion(
+            typedText: "l",
+            displayText: "localhost:3000",
+            acceptedText: "https://localhost:3000/"
+        )
+
+        let published = omnibarPublishedBufferTextForFieldChange(
+            fieldValue: inline.displayText,
+            inlineCompletion: inline,
+            selectionRange: inline.suffixRange,
+            hasMarkedText: false
+        )
+
+        XCTAssertEqual(published, "l")
+    }
+
+    func testPublishedBufferTextKeepsUserTypedValueWhenDisplayDiffersFromInlineText() {
+        let inline = OmnibarInlineCompletion(
+            typedText: "l",
+            displayText: "localhost:3000",
+            acceptedText: "https://localhost:3000/"
+        )
+
+        let published = omnibarPublishedBufferTextForFieldChange(
+            fieldValue: "la",
+            inlineCompletion: inline,
+            selectionRange: NSRange(location: 2, length: 0),
+            hasMarkedText: false
+        )
+
+        XCTAssertEqual(published, "la")
+    }
+
+    func testInlineCompletionRenderIgnoresStaleTypedPrefixMismatch() {
+        let staleInline = OmnibarInlineCompletion(
+            typedText: "g",
+            displayText: "github.com",
+            acceptedText: "https://github.com/"
+        )
+
+        let active = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+            bufferText: "l",
+            inlineCompletion: staleInline
+        )
+
+        XCTAssertNil(active)
+    }
+
+    func testInlineCompletionRenderKeepsMatchingTypedPrefix() {
+        let inline = OmnibarInlineCompletion(
+            typedText: "l",
+            displayText: "localhost:3000",
+            acceptedText: "https://localhost:3000/"
+        )
+
+        let active = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+            bufferText: "l",
+            inlineCompletion: inline
+        )
+
+        XCTAssertEqual(active, inline)
+    }
+
+    func testInlineCompletionSkipsTitleMatchWhoseURLDoesNotStartWithTypedText() {
+        // History entry: visited google.com/search?q=localhost:3000 with title
+        // "localhost:3000 - Google Search". Typing "l" should NOT inline-complete
+        // to "google.com/..." because that replaces the typed "l" with "g".
+        let suggestions: [OmnibarSuggestion] = [
+            .history(
+                url: "https://www.google.com/search?q=localhost:3000",
+                title: "localhost:3000 - Google Search"
+            ),
+        ]
+
+        let result = omnibarInlineCompletionForDisplay(
+            typedText: "l",
+            suggestions: suggestions,
+            isFocused: true,
+            selectionRange: NSRange(location: 1, length: 0),
+            hasMarkedText: false
+        )
+
+        XCTAssertNil(result, "Should not inline-complete when display text does not start with typed prefix")
+    }
 }
 
 @MainActor
