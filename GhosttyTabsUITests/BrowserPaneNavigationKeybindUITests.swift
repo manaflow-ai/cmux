@@ -157,7 +157,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
 
         // Escape should leave the omnibar and focus WebKit again.
+        // Send Escape twice: the first may only clear suggestions/editing state
+        // (Chrome-like two-stage escape), the second triggers blur to WebView.
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        if !waitForDataMatch(timeout: 2.0, predicate: { $0["webViewFocusedAfterAddressBarExit"] == "true" }) {
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        }
         XCTAssertTrue(
             waitForDataMatch(timeout: 5.0) { data in
                 data["webViewFocusedAfterAddressBarExit"] == "true"
