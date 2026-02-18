@@ -289,6 +289,16 @@ final class SocketClient {
 
     func connect() throws {
         if socketFD >= 0 { return }
+
+        // Verify socket is owned by the current user to prevent fake-socket attacks
+        var st = stat()
+        guard stat(path, &st) == 0 else {
+            throw CLIError(message: "Socket not found at \(path)")
+        }
+        guard st.st_uid == getuid() else {
+            throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
+        }
+
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
         if socketFD < 0 {
             throw CLIError(message: "Failed to create socket")

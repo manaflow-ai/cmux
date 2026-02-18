@@ -35,9 +35,9 @@ Values: `1`, `0`, `true`, `false`, `yes`, `no`
 Override the socket access mode.
 
 ```bash
-export CMUX_SOCKET_MODE=notifications  # Notifications only
-export CMUX_SOCKET_MODE=full           # Full control
-export CMUX_SOCKET_MODE=off            # Disabled
+export CMUX_SOCKET_MODE=cmuxOnly  # cmux processes only (default)
+export CMUX_SOCKET_MODE=allowAll  # Allow any local process (no ancestry check)
+export CMUX_SOCKET_MODE=off       # Disabled
 ```
 
 ## CLI Context
@@ -176,4 +176,4 @@ Environment variables override app settings:
 2. App settings (Settings window)
 3. Default value
 
-For example, if `CMUX_SOCKET_MODE=full` is set, it overrides the app's Automation Mode setting.
+For example, if `CMUX_SOCKET_MODE=cmuxOnly` is set, it overrides the app's Automation Mode setting.
