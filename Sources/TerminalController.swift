@@ -13,9 +13,11 @@ class TerminalController {
     private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
+    private nonisolated(unsafe) var acceptLoopAlive = false
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
-    private var accessMode: SocketControlMode = .full
+    private var accessMode: SocketControlMode = .cmuxOnly
+    private let myPid = getpid()
 
     private enum V2HandleKind: String, CaseIterable {
         case window
@@ -72,12 +74,54 @@ class TerminalController {
         self.tabManager = tabManager
     }
 
+    // MARK: - Process Ancestry Check
+
+    /// Get the peer PID of a connected Unix domain socket using LOCAL_PEERPID.
+    private func getPeerPid(_ socket: Int32) -> pid_t? {
+        var pid: pid_t = 0
+        var pidSize = socklen_t(MemoryLayout<pid_t>.size)
+        let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize)
+        guard result == 0, pid > 0 else { return nil }
+        return pid
+    }
+
+    /// Check if `pid` is a descendant of this process by walking the process tree.
+    func isDescendant(_ pid: pid_t) -> Bool {
+        var current = pid
+        // Walk up to 128 levels to avoid infinite loops from kernel bugs
+        for _ in 0..<128 {
+            if current == myPid {
+                return true
+            }
+            if current <= 1 {
+                return false
+            }
+            let parent = parentPid(of: current)
+            if parent == current || parent < 0 {
+                return false
+            }
+            current = parent
+        }
+        return false
+    }
+
+    /// Get the parent PID of a process using sysctl.
+    private func parentPid(of pid: pid_t) -> pid_t {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else {
+            return -1
+        }
+        return info.kp_eproc.e_ppid
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
         if isRunning {
-            if self.socketPath == socketPath {
+            if self.socketPath == socketPath && acceptLoopAlive {
                 self.accessMode = accessMode
                 return
             }
@@ -118,6 +162,9 @@ class TerminalController {
             return
         }
 
+        // Restrict socket to owner only (0600)
+        chmod(socketPath, 0o600)
+
         // Listen
         guard listen(serverSocket, 5) >= 0 else {
             print("TerminalController: Failed to listen on socket")
@@ -143,7 +190,14 @@ class TerminalController {
         unlink(socketPath)
     }
 
-    private func acceptLoop() {
+    private nonisolated func acceptLoop() {
+        acceptLoopAlive = true
+        defer {
+            acceptLoopAlive = false
+            isRunning = false
+        }
+
+        var consecutiveFailures = 0
         while isRunning {
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -156,10 +210,18 @@ class TerminalController {
 
             guard clientSocket >= 0 else {
                 if isRunning {
-                    print("TerminalController: Accept failed")
+                    consecutiveFailures += 1
+                    print("TerminalController: Accept failed (\(consecutiveFailures) consecutive)")
+                    if consecutiveFailures >= 50 {
+                        print("TerminalController: Too many consecutive accept failures, exiting accept loop")
+                        break
+                    }
+                    usleep(10_000) // 10ms backoff
                 }
                 continue
             }
+
+            consecutiveFailures = 0
 
             // Handle client in new thread
             Thread.detachNewThread { [weak self] in
@@ -170,6 +232,21 @@ class TerminalController {
 
     private func handleClient(_ socket: Int32) {
         defer { close(socket) }
+
+        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
+        // In allowAll mode (env-var only), skip the ancestry check.
+        if accessMode == .cmuxOnly {
+            guard let peerPid = getPeerPid(socket) else {
+                let msg = "ERROR: Unable to verify client process\n"
+                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                return
+            }
+            guard isDescendant(peerPid) else {
+                let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
+                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                return
+            }
+        }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var pending = ""
@@ -210,9 +287,6 @@ class TerminalController {
 
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
-        if !isCommandAllowed(cmd) {
-            return "ERROR: Command disabled by socket access mode"
-        }
 
         switch cmd {
         case "ping":
@@ -351,6 +425,9 @@ class TerminalController {
 
         case "simulate_file_drop":
             return simulateFileDrop(args)
+
+        case "drop_hit_test":
+            return dropHitTest(args)
 
         case "activate_app":
             return activateApp()
@@ -493,10 +570,6 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_request", message: "Missing method")
         }
 
-        // Apply access-mode restrictions.
-        if !isV2MethodAllowed(method) {
-            return v2Error(id: id, code: "forbidden", message: "Command disabled by socket access mode")
-        }
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
@@ -809,29 +882,6 @@ class TerminalController {
 
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
-        }
-    }
-
-    private func isV2MethodAllowed(_ method: String) -> Bool {
-        switch accessMode {
-        case .full:
-            return true
-        case .notifications:
-            let allowed: Set<String> = [
-                "system.ping",
-                "system.capabilities",
-                "system.identify",
-                "notification.create",
-                "notification.create_for_surface",
-                "notification.create_for_target",
-                "notification.list",
-                "notification.clear",
-                "app.focus_override.set",
-                "app.simulate_active"
-            ]
-            return allowed.contains(method)
-        case .off:
-            return false
         }
     }
 
@@ -6165,6 +6215,7 @@ class TerminalController {
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
+          drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -6369,6 +6420,62 @@ class TerminalController {
             result = panel.hostedView.debugSimulateFileDrop(paths: paths)
                 ? "OK"
                 : "ERROR: Failed to simulate drop"
+        }
+        return result
+    }
+
+    /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
+    /// Takes normalised (0-1) x,y within the content area where (0,0) is the
+    /// top-left corner and (1,1) is the bottom-right corner.  Returns the
+    /// surface UUID of the terminal under that point, or "none".
+    private func dropHitTest(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count == 2,
+              let nx = Double(parts[0]), let ny = Double(parts[1]),
+              (0...1).contains(nx), (0...1).contains(ny) else {
+            return "ERROR: Usage: drop_hit_test <x 0-1> <y 0-1>"
+        }
+
+        var result = "ERROR: No window"
+        DispatchQueue.main.sync {
+            guard let window = NSApp.mainWindow
+                ?? NSApp.keyWindow
+                ?? NSApp.windows.first(where: { win in
+                    guard let raw = win.identifier?.rawValue else { return false }
+                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                }),
+                  let contentView = window.contentView,
+                  let themeFrame = contentView.superview else { return }
+
+            // Compute the point in contentView's own coordinate system.
+            // NSHostingView is flipped: (0,0) = top-left, matching our API.
+            let contentPoint = NSPoint(
+                x: contentView.bounds.width * nx,
+                y: contentView.bounds.height * ny
+            )
+
+            // hitTest expects the point in the receiver's superview's (themeFrame's)
+            // coordinate system.  Use convert to handle the coordinate transform.
+            let hitPoint = contentView.convert(contentPoint, to: themeFrame)
+
+            // Temporarily hide the overlay so it doesn't intercept the hit test.
+            let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView
+            overlay?.isHidden = true
+
+            let hitView = contentView.hitTest(hitPoint)
+
+            overlay?.isHidden = false
+
+            var current: NSView? = hitView
+            while let view = current {
+                if let terminal = view as? GhosttyNSView,
+                   let surfaceId = terminal.terminalSurface?.id {
+                    result = surfaceId.uuidString.uppercased()
+                    return
+                }
+                current = view.superview
+            }
+            result = "none"
         }
         return result
     }
@@ -6770,29 +6877,6 @@ class TerminalController {
         return false
     }
     #endif
-
-    private func isCommandAllowed(_ command: String) -> Bool {
-        switch accessMode {
-        case .full:
-            return true
-        case .notifications:
-            let allowed: Set<String> = [
-                "ping",
-                "help",
-                "notify",
-                "notify_surface",
-                "notify_target",
-                "list_notifications",
-                "clear_notifications",
-                "set_status",
-                "clear_status",
-                "list_status"
-            ]
-            return allowed.contains(command)
-        case .off:
-            return false
-        }
-    }
 
     private func listWindows() -> String {
         let summaries = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []
@@ -8661,7 +8745,15 @@ class TerminalController {
         guard let tabManager else { return nil }
         let parsed = parseOptions(args)
         if let tabArg = parsed.options["tab"], !tabArg.isEmpty {
-            return resolveTab(from: tabArg, tabManager: tabManager)
+            if let tab = resolveTab(from: tabArg, tabManager: tabManager) {
+                return tab
+            }
+            // The tab may belong to a different window — search all contexts.
+            if let uuid = UUID(uuidString: tabArg.trimmingCharacters(in: .whitespacesAndNewlines)),
+               let otherManager = AppDelegate.shared?.tabManagerFor(tabId: uuid) {
+                return otherManager.tabs.first(where: { $0.id == uuid })
+            }
+            return nil
         }
         guard let selectedId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == selectedId })

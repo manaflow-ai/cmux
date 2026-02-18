@@ -43,10 +43,28 @@
 ## Browser
 - [ ] Per-WKWebView local proxy for full network request/response inspection (URL, method, headers, body, status, timing)
 
+## Bugs
+- [ ] **P0** Terminal title updates are suppressed when workspace is not focused (e.g. Claude Code loading indicator doesn't update in sidebar until you switch to that tab)
+- [ ] Sidebar tab reorder can get stuck in dragging state (dimmed tab + blue drop indicator line visible) after drag ends
+- [ ] Drag-and-drop files/images into terminal shows URL instead of file path (Ghostty supports dropping files as paths)
+- [ ] After opening a browser tab, up/down arrow keys (and possibly other keyboard shortcuts) stop working in the terminal
+- [ ] Notification marked unread doesn't get pushed to the top of the list
+- [ ] Browser cmd+shift+H ring flashes only once (should flash twice like other shortcuts)
+
+## Refactoring
+- [ ] **P0** Remove all index-based APIs in favor of short ID refs (surface:N, pane:N, workspace:N, window:N)
+- [ ] **P0** CLI commands should be workspace-relative using CMUX_WORKSPACE_ID env var (not focused workspace) so agents in background workspaces don't affect the user's active workspace. Affected: send, send-key, send-panel, send-key-panel, new-split, new-pane, new-surface, close-surface, list-panes, list-pane-surfaces, list-panels, focus-pane, focus-panel, surface-health
+- [ ] **P0** Remove `close-workspace` with no args — require explicit workspace short ID or UUID, with clear error message if missing
+
 ## UI/UX Improvements
 - [ ] Add question mark icon to learn shortcuts
 - [ ] Notification popover: each button item should show outline outside when focused/hovered
 - [ ] Notification popover: add right-click context menu to mark as read/unread
+- [ ] Right-click tab should allow renaming that workspace
+- [ ] Cmd+click should open links in cmux (browser panel) instead of external browser
+- [ ] "Waiting for input" notification should include custom terminal title if set
+- [ ] Close button for current/active tab should always be visible (not just on hover)
+- [ ] Add browser icon to the left of the plus button in the tab bar
 
 ## Analytics
 - [x] Add PostHog tracking (set `PostHogAnalytics.apiKey` in `Sources/PostHogAnalytics.swift`)

@@ -158,6 +158,129 @@ final class SidebarState: ObservableObject {
     }
 }
 
+// MARK: - File Drop Overlay
+
+/// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
+/// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
+/// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
+/// embedded terminal views. This overlay sits above the entire content view hierarchy and
+/// intercepts file drags, forwarding drops to the GhosttyNSView under the cursor.
+///
+/// Mouse events are forwarded to the view below the overlay via hit-testing so clicks,
+/// scrolls, and other interactions pass through normally.
+final class FileDropOverlayView: NSView {
+    /// Fallback handler when no terminal is found under the drop point.
+    var onDrop: (([URL]) -> Bool)?
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    // MARK: Mouse forwarding – resolve the view under the overlay and dispatch directly.
+    //
+    // Using window.sendEvent(_:) here can re-enter this overlay for the same event and recurse
+    // until stack exhaustion. We instead hit-test under the overlay and call the target view.
+
+    private func forwardEvent(_ event: NSEvent, dispatch: (NSView, NSEvent) -> Void) {
+        guard let target = viewUnderOverlay(at: event.locationInWindow) else { return }
+        dispatch(target, event)
+    }
+
+    override func mouseDown(with event: NSEvent) { forwardEvent(event) { $0.mouseDown(with: $1) } }
+    override func mouseUp(with event: NSEvent) { forwardEvent(event) { $0.mouseUp(with: $1) } }
+    override func mouseDragged(with event: NSEvent) { forwardEvent(event) { $0.mouseDragged(with: $1) } }
+    override func rightMouseDown(with event: NSEvent) { forwardEvent(event) { $0.rightMouseDown(with: $1) } }
+    override func rightMouseUp(with event: NSEvent) { forwardEvent(event) { $0.rightMouseUp(with: $1) } }
+    override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) { $0.rightMouseDragged(with: $1) } }
+    override func otherMouseDown(with event: NSEvent) { forwardEvent(event) { $0.otherMouseDown(with: $1) } }
+    override func otherMouseUp(with event: NSEvent) { forwardEvent(event) { $0.otherMouseUp(with: $1) } }
+    override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) { $0.otherMouseDragged(with: $1) } }
+    override func scrollWheel(with event: NSEvent) { forwardEvent(event) { $0.scrollWheel(with: $1) } }
+
+    // MARK: NSDraggingDestination – only accept drops over terminal views.
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        return dragOperationForSender(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        return dragOperationForSender(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
+        return terminal.performDragOperation(sender)
+    }
+
+    private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let types = sender.draggingPasteboard.types,
+              types.contains(where: { $0 == .fileURL || $0 == .URL || $0 == .string }),
+              terminalUnderPoint(sender.draggingLocation) != nil else {
+            return []
+        }
+        return .copy
+    }
+
+    /// Temporarily hides self and hit-tests content to find the view under the cursor.
+    private func viewUnderOverlay(at windowPoint: NSPoint) -> NSView? {
+        guard let window, let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return nil }
+        isHidden = true
+        // hitTest expects the point in the receiver's superview's coordinate system.
+        // Converting to contentView's own coords would flip y (NSHostingView is flipped)
+        // causing top/bottom split targeting to be inverted.
+        let point = themeFrame.convert(windowPoint, from: nil)
+        let hitView = contentView.hitTest(point)
+        isHidden = false
+        return hitView
+    }
+
+    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
+    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
+        guard let hitView = viewUnderOverlay(at: windowPoint) else { return nil }
+
+        var current: NSView? = hitView
+        while let view = current {
+            if let terminal = view as? GhosttyNSView { return terminal }
+            current = view.superview
+        }
+        return nil
+    }
+}
+
+var fileDropOverlayKey: UInt8 = 0
+
+/// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
+func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
+    guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
+          let contentView = window.contentView,
+          let themeFrame = contentView.superview else { return }
+
+    let overlay = FileDropOverlayView(frame: contentView.frame)
+    overlay.translatesAutoresizingMaskIntoConstraints = false
+    overlay.onDrop = { [weak tabManager] urls in
+        MainActor.assumeIsolated {
+            guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
+            return terminal.hostedView.handleDroppedURLs(urls)
+        }
+    }
+
+    themeFrame.addSubview(overlay, positioned: .above, relativeTo: contentView)
+    NSLayoutConstraint.activate([
+        overlay.topAnchor.constraint(equalTo: contentView.topAnchor),
+        overlay.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        overlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        overlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+    ])
+
+    objc_setAssociatedObject(window, &fileDropOverlayKey, overlay, .OBJC_ASSOCIATION_RETAIN)
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -174,6 +297,9 @@ struct ContentView: View {
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
+    @State private var isFullScreen: Bool = false
+    @State private var observedWindow: NSWindow?
+    @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -276,6 +402,7 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+    @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
@@ -294,6 +421,21 @@ struct ContentView: View {
         Color(nsColor: .separatorColor).opacity(colorScheme == .light ? 0.68 : 0.34)
     }
 
+    private var fullscreenControls: some View {
+        TitlebarControlsView(
+            notificationStore: TerminalNotificationStore.shared,
+            viewModel: fullscreenControlsViewModel,
+            onToggleSidebar: { AppDelegate.shared?.sidebarState?.toggle() },
+            onToggleNotifications: { [fullscreenControlsViewModel] in
+                AppDelegate.shared?.toggleNotificationsPopover(
+                    animated: true,
+                    anchorView: fullscreenControlsViewModel.notificationsAnchorView
+                )
+            },
+            onNewTab: { tabManager.addTab() }
+        )
+    }
+
     private var customTitlebar: some View {
         ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
@@ -303,6 +445,10 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
 
             HStack(spacing: 8) {
+                if isFullScreen && !sidebarState.isVisible {
+                    fullscreenControls
+                }
+
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DraggableFolderIcon(directory: directory)
@@ -318,7 +464,7 @@ struct ContentView: View {
             }
             .frame(height: 28)
             .padding(.top, 2)
-            .padding(.leading, sidebarState.isVisible ? 12 : titlebarLeadingInset)
+            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
             .padding(.trailing, 8)
         }
         .frame(height: titlebarPadding)
@@ -386,6 +532,13 @@ struct ContentView: View {
                 }
             }
         }
+        .overlay(alignment: .topLeading) {
+            if isFullScreen && sidebarState.isVisible {
+                fullscreenControls
+                    .padding(.leading, 10)
+                    .padding(.top, 4)
+            }
+        }
         .frame(minWidth: 800, minHeight: 600)
         .background(Color.clear)
         .onAppear {
@@ -442,6 +595,20 @@ struct ContentView: View {
         .onChange(of: bgGlassTintOpacity) { _ in
             updateWindowGlassTint()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            isFullScreen = true
+            setTitlebarControlsHidden(true, in: window)
+            AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            isFullScreen = false
+            setTitlebarControlsHidden(false, in: window)
+            AppDelegate.shared?.fullscreenControlsViewModel = nil
+        }
 	        .ignoresSafeArea()
 	        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
 	            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
@@ -450,6 +617,14 @@ struct ContentView: View {
 	            // like sidebar tab reordering in multi-window mode.
 	            window.isMovableByWindowBackground = false
 	            window.styleMask.insert(.fullSizeContentView)
+
+                // Track this window for fullscreen notifications
+                if observedWindow !== window {
+                    DispatchQueue.main.async {
+                        observedWindow = window
+                        isFullScreen = window.styleMask.contains(.fullScreen)
+                    }
+                }
 
                 // Keep content below the titlebar so drags on Bonsplit's tab bar don't
                 // get interpreted as window drags.
@@ -498,6 +673,7 @@ struct ContentView: View {
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState
             )
+            installFileDropOverlay(on: window, tabManager: tabManager)
         })
     }
 
@@ -511,6 +687,16 @@ struct ContentView: View {
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
+    }
+
+    private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
+        let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+        for accessory in window.titlebarAccessoryViewControllers {
+            if accessory.view.identifier == controlsId {
+                accessory.isHidden = hidden
+                accessory.view.alphaValue = hidden ? 0 : 1
+            }
+        }
     }
 }
 
@@ -534,7 +720,7 @@ struct VerticalTabsSidebar: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Space for traffic lights
+                        // Space for traffic lights / fullscreen controls
                         Spacer()
                             .frame(height: trafficLightPadding)
 
@@ -578,6 +764,12 @@ struct VerticalTabsSidebar: View {
                 .overlay(alignment: .top) {
                     SidebarTopScrim(height: trafficLightPadding + 20)
                         .allowsHitTesting(false)
+                }
+                .overlay(alignment: .top) {
+                    // Double-click the sidebar title-bar area to zoom the
+                    // window, matching the panel top-bar behaviour.
+                    DoubleClickZoomView()
+                        .frame(height: trafficLightPadding)
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
@@ -1920,6 +2112,28 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 }
 
+/// AppKit-level double-click handler for the sidebar title-bar area.
+/// Uses NSView hit-testing so it isn't swallowed by the SwiftUI ScrollView underneath.
+private struct DoubleClickZoomView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        DoubleClickZoomNSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DoubleClickZoomNSView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { self }
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 {
+                window?.zoom(nil)
+            } else {
+                super.mouseDown(with: event)
+            }
+        }
+    }
+}
+
 private struct MiddleClickCapture: NSViewRepresentable {
     let onMiddleClick: () -> Void
 
@@ -2260,7 +2474,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
                 where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
                 leading += accessory.view.frame.width
             }
-            leading += 16
+            leading += 0
             if leading != inset {
                 inset = leading
             }

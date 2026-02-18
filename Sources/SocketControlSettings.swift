@@ -2,19 +2,24 @@ import Foundation
 
 enum SocketControlMode: String, CaseIterable, Identifiable {
     case off
-    case notifications
-    case full
+    case cmuxOnly
+    /// Allow any local process to connect (no ancestry check).
+    /// Only accessible via CMUX_SOCKET_MODE=allowAll env var — not shown in the UI.
+    case allowAll
 
     var id: String { rawValue }
+
+    /// Cases shown in the Settings UI. `allowAll` is intentionally excluded.
+    static var uiCases: [SocketControlMode] { [.off, .cmuxOnly] }
 
     var displayName: String {
         switch self {
         case .off:
             return "Off"
-        case .notifications:
-            return "Notifications only"
-        case .full:
-            return "Full control"
+        case .cmuxOnly:
+            return "cmux processes only"
+        case .allowAll:
+            return "Allow all processes"
         }
     }
 
@@ -22,10 +27,10 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
         switch self {
         case .off:
             return "Disable the local control socket."
-        case .notifications:
-            return "Allow only notification commands over the local socket."
-        case .full:
-            return "Allow all socket commands, including tab and input control."
+        case .cmuxOnly:
+            return "Only processes started inside cmux terminals can send commands."
+        case .allowAll:
+            return "Allow any local process to connect (no ancestry check)."
         }
     }
 }
@@ -34,12 +39,20 @@ struct SocketControlSettings {
     static let appStorageKey = "socketControlMode"
     static let legacyEnabledKey = "socketControlEnabled"
 
+    /// Map old persisted rawValues to the new enum.
+    static func migrateMode(_ raw: String) -> SocketControlMode {
+        switch raw {
+        case "off": return .off
+        case "cmuxOnly": return .cmuxOnly
+        case "allowAll": return .allowAll
+        // Legacy values:
+        case "notifications", "full": return .cmuxOnly
+        default: return defaultMode
+        }
+    }
+
     static var defaultMode: SocketControlMode {
-#if DEBUG
-        return .full
-#else
-        return .notifications
-#endif
+        return .cmuxOnly
     }
 
     static func socketPath() -> String {
@@ -72,7 +85,15 @@ struct SocketControlSettings {
         guard let raw = ProcessInfo.processInfo.environment["CMUX_SOCKET_MODE"], !raw.isEmpty else {
             return nil
         }
-        return SocketControlMode(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch cleaned {
+        case "off": return .off
+        case "cmuxonly", "cmux_only", "cmux-only": return .cmuxOnly
+        case "allowall", "allow_all", "allow-all": return .allowAll
+        // Legacy env var values — map to allowAll so existing test scripts keep working
+        case "notifications", "full": return .allowAll
+        default: return SocketControlMode(rawValue: cleaned)
+        }
     }
 
     static func effectiveMode(userMode: SocketControlMode) -> SocketControlMode {
@@ -83,7 +104,7 @@ struct SocketControlSettings {
             if let overrideMode = envOverrideMode() {
                 return overrideMode
             }
-            return userMode == .off ? .notifications : userMode
+            return userMode == .off ? .cmuxOnly : userMode
         }
 
         if let overrideMode = envOverrideMode() {

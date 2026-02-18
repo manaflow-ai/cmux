@@ -888,6 +888,25 @@ class GhosttyApp {
                 surfaceView.updateKeyTable(action.action.key_table)
                 return true
             }
+        case GHOSTTY_ACTION_OPEN_URL:
+            let openUrl = action.action.open_url
+            guard let cstr = openUrl.url else { return false }
+            let urlString = String(cString: cstr)
+            guard let url = URL(string: urlString) else { return false }
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else { return false }
+            return performOnMain {
+                guard let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return false
+                }
+                if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                    return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                } else {
+                    return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                }
+            }
         default:
             return false
         }
@@ -2456,7 +2475,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private static func escapeDropForShell(_ value: String) -> String {
+    fileprivate static func escapeDropForShell(_ value: String) -> String {
         var result = value
         for char in shellEscapeCharacters {
             result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
@@ -2485,10 +2504,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
         guard let content = droppedContent(from: pasteboard) else { return false }
-        if let window {
-            window.makeFirstResponder(self)
-        }
-        sendTextToSurface(content)
+        // Use the text/paste path (ghostty_surface_text) instead of the key event
+        // path (ghostty_surface_key) so bracketed paste mode is triggered and the
+        // insertion is instant, matching upstream Ghostty behaviour.
+        terminalSurface?.sendText(content)
         return true
     }
 
@@ -2512,6 +2531,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: NSDraggingDestination
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        #if DEBUG
+        let types = sender.draggingPasteboard.types ?? []
+        dlog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
+        #endif
+        guard let types = sender.draggingPasteboard.types else { return [] }
+        if Set(types).isDisjoint(with: Self.dropTypes) {
+            return []
+        }
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let types = sender.draggingPasteboard.types else { return [] }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
@@ -2957,7 +2988,20 @@ final class GhosttySurfaceScrollView: NSView {
 
 #endif
 
-    #if DEBUG
+    /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
+    func handleDroppedURLs(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        let content = urls
+            .map { GhosttyNSView.escapeDropForShell($0.path) }
+            .joined(separator: " ")
+        #if DEBUG
+        dlog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
+        #endif
+        surfaceView.terminalSurface?.sendText(content)
+        return true
+    }
+
+#if DEBUG
     /// Sends a synthetic Ctrl+D key press directly to the surface view.
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
     /// unlike `sendText`, which bypasses key translation.

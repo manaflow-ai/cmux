@@ -170,7 +170,16 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserFocusAddressBar)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
             panel.beginSuppressWebViewFocusForAddressBar()
-            addressBarFocused = true
+            if addressBarFocused {
+                // Cmd+L should always refresh omnibar state/select-all, even when the
+                // field already has focus.
+                let urlString = panel.preferredURLStringForOmnibar() ?? ""
+                let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
+                applyOmnibarEffects(effects)
+                refreshInlineCompletion()
+            } else {
+                addressBarFocused = true
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
@@ -752,6 +761,11 @@ struct BrowserPanelView: View {
             refreshSuggestions()
         }
         if effects.shouldSelectAll {
+            // Apply immediately for fast Cmd+L typing, then retry once in case
+            // first responder wasn't fully settled on the same runloop.
+            DispatchQueue.main.async {
+                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
             }
@@ -1294,6 +1308,11 @@ func omnibarInlineCompletionForDisplay(
     }
 
     guard omnibarSuggestionSupportsAutocompletion(query: query, suggestion: candidate) else { return nil }
+    // The display text must start with the typed query so the inline completion
+    // visually extends what the user typed rather than replacing it (e.g. a
+    // history entry matched via title "localhost:3000" whose URL is google.com
+    // should not replace a typed "l" with "g").
+    guard displayText.lowercased().hasPrefix(loweredQuery) else { return nil }
     guard displayText.utf16.count > queryCount else {
         return nil
     }
@@ -1339,6 +1358,40 @@ func omnibarDesiredSelectionRangeForInlineCompletion(
         return currentSelection
     }
     return inlineCompletion.suffixRange
+}
+
+func omnibarPublishedBufferTextForFieldChange(
+    fieldValue: String,
+    inlineCompletion: OmnibarInlineCompletion?,
+    selectionRange: NSRange?,
+    hasMarkedText: Bool
+) -> String {
+    guard !hasMarkedText else { return fieldValue }
+    guard let inlineCompletion else { return fieldValue }
+    guard fieldValue == inlineCompletion.displayText else { return fieldValue }
+    guard let selectionRange else { return inlineCompletion.typedText }
+
+    let typedCount = inlineCompletion.typedText.utf16.count
+    let displayCount = inlineCompletion.displayText.utf16.count
+    let typedPrefixSelection = NSRange(location: 0, length: typedCount)
+    let isCaretAtTypedBoundary = selectionRange.location == typedCount && selectionRange.length == 0
+    let isSuffixSelection = NSEqualRanges(selectionRange, inlineCompletion.suffixRange)
+    let isSelectAllSelection = selectionRange.location == 0 && selectionRange.length == displayCount
+    let isTypedPrefixSelection = NSEqualRanges(selectionRange, typedPrefixSelection)
+    if isCaretAtTypedBoundary || isSuffixSelection || isSelectAllSelection || isTypedPrefixSelection {
+        return inlineCompletion.typedText
+    }
+
+    return fieldValue
+}
+
+func omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+    bufferText: String,
+    inlineCompletion: OmnibarInlineCompletion?
+) -> OmnibarInlineCompletion? {
+    guard let inlineCompletion else { return nil }
+    guard bufferText == inlineCompletion.typedText else { return nil }
+    return inlineCompletion
 }
 
 private func typedQueryHasExplicitPathOrQuery(_ typedQuery: String) -> Bool {
@@ -1865,7 +1918,13 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
-            parent.text = field.stringValue
+            let editor = field.currentEditor() as? NSTextView
+            parent.text = omnibarPublishedBufferTextForFieldChange(
+                fieldValue: field.stringValue,
+                inlineCompletion: parent.inlineCompletion,
+                selectionRange: editor?.selectedRange(),
+                hasMarkedText: editor?.hasMarkedText() ?? false
+            )
             publishSelectionState()
         }
 
@@ -2053,7 +2112,11 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parentField = nsView
         nsView.placeholderString = placeholder
 
-        let desiredDisplayText = inlineCompletion?.displayText ?? text
+        let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+            bufferText: text,
+            inlineCompletion: inlineCompletion
+        )
+        let desiredDisplayText = activeInlineCompletion?.displayText ?? text
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != desiredDisplayText {
                 context.coordinator.isProgrammaticMutation = true
@@ -2078,13 +2141,13 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
 
         if let editor = nsView.currentEditor() as? NSTextView {
-            if let inlineCompletion {
+            if let activeInlineCompletion {
                 let currentSelection = editor.selectedRange()
                 let desiredSelection = omnibarDesiredSelectionRangeForInlineCompletion(
                     currentSelection: currentSelection,
-                    inlineCompletion: inlineCompletion
+                    inlineCompletion: activeInlineCompletion
                 )
-                if context.coordinator.appliedInlineCompletion != inlineCompletion ||
+                if context.coordinator.appliedInlineCompletion != activeInlineCompletion ||
                     !NSEqualRanges(currentSelection, desiredSelection) {
                     context.coordinator.isProgrammaticMutation = true
                     editor.setSelectedRange(desiredSelection)
@@ -2100,7 +2163,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
             }
         }
-        context.coordinator.appliedInlineCompletion = inlineCompletion
+        context.coordinator.appliedInlineCompletion = activeInlineCompletion
         context.coordinator.attachSelectionObserverIfNeeded()
         context.coordinator.publishSelectionState()
     }
