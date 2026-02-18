@@ -297,35 +297,64 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
+    private var pendingDirectoryUpdates: [UUID: DispatchWorkItem] = [:]
+
     func updatePanelDirectory(panelId: UUID, directory: String) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
+
+        // Coalesce directory updates to reduce @Published invalidation frequency.
+        pendingDirectoryUpdates[panelId]?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingDirectoryUpdates.removeValue(forKey: panelId)
+
+            if self.panelDirectories[panelId] != trimmed {
+                self.panelDirectories[panelId] = trimmed
+            }
+            if panelId == self.focusedPanelId, self.currentDirectory != trimmed {
+                self.currentDirectory = trimmed
+            }
         }
-        // Update current directory if this is the focused panel
-        if panelId == focusedPanelId {
-            currentDirectory = trimmed
-        }
+        pendingDirectoryUpdates[panelId] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
     }
+
+    /// Pending title update work items, keyed by panel ID.
+    /// Coalesces rapid title updates (e.g., from shell integration firing on every keystroke)
+    /// to reduce SwiftUI layout invalidation frequency.
+    private var pendingTitleUpdates: [UUID: DispatchWorkItem] = [:]
 
     func updatePanelTitle(panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if panelTitles[panelId] != trimmed {
-            panelTitles[panelId] = trimmed
-        }
 
-        // Update bonsplit tab title
+        // Always update bonsplit tab title immediately (it drives the tab bar label
+        // and uses @Observable, which is cheaper than @Published).
         if let tabId = surfaceIdFromPanelId(panelId) {
             bonsplitController.updateTab(tabId, title: trimmed)
         }
 
-        // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
-            self.title = trimmed
-            processTitle = trimmed
+        // Coalesce the @Published updates that trigger SwiftUI layout.
+        // Title changes from shells can fire many times per second; batching
+        // them at ~100ms eliminates per-frame layout invalidation.
+        pendingTitleUpdates[panelId]?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingTitleUpdates.removeValue(forKey: panelId)
+
+            if self.panelTitles[panelId] != trimmed {
+                self.panelTitles[panelId] = trimmed
+            }
+            if self.panels.count == 1, self.customTitle == nil {
+                if self.title != trimmed {
+                    self.title = trimmed
+                }
+                self.processTitle = trimmed
+            }
         }
+        pendingTitleUpdates[panelId] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {

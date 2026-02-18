@@ -257,6 +257,7 @@ struct ContentView: View {
                     WorkspaceContentView(workspace: tab, isTabActive: isActive)
                         .opacity(isActive ? 1 : 0)
                         .allowsHitTesting(isActive)
+                        .layoutPaused(!isActive)
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
