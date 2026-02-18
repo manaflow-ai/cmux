@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.44.0] - 2026-02-18
+
+### Fixed
+- Crash caused by infinite recursion when clicking in terminal (FileDropOverlayView mouse event forwarding)
+
 ## [0.38.1] - 2026-02-18
 
 ### Fixed
