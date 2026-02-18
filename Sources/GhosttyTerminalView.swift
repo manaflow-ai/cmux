@@ -896,7 +896,8 @@ class GhosttyApp {
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id else { return false }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager,
+                guard let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
                       let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
                     return false
                 }
