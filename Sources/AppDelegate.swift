@@ -182,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
     private var workspaceObserver: NSObjectProtocol?
     private var windowKeyObserver: NSObjectProtocol?
@@ -1385,8 +1386,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.apply(to: window)
     }
 
-    func toggleNotificationsPopover(animated: Bool = true) {
-        titlebarAccessoryController.toggleNotificationsPopover(animated: animated)
+    func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
+        titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
 
     func jumpToLatestUnread() {
@@ -1697,7 +1698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Check Show Notifications shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
-            toggleNotificationsPopover(animated: false)
+            toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
             return true
         }
 
