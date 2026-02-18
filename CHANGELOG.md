@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [1.38.0] - 2026-02-18
+
+### Added
+- Double-clicking the sidebar title-bar area now zooms/maximizes the window
+
+### Fixed
+- Browser omnibar `Cmd+L` now reliably refreshes/selects-all and supports immediate typing without stale inline text
+- Omnibar inline completion no longer replaces typed prefixes with mismatched suggestion text
+
 ## [1.37.0] - 2026-02-17
 
 ### Added
