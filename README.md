@@ -12,16 +12,50 @@
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshot.png" alt="cmux screenshot" width="900" />
+  <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
 </p>
 
 ## Features
 
-- **Vertical tabs** — Sidebar shows git branch, working directory, listening ports, and latest notification text
-- **Notification rings** — Panes get a blue ring and tabs light up when AI agents (Claude Code, OpenCode) need your attention
-- **Notification panel** — See all pending notifications in one place, jump to the most recent unread
-- **Split panes** — Horizontal and vertical splits
-- **In-app browser** — Split a browser alongside your terminal with a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser)
+<table>
+<tr>
+<td width="40%" valign="top">
+<h3>Notification rings</h3>
+Panes get a blue ring and tabs light up when AI agents (Claude Code, OpenCode) need your attention
+</td>
+<td width="60%">
+<img src="./docs/assets/notification-rings.png" alt="Notification rings" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="top">
+<h3>Notification panel</h3>
+See all pending notifications in one place, jump to the most recent unread
+</td>
+<td width="60%">
+<img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="top">
+<h3>In-app browser</h3>
+Split a browser alongside your terminal with a scriptable API ported from <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
+</td>
+<td width="60%">
+<img src="./docs/assets/built-in-browser.png" alt="Built-in browser" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="top">
+<h3>Vertical tabs &amp; split panes</h3>
+Sidebar shows git branch, working directory, listening ports, and latest notification text. Split horizontally and vertically.
+</td>
+<td width="60%">
+<img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
+</td>
+</tr>
+</table>
+
 - **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
