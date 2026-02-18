@@ -225,6 +225,16 @@ class TabManager: ObservableObject {
         didSet {
             guard selectedTabId != oldValue else { return }
             let previousTabId = oldValue
+
+            // Occlude old workspace's surfaces (stops CVDisplayLink + Metal draws)
+            if let oldId = previousTabId, let oldTab = tabs.first(where: { $0.id == oldId }) {
+                oldTab.setAllSurfacesOccluded(true)
+            }
+            // Un-occlude new workspace's visible surfaces
+            if let newId = selectedTabId, let newTab = tabs.first(where: { $0.id == newId }) {
+                newTab.unoccludeVisibleSurfaces()
+            }
+
             if let previousTabId,
                let previousPanelId = focusedPanelId(for: previousTabId) {
                 lastFocusedPanelByTab[previousTabId] = previousPanelId
@@ -520,6 +530,10 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+
+        // Explicitly close all panels so surfaces are freed (allows ARC to
+        // release TerminalSurface → deinit → ghostty_surface_free).
+        workspace.closeAllPanels()
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
@@ -1282,7 +1296,7 @@ class TabManager: ObservableObject {
                 for _ in 0..<20 {
                     if let terminal = tab.focusedTerminalPanel,
                        terminal.hostedView.window != nil,
-                       terminal.surface.surface != nil {
+                       terminal.surface?.surface != nil {
                         readyTerminal = terminal
                         break
                     }
@@ -1293,7 +1307,7 @@ class TabManager: ObservableObject {
                     let maybeTerminal = tab.focusedTerminalPanel
                     self.writeSplitCloseRightTestData([
                         "preTerminalAttached": (maybeTerminal?.hostedView.window != nil) ? "1" : "0",
-                        "preTerminalSurfaceNil": (maybeTerminal?.surface.surface == nil) ? "1" : "0",
+                        "preTerminalSurfaceNil": (maybeTerminal?.surface?.surface == nil) ? "1" : "0",
                         "setupError": "Initial terminal not ready (not attached or surface nil)"
                     ], at: path)
                     return
@@ -1301,7 +1315,7 @@ class TabManager: ObservableObject {
 
                 self.writeSplitCloseRightTestData([
                     "preTerminalAttached": "1",
-                    "preTerminalSurfaceNil": terminal.surface.surface == nil ? "1" : "0"
+                    "preTerminalSurfaceNil": terminal.surface?.surface == nil ? "1" : "0"
                 ], at: path)
 
                 guard let topLeftPanelId = tab.focusedPanelId else {
@@ -1401,7 +1415,7 @@ class TabManager: ObservableObject {
                             if size.width < 5 || size.height < 5 {
                                 selectedTerminalZeroSizeCount += 1
                             }
-                            if terminal.surface.surface == nil {
+                            if terminal.surface?.surface == nil {
                                 selectedTerminalSurfaceNilCount += 1
                             }
                         }
@@ -1444,7 +1458,7 @@ class TabManager: ObservableObject {
                             continue
                         }
                         terminal.hostedView.reconcileGeometryNow()
-                        terminal.surface.forceRefresh()
+                        terminal.surface?.forceRefresh()
                     }
                 }
 
@@ -1479,7 +1493,7 @@ class TabManager: ObservableObject {
 
         func sendText(_ panelId: UUID, _ text: String) {
             guard let tp = tab.terminalPanel(for: panelId) else { return }
-            tp.surface.sendText(text)
+            tp.sendText(text)
         }
 
         // Sample a very top strip so the probe remains valid even after vertical expand/collapse.
@@ -1608,18 +1622,18 @@ class TabManager: ObservableObject {
                 switch pattern {
                 case "close_bottom":
                     return [
-                        ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
-                        ("TR", topRight.surface.hostedView),
+                        ("TL", tab.terminalPanel(for: topLeftId)!.hostedView),
+                        ("TR", topRight.hostedView),
                     ]
                 case "close_right_lrtd_bottom_first", "close_right_bottom_first":
                     return [
-                        ("TR", topRight.surface.hostedView),
-                        ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
+                        ("TR", topRight.hostedView),
+                        ("TL", tab.terminalPanel(for: topLeftId)!.hostedView),
                     ]
                 default:
                     return [
-                        ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
-                        ("BL", bottomLeft.surface.hostedView),
+                        ("TL", tab.terminalPanel(for: topLeftId)!.hostedView),
+                        ("BL", bottomLeft.hostedView),
                     ]
                 }
             }()
@@ -1821,13 +1835,13 @@ class TabManager: ObservableObject {
                 let readyDeadline = Date().addingTimeInterval(2.0)
                 while Date() < readyDeadline {
                     let attached = rightPanel.hostedView.window != nil
-                    let hasSurface = rightPanel.surface.surface != nil
+                    let hasSurface = rightPanel.surface?.surface != nil
                     if attached && hasSurface { break }
                     try? await Task.sleep(nanoseconds: 50_000_000)
                 }
                 // Use an explicit shell exit command for deterministic child-exit behavior across
                 // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
-                rightPanel.surface.sendText("exit\r")
+                rightPanel.sendText("exit\r")
 
                 // Wait for the right panel to close.
                 let closed = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
@@ -2148,7 +2162,7 @@ class TabManager: ObservableObject {
                             return
                         }
                         attachedBeforeTrigger = panel.hostedView.window != nil
-                        hasSurfaceBeforeTrigger = panel.surface.surface != nil
+                        hasSurfaceBeforeTrigger = panel.surface?.surface != nil
                         if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
                             break
                         }

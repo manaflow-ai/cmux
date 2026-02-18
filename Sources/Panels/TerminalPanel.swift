@@ -9,8 +9,12 @@ final class TerminalPanel: Panel, ObservableObject {
     let id: UUID
     let panelType: PanelType = .terminal
 
-    /// The underlying terminal surface
-    let surface: TerminalSurface
+    /// The underlying terminal surface (nil after close())
+    private(set) var surface: TerminalSurface?
+
+    /// The hosted NSView for embedding in SwiftUI.
+    /// Stored separately so it remains available after surface is released.
+    let hostedView: GhosttySurfaceScrollView
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -24,7 +28,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Search state for find functionality
     @Published var searchState: TerminalSurface.SearchState? {
         didSet {
-            surface.searchState = searchState
+            surface?.searchState = searchState
         }
     }
 
@@ -57,15 +61,11 @@ final class TerminalPanel: Panel, ObservableObject {
         false
     }
 
-    /// The hosted NSView for embedding in SwiftUI
-    var hostedView: GhosttySurfaceScrollView {
-        surface.hostedView
-    }
-
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        self.hostedView = surface.hostedView
 
         // Subscribe to surface's search state changes
         surface.$searchState
@@ -109,16 +109,16 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
-        surface.updateWorkspaceId(newWorkspaceId)
+        surface?.updateWorkspaceId(newWorkspaceId)
     }
 
     func focus() {
-        surface.setFocus(true)
+        surface?.setFocus(true)
         hostedView.ensureFocus(for: workspaceId, surfaceId: id)
     }
 
     func unfocus() {
-        surface.setFocus(false)
+        surface?.setFocus(false)
         // Cancel any pending focus work items so an inactive terminal can't steal first responder
         // back from another surface (notably WKWebView) during rapid focus changes in tests.
         //
@@ -129,9 +129,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func close() {
-        // The surface will be cleaned up by its deinit
-        // Just unfocus before closing
         unfocus()
+        surface?.setOcclusion(false)
+        cancellables.removeAll()
+        surface = nil
     }
 
     func requestViewReattach() {
@@ -141,19 +142,19 @@ final class TerminalPanel: Panel, ObservableObject {
     // MARK: - Terminal-specific methods
 
     func sendText(_ text: String) {
-        surface.sendText(text)
+        surface?.sendText(text)
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        surface.performBindingAction(action)
+        surface?.performBindingAction(action) ?? false
     }
 
     func hasSelection() -> Bool {
-        surface.hasSelection()
+        surface?.hasSelection() ?? false
     }
 
     func needsConfirmClose() -> Bool {
-        surface.needsConfirmClose()
+        surface?.needsConfirmClose() ?? false
     }
 
     func triggerFlash() {
@@ -161,6 +162,6 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func applyWindowBackgroundIfActive() {
-        surface.applyWindowBackgroundIfActive()
+        surface?.applyWindowBackgroundIfActive()
     }
 }

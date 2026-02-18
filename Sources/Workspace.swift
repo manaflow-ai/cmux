@@ -197,6 +197,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    /// Tracks the previously selected tab per pane for occlusion toggling.
+    private var paneSelectedTabIds: [PaneID: TabID] = [:]
     private var isApplyingTabSelection = false
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
     private var isReconcilingFocusState = false
@@ -352,11 +354,11 @@ final class Workspace: Identifiable, ObservableObject {
         // fall back to any terminal in the workspace.
         let inheritedConfig: ghostty_surface_config_s? = {
             if let sourceTerminal = terminalPanel(for: panelId),
-               let existing = sourceTerminal.surface.surface {
+               let existing = sourceTerminal.surface?.surface {
                 return ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
             }
             if let fallbackSurface = panels.values
-                .compactMap({ ($0 as? TerminalPanel)?.surface.surface })
+                .compactMap({ ($0 as? TerminalPanel)?.surface?.surface })
                 .first {
                 return ghostty_surface_inherited_config(fallbackSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
             }
@@ -434,7 +436,7 @@ final class Workspace: Identifiable, ObservableObject {
         let inheritedConfig: ghostty_surface_config_s? = {
             for panel in panels.values {
                 if let terminalPanel = panel as? TerminalPanel,
-                   let surface = terminalPanel.surface.surface {
+                   let surface = terminalPanel.surface?.surface {
                     return ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
                 }
             }
@@ -470,6 +472,9 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(newTabId)
             newPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            // Surface is not selected — occlude it so it doesn't render in the background.
+            newPanel.surface?.setOcclusion(false)
         }
         return newPanel
     }
@@ -988,6 +993,52 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    /// Close all panels and release their surfaces.
+    /// Called when the workspace is being removed to ensure ARC can free resources.
+    func closeAllPanels() {
+        for (_, panel) in panels {
+            panel.close()
+        }
+        panels.removeAll()
+        panelSubscriptions.removeAll()
+        surfaceIdToPanelId.removeAll()
+    }
+
+    // MARK: - Occlusion Management
+
+    /// Occlude or un-occlude all terminal surfaces in this workspace.
+    /// Occluded surfaces stop their CVDisplayLink and Metal draws but keep PTY/scrollback alive.
+    func setAllSurfacesOccluded(_ occluded: Bool) {
+        for (_, panel) in panels {
+            if let terminal = panel as? TerminalPanel {
+                terminal.surface?.setOcclusion(!occluded)
+            }
+        }
+    }
+
+    /// Un-occlude only the surfaces that are currently visible (selected bonsplit tab in each pane).
+    /// All other surfaces in the workspace are occluded.
+    func unoccludeVisibleSurfaces() {
+        let visiblePanelIds = getVisiblePanelIds()
+        for (id, panel) in panels {
+            if let terminal = panel as? TerminalPanel {
+                terminal.surface?.setOcclusion(visiblePanelIds.contains(id))
+            }
+        }
+    }
+
+    /// Returns panel IDs that are currently selected in their respective bonsplit panes.
+    private func getVisiblePanelIds() -> Set<UUID> {
+        var visible = Set<UUID>()
+        for paneId in bonsplitController.allPaneIds {
+            if let tab = bonsplitController.selectedTab(inPane: paneId),
+               let panelId = panelIdFromSurfaceId(tab.id) {
+                visible.insert(panelId)
+            }
+        }
+        return visible
+    }
+
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
         for panel in panels.values {
@@ -1072,7 +1123,7 @@ final class Workspace: Identifiable, ObservableObject {
             for panel in self.panels.values {
                 guard let terminalPanel = panel as? TerminalPanel else { continue }
                 terminalPanel.hostedView.reconcileGeometryNow()
-                terminalPanel.surface.forceRefresh()
+                terminalPanel.surface?.forceRefresh()
             }
         }
     }
@@ -1154,6 +1205,21 @@ extension Workspace: BonsplitDelegate {
               let panel = panels[panelId] else {
             return
         }
+
+        // Occlude the previously selected tab in this pane (stop rendering)
+        // and un-occlude the newly selected tab.
+        let previousTabIdInPane = paneSelectedTabIds[focusedPane]
+        if previousTabIdInPane != selectedTabId {
+            if let prevTabId = previousTabIdInPane,
+               let prevPanelId = panelIdFromSurfaceId(prevTabId),
+               let prevTerminal = panels[prevPanelId] as? TerminalPanel {
+                prevTerminal.surface?.setOcclusion(false)
+            }
+            if let terminal = panel as? TerminalPanel {
+                terminal.surface?.setOcclusion(true)
+            }
+        }
+        paneSelectedTabIds[focusedPane] = selectedTabId
 
         // Unfocus all other panels
         for (id, p) in panels where id != panelId {
@@ -1351,7 +1417,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        _ = paneId
+        paneSelectedTabIds.removeValue(forKey: paneId)
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
     }
@@ -1406,7 +1472,7 @@ extension Workspace: BonsplitDelegate {
               let sourcePanelId = panelIdFromSurfaceId(sourceTabId),
               let sourcePanel = terminalPanel(for: sourcePanelId) else { return }
 
-        let inheritedConfig: ghostty_surface_config_s? = if let existing = sourcePanel.surface.surface {
+        let inheritedConfig: ghostty_surface_config_s? = if let existing = sourcePanel.surface?.surface {
             ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
         } else {
             nil

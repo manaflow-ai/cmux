@@ -833,14 +833,43 @@ class GhosttyApp {
             // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
             // dispatching this action callback.
             DispatchQueue.main.async {
-                guard let app = AppDelegate.shared else { return }
-                if let tabId = surfaceView.tabId,
-                   let surfaceId = surfaceView.terminalSurface?.id,
-                   let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == tabId }),
-                   workspace.panels[surfaceId] != nil {
-                    manager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+                guard let app = AppDelegate.shared else {
+                    #if DEBUG
+                    dlog("child_exited: no AppDelegate")
+                    #endif
+                    return
                 }
+                guard let tabId = surfaceView.tabId else {
+                    #if DEBUG
+                    dlog("child_exited: no tabId on surfaceView")
+                    #endif
+                    return
+                }
+                guard let surfaceId = surfaceView.terminalSurface?.id else {
+                    #if DEBUG
+                    dlog("child_exited: no surfaceId")
+                    #endif
+                    return
+                }
+                guard let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
+                    #if DEBUG
+                    dlog("child_exited: no tabManager for tabId=\(tabId)")
+                    #endif
+                    return
+                }
+                guard let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
+                    #if DEBUG
+                    dlog("child_exited: no workspace for tabId=\(tabId)")
+                    #endif
+                    return
+                }
+                guard workspace.panels[surfaceId] != nil else {
+                    #if DEBUG
+                    dlog("child_exited: no panel for surfaceId=\(surfaceId)")
+                    #endif
+                    return
+                }
+                manager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
             }
             // Always report handled so Ghostty doesn't print the fallback prompt.
             return true
@@ -1484,6 +1513,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     deinit {
         if let surface = surface {
+            self.surface = nil
             ghostty_surface_free(surface)
         }
     }

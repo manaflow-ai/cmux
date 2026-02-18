@@ -541,7 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for ws in ctx.tabManager.tabs {
                 for (panelId, panel) in ws.panels {
                     guard let terminal = panel as? TerminalPanel else { continue }
-                    if terminal.surface.surface == surface {
+                    if terminal.surface?.surface == surface {
                         return (ctx.windowId, ws.id, panelId, ctx.tabManager)
                     }
                 }
@@ -877,7 +877,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
         let maxAttempts = 60
-        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
+        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface?.surface != nil {
             terminalPanel.sendText(text)
             return
         }

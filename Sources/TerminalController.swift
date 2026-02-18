@@ -2163,7 +2163,7 @@ class TerminalController {
             var refreshedCount = 0
             for panel in ws.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh()
+                    terminalPanel.surface?.forceRefresh()
                     refreshedCount += 1
                 }
             }
@@ -2185,7 +2185,7 @@ class TerminalController {
             let items: [[String: Any]] = panels.enumerated().map { index, panel in
                 var inWindow: Any = NSNull()
                 if let tp = panel as? TerminalPanel {
-                    inWindow = tp.surface.isViewInWindow
+                    inWindow = tp.surface?.isViewInWindow ?? false
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
                 }
@@ -2252,7 +2252,7 @@ class TerminalController {
             // Ensure we present a new frame after injecting input so snapshot-based tests (and
             // socket-driven agents) can observe the updated terminal without requiring a focus
             // change to trigger a draw.
-            terminalPanel.surface.forceRefresh()
+            terminalPanel.surface?.forceRefresh()
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
@@ -2289,7 +2289,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
             }
-            terminalPanel.surface.forceRefresh()
+            terminalPanel.surface?.forceRefresh()
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
@@ -6476,7 +6476,7 @@ class TerminalController {
 
             guard let panelId,
                   let terminalPanel = tab.terminalPanel(for: panelId),
-                  let surface = terminalPanel.surface.surface else {
+                  let surface = terminalPanel.surface?.surface else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
@@ -7335,7 +7335,7 @@ class TerminalController {
             var cgImage = view.debugCopyIOSurfaceCGImage()
             if cgImage == nil {
                 // If the surface is mid-attach we may not have contents yet. Nudge a draw and retry once.
-                terminalPanel.surface.forceRefresh()
+                terminalPanel.surface?.forceRefresh()
                 cgImage = view.debugCopyIOSurfaceCGImage()
             }
             guard let cgImage else {
@@ -7524,7 +7524,7 @@ class TerminalController {
 	                        selectedTabId: selectedTabId,
 	                        panelId: panelId.uuidString,
 	                        panelType: tp.panelType.rawValue,
-	                        inWindow: tp.surface.isViewInWindow,
+	                        inWindow: tp.surface?.isViewInWindow ?? false,
 	                        hidden: isHiddenOrAncestorHidden(tp.hostedView),
 	                        viewFrame: viewRect,
 	                        splitViews: splitViews
@@ -7761,18 +7761,18 @@ class TerminalController {
     }
 
     private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
-        if let surface = terminalPanel.surface.surface { return surface }
+        if let surface = terminalPanel.surface?.surface { return surface }
 
         // This can be transient during bonsplit tree restructuring when the SwiftUI
         // view is temporarily detached and then reattached (surface creation is
         // gated on view/window/bounds). Pump the runloop briefly to allow pending
         // attach retries to execute.
         let deadline = Date().addingTimeInterval(timeout)
-        while terminalPanel.surface.surface == nil && Date() < deadline {
+        while terminalPanel.surface?.surface == nil && Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
 
-        return terminalPanel.surface.surface
+        return terminalPanel.surface?.surface
     }
 
     private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
@@ -9129,7 +9129,7 @@ class TerminalController {
             // (resets cached metrics so the Metal layer drawable resizes correctly)
             for panel in tab.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh()
+                    terminalPanel.surface?.forceRefresh()
                     refreshedCount += 1
                 }
             }
@@ -9150,7 +9150,7 @@ class TerminalController {
                 let panelId = panel.id.uuidString
                 let type = panel.panelType.rawValue
                 if let tp = panel as? TerminalPanel {
-                    let inWindow = tp.surface.isViewInWindow
+                    let inWindow = tp.surface?.isViewInWindow ?? false
                     return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"
                 } else if let bp = panel as? BrowserPanel {
                     let inWindow = bp.webView.window != nil

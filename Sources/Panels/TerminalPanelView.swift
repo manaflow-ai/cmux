@@ -14,18 +14,20 @@ struct TerminalPanelView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            GhosttyTerminalView(
-                terminalSurface: panel.surface,
-                isActive: isFocused,
-                isVisibleInUI: isVisibleInUI,
-                reattachToken: panel.viewReattachToken,
-                onFocus: { _ in onFocus() },
-                onTriggerFlash: onTriggerFlash
-            )
-            // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
-            // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
-            .id(panel.id)
-            .background(Color.clear)
+            if let surface = panel.surface {
+                GhosttyTerminalView(
+                    terminalSurface: surface,
+                    isActive: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    reattachToken: panel.viewReattachToken,
+                    onFocus: { _ in onFocus() },
+                    onTriggerFlash: onTriggerFlash
+                )
+                // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
+                // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
+                .id(panel.id)
+                .background(Color.clear)
+            }
 
             // Unfocused overlay
             if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
@@ -45,9 +47,10 @@ struct TerminalPanelView: View {
             }
 
             // Search overlay
-            if let searchState = panel.searchState {
+            if let searchState = panel.searchState,
+               let surface = panel.surface {
                 SurfaceSearchOverlay(
-                    surface: panel.surface,
+                    surface: surface,
                     searchState: searchState,
                     onClose: {
                         panel.searchState = nil
