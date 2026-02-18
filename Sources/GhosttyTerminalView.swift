@@ -2475,7 +2475,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private static func escapeDropForShell(_ value: String) -> String {
+    fileprivate static func escapeDropForShell(_ value: String) -> String {
         var result = value
         for char in shellEscapeCharacters {
             result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
@@ -2531,6 +2531,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: NSDraggingDestination
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        #if DEBUG
+        let types = sender.draggingPasteboard.types ?? []
+        dlog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
+        #endif
+        guard let types = sender.draggingPasteboard.types else { return [] }
+        if Set(types).isDisjoint(with: Self.dropTypes) {
+            return []
+        }
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let types = sender.draggingPasteboard.types else { return [] }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
@@ -2976,7 +2988,23 @@ final class GhosttySurfaceScrollView: NSView {
 
 #endif
 
-    #if DEBUG
+        /// Handle file/URL drops from SwiftUI's .onDrop, forwarding to the terminal as shell-escaped paths.
+    func handleDroppedURLs(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        let content = urls
+            .map { GhosttyNSView.escapeDropForShell($0.path) }
+            .joined(separator: " ")
+        #if DEBUG
+        dlog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
+        #endif
+        if let window = surfaceView.window {
+            window.makeFirstResponder(surfaceView)
+        }
+        surfaceView.sendTextToSurface(content)
+        return true
+    }
+
+#if DEBUG
     /// Sends a synthetic Ctrl+D key press directly to the surface view.
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
     /// unlike `sendText`, which bypasses key translation.

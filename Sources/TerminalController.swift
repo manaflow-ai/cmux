@@ -352,6 +352,9 @@ class TerminalController {
         case "simulate_file_drop":
             return simulateFileDrop(args)
 
+        case "drop_hit_test":
+            return dropHitTest(args)
+
         case "activate_app":
             return activateApp()
 
@@ -6165,6 +6168,7 @@ class TerminalController {
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
+          drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -6369,6 +6373,62 @@ class TerminalController {
             result = panel.hostedView.debugSimulateFileDrop(paths: paths)
                 ? "OK"
                 : "ERROR: Failed to simulate drop"
+        }
+        return result
+    }
+
+    /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
+    /// Takes normalised (0-1) x,y within the content area where (0,0) is the
+    /// top-left corner and (1,1) is the bottom-right corner.  Returns the
+    /// surface UUID of the terminal under that point, or "none".
+    private func dropHitTest(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count == 2,
+              let nx = Double(parts[0]), let ny = Double(parts[1]),
+              (0...1).contains(nx), (0...1).contains(ny) else {
+            return "ERROR: Usage: drop_hit_test <x 0-1> <y 0-1>"
+        }
+
+        var result = "ERROR: No window"
+        DispatchQueue.main.sync {
+            guard let window = NSApp.mainWindow
+                ?? NSApp.keyWindow
+                ?? NSApp.windows.first(where: { win in
+                    guard let raw = win.identifier?.rawValue else { return false }
+                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                }),
+                  let contentView = window.contentView,
+                  let themeFrame = contentView.superview else { return }
+
+            // Compute the point in contentView's own coordinate system.
+            // NSHostingView is flipped: (0,0) = top-left, matching our API.
+            let contentPoint = NSPoint(
+                x: contentView.bounds.width * nx,
+                y: contentView.bounds.height * ny
+            )
+
+            // hitTest expects the point in the receiver's superview's (themeFrame's)
+            // coordinate system.  Use convert to handle the coordinate transform.
+            let hitPoint = contentView.convert(contentPoint, to: themeFrame)
+
+            // Temporarily hide the overlay so it doesn't intercept the hit test.
+            let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView
+            overlay?.isHidden = true
+
+            let hitView = contentView.hitTest(hitPoint)
+
+            overlay?.isHidden = false
+
+            var current: NSView? = hitView
+            while let view = current {
+                if let terminal = view as? GhosttyNSView,
+                   let surfaceId = terminal.terminalSurface?.id {
+                    result = surfaceId.uuidString.uppercased()
+                    return
+                }
+                current = view.superview
+            }
+            result = "none"
         }
         return result
     }

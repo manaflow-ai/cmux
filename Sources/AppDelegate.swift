@@ -723,6 +723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState
         )
+        installFileDropOverlay(on: window, tabManager: tabManager)
         window.makeKeyAndOrderFront(nil)
         setActiveMainWindow(window)
         NSApp.activate(ignoringOtherApps: true)

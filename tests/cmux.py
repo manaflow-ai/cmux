@@ -811,6 +811,17 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def drop_hit_test(self, x: float, y: float) -> Optional[str]:
+        """Hit-test the file-drop overlay at normalised (0-1) coords.
+
+        Returns the surface UUID string if a terminal is under the point, or None.
+        """
+        response = self._send_command(f"drop_hit_test {x} {y}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        val = response.strip()
+        return None if val == "none" else val
+
     def activate_app(self) -> None:
         """Bring app + main window to front (debug builds only)."""
         response = self._send_command("activate_app")
