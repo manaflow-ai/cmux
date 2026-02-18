@@ -289,6 +289,9 @@ struct ContentView: View {
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
+    @State private var isFullScreen: Bool = false
+    @State private var observedWindow: NSWindow?
+    @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -391,6 +394,7 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+    @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
@@ -409,6 +413,21 @@ struct ContentView: View {
         Color(nsColor: .separatorColor).opacity(colorScheme == .light ? 0.68 : 0.34)
     }
 
+    private var fullscreenControls: some View {
+        TitlebarControlsView(
+            notificationStore: TerminalNotificationStore.shared,
+            viewModel: fullscreenControlsViewModel,
+            onToggleSidebar: { AppDelegate.shared?.sidebarState?.toggle() },
+            onToggleNotifications: { [fullscreenControlsViewModel] in
+                AppDelegate.shared?.toggleNotificationsPopover(
+                    animated: true,
+                    anchorView: fullscreenControlsViewModel.notificationsAnchorView
+                )
+            },
+            onNewTab: { tabManager.addTab() }
+        )
+    }
+
     private var customTitlebar: some View {
         ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
@@ -418,6 +437,10 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
 
             HStack(spacing: 8) {
+                if isFullScreen && !sidebarState.isVisible {
+                    fullscreenControls
+                }
+
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DraggableFolderIcon(directory: directory)
@@ -433,7 +456,7 @@ struct ContentView: View {
             }
             .frame(height: 28)
             .padding(.top, 2)
-            .padding(.leading, sidebarState.isVisible ? 12 : titlebarLeadingInset)
+            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
             .padding(.trailing, 8)
         }
         .frame(height: titlebarPadding)
@@ -501,6 +524,13 @@ struct ContentView: View {
                 }
             }
         }
+        .overlay(alignment: .topLeading) {
+            if isFullScreen && sidebarState.isVisible {
+                fullscreenControls
+                    .padding(.leading, 10)
+                    .padding(.top, 4)
+            }
+        }
         .frame(minWidth: 800, minHeight: 600)
         .background(Color.clear)
         .onAppear {
@@ -557,6 +587,20 @@ struct ContentView: View {
         .onChange(of: bgGlassTintOpacity) { _ in
             updateWindowGlassTint()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            isFullScreen = true
+            setTitlebarControlsHidden(true, in: window)
+            AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            isFullScreen = false
+            setTitlebarControlsHidden(false, in: window)
+            AppDelegate.shared?.fullscreenControlsViewModel = nil
+        }
 	        .ignoresSafeArea()
 	        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
 	            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
@@ -565,6 +609,14 @@ struct ContentView: View {
 	            // like sidebar tab reordering in multi-window mode.
 	            window.isMovableByWindowBackground = false
 	            window.styleMask.insert(.fullSizeContentView)
+
+                // Track this window for fullscreen notifications
+                if observedWindow !== window {
+                    DispatchQueue.main.async {
+                        observedWindow = window
+                        isFullScreen = window.styleMask.contains(.fullScreen)
+                    }
+                }
 
                 // Keep content below the titlebar so drags on Bonsplit's tab bar don't
                 // get interpreted as window drags.
@@ -628,6 +680,16 @@ struct ContentView: View {
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
     }
+
+    private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
+        let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+        for accessory in window.titlebarAccessoryViewControllers {
+            if accessory.view.identifier == controlsId {
+                accessory.isHidden = hidden
+                accessory.view.alphaValue = hidden ? 0 : 1
+            }
+        }
+    }
 }
 
 struct VerticalTabsSidebar: View {
@@ -650,7 +712,7 @@ struct VerticalTabsSidebar: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Space for traffic lights
+                        // Space for traffic lights / fullscreen controls
                         Spacer()
                             .frame(height: trafficLightPadding)
 
@@ -2404,7 +2466,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
                 where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
                 leading += accessory.view.frame.width
             }
-            leading += 16
+            leading += 0
             if leading != inset {
                 inset = leading
             }

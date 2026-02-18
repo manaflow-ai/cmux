@@ -1195,6 +1195,7 @@ private struct DebugWindowControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
 
     var body: some View {
         ScrollView {
@@ -1256,6 +1257,23 @@ private struct DebugWindowControlsView: View {
                             Button("Copy Hint Config") {
                                 copyShortcutHintConfig()
                             }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Titlebar Spacing") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text("Leading extra")
+                            Slider(value: $titlebarLeadingExtra, in: 0...40)
+                            Text(String(format: "%.0f", titlebarLeadingExtra))
+                                .font(.caption)
+                                .monospacedDigit()
+                                .frame(width: 30, alignment: .trailing)
+                        }
+                        Button("Reset (0)") {
+                            titlebarLeadingExtra = 0
                         }
                     }
                     .padding(.top, 2)

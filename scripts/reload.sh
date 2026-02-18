@@ -178,7 +178,14 @@ if [[ -z "$TAG" ]]; then
 fi
 XCODEBUILD_ARGS+=(build)
 
-xcodebuild "${XCODEBUILD_ARGS[@]}"
+XCODE_LOG="/tmp/cmux-xcodebuild-${TAG_SLUG}.log"
+xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$XCODE_LOG" | grep -E '(warning:|error:|fatal:|BUILD FAILED|BUILD SUCCEEDED|\*\* BUILD)' || true
+XCODE_EXIT="${PIPESTATUS[0]}"
+echo "Full build log: $XCODE_LOG"
+if [[ "$XCODE_EXIT" -ne 0 ]]; then
+  echo "error: xcodebuild failed with exit code $XCODE_EXIT" >&2
+  exit "$XCODE_EXIT"
+fi
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
