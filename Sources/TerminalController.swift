@@ -8661,7 +8661,15 @@ class TerminalController {
         guard let tabManager else { return nil }
         let parsed = parseOptions(args)
         if let tabArg = parsed.options["tab"], !tabArg.isEmpty {
-            return resolveTab(from: tabArg, tabManager: tabManager)
+            if let tab = resolveTab(from: tabArg, tabManager: tabManager) {
+                return tab
+            }
+            // The tab may belong to a different window — search all contexts.
+            if let uuid = UUID(uuidString: tabArg.trimmingCharacters(in: .whitespacesAndNewlines)),
+               let otherManager = AppDelegate.shared?.tabManagerFor(tabId: uuid) {
+                return otherManager.tabs.first(where: { $0.id == uuid })
+            }
+            return nil
         }
         guard let selectedId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == selectedId })
