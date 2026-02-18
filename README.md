@@ -19,7 +19,7 @@
 
 <table>
 <tr>
-<td width="40%" valign="top">
+<td width="40%" valign="middle">
 <h3>Notification rings</h3>
 Panes get a blue ring and tabs light up when AI agents need your attention
 </td>
@@ -28,7 +28,7 @@ Panes get a blue ring and tabs light up when AI agents need your attention
 </td>
 </tr>
 <tr>
-<td width="40%" valign="top">
+<td width="40%" valign="middle">
 <h3>Notification panel</h3>
 See all pending notifications in one place, jump to the most recent unread
 </td>
@@ -37,7 +37,7 @@ See all pending notifications in one place, jump to the most recent unread
 </td>
 </tr>
 <tr>
-<td width="40%" valign="top">
+<td width="40%" valign="middle">
 <h3>In-app browser</h3>
 Split a browser alongside your terminal with a scriptable API ported from <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
 </td>
@@ -46,7 +46,7 @@ Split a browser alongside your terminal with a scriptable API ported from <a hre
 </td>
 </tr>
 <tr>
-<td width="40%" valign="top">
+<td width="40%" valign="middle">
 <h3>Vertical + horizontal tabs</h3>
 Sidebar shows git branch, working directory, listening ports, and latest notification text. Split horizontally and vertically.
 </td>
