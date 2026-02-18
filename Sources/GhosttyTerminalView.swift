@@ -2504,10 +2504,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
         guard let content = droppedContent(from: pasteboard) else { return false }
-        if let window {
-            window.makeFirstResponder(self)
-        }
-        sendTextToSurface(content)
+        // Use the text/paste path (ghostty_surface_text) instead of the key event
+        // path (ghostty_surface_key) so bracketed paste mode is triggered and the
+        // insertion is instant, matching upstream Ghostty behaviour.
+        terminalSurface?.sendText(content)
         return true
     }
 
@@ -2988,7 +2988,7 @@ final class GhosttySurfaceScrollView: NSView {
 
 #endif
 
-        /// Handle file/URL drops from SwiftUI's .onDrop, forwarding to the terminal as shell-escaped paths.
+    /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
     func handleDroppedURLs(_ urls: [URL]) -> Bool {
         guard !urls.isEmpty else { return false }
         let content = urls
@@ -2997,10 +2997,7 @@ final class GhosttySurfaceScrollView: NSView {
         #if DEBUG
         dlog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
-        if let window = surfaceView.window {
-            window.makeFirstResponder(surfaceView)
-        }
-        surfaceView.sendTextToSurface(content)
+        surfaceView.terminalSurface?.sendText(content)
         return true
     }
 
