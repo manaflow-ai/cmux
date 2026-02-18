@@ -16,7 +16,8 @@ class TerminalController {
     private nonisolated(unsafe) var acceptLoopAlive = false
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
-    private var accessMode: SocketControlMode = .full
+    private var accessMode: SocketControlMode = .cmuxOnly
+    private let myPid = getpid()
 
     private enum V2HandleKind: String, CaseIterable {
         case window
@@ -73,6 +74,48 @@ class TerminalController {
         self.tabManager = tabManager
     }
 
+    // MARK: - Process Ancestry Check
+
+    /// Get the peer PID of a connected Unix domain socket using LOCAL_PEERPID.
+    private func getPeerPid(_ socket: Int32) -> pid_t? {
+        var pid: pid_t = 0
+        var pidSize = socklen_t(MemoryLayout<pid_t>.size)
+        let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize)
+        guard result == 0, pid > 0 else { return nil }
+        return pid
+    }
+
+    /// Check if `pid` is a descendant of this process by walking the process tree.
+    func isDescendant(_ pid: pid_t) -> Bool {
+        var current = pid
+        // Walk up to 128 levels to avoid infinite loops from kernel bugs
+        for _ in 0..<128 {
+            if current == myPid {
+                return true
+            }
+            if current <= 1 {
+                return false
+            }
+            let parent = parentPid(of: current)
+            if parent == current || parent < 0 {
+                return false
+            }
+            current = parent
+        }
+        return false
+    }
+
+    /// Get the parent PID of a process using sysctl.
+    private func parentPid(of pid: pid_t) -> pid_t {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else {
+            return -1
+        }
+        return info.kp_eproc.e_ppid
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -118,6 +161,9 @@ class TerminalController {
             close(serverSocket)
             return
         }
+
+        // Restrict socket to owner only (0600)
+        chmod(socketPath, 0o600)
 
         // Listen
         guard listen(serverSocket, 5) >= 0 else {
@@ -187,6 +233,21 @@ class TerminalController {
     private func handleClient(_ socket: Int32) {
         defer { close(socket) }
 
+        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
+        // In allowAll mode (env-var only), skip the ancestry check.
+        if accessMode == .cmuxOnly {
+            guard let peerPid = getPeerPid(socket) else {
+                let msg = "ERROR: Unable to verify client process\n"
+                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                return
+            }
+            guard isDescendant(peerPid) else {
+                let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
+                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                return
+            }
+        }
+
         var buffer = [UInt8](repeating: 0, count: 4096)
         var pending = ""
 
@@ -226,9 +287,6 @@ class TerminalController {
 
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
-        if !isCommandAllowed(cmd) {
-            return "ERROR: Command disabled by socket access mode"
-        }
 
         switch cmd {
         case "ping":
@@ -512,10 +570,6 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_request", message: "Missing method")
         }
 
-        // Apply access-mode restrictions.
-        if !isV2MethodAllowed(method) {
-            return v2Error(id: id, code: "forbidden", message: "Command disabled by socket access mode")
-        }
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
@@ -828,29 +882,6 @@ class TerminalController {
 
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
-        }
-    }
-
-    private func isV2MethodAllowed(_ method: String) -> Bool {
-        switch accessMode {
-        case .full:
-            return true
-        case .notifications:
-            let allowed: Set<String> = [
-                "system.ping",
-                "system.capabilities",
-                "system.identify",
-                "notification.create",
-                "notification.create_for_surface",
-                "notification.create_for_target",
-                "notification.list",
-                "notification.clear",
-                "app.focus_override.set",
-                "app.simulate_active"
-            ]
-            return allowed.contains(method)
-        case .off:
-            return false
         }
     }
 
@@ -6846,29 +6877,6 @@ class TerminalController {
         return false
     }
     #endif
-
-    private func isCommandAllowed(_ command: String) -> Bool {
-        switch accessMode {
-        case .full:
-            return true
-        case .notifications:
-            let allowed: Set<String> = [
-                "ping",
-                "help",
-                "notify",
-                "notify_surface",
-                "notify_target",
-                "list_notifications",
-                "clear_notifications",
-                "set_status",
-                "clear_status",
-                "list_status"
-            ]
-            return allowed.contains(command)
-        case .off:
-            return false
-        }
-    }
 
     private func listWindows() -> String {
         let summaries = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []

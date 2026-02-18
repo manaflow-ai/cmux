@@ -19,12 +19,15 @@ struct cmuxApp: App {
 
     init() {
         configureGhosttyEnvironment()
-        // Start the terminal controller for programmatic control
-        // This runs after TabManager is created via @StateObject
+        // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
-        if defaults.object(forKey: SocketControlSettings.appStorageKey) == nil,
-           let legacy = defaults.object(forKey: SocketControlSettings.legacyEnabledKey) as? Bool {
-            defaults.set(legacy ? SocketControlMode.full.rawValue : SocketControlMode.off.rawValue,
+        if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
+            let migrated = SocketControlSettings.migrateMode(stored)
+            if migrated.rawValue != stored {
+                defaults.set(migrated.rawValue, forKey: SocketControlSettings.appStorageKey)
+            }
+        } else if let legacy = defaults.object(forKey: SocketControlSettings.legacyEnabledKey) as? Bool {
+            defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
@@ -522,7 +525,7 @@ struct cmuxApp: App {
     }
 
     private var currentSocketMode: SocketControlMode {
-        SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+        SocketControlSettings.migrateMode(socketControlMode)
     }
 
     private var splitRightMenuShortcut: StoredShortcut {
@@ -2250,7 +2253,7 @@ struct SettingsView: View {
     }
 
     private var selectedSocketControlMode: SocketControlMode {
-        SocketControlMode(rawValue: socketControlMode) ?? SocketControlSettings.defaultMode
+        SocketControlSettings.migrateMode(socketControlMode)
     }
 
     private var browserHistorySubtitle: String {
@@ -2341,7 +2344,7 @@ struct SettingsView: View {
                             controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $socketControlMode) {
-                                ForEach(SocketControlMode.allCases) { mode in
+                                ForEach(SocketControlMode.uiCases) { mode in
                                     Text(mode.displayName).tag(mode.rawValue)
                                 }
                             }
@@ -2352,7 +2355,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote("Expose a local Unix socket for programmatic control. This can be a security risk on shared machines.")
+                        SettingsCardNote("Controls access to the local Unix socket for programmatic control. In \"cmux processes only\" mode, only processes spawned inside cmux terminals can connect.")
                         SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
                     }
 
