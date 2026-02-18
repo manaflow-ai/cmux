@@ -183,10 +183,15 @@ final class FileDropOverlayView: NSView {
 
     // MARK: Mouse forwarding – hide self so the event reaches views below.
 
+    private var isForwarding = false
+
     private func forwardEvent(_ event: NSEvent) {
+        guard !isForwarding else { return }
+        isForwarding = true
         isHidden = true
         window?.sendEvent(event)
         isHidden = false
+        isForwarding = false
     }
 
     override func mouseDown(with event: NSEvent) { forwardEvent(event) }
