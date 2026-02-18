@@ -119,7 +119,7 @@ final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
 }
 
-private struct NotificationsAnchorView: NSViewRepresentable {
+struct NotificationsAnchorView: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
     func makeNSView(context: Context) -> NSView {
@@ -134,7 +134,7 @@ private struct NotificationsAnchorView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-private final class AnchorNSView: NSView {
+final class AnchorNSView: NSView {
     var onLayout: (() -> Void)?
 
     override func layout() {
@@ -193,7 +193,7 @@ struct ShortcutHintHorizontalPlanner {
     }
 }
 
-private struct TitlebarControlButton<Content: View>: View {
+struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let action: () -> Void
     @ViewBuilder let content: () -> Content
@@ -221,7 +221,7 @@ private struct TitlebarControlButton<Content: View>: View {
     }
 }
 
-private struct TitlebarControlsView: View {
+struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
@@ -666,7 +666,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
-    func toggleNotificationsPopover(animated: Bool = true) {
+    func toggleNotificationsPopover(animated: Bool = true, externalAnchor: NSView? = nil) {
         if notificationsPopover.isShown {
             notificationsPopover.performClose(nil)
             return
@@ -684,7 +684,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingController.view.layer?.backgroundColor = .clear
         notificationsPopover.contentViewController = hostingController
 
-        guard let window = view.window ?? hostingView.window ?? NSApp.keyWindow,
+        guard let window = externalAnchor?.window ?? view.window ?? hostingView.window ?? NSApp.keyWindow,
               let contentView = window.contentView else {
             return
         }
@@ -692,7 +692,18 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         // Force layout to ensure geometry is current.
         contentView.layoutSubtreeIfNeeded()
 
-        if let anchorView = viewModel.notificationsAnchorView, anchorView.window != nil {
+        // Use external anchor (e.g. fullscreen sidebar controls) if provided.
+        if let externalAnchor, externalAnchor.window != nil {
+            externalAnchor.superview?.layoutSubtreeIfNeeded()
+            let anchorRect = externalAnchor.convert(externalAnchor.bounds, to: contentView)
+            if !anchorRect.isEmpty {
+                notificationsPopover.animates = animated
+                notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
+                return
+            }
+        }
+
+        if let anchorView = viewModel.notificationsAnchorView, anchorView.window != nil, !isHidden {
             anchorView.superview?.layoutSubtreeIfNeeded()
             let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
             if !anchorRect.isEmpty {
@@ -1034,9 +1045,20 @@ final class UpdateTitlebarAccessoryController {
         return controllers.first
     }
 
-    func toggleNotificationsPopover(animated: Bool = true) {
+    func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         let controllers = controlsControllers.allObjects
         guard !controllers.isEmpty else { return }
+
+        // If an external anchor is provided (e.g. fullscreen sidebar controls),
+        // use it for popover positioning instead of the hidden titlebar accessory.
+        if let anchorView, anchorView.window != nil {
+            let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
+            for controller in controllers where controller !== target {
+                controller.dismissNotificationsPopover()
+            }
+            target?.toggleNotificationsPopover(animated: animated, externalAnchor: anchorView)
+            return
+        }
 
         let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
         for controller in controllers {
