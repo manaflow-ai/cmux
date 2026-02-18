@@ -18,6 +18,19 @@ struct WorkspaceContentView: View {
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isTabActive }()
 
+        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
+        // Finder file drops to the correct terminal panel.
+        let _ = {
+            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
+                guard let workspace else { return false }
+                // Find the focused panel in this pane and drop the files into it.
+                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
+                      let panelId = workspace.panelIdFromSurfaceId(tabId),
+                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+                return panel.hostedView.handleDroppedURLs(urls)
+            }
+        }()
+
         BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)

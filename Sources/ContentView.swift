@@ -158,6 +158,121 @@ final class SidebarState: ObservableObject {
     }
 }
 
+// MARK: - File Drop Overlay
+
+/// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
+/// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
+/// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
+/// embedded terminal views. This overlay sits above the entire content view hierarchy and
+/// intercepts file drags, forwarding drops to the GhosttyNSView under the cursor.
+///
+/// Mouse events are forwarded to the views below via a hide-send-unhide pattern so clicks,
+/// scrolls, and other interactions pass through normally.
+final class FileDropOverlayView: NSView {
+    /// Fallback handler when no terminal is found under the drop point.
+    var onDrop: (([URL]) -> Bool)?
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    // MARK: Mouse forwarding – hide self so the event reaches views below.
+
+    private func forwardEvent(_ event: NSEvent) {
+        isHidden = true
+        window?.sendEvent(event)
+        isHidden = false
+    }
+
+    override func mouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func mouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func mouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
+
+    // MARK: NSDraggingDestination – only accept drops over terminal views.
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        return dragOperationForSender(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        return dragOperationForSender(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
+        return terminal.performDragOperation(sender)
+    }
+
+    private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let types = sender.draggingPasteboard.types,
+              types.contains(where: { $0 == .fileURL || $0 == .URL || $0 == .string }),
+              terminalUnderPoint(sender.draggingLocation) != nil else {
+            return []
+        }
+        return .copy
+    }
+
+    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
+    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
+        guard let window, let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return nil }
+        isHidden = true
+        // hitTest expects the point in the receiver's superview's coordinate system.
+        // Converting to contentView's own coords would flip y (NSHostingView is flipped)
+        // causing top/bottom split targeting to be inverted.
+        let point = themeFrame.convert(windowPoint, from: nil)
+        let hitView = contentView.hitTest(point)
+        isHidden = false
+
+        var current: NSView? = hitView
+        while let view = current {
+            if let terminal = view as? GhosttyNSView { return terminal }
+            current = view.superview
+        }
+        return nil
+    }
+}
+
+var fileDropOverlayKey: UInt8 = 0
+
+/// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
+func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
+    guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
+          let contentView = window.contentView,
+          let themeFrame = contentView.superview else { return }
+
+    let overlay = FileDropOverlayView(frame: contentView.frame)
+    overlay.translatesAutoresizingMaskIntoConstraints = false
+    overlay.onDrop = { [weak tabManager] urls in
+        MainActor.assumeIsolated {
+            guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
+            return terminal.hostedView.handleDroppedURLs(urls)
+        }
+    }
+
+    themeFrame.addSubview(overlay, positioned: .above, relativeTo: contentView)
+    NSLayoutConstraint.activate([
+        overlay.topAnchor.constraint(equalTo: contentView.topAnchor),
+        overlay.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        overlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        overlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+    ])
+
+    objc_setAssociatedObject(window, &fileDropOverlayKey, overlay, .OBJC_ASSOCIATION_RETAIN)
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -498,6 +613,7 @@ struct ContentView: View {
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState
             )
+            installFileDropOverlay(on: window, tabManager: tabManager)
         })
     }
 
