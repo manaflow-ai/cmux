@@ -1,15 +1,15 @@
 # Release Local
 
-Build, sign, notarize, and upload a release locally (no GitHub Actions). Requires direnv to be loaded with Apple signing secrets from `~/.secrets/cmux.env`.
+Build, sign, notarize, and upload a release locally (no GitHub Actions). Requires direnv to be loaded with Apple signing secrets from `~/.secrets/cmuxterm.env`.
 
 ## Pre-flight Checks
 
 Before starting, verify all required tools and secrets are available. Run these checks and **stop immediately** if any fail:
 
 ```bash
-# Required env vars (loaded via direnv from ~/.secrets/cmux.env)
+# Required env vars (loaded via direnv from ~/.secrets/cmuxterm.env)
 for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID SPARKLE_PRIVATE_KEY; do
-  if [ -z "${!var:-}" ]; then echo "MISSING: $var — run 'direnv allow' or check ~/.secrets/cmux.env"; exit 1; fi
+  if [ -z "${!var:-}" ]; then echo "MISSING: $var — run 'direnv allow' or check ~/.secrets/cmuxterm.env"; exit 1; fi
 done
 
 # Required tools
