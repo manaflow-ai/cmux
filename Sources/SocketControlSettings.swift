@@ -44,6 +44,7 @@ struct SocketControlSettings {
         switch raw {
         case "off": return .off
         case "cmuxOnly": return .cmuxOnly
+        case "allowAll": return .allowAll
         // Legacy values:
         case "notifications", "full": return .cmuxOnly
         default: return defaultMode
