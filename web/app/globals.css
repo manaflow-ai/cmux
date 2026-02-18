@@ -6,6 +6,8 @@
   --muted: #737373;
   --border: #e5e5e5;
   --code-bg: #f5f5f5;
+  --divider: #d4d4d4;
+  --surface-focused: #3b82f6;
 }
 
 .dark {
@@ -14,6 +16,8 @@
   --muted: #a3a3a3;
   --border: #262626;
   --code-bg: #171717;
+  --divider: #404040;
+  --surface-focused: #3b82f6;
 }
 
 @theme inline {
@@ -22,6 +26,8 @@
   --color-muted: var(--muted);
   --color-border: var(--border);
   --color-code-bg: var(--code-bg);
+  --color-divider: var(--divider);
+  --color-surface-focused: var(--surface-focused);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

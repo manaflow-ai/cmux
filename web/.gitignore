@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ghostty WASM (copied by postinstall)
+/public/ghostty-vt.wasm
