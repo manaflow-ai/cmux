@@ -20,6 +20,15 @@
 <table>
 <tr>
 <td width="40%" valign="middle">
+<h3>Vertical + horizontal tabs</h3>
+Sidebar shows git branch, working directory, listening ports, and latest notification text. Split horizontally and vertically.
+</td>
+<td width="60%">
+<img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
 <h3>Notification rings</h3>
 Panes get a blue ring and tabs light up when AI agents need your attention
 </td>
@@ -43,15 +52,6 @@ Split a browser alongside your terminal with a scriptable API ported from <a hre
 </td>
 <td width="60%">
 <img src="./docs/assets/built-in-browser.png" alt="Built-in browser" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>Vertical + horizontal tabs</h3>
-Sidebar shows git branch, working directory, listening ports, and latest notification text. Split horizontally and vertically.
-</td>
-<td width="60%">
-<img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
 </td>
 </tr>
 </table>
