@@ -271,6 +271,9 @@ _cmux_precmd() {
             # If a stale probe is still running but the cwd changed (or we just ran
             # a git command), restart immediately so branch state isn't delayed
             # until the next user command/prompt.
+            # Note: this repeats the cwd check above on purpose. The first check
+            # decides whether we should refresh at all; this one decides whether
+            # an in-flight older probe can be reused vs. replaced.
             if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]] || (( _CMUX_GIT_FORCE )); then
                 kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
                 _CMUX_GIT_JOB_PID=""
