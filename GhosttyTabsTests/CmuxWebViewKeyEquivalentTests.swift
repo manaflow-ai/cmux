@@ -1787,3 +1787,57 @@ final class WindowTerminalHostViewTests: XCTestCase {
         XCTAssertNil(host.hitTest(NSPoint(x: 150, y: 100)))
     }
 }
+
+@MainActor
+final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    func testRegistryPrunesPortalWhenWindowCloses() {
+        let baseline = TerminalWindowPortalRegistry.debugPortalCount()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        _ = TerminalWindowPortalRegistry.viewAtWindowPoint(NSPoint(x: 1, y: 1), in: window)
+        XCTAssertEqual(TerminalWindowPortalRegistry.debugPortalCount(), baseline + 1)
+
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        XCTAssertEqual(TerminalWindowPortalRegistry.debugPortalCount(), baseline)
+    }
+
+    func testPruneDeadEntriesDetachesAnchorlessHostedView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hosted1 = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+        )
+
+        var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
+        contentView.addSubview(anchor1!)
+        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: true)
+
+        anchor1?.removeFromSuperview()
+        anchor1 = nil
+
+        let hosted2 = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+        )
+        let anchor2 = NSView(frame: NSRect(x: 180, y: 20, width: 120, height: 80))
+        contentView.addSubview(anchor2)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
+
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
+        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+    }
+}
