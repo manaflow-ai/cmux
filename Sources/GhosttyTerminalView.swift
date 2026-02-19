@@ -2657,6 +2657,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let inactiveOverlayView: GhosttyFlashOverlayView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
@@ -2739,6 +2740,7 @@ final class GhosttySurfaceScrollView: NSView {
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
+        inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
@@ -2766,6 +2768,10 @@ final class GhosttySurfaceScrollView: NSView {
                 .cgColor
         addSubview(backgroundView)
         addSubview(scrollView)
+        inactiveOverlayView.wantsLayer = true
+        inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        inactiveOverlayView.isHidden = true
+        addSubview(inactiveOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -2878,6 +2884,7 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.size = targetSize
         surfaceView.pushTargetSurfaceSize(targetSize)
         documentView.frame.size.width = scrollView.bounds.width
+        inactiveOverlayView.frame = bounds
         flashOverlayView.frame = bounds
         updateFlashPath()
         synchronizeScrollView()
@@ -2924,6 +2931,15 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.backgroundColor = color.cgColor
+        CATransaction.commit()
+    }
+
+    func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {
+        let clampedOpacity = max(0, min(1, opacity))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
+        inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
         CATransaction.commit()
     }
 
@@ -3009,6 +3025,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugRegisteredDropTypes() -> [String] {
         surfaceView.debugRegisteredDropTypes()
+    }
+
+    func debugInactiveOverlayState() -> (isHidden: Bool, alpha: CGFloat) {
+        (
+            inactiveOverlayView.isHidden,
+            inactiveOverlayView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        )
     }
 
 #endif
@@ -3599,6 +3622,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
+    var showsInactiveOverlay: Bool = false
+    var inactiveOverlayColor: NSColor = .clear
+    var inactiveOverlayOpacity: Double = 0
     var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
@@ -3663,6 +3689,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.attachSurface(terminalSurface)
         hostedView.setVisibleInUI(isVisibleInUI)
         hostedView.setActive(isActive)
+        hostedView.setInactiveOverlay(
+            color: inactiveOverlayColor,
+            opacity: CGFloat(inactiveOverlayOpacity),
+            visible: showsInactiveOverlay
+        )
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
 
@@ -3716,6 +3747,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         coordinator.hostedView?.setVisibleInUI(false)
         coordinator.hostedView?.setActive(false)
+        coordinator.hostedView?.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }
