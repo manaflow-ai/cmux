@@ -2,6 +2,16 @@
 
 All notable changes to cmux are documented here.
 
+## [0.52.0] - 2026-02-18
+
+### Changed
+- Faster workspace switching with reduced rendering churn
+
+### Fixed
+- Fix Finder file drop not reaching portal-hosted terminals
+- Fix unfocused pane dimming not showing for portal-hosted terminals
+- Fix terminal hit-testing and visual glitches during workspace teardown
+
 ## [0.51.0] - 2026-02-18
 
 ### Fixed
