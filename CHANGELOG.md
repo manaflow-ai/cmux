@@ -2,6 +2,28 @@
 
 All notable changes to cmux are documented here.
 
+## [0.49.0] - 2026-02-18
+
+### Fixed
+- Fix crash (stack overflow) when clicking after a Finder file drag
+- Fix titlebar folder icon briefly enlarging on workspace switch
+
+## [0.48.0] - 2026-02-18
+
+### Fixed
+- Fix right-click context menu lag in notarized builds by adding missing hardened runtime entitlements
+- Fix claude shim conflicting with `--resume`, `--continue`, and `--session-id` flags
+
+## [0.47.0] - 2026-02-18
+
+### Fixed
+- Fix sidebar tab drag-and-drop reordering not working
+
+## [0.46.0] - 2026-02-18
+
+### Fixed
+- Fix broken mouse click forwarding in terminal views
+
 ## [0.45.0] - 2026-02-18
 
 ### Changed
