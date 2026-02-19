@@ -176,12 +176,26 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    // MARK: Mouse forwarding – hide self so the event reaches views below.
+    // MARK: Hit-testing — only participate when the system drag pasteboard contains file
+    // URLs (i.e. a Finder file drag is in progress). For everything else — mouse events,
+    // sidebar tab reorder, bonsplit tab drags — return nil so events route to the content
+    // view below and SwiftUI / bonsplit drag-and-drop works normally.
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let pb = NSPasteboard(name: .drag)
+        if let types = pb.types, types.contains(.fileURL) {
+            return super.hitTest(point)
+        }
+        return nil
+    }
+
+    // MARK: Mouse forwarding — safety net for the rare case where stale drag pasteboard
+    // data causes hitTest to return self when no drag is actually active.
 
     private func forwardEvent(_ event: NSEvent) {
         isHidden = true
@@ -200,7 +214,7 @@ final class FileDropOverlayView: NSView {
     override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
     override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
 
-    // MARK: NSDraggingDestination – only accept drops over terminal views.
+    // MARK: NSDraggingDestination – only accept file drops over terminal views.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         return dragOperationForSender(sender)
@@ -217,7 +231,7 @@ final class FileDropOverlayView: NSView {
 
     private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let types = sender.draggingPasteboard.types,
-              types.contains(where: { $0 == .fileURL || $0 == .URL || $0 == .string }),
+              types.contains(.fileURL),
               terminalUnderPoint(sender.draggingLocation) != nil else {
             return []
         }
@@ -229,9 +243,6 @@ final class FileDropOverlayView: NSView {
         guard let window, let contentView = window.contentView,
               let themeFrame = contentView.superview else { return nil }
         isHidden = true
-        // hitTest expects the point in the receiver's superview's coordinate system.
-        // Converting to contentView's own coords would flip y (NSHostingView is flipped)
-        // causing top/bottom split targeting to be inverted.
         let point = themeFrame.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
         isHidden = false
@@ -1314,6 +1325,9 @@ private struct TabItemView: View {
             }
         }
         .onDrag {
+            #if DEBUG
+            dlog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
+            #endif
             draggedTabId = tab.id
             dropIndicator = nil
             return SidebarTabDragPayload.provider(for: tab.id)
@@ -2007,11 +2021,17 @@ private final class SidebarDragAutoScrollController: ObservableObject {
 }
 
 private enum SidebarTabDragPayload {
-    static let typeIdentifier = UTType.plainText.identifier
+    static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     private static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
-        NSItemProvider(object: "\(prefix)\(tabId.uuidString)" as NSString)
+        let provider = NSItemProvider()
+        let payload = "\(prefix)\(tabId.uuidString)"
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
+            completion(payload.data(using: .utf8), nil)
+            return nil
+        }
+        return provider
     }
 }
 
@@ -2026,10 +2046,18 @@ private struct SidebarTabDropDelegate: DropDelegate {
     @Binding var dropIndicator: SidebarDropIndicator?
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]) && draggedTabId != nil
+        let hasType = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+        let hasDrag = draggedTabId != nil
+        #if DEBUG
+        dlog("sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") hasType=\(hasType) hasDrag=\(hasDrag)")
+        #endif
+        return hasType && hasDrag
     }
 
     func dropEntered(info: DropInfo) {
+        #if DEBUG
+        dlog("sidebar.dropEntered target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
+        #endif
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
     }
