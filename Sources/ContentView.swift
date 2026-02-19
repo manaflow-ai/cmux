@@ -166,7 +166,7 @@ final class SidebarState: ObservableObject {
 /// embedded terminal views. This overlay sits above the entire content view hierarchy and
 /// intercepts file drags, forwarding drops to the GhosttyNSView under the cursor.
 ///
-/// Mouse events are forwarded to the view below the overlay via hit-testing so clicks,
+/// Mouse events are forwarded to the views below via a hide-send-unhide pattern so clicks,
 /// scrolls, and other interactions pass through normally.
 final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
@@ -181,26 +181,24 @@ final class FileDropOverlayView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    // MARK: Mouse forwarding – resolve the view under the overlay and dispatch directly.
-    //
-    // Using window.sendEvent(_:) here can re-enter this overlay for the same event and recurse
-    // until stack exhaustion. We instead hit-test under the overlay and call the target view.
+    // MARK: Mouse forwarding – hide self so the event reaches views below.
 
-    private func forwardEvent(_ event: NSEvent, dispatch: (NSView, NSEvent) -> Void) {
-        guard let target = viewUnderOverlay(at: event.locationInWindow) else { return }
-        dispatch(target, event)
+    private func forwardEvent(_ event: NSEvent) {
+        isHidden = true
+        window?.sendEvent(event)
+        isHidden = false
     }
 
-    override func mouseDown(with event: NSEvent) { forwardEvent(event) { $0.mouseDown(with: $1) } }
-    override func mouseUp(with event: NSEvent) { forwardEvent(event) { $0.mouseUp(with: $1) } }
-    override func mouseDragged(with event: NSEvent) { forwardEvent(event) { $0.mouseDragged(with: $1) } }
-    override func rightMouseDown(with event: NSEvent) { forwardEvent(event) { $0.rightMouseDown(with: $1) } }
-    override func rightMouseUp(with event: NSEvent) { forwardEvent(event) { $0.rightMouseUp(with: $1) } }
-    override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) { $0.rightMouseDragged(with: $1) } }
-    override func otherMouseDown(with event: NSEvent) { forwardEvent(event) { $0.otherMouseDown(with: $1) } }
-    override func otherMouseUp(with event: NSEvent) { forwardEvent(event) { $0.otherMouseUp(with: $1) } }
-    override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) { $0.otherMouseDragged(with: $1) } }
-    override func scrollWheel(with event: NSEvent) { forwardEvent(event) { $0.scrollWheel(with: $1) } }
+    override func mouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func mouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func mouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
 
     // MARK: NSDraggingDestination – only accept drops over terminal views.
 
@@ -226,8 +224,8 @@ final class FileDropOverlayView: NSView {
         return .copy
     }
 
-    /// Temporarily hides self and hit-tests content to find the view under the cursor.
-    private func viewUnderOverlay(at windowPoint: NSPoint) -> NSView? {
+    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
+    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
         guard let window, let contentView = window.contentView,
               let themeFrame = contentView.superview else { return nil }
         isHidden = true
@@ -237,12 +235,6 @@ final class FileDropOverlayView: NSView {
         let point = themeFrame.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
         isHidden = false
-        return hitView
-    }
-
-    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
-    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
-        guard let hitView = viewUnderOverlay(at: windowPoint) else { return nil }
 
         var current: NSView? = hitView
         while let view = current {
