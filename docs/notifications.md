@@ -2,6 +2,11 @@
 
 cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
 
+## Notification panel
+
+- `⌘I` opens the notification panel
+- `⌘⇧U` jumps to the most recent unread notification
+
 ## Quick Start
 
 ```bash

@@ -128,8 +128,10 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
 
       <h3>1. Create the hook script</h3>
       <CodeBlock title="~/.claude/hooks/cmux-notify.sh" lang="bash">{`#!/bin/bash
+SOCKET_PATH="\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
+
 # Skip if not in cmux
-[ -S /tmp/cmux.sock ] || exit 0
+[ -S "$SOCKET_PATH" ] || exit 0
 
 EVENT=$(cat)
 EVENT_TYPE=$(echo "$EVENT" | jq -r '.event // "unknown"')
