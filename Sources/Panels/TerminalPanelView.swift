@@ -31,14 +31,6 @@ struct TerminalPanelView: View {
             .id(panel.id)
             .background(Color.clear)
 
-            // Unfocused overlay
-            if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
-                Rectangle()
-                    .fill(appearance.unfocusedOverlayColor)
-                    .opacity(appearance.unfocusedOverlayOpacity)
-                    .allowsHitTesting(false)
-            }
-
             // Unread notification indicator
             if notificationStore.hasUnreadNotification(forTabId: panel.workspaceId, surfaceId: panel.id) {
                 Rectangle()
@@ -66,14 +58,12 @@ struct TerminalPanelView: View {
 /// Shared appearance settings for panels
 struct PanelAppearance {
     let dividerColor: Color
-    let unfocusedOverlayColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
         PanelAppearance(
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
-            unfocusedOverlayColor: Color(nsColor: config.unfocusedSplitOverlayFill),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
         )
