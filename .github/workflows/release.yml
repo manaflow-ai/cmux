@@ -49,7 +49,7 @@ jobs:
       - name: Build GhosttyKit.xcframework
         run: |
           cd ghostty
-          zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast
+          zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast
           cd ..
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
