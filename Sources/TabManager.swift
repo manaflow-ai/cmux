@@ -221,6 +221,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 @MainActor
 class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
+    @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -232,12 +233,34 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+#if DEBUG
+            let switchId = debugWorkspaceSwitchId
+            let switchDtMs = debugWorkspaceSwitchStartTime > 0
+                ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
+                : 0
+            dlog(
+                "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
+                "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
+            )
+#endif
+            selectionSideEffectsGeneration &+= 1
+            let generation = selectionSideEffectsGeneration
             DispatchQueue.main.async { [weak self] in
-                self?.focusSelectedTabPanel(previousTabId: previousTabId)
-                self?.updateWindowTitleForSelectedTab()
-                if let selectedTabId = self?.selectedTabId {
-                    self?.markFocusedPanelReadIfActive(tabId: selectedTabId)
+                guard let self, self.selectionSideEffectsGeneration == generation else { return }
+                self.focusSelectedTabPanel(previousTabId: previousTabId)
+                self.updateWindowTitleForSelectedTab()
+                if let selectedTabId = self.selectedTabId {
+                    self.markFocusedPanelReadIfActive(tabId: selectedTabId)
                 }
+#if DEBUG
+                let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                    : 0
+                dlog(
+                    "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(Self.debugMsText(dtMs)) " +
+                    "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
+                )
+#endif
             }
         }
     }
@@ -250,6 +273,15 @@ class TabManager: ObservableObject {
     private var historyIndex: Int = -1
     private var isNavigatingHistory = false
     private let maxHistorySize = 50
+    private var selectionSideEffectsGeneration: UInt64 = 0
+    private var workspaceCycleGeneration: UInt64 = 0
+    private var workspaceCycleCooldownTask: Task<Void, Never>?
+    private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
+#if DEBUG
+    private var debugWorkspaceSwitchCounter: UInt64 = 0
+    private var debugWorkspaceSwitchId: UInt64 = 0
+    private var debugWorkspaceSwitchStartTime: CFTimeInterval = 0
+#endif
 
 #if DEBUG
     private var didSetupSplitCloseRightUITest = false
@@ -289,6 +321,10 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
+    }
+
+    deinit {
+        workspaceCycleCooldownTask?.cancel()
     }
 
     var selectedWorkspace: Workspace? {
@@ -814,12 +850,15 @@ class TabManager: ObservableObject {
         guard let panelId = tab.focusedPanelId,
               let panel = tab.panels[panelId] else { return }
 
-        // Unfocus previous tab's panel
+        // Defer unfocusing the previous workspace's panel until ContentView confirms handoff
+        // completion (new workspace has focus or timeout fallback), to avoid a visible freeze gap.
         if let previousTabId,
            let previousTab = tabs.first(where: { $0.id == previousTabId }),
            let previousPanelId = previousTab.focusedPanelId,
-           let previousPanel = previousTab.panels[previousPanelId] {
-            previousPanel.unfocus()
+           previousTab.panels[previousPanelId] != nil {
+            replacePendingWorkspaceUnfocusTarget(
+                with: (tabId: previousTabId, panelId: previousPanelId)
+            )
         }
 
         panel.focus()
@@ -828,6 +867,94 @@ class TabManager: ObservableObject {
         if let terminalPanel = panel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: selectedTabId, surfaceId: panelId)
         }
+    }
+
+    func completePendingWorkspaceUnfocus(reason: String) {
+        guard let pending = pendingWorkspaceUnfocusTarget else { return }
+        // If this tab became selected again before handoff completion, drop the stale
+        // pending entry so it cannot be flushed later and deactivate the selected workspace.
+        guard Self.shouldUnfocusPendingWorkspace(
+            pendingTabId: pending.tabId,
+            selectedTabId: selectedTabId
+        ) else {
+            pendingWorkspaceUnfocusTarget = nil
+#if DEBUG
+            dlog(
+                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=selected_again"
+            )
+#endif
+            return
+        }
+        pendingWorkspaceUnfocusTarget = nil
+        unfocusWorkspacePanel(tabId: pending.tabId, panelId: pending.panelId)
+#if DEBUG
+        if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
+                "tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
+            )
+        } else {
+            dlog(
+                "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(pending.tabId)) " +
+                "panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
+            )
+        }
+#endif
+    }
+
+    private func replacePendingWorkspaceUnfocusTarget(with next: (tabId: UUID, panelId: UUID)) {
+        if let current = pendingWorkspaceUnfocusTarget,
+           current.tabId == next.tabId,
+           current.panelId == next.panelId {
+            return
+        }
+
+        if let current = pendingWorkspaceUnfocusTarget {
+            // Never unfocus the currently selected workspace when replacing stale pending state.
+            if Self.shouldUnfocusPendingWorkspace(
+                pendingTabId: current.tabId,
+                selectedTabId: selectedTabId
+            ) {
+                unfocusWorkspacePanel(tabId: current.tabId, panelId: current.panelId)
+#if DEBUG
+                dlog(
+                    "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced"
+                )
+#endif
+            } else {
+#if DEBUG
+                dlog(
+                    "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced_selected"
+                )
+#endif
+            }
+        }
+
+        pendingWorkspaceUnfocusTarget = next
+#if DEBUG
+        if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
+                "tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
+            )
+        } else {
+            dlog(
+                "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
+            )
+        }
+#endif
+    }
+
+    private func unfocusWorkspacePanel(tabId: UUID, panelId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              let panel = tab.panels[panelId] else { return }
+        panel.unfocus()
+    }
+
+    static func shouldUnfocusPendingWorkspace(pendingTabId: UUID, selectedTabId: UUID?) -> Bool {
+        selectedTabId != pendingTabId
     }
 
     private func markFocusedPanelReadIfActive(tabId: UUID) {
@@ -959,6 +1086,17 @@ class TabManager: ObservableObject {
         guard let currentId = selectedTabId,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let nextIndex = (currentIndex + 1) % tabs.count
+#if DEBUG
+        let nextId = tabs[nextIndex].id
+        debugWorkspaceSwitchCounter &+= 1
+        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
+        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
+        dlog(
+            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=next from=\(Self.debugShortWorkspaceId(currentId)) " +
+            "to=\(Self.debugShortWorkspaceId(nextId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        )
+#endif
+        activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[nextIndex].id
     }
 
@@ -966,8 +1104,96 @@ class TabManager: ObservableObject {
         guard let currentId = selectedTabId,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
+#if DEBUG
+        let prevId = tabs[prevIndex].id
+        debugWorkspaceSwitchCounter &+= 1
+        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
+        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
+        dlog(
+            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=prev from=\(Self.debugShortWorkspaceId(currentId)) " +
+            "to=\(Self.debugShortWorkspaceId(prevId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        )
+#endif
+        activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[prevIndex].id
     }
+
+    private func activateWorkspaceCycleHotWindow() {
+        workspaceCycleGeneration &+= 1
+        let generation = workspaceCycleGeneration
+#if DEBUG
+        let switchId = debugWorkspaceSwitchId
+        let switchDtMs = debugWorkspaceSwitchStartTime > 0
+            ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
+            : 0
+#endif
+        if !isWorkspaceCycleHot {
+            isWorkspaceCycleHot = true
+#if DEBUG
+            dlog(
+                "ws.hot.on id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
+            )
+#endif
+        }
+
+        let hadPendingCooldown = workspaceCycleCooldownTask != nil
+        workspaceCycleCooldownTask?.cancel()
+#if DEBUG
+        if hadPendingCooldown {
+            dlog(
+                "ws.hot.cancelPrev id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
+            )
+        }
+#endif
+        workspaceCycleCooldownTask = Task { [weak self, generation] in
+            do {
+                try await Task.sleep(nanoseconds: 220_000_000)
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    guard let self else { return }
+                    let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                        ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                        : 0
+                    dlog(
+                        "ws.hot.cooldownCanceled id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
+                    )
+                }
+#endif
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                guard self.workspaceCycleGeneration == generation else { return }
+#if DEBUG
+                let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                    : 0
+                dlog(
+                    "ws.hot.off id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
+                )
+#endif
+                self.isWorkspaceCycleHot = false
+                self.workspaceCycleCooldownTask = nil
+            }
+        }
+    }
+
+#if DEBUG
+    func debugCurrentWorkspaceSwitchSnapshot() -> (id: UInt64, startedAt: CFTimeInterval)? {
+        guard debugWorkspaceSwitchId > 0, debugWorkspaceSwitchStartTime > 0 else { return nil }
+        return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
+    }
+
+    private static func debugShortWorkspaceId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugMsText(_ ms: Double) -> String {
+        String(format: "%.2fms", ms)
+    }
+#endif
 
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }
@@ -2222,6 +2448,7 @@ extension Notification.Name {
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
+    static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")

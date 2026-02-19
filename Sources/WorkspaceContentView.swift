@@ -5,7 +5,9 @@ import Bonsplit
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
-    let isTabActive: Bool
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let workspacePortalPriority: Int
     @State private var config = GhosttyConfig.load()
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
@@ -16,7 +18,7 @@ struct WorkspaceContentView: View {
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isTabActive }()
+        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
 
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
@@ -35,14 +37,15 @@ struct WorkspaceContentView: View {
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isTabActive && workspace.focusedPanelId == panel.id
+                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-                let isVisibleInUI = isTabActive && isSelectedInPane
+                let isVisibleInUI = isWorkspaceVisible && isSelectedInPane
                 PanelContentView(
                     panel: panel,
                     isFocused: isFocused,
                     isSelectedInPane: isSelectedInPane,
                     isVisibleInUI: isVisibleInUI,
+                    portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
                     notificationStore: notificationStore,
@@ -50,12 +53,12 @@ struct WorkspaceContentView: View {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
                         // indicator and where keyboard input/flash-focus actually lands.
-                        guard isTabActive else { return }
+                        guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
                         workspace.focusPanel(panel.id)
                     },
                     onRequestPanelFocus: {
-                        guard isTabActive else { return }
+                        guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
                         workspace.focusPanel(panel.id)
                     },

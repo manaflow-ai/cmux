@@ -1,11 +1,13 @@
 import SwiftUI
 import Foundation
+import AppKit
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
     let notificationStore: TerminalNotificationStore
@@ -18,6 +20,10 @@ struct TerminalPanelView: View {
                 terminalSurface: panel.surface,
                 isActive: isFocused,
                 isVisibleInUI: isVisibleInUI,
+                portalZPriority: portalPriority,
+                showsInactiveOverlay: isSplit && !isFocused,
+                inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in onFocus() },
                 onTriggerFlash: onTriggerFlash
@@ -26,14 +32,6 @@ struct TerminalPanelView: View {
             // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
             .id(panel.id)
             .background(Color.clear)
-
-            // Unfocused overlay
-            if isSplit && !isFocused && appearance.unfocusedOverlayOpacity > 0 {
-                Rectangle()
-                    .fill(appearance.unfocusedOverlayColor)
-                    .opacity(appearance.unfocusedOverlayOpacity)
-                    .allowsHitTesting(false)
-            }
 
             // Unread notification indicator
             if notificationStore.hasUnreadNotification(forTabId: panel.workspaceId, surfaceId: panel.id) {
@@ -62,13 +60,13 @@ struct TerminalPanelView: View {
 /// Shared appearance settings for panels
 struct PanelAppearance {
     let dividerColor: Color
-    let unfocusedOverlayColor: Color
+    let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
         PanelAppearance(
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
-            unfocusedOverlayColor: Color(nsColor: config.unfocusedSplitOverlayFill),
+            unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
         )
     }

@@ -96,7 +96,7 @@ tail -f /tmp/cmux-debug.log
 Run UI tests on the UTM macOS VM (never on the host machine). Always run e2e UI tests via `ssh cmux-vm`:
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test'
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test'
 ```
 
 ## Basic tests

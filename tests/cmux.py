@@ -997,7 +997,8 @@ class cmux:
     def surface_health(self, workspace: Union[str, int, None] = None) -> List[dict]:
         """
         Check view health of all surfaces in a workspace.
-        Returns list of dicts with keys: index, id, type, in_window.
+        Returns list of dicts with keys: index, id, type, in_window, plus any
+        extra key=value fields returned by the daemon.
         """
         arg = "" if workspace is None else str(workspace)
         response = self._send_command(f"surface_health {arg}".rstrip())
@@ -1013,14 +1014,36 @@ class cmux:
                 continue
             index = int(parts[0].rstrip(":"))
             surface_id = parts[1]
-            panel_type = parts[2].split("=", 1)[1] if "=" in parts[2] else "unknown"
-            in_window = parts[3].split("=", 1)[1] == "true" if "=" in parts[3] else False
-            surfaces.append({
+            kv: dict[str, str] = {}
+            for token in parts[2:]:
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                kv[key] = value
+
+            panel_type = kv.get("type", "unknown")
+            in_window = kv.get("in_window", "false") == "true"
+
+            row: dict = {
                 "index": index,
                 "id": surface_id,
                 "type": panel_type,
                 "in_window": in_window,
-            })
+            }
+
+            for key, value in kv.items():
+                if key in {"type", "in_window"}:
+                    continue
+                if value == "true":
+                    row[key] = True
+                elif value == "false":
+                    row[key] = False
+                elif value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
+                    row[key] = int(value)
+                else:
+                    row[key] = value
+
+            surfaces.append(row)
         return surfaces
 
 
