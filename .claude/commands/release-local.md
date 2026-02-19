@@ -1,25 +1,32 @@
 # Release Local
 
-Build, sign, notarize, and upload a release locally (no GitHub Actions). Requires direnv to be loaded with Apple signing secrets from `~/.secrets/cmuxterm.env`.
+Build, sign, notarize, and upload a release locally (no GitHub Actions). Secrets are in `~/.secrets/cmuxterm.env`.
+
+## Secrets
+
+Source secrets directly (do NOT rely on direnv):
+
+```bash
+source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
+```
+
+## Signing Identity
+
+The Manaflow signing identity exists in both login and system keychains. Always use the SHA-1 hash to avoid ambiguity:
+
+```
+SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
+```
+
+Use `$SIGN_HASH` instead of `$APPLE_SIGNING_IDENTITY` for all codesign and create-dmg commands.
 
 ## Pre-flight Checks
 
-Before starting, verify all required tools and secrets are available. Run these checks and **stop immediately** if any fail:
-
 ```bash
-# Required env vars (loaded via direnv from ~/.secrets/cmuxterm.env)
-for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID SPARKLE_PRIVATE_KEY; do
-  if [ -z "${!var:-}" ]; then echo "MISSING: $var — run 'direnv allow' or check ~/.secrets/cmuxterm.env"; exit 1; fi
-done
-
-# Required tools
+source ~/.secrets/cmuxterm.env
 for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
   command -v "$tool" >/dev/null || { echo "MISSING: $tool"; exit 1; }
 done
-
-# Signing identity exists in keychain
-security find-identity -v -p codesigning | grep -q "$APPLE_SIGNING_IDENTITY" || { echo "Signing identity not in keychain"; exit 1; }
-
 echo "All pre-flight checks passed"
 ```
 
@@ -69,11 +76,12 @@ Sign the embedded CLI binary first, then deep-sign the entire app bundle:
 ```bash
 APP_PATH="build/Build/Products/Release/cmux.app"
 ENTITLEMENTS="cmux.entitlements"
+SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
+  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
 fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
+/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 ```
 
@@ -98,8 +106,9 @@ xcrun notarytool log <submission-id> --apple-id "$APPLE_ID" --team-id "$APPLE_TE
 
 ```bash
 APP_PATH="build/Build/Products/Release/cmux.app"
-create-dmg --identity="$APPLE_SIGNING_IDENTITY" "$APP_PATH" ./
-mv ./cmux*.dmg cmux-macos.dmg
+SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
+rm -f cmux-macos.dmg
+create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
 xcrun notarytool submit cmux-macos.dmg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
 xcrun stapler staple cmux-macos.dmg
 xcrun stapler validate cmux-macos.dmg
@@ -107,7 +116,10 @@ xcrun stapler validate cmux-macos.dmg
 
 ### 8. Generate Sparkle appcast
 
+`SPARKLE_PRIVATE_KEY` must be exported (not just sourced):
+
 ```bash
+source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
 ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
 ```
 
@@ -119,10 +131,24 @@ gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
 
 Verify the release: `gh release view "$TAG"`
 
-### 10. Cleanup
+### 10. Cleanup and notify
 
 ```bash
-rm -rf build/
+rm -rf build/ cmux-macos.dmg appcast.xml
+```
+
+## Completion
+
+When the release is fully done (DMG uploaded, release verified), always run:
+
+```bash
+say "cmux release complete"
+```
+
+If the release fails at any point, run:
+
+```bash
+say "cmux release failed"
 ```
 
 ## Important Notes
