@@ -27,15 +27,34 @@ fi
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
+# Pass through subcommands that don't support session/hook flags.
+case "${1:-}" in
+    mcp|config|api-key) exec "$REAL_CLAUDE" "$@" ;;
+esac
+
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
 unset CLAUDECODE
 
-# Generate a fresh session ID for this invocation.
-SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+# Check if the user already specified a session/resume flag.
+# If so, don't inject our own --session-id (it would conflict).
+SKIP_SESSION_ID=false
+for arg in "$@"; do
+    case "$arg" in
+        --resume|--resume=*|--session-id|--session-id=*|--continue|-c)
+            SKIP_SESSION_ID=true
+            break
+            ;;
+    esac
+done
 
 # Build hooks settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
 HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook stop","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook notification","timeout":10}]}]}}'
 
-exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+if [[ "$SKIP_SESSION_ID" == true ]]; then
+    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+else
+    SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+fi
