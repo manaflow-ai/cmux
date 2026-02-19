@@ -3289,6 +3289,7 @@ final class GhosttySurfaceScrollView: NSView {
         let expectedWidthPx: Int
         let expectedHeightPx: Int
         let layerClass: String
+        let layerContentsGravity: String
         let layerContentsKey: String
 
         var isProbablyBlank: Bool {
@@ -3350,6 +3351,7 @@ final class GhosttySurfaceScrollView: NSView {
         // Prefer the presentation layer to better match what the user sees on screen.
         let layer = modelLayer.presentation() ?? modelLayer
         let layerClass = String(describing: type(of: layer))
+        let layerContentsGravity = layer.contentsGravity.rawValue
         let contentsKey = Self.contentsKey(for: layer)
         let presentationScale = max(1.0, layer.contentsScale)
         let expectedWidthPx = Int((layer.bounds.width * presentationScale).rounded(.toNearestOrAwayFromZero))
@@ -3370,6 +3372,7 @@ final class GhosttySurfaceScrollView: NSView {
                 expectedWidthPx: expectedWidthPx,
                 expectedHeightPx: expectedHeightPx,
                 layerClass: layerClass,
+                layerContentsGravity: layerContentsGravity,
                 layerContentsKey: contentsKey
             )
         }
@@ -3395,6 +3398,7 @@ final class GhosttySurfaceScrollView: NSView {
                 expectedWidthPx: expectedWidthPx,
                 expectedHeightPx: expectedHeightPx,
                 layerClass: layerClass,
+                layerContentsGravity: layerContentsGravity,
                 layerContentsKey: contentsKey
             )
         }
@@ -3480,6 +3484,7 @@ final class GhosttySurfaceScrollView: NSView {
             expectedWidthPx: expectedWidthPx,
             expectedHeightPx: expectedHeightPx,
             layerClass: layerClass,
+            layerContentsGravity: layerContentsGravity,
             layerContentsKey: contentsKey
         )
     }
